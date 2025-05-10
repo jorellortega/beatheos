@@ -66,6 +66,9 @@ export default function Header() {
           <div className="flex items-center space-x-4">
             {user ? (
               <>
+                <Button variant="outline" className="text-white hover:text-primary" asChild>
+                  <Link href={getDashboardPath()}>Dashboard</Link>
+                </Button>
                 <Button variant="ghost" size="icon" className="text-white hover:text-primary">
                   <Bell size={20} />
                 </Button>
