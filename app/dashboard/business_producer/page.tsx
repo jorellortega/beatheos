@@ -268,8 +268,7 @@ export default function BusinessProducerDashboard() {
   const { user } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const initialTab = searchParams.get('tab') || "overview"
-  const [activeTab, setActiveTab] = useState(initialTab)
+  const [activeTab, setActiveTab] = useState("overview")
   const [items, setItems] = useState(mockItems)
   const [promoEnabled, setPromoEnabled] = useState(false)
   const { toast } = useToast()
@@ -294,6 +293,11 @@ export default function BusinessProducerDashboard() {
         })
     }
   }, [user, router])
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab) setActiveTab(tab);
+  }, [searchParams]);
 
   const togglePromo = (id: number) => {
     const updatedItems = items.map(item => 
@@ -327,7 +331,7 @@ export default function BusinessProducerDashboard() {
         </div>
       </div>
       
-      <Tabs defaultValue={initialTab} value={activeTab} onValueChange={setActiveTab} className="mb-8">
+      <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="mb-8">
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
