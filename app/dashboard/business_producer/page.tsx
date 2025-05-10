@@ -14,6 +14,7 @@ import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from '@supabase/supabase-js'
+import { Suspense } from "react"
 
 // Mock marketplace items
 const mockItems = [
@@ -264,10 +265,18 @@ function MyBeatsManager({ userId }: { userId: string }) {
   )
 }
 
+function TabManager({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab) setActiveTab(tab);
+  }, [searchParams, setActiveTab]);
+  return null;
+}
+
 export default function BusinessProducerDashboard() {
   const { user } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState("overview")
   const [items, setItems] = useState(mockItems)
   const [promoEnabled, setPromoEnabled] = useState(false)
@@ -293,11 +302,6 @@ export default function BusinessProducerDashboard() {
         })
     }
   }, [user, router])
-
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab) setActiveTab(tab);
-  }, [searchParams]);
 
   const togglePromo = (id: number) => {
     const updatedItems = items.map(item => 
@@ -331,6 +335,9 @@ export default function BusinessProducerDashboard() {
         </div>
       </div>
       
+      <Suspense fallback={null}>
+        <TabManager setActiveTab={setActiveTab} />
+      </Suspense>
       <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="mb-8">
         <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
