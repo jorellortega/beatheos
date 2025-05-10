@@ -46,6 +46,7 @@ export default function BeatsPage() {
       const { data: beatsData, error: beatsError } = await supabase
         .from('beats')
         .select('id, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url')
+        .eq('is_draft', false)
         .order('created_at', { ascending: false })
         .limit(100)
       if (beatsError) {

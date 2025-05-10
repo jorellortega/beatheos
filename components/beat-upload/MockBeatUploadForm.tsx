@@ -18,7 +18,7 @@ import { LicensingOptions } from "./LicensingOptions"
 import { TagInput } from "./TagInput"
 import { useDropzone } from "react-dropzone"
 import { useRouter } from "next/navigation"
-import { Draft, mockDrafts, AudioFile, mockAudioFiles, PairedFile, PlaylistAlbum } from "@/types/draft"
+import { Draft, AudioFile, PairedFile, PlaylistAlbum } from "@/types/draft"
 import { Checkbox } from "@/components/ui/checkbox"
 import { supabase } from "@/lib/supabase"
 
@@ -56,8 +56,8 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [isDraft, setIsDraft] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [drafts, setDrafts] = useState<Draft[]>(mockDrafts)
-  const [audioFiles, setAudioFiles] = useState<AudioFile[]>(mockAudioFiles)
+  const [drafts, setDrafts] = useState<Draft[]>([])
+  const [audioFiles, setAudioFiles] = useState<AudioFile[]>([])
   const [selectedFiles, setSelectedFiles] = useState<PairedFile[]>([])
   const [pairedFiles, setPairedFiles] = useState<PairedFile[]>([])
   const router = useRouter()

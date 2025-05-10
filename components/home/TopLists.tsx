@@ -44,6 +44,7 @@ export function TopLists() {
       const { data: beatsData } = await supabase
         .from('beats')
         .select('id, title, play_count, cover_art_url, producer_id, created_at, mp3_url')
+        .eq('is_draft', false)
         .gte('created_at', new Date(new Date().setDate(new Date().getDate() - new Date().getDay())).toISOString())
         .order('play_count', { ascending: false })
         .limit(10)

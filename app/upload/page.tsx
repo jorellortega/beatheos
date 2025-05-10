@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Upload } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
 
 export default function UploadPage() {
   const { user } = useAuth()
@@ -14,10 +15,67 @@ export default function UploadPage() {
   const [description, setDescription] = useState('')
   const [file, setFile] = useState<File | null>(null)
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    // TODO: Implement beat upload logic
-    console.log('Beat uploaded:', { title, description, file })
+  // Auto-save draft to localStorage
+  useEffect(() => {
+    const draft = { title, description, file: file ? file.name : null };
+    localStorage.setItem('beatDraft', JSON.stringify(draft));
+  }, [title, description, file]);
+
+  // Load draft from localStorage on page load
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('beatDraft');
+    if (savedDraft) {
+      const { title, description, file } = JSON.parse(savedDraft);
+      setTitle(title);
+      setDescription(description);
+      // Optionally, restore the file if you can
+    }
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || !user) return;
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    // Upload file to Supabase Storage
+    const { data: fileData, error: fileError } = await supabase.storage
+      .from('beats')
+      .upload(`${user.id}/${file.name}`, file);
+
+    if (fileError) {
+      console.error('Error uploading file:', fileError);
+      return;
+    }
+
+    // Get the public URL of the uploaded file
+    const { data: { publicUrl } } = supabase.storage
+      .from('beats')
+      .getPublicUrl(`${user.id}/${file.name}`);
+
+    // Save beat details to the beats table
+    const { data: beatData, error: beatError } = await supabase
+      .from('beats')
+      .insert({
+        title,
+        description,
+        mp3_url: publicUrl,
+        producer_id: user.id,
+        play_count: 0,
+        price: 0 // or let the user set a price
+      });
+
+    if (beatError) {
+      console.error('Error saving beat:', beatError);
+      return;
+    }
+
+    // Clear the draft after successful upload
+    localStorage.removeItem('beatDraft');
+    alert('Beat uploaded successfully!');
   }
 
   return (
