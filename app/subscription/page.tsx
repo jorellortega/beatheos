@@ -33,7 +33,13 @@ export default function SubscriptionPage() {
         <p className="text-xl text-gray-400">Select the plan that best fits your creative journey</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="bg-yellow-200 text-yellow-900 px-6 py-4 rounded-lg shadow mb-8 text-xl font-bold">
+          🚧 Under development – Launching May 20, 2025 🚀
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 opacity-50 pointer-events-none">
         {/* Free Artist Plan */}
         <Card className={`cursor-pointer hover:border-primary transition-all ${selectedPlan === 'free_artist' ? 'border-primary' : ''}`} onClick={() => setSelectedPlan('free_artist')}>
           <CardHeader>

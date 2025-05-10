@@ -78,7 +78,7 @@ export function TopLists() {
       const userIds = (topProducersData || []).map((p: any) => p.user_id)
       const { data: producersData } = await supabase
         .from('producers')
-        .select('id, user_id')
+        .select('id, user_id, profile_image_url')
         .in('user_id', userIds)
       setTopProducers(
         (topProducersData || []).map((p: any) => {
@@ -87,7 +87,7 @@ export function TopLists() {
             id: producer?.id,
             name: p.display_name,
             weekly_plays: p.total_plays,
-            image: p.image || '/placeholder.svg',
+            image: producer?.profile_image_url || '/placeholder.svg',
           }
         })
       )

@@ -75,7 +75,7 @@ export default function ProducersPage() {
           <Card key={producer.id} className="bg-card border-primary">
             <CardHeader className="relative pb-0 pt-0 px-0">
               <Image
-                src={producer.image || "/placeholder.svg"}
+                src={producer.profile_image_url || "/placeholder.svg"}
                 alt={producer.display_name}
                 width={300}
                 height={300}

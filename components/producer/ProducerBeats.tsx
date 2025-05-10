@@ -16,9 +16,7 @@ interface Beat {
   isTopBeat: boolean
   price: number
   audioUrl: string
-  producers?: {
-    display_name: string
-  }
+  producers: any
 }
 
 interface ProducerBeatsProps {
@@ -52,7 +50,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
       }))
       setBeats(beats)
       if (onBeatsFetched) onBeatsFetched(beats)
-      }
+    }
     fetchBeats()
   }, [producerId, onBeatsFetched])
 
@@ -74,7 +72,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
     setCurrentBeat({
       id: String(beat.id),
       title: beat.title,
-      artist: beat.producers?.display_name || String(producerId),
+      artist: beat.producers?.display_name || 'Unknown Producer',
       audioUrl: beat.audioUrl
     })
     setIsPlaying(true)

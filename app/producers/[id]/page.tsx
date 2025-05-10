@@ -11,14 +11,17 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { ProducerBeats } from "@/components/producer/ProducerBeats"
 import Header from '@/components/header'
-import { Search, Award, Music, Plus } from 'lucide-react'
+import { Search, Award, Music, Plus, Camera } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
+import { EditProfileDialog } from "@/components/EditProfileDialog"
+import { ProfilePictureUpload } from "@/components/ProfilePictureUpload"
+import { useToast } from "@/components/ui/use-toast"
 
 interface Producer {
   id: string
   user_id: string
   name: string
-  image: string
+  profile_image_url: string
   bio: string
   followers: number
   beatsCount: number
@@ -43,41 +46,46 @@ export default function ProducerProfilePage() {
   const [isOwnProfile, setIsOwnProfile] = useState(false)
   const [beats, setBeats] = useState<any[]>([])
   const totalPlays = beats.reduce((sum, beat) => sum + (beat.plays || 0), 0)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
 
-  useEffect(() => {
-    // Fetch producer data
-    const fetchProducer = async () => {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-      const { data, error } = await supabase
-        .from('producers')
-        .select('*')
-        .eq('id', id)
-        .single()
-      if (data) {
-        setProducer({
-          id: data.id,
-          user_id: data.user_id,
-          name: data.display_name,
-          image: data.image || "/placeholder.svg",
-          bio: data.bio || "",
-          followers: data.followers ?? 0,
-          beatsCount: data.total_beats ?? 0,
-          genre: data.genre || "",
-          topProducerCount: data.top_producer_count ?? 0,
-          topBeatsCount: data.top_beats_count ?? 0,
-          pictures: data.pictures || [],
-        })
-        // Check if this is the user's own profile
-        if (user && user.id === data.user_id) {
-          setIsOwnProfile(true)
-        } else {
-          setIsOwnProfile(false)
+  const fetchProducer = async () => {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { data, error } = await supabase
+      .from('producers')
+      .select('*')
+      .eq('id', id)
+      .single()
+    if (data) {
+      setProducer({
+        id: data.id,
+        user_id: data.user_id,
+        name: data.display_name,
+        profile_image_url: data.profile_image_url || "/placeholder.svg",
+        bio: data.bio || "",
+        followers: data.followers ?? 0,
+        beatsCount: data.total_beats ?? 0,
+        genre: data.genre || "",
+        topProducerCount: data.top_producer_count ?? 0,
+        topBeatsCount: data.top_beats_count ?? 0,
+        pictures: data.pictures || [],
+      })
+      // Check if this is the user's own profile
+      if (user && user.id === data.user_id) {
+        setIsOwnProfile(true)
+      } else {
+        setIsOwnProfile(false)
       }
     }
-    }
+  }
+
+  useEffect(() => {
     fetchProducer()
   }, [id, user])
 
@@ -90,10 +98,24 @@ export default function ProducerProfilePage() {
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div className="flex flex-col md:flex-row items-center md:items-start mb-8">
-          <Avatar className="w-32 h-32 md:w-48 md:h-48 mb-4 md:mb-0 md:mr-8">
-            <AvatarImage src={producer.image} alt={producer.name} />
-            <AvatarFallback>{producer.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-          </Avatar>
+          <div
+            className="relative group w-32 h-32 md:w-48 md:h-48 mb-4 md:mb-0 md:mr-8"
+            style={{ borderRadius: '50%', overflow: 'hidden' }}
+          >
+            <Avatar className="w-full h-full">
+              <AvatarImage src={producer.profile_image_url || "/placeholder.svg"} alt={producer.name} />
+              <AvatarFallback>{producer.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+            </Avatar>
+            {isOwnProfile && (
+              <div
+                className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                onClick={() => setIsUploadDialogOpen(true)}
+                style={{ borderRadius: '50%' }}
+              >
+                <Camera size={36} color="white" />
+              </div>
+            )}
+          </div>
           <div className="text-center md:text-left">
             <h1 className="text-3xl font-bold mb-2">{producer.name}</h1>
             <div className="flex flex-wrap gap-2 mb-4 justify-center md:justify-start">
@@ -125,11 +147,25 @@ export default function ProducerProfilePage() {
                 <span className="font-bold">{producer.genre}</span>
               </div>
             </div>
-            {!isOwnProfile && (
-              <Button className="gradient-button text-black font-medium hover:text-white">Follow</Button>
-            )}
             {isOwnProfile && (
-              <Button className="gradient-button text-black font-medium hover:text-white">Edit Profile</Button>
+              <div className="flex gap-2 justify-center md:justify-start">
+                <Button
+                  className="gradient-button text-black font-medium hover:text-white"
+                  onClick={() => setIsEditDialogOpen(true)}
+                >
+                  Edit Profile
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to delete your profile? This action cannot be undone.')) {
+                      // TODO: Add delete logic here
+                    }
+                  }}
+                >
+                  Delete Profile
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -219,6 +255,23 @@ export default function ProducerProfilePage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {producer && (
+        <>
+          <EditProfileDialog
+            producer={producer}
+            open={isEditDialogOpen}
+            onOpenChange={setIsEditDialogOpen}
+            onProfileUpdated={fetchProducer}
+          />
+          <ProfilePictureUpload
+            producerId={producer.id}
+            open={isUploadDialogOpen}
+            onOpenChange={setIsUploadDialogOpen}
+            onUploadSuccess={fetchProducer}
+          />
+        </>
+      )}
     </>
   )
 }

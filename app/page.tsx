@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button"
 import { TopLists } from "@/components/home/TopLists"
 import Link from "next/link"
+import { Instagram } from 'lucide-react'
 
 export default function Home() {
   return (
@@ -40,6 +41,17 @@ export default function Home() {
         </a>
         , Inc
         <div className="mt-2">&copy; 2025 All rights reserved</div>
+        <div className="mt-4 flex justify-center items-center gap-2">
+          <a
+            href="https://instagram.com/beat.theos"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center text-primary hover:underline gap-1"
+          >
+            <Instagram size={20} />
+            @beat.theos
+          </a>
+        </div>
       </footer>
     </main>
   )
