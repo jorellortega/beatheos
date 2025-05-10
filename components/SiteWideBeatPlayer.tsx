@@ -33,6 +33,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { usePathname } from "next/navigation"
+import { createClient } from '@supabase/supabase-js'
 
 interface Beat {
   id: string
@@ -68,9 +69,12 @@ export function SiteWideBeatPlayer() {
   })
   const [showAuthPrompt, setShowAuthPrompt] = useState(false)
   const [showAuthWindow, setShowAuthWindow] = useState(false)
-  const [savedSessions, setSavedSessions] = useState<{ id: string; name: string; date: string }[]>([])
+  const [savedSessions, setSavedSessions] = useState<{ id: string; name: string; last_modified: string }[]>([])
   const [isPlaylistsModalOpen, setIsPlaylistsModalOpen] = useState(false)
   const [isExpandedViewVisible, setIsExpandedViewVisible] = useState(true) // Added expanded view state
+  const [savingLyrics, setSavingLyrics] = useState(false)
+  const [savingSession, setSavingSession] = useState(false)
+  const [lyricsFromSession, setLyricsFromSession] = useState(false)
 
   const pathname = usePathname()
 
@@ -113,6 +117,65 @@ export function SiteWideBeatPlayer() {
     // Only run when a new beat starts playing
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentBeat?.id, isPlaying])
+
+  useEffect(() => {
+    if (lyricsFromSession) {
+      setLyricsFromSession(false)
+      return
+    }
+    // Fetch lyrics for the current beat from Supabase
+    async function fetchLyrics() {
+      if (!currentBeat) return;
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+      const { data, error } = await supabase
+        .from('beats')
+        .select('lyrics')
+        .eq('id', currentBeat.id)
+        .single()
+      if (data && data.lyrics) setLyrics(data.lyrics)
+      else setLyrics("")
+    }
+    fetchLyrics()
+  }, [currentBeat])
+
+  useEffect(() => {
+    if (!user) return;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    supabase
+      .from('sessions')
+      .select('id, name, beat_ids, last_modified')
+      .eq('user_id', user.id)
+      .order('last_modified', { ascending: false })
+      .then(({ data }) => {
+        if (data) setSavedSessions(data);
+      });
+  }, [user]);
+
+  useEffect(() => {
+    // Only fetch if currentBeat exists and coverImage is missing or empty
+    if (currentBeat && (!currentBeat.coverImage || currentBeat.coverImage === "")) {
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      supabase
+        .from('beats')
+        .select('cover_art_url')
+        .eq('id', currentBeat.id)
+        .single()
+        .then(({ data, error }) => {
+          if (data && data.cover_art_url) {
+            setCurrentBeat((prev) => prev ? { ...prev, coverImage: data.cover_art_url } : prev);
+          }
+        });
+    }
+  }, [currentBeat]);
 
   const togglePlay = () => setIsPlaying(!isPlaying)
 
@@ -212,42 +275,98 @@ export function SiteWideBeatPlayer() {
     }
   }
 
-  const saveSession = () => {
+  const saveSession = async () => {
     if (!user) {
       setSession({ lyrics, recordedAudio })
       setShowAuthPrompt(true)
       return
     }
-
     if (currentBeat) {
-      const newSession = {
-        id: Date.now().toString(),
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+      const { error } = await supabase.from('sessions').insert({
+        user_id: user.id,
         name: `${currentBeat.title} Session`,
-        date: new Date().toLocaleString(),
-      }
-      setSavedSessions([...savedSessions, newSession])
-
-      // TODO: Implement actual saving logic
-      console.log("Saving session for beat:", currentBeat.id)
-
-      // Check if there's a saved session
-      if (session.lyrics || session.recordedAudio) {
-        // Use the saved session data
-        console.log("Using saved session data:", session)
-        // Reset the saved session
-        setSession({ lyrics: "", recordedAudio: null })
-      }
-
-      toast({
-        title: "Session Saved",
-        description: "Your session has been saved to your Sessions playlist.",
+        beat_ids: [String(currentBeat.id)],
+        lyrics, // Save lyrics to the session
       })
+      if (!error) {
+        toast({
+          title: "Session Saved",
+          description: "Your session has been saved to your Sessions playlist.",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to save session.",
+          variant: "destructive",
+        })
+      }
     } else {
       toast({
         title: "Error",
         description: "No beat is currently playing. Unable to save session.",
         variant: "destructive",
       })
+    }
+  }
+
+  const openSession = async (sessionId: string) => {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('beat_ids, lyrics')
+      .eq('id', sessionId)
+      .single();
+    if (data && data.beat_ids && data.beat_ids.length > 0) {
+      // Fetch the full beat details
+      const { data: beat, error: beatError } = await supabase
+        .from('beats')
+        .select('id, title, producer_id, mp3_url, cover_art_url')
+        .eq('id', data.beat_ids[0])
+        .single();
+      if (beat) {
+        // Fetch the producer's display name
+        let displayName = beat.producer_id;
+        const { data: producer } = await supabase
+          .from('producers')
+          .select('display_name')
+          .eq('user_id', beat.producer_id)
+          .single();
+        if (producer && producer.display_name) {
+          displayName = producer.display_name;
+        }
+        setLyricsFromSession(true);
+        setCurrentBeat({
+          id: beat.id,
+          title: beat.title,
+          artist: displayName, // Use display name here
+          audioUrl: beat.mp3_url,
+          coverImage: beat.cover_art_url,
+        });
+        setLyrics(data.lyrics || "");
+        toast({
+          title: "Session Opened",
+          description: `Session ${sessionId} has been loaded.`,
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: "Could not load beat details for this session.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      toast({
+        title: "Error",
+        description: "Failed to open session or no beats in session.",
+        variant: "destructive",
+      });
     }
   }
 
@@ -279,15 +398,6 @@ export function SiteWideBeatPlayer() {
         description: `New playlist "${newPlaylistName}" has been created.`,
       })
     }
-  }
-
-  const openSession = (sessionId: string) => {
-    // TODO: Implement logic to load the selected session
-    console.log(`Opening session with id: ${sessionId}`)
-    toast({
-      title: "Session Opened",
-      description: `Session ${sessionId} has been loaded.`,
-    })
   }
 
   const openPlaylistsModal = () => {
@@ -397,10 +507,43 @@ export function SiteWideBeatPlayer() {
                   <h4 className="font-semibold mb-1">Lyrics</h4>
                   <Textarea
                     value={lyrics}
-                    onChange={(e) => setLyrics(e.target.value)}
-                    placeholder="Write your lyrics here..."
-                    className="h-[calc(100vh-350px)] mb-1 resize-none"
+                    onChange={e => setLyrics(e.target.value)}
+                    placeholder="Type or paste lyrics here..."
+                    className="h-32 mb-2 resize-none bg-secondary text-white"
                   />
+                  <Button
+                    size="sm"
+                    className="mt-1"
+                    disabled={savingLyrics}
+                    onClick={async () => {
+                      if (!currentBeat) return;
+                      setSavingLyrics(true);
+                      const supabase = createClient(
+                        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+                      );
+                      const { error } = await supabase
+                        .from('beats')
+                        .update({ lyrics })
+                        .eq('id', currentBeat.id);
+                      setSavingLyrics(false);
+                      if (!error) {
+                        toast({
+                          title: "Lyrics Saved",
+                          description: "Lyrics have been updated for this beat.",
+                        });
+                      } else {
+                        toast({
+                          title: "Error",
+                          description: "Failed to save lyrics.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    {savingLyrics ? <span className="animate-spin mr-2">⏳</span> : null}
+                    Save Lyrics
+                  </Button>
                 </div>
               </div>
               <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
@@ -413,8 +556,8 @@ export function SiteWideBeatPlayer() {
                   <DropdownMenuContent>
                     {savedSessions.length > 0 ? (
                       savedSessions.map((session) => (
-                        <DropdownMenuItem key={session.id} onSelect={() => openSession(session.id)}>
-                          {session.name} - {session.date}
+                        <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
+                          {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
                         </DropdownMenuItem>
                       ))
                     ) : (
@@ -430,7 +573,12 @@ export function SiteWideBeatPlayer() {
                   <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
                   <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
                 </Button>
-                <Button variant="secondary" size="sm" onClick={saveSession}>
+                <Button variant="secondary" size="sm" onClick={async () => {
+                  setSavingSession(true);
+                  await saveSession();
+                  setSavingSession(false);
+                }} disabled={savingSession}>
+                  {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
                   Save Session
                 </Button>
               </div>
@@ -445,20 +593,22 @@ export function SiteWideBeatPlayer() {
             </div>
           )}
         </CardContent>
-        <audio
-          ref={audioRef}
-          src={currentBeat?.audioUrl}
-          onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
-          onEnded={() => {
-            // Added onEnded handler for repeat functionality
-            if (isRepeat) {
-              audioRef.current?.play()
-            } else {
-              setIsPlaying(false)
-              setProgress(0)
-            }
-          }}
-        />
+        {currentBeat?.audioUrl ? (
+          <audio
+            ref={audioRef}
+            src={currentBeat.audioUrl}
+            onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+            onEnded={() => {
+              // Added onEnded handler for repeat functionality
+              if (isRepeat) {
+                audioRef.current?.play()
+              } else {
+                setIsPlaying(false)
+                setProgress(0)
+              }
+            }}
+          />
+        ) : null}
       </Card>
       {showAuthPrompt && (
         <Dialog open={showAuthPrompt} onOpenChange={setShowAuthPrompt}>

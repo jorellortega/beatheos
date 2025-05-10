@@ -50,7 +50,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
       }))
       setBeats(beats)
       if (onBeatsFetched) onBeatsFetched(beats)
-    }
+      }
     fetchBeats()
   }, [producerId, onBeatsFetched])
 

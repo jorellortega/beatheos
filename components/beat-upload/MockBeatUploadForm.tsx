@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -11,16 +11,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/use-toast"
-import { Upload, Music, ImageIcon, Loader, FileText, AudioLines, FileAudio, FileArchive, File } from "lucide-react"
+import { Upload, Music, ImageIcon, Loader, FileText, AudioLines, FileAudio, FileArchive, File, Play, Pause } from "lucide-react"
 import { FileUploader } from "./FileUploader"
 import { BeatPreviewPlayer } from "./BeatPreviewPlayer"
 import { LicensingOptions } from "./LicensingOptions"
 import { TagInput } from "./TagInput"
 import { useDropzone } from "react-dropzone"
 import { useRouter } from "next/navigation"
-import { Draft, AudioFile, PairedFile, PlaylistAlbum } from "@/types/draft"
+import { AudioFile, PairedFile, PlaylistAlbum } from "@/types/draft"
 import { Checkbox } from "@/components/ui/checkbox"
 import { supabase } from "@/lib/supabase"
+import { useAuth } from '@/contexts/AuthContext'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 interface InitialData {
   title: string
@@ -40,7 +42,16 @@ interface MockBeatUploadFormProps {
   initialData?: InitialData
 }
 
+interface Draft {
+  id: string;
+  title: string;
+  mp3_url?: string;
+  file_url?: string;
+  [key: string]: any;
+}
+
 export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("upload")
   const [title, setTitle] = useState(initialData?.title || "")
   const [description, setDescription] = useState(initialData?.description || "")
@@ -61,6 +72,23 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [selectedFiles, setSelectedFiles] = useState<PairedFile[]>([])
   const [pairedFiles, setPairedFiles] = useState<PairedFile[]>([])
   const router = useRouter()
+  const [playingDraftId, setPlayingDraftId] = useState<string | null>(null)
+  const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({})
+  const [editingDraft, setEditingDraft] = useState<Draft | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+
+  useEffect(() => {
+    async function fetchDrafts() {
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('beats')
+        .select('*')
+        .eq('producer_id', user.id)
+        .eq('is_draft', true);
+      if (data) setDrafts(data);
+    }
+    fetchDrafts();
+  }, [user]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     acceptedFiles.forEach((file) => {
@@ -247,6 +275,55 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     }
   }
 
+  const handlePlayPause = (draft: any) => {
+    if (playingDraftId === draft.id) {
+      audioRefs.current[draft.id]?.pause();
+      setPlayingDraftId(null);
+    } else {
+      if (playingDraftId && audioRefs.current[playingDraftId]) {
+        audioRefs.current[playingDraftId]?.pause();
+        audioRefs.current[playingDraftId]!.currentTime = 0;
+      }
+      audioRefs.current[draft.id]?.play();
+      setPlayingDraftId(draft.id);
+    }
+  };
+
+  const handleEditDraft = (draft: Draft) => {
+    setEditingDraft(draft)
+    setIsEditDialogOpen(true)
+  }
+
+  const handleSaveDraft = async (updatedDraft: Draft) => {
+    await supabase.from('beats').update(updatedDraft).eq('id', updatedDraft.id)
+    setIsEditDialogOpen(false)
+    setEditingDraft(null)
+    // Refresh drafts
+    if (user) {
+      const { data } = await supabase
+        .from('beats')
+        .select('*')
+        .eq('producer_id', user.id)
+        .eq('is_draft', true)
+      if (data) setDrafts(data)
+    }
+  }
+
+  const handlePublishDraft = async (updatedDraft: Draft) => {
+    await supabase.from('beats').update({ ...updatedDraft, is_draft: false }).eq('id', updatedDraft.id)
+    setIsEditDialogOpen(false)
+    setEditingDraft(null)
+    // Refresh drafts
+    if (user) {
+      const { data } = await supabase
+        .from('beats')
+        .select('*')
+        .eq('producer_id', user.id)
+        .eq('is_draft', true)
+      if (data) setDrafts(data)
+    }
+  }
+
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
       <TabsList className="grid w-full grid-cols-3">
@@ -409,32 +486,86 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
             <p className="text-center text-gray-400">No saved drafts yet.</p>
           ) : (
             drafts.map((draft) => (
-              <div key={draft.id} className="border rounded-lg p-2 hover:bg-secondary/50 transition-colors">
-                <div className="flex items-center justify-between gap-2">
+              <div key={draft.id} className="border rounded-lg p-2 hover:bg-secondary/50 transition-colors flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handlePlayPause(draft)}
+                  >
+                    {playingDraftId === draft.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  </Button>
+                  <audio
+                    ref={el => { audioRefs.current[draft.id] = el || null; }}
+                    src={draft.mp3_url || draft.file_url || ''}
+                    onEnded={() => setPlayingDraftId(null)}
+                  />
                   <h3 className="font-medium truncate">{draft.title}</h3>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2"
-                      onClick={() => loadDraft(draft)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-destructive hover:text-destructive"
-                      onClick={() => deleteDraft(draft.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2"
+                    onClick={() => handleEditDraft(draft)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-destructive hover:text-destructive"
+                    onClick={() => deleteDraft(draft.id)}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
             ))
           )}
         </div>
+        {editingDraft && (
+          <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Draft</DialogTitle>
+              </DialogHeader>
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  handleSaveDraft(editingDraft)
+                }}
+                className="space-y-4"
+              >
+                <Input
+                  value={editingDraft.title}
+                  onChange={e => setEditingDraft({ ...editingDraft, title: e.target.value })}
+                  placeholder="Title"
+                  className="bg-secondary text-white"
+                  required
+                />
+                <Textarea
+                  value={editingDraft.description || ''}
+                  onChange={e => setEditingDraft({ ...editingDraft, description: e.target.value })}
+                  placeholder="Description"
+                  className="bg-secondary text-white"
+                  rows={4}
+                />
+                <div className="flex gap-2">
+                  <Button type="submit" className="flex-1">Save Draft</Button>
+                  <Button
+                    type="button"
+                    className="flex-1 bg-primary text-black"
+                    onClick={() => handlePublishDraft(editingDraft)}
+                  >
+                    Publish
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </TabsContent>
 
       <TabsContent value="audio">
