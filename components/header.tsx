@@ -69,6 +69,9 @@ export default function Header() {
                 <Button variant="outline" className="text-white hover:text-primary" asChild>
                   <Link href={getDashboardPath()}>Dashboard</Link>
                 </Button>
+                <Button variant="outline" className="text-white hover:text-primary" asChild>
+                  <Link href="/beatvault">Beat Vault</Link>
+                </Button>
                 <Button variant="ghost" size="icon" className="text-white hover:text-primary">
                   <Bell size={20} />
                 </Button>

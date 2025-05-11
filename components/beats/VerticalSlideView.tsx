@@ -25,9 +25,10 @@ interface Beat {
 interface VerticalSlideViewProps {
   beats: Beat[]
   onClose: () => void
+  disableGlobalPlayer?: boolean
 }
 
-export function VerticalSlideView({ beats, onClose }: VerticalSlideViewProps) {
+export function VerticalSlideView({ beats, onClose, disableGlobalPlayer }: VerticalSlideViewProps) {
   const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(80)

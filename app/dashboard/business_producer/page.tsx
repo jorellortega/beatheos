@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 import { createClient } from '@supabase/supabase-js'
 import { Suspense } from "react"
+import Image from "next/image"
 
 // Mock marketplace items
 const mockItems = [
@@ -42,6 +43,7 @@ interface Beat {
   producers?: {
     display_name: string
   }
+  cover_art_url?: string
 }
 
 interface BeatActionsProps {
@@ -101,6 +103,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
   }>({})
   const [playingId, setPlayingId] = useState<string | number | null>(null);
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({});
+  const { toast } = useToast();
 
   useEffect(() => {
     async function fetchBeats() {
@@ -208,12 +211,11 @@ function MyBeatsManager({ userId }: { userId: string }) {
         <table className="min-w-full bg-secondary rounded-lg">
           <thead>
             <tr>
+              <th className="p-2 text-left">Cover</th>
               <th className="p-2 text-left">Title</th>
-              <th className="p-2 text-left">Producer</th>
               <th className="p-2 text-left">Genre</th>
               <th className="p-2 text-left">BPM</th>
               <th className="p-2 text-left">Key</th>
-              <th className="p-2 text-left">Draft</th>
               <th className="p-2 text-left">Plays</th>
               <th className="p-2 text-left">Actions</th>
             </tr>
@@ -221,41 +223,90 @@ function MyBeatsManager({ userId }: { userId: string }) {
           <tbody>
             {beats.map(beat => (
               <tr key={beat.id} className="border-t border-gray-700">
-                {editingId === beat.id ? (
-                  <>
-                    <td className="p-2"><input name="title" value={editForm.title || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
-                    <td className="p-2">{beat.producers?.display_name || "-"}</td>
-                    <td className="p-2"><input name="genre" value={editForm.genre || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
-                    <td className="p-2"><input name="bpm" value={editForm.bpm || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" type="number" /></td>
-                    <td className="p-2"><input name="key" value={editForm.key || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
-                    <td className="p-2"><input name="is_draft" type="checkbox" checked={!!editForm.is_draft} onChange={handleEditChange} /></td>
-                    <td className="p-2"></td>
-                    <td className="p-2 space-x-2">
-                      <Button size="sm" onClick={() => handleEditSave(beat.id)}>Save</Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="p-2">{beat.title}</td>
-                    <td className="p-2">{beat.producers?.display_name || "-"}</td>
-                    <td className="p-2">{beat.genre}</td>
-                    <td className="p-2">{beat.bpm}</td>
-                    <td className="p-2">{beat.key}</td>
-                    <td className="p-2">{beat.is_draft ? 'Yes' : 'No'}</td>
-                    <td className="p-2">{beat.play_count ?? 0}</td>
-                    <td className="p-2">
-                      <BeatActions
-                        beat={beat}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                        isPlaying={playingId === beat.id}
-                        onPlayPause={handlePlayPause}
-                        setAudioRef={setAudioRef ? (el: HTMLAudioElement | null) => setAudioRef(beat.id, el) : undefined}
-                      />
-                    </td>
-                  </>
-                )}
+                <td className="p-2">
+                  <div className="relative w-12 h-12 aspect-square overflow-hidden">
+                    <Image
+                      src={beat.cover_art_url || "/placeholder.svg"}
+                      alt={beat.title}
+                      width={1600}
+                      height={1600}
+                      className="rounded object-cover w-full h-full"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute -top-1 -right-1 h-6 w-6 bg-secondary hover:bg-secondary/80"
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = async (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            try {
+                              // Upload to Supabase Storage using the same structure as beat upload
+                              const coverPath = `${userId}/${beat.title.trim()}/cover/${file.name.trim()}`;
+                              
+                              const { data: uploadData, error: uploadError } = await supabase.storage
+                                .from('beats')
+                                .upload(coverPath, file);
+
+                              if (uploadError) throw uploadError;
+
+                              // Get the public URL
+                              const { data: { publicUrl } } = supabase.storage
+                                .from('beats')
+                                .getPublicUrl(coverPath);
+
+                              // Update the beat in the database
+                              const { error: updateError } = await supabase
+                                .from('beats')
+                                .update({ cover_art_url: publicUrl })
+                                .eq('id', beat.id);
+
+                              if (updateError) throw updateError;
+
+                              // Update local state
+                              setBeats(beats.map(b => 
+                                b.id === beat.id ? { ...b, cover_art_url: publicUrl } : b
+                              ));
+
+                              toast({
+                                title: "Cover Art Updated",
+                                description: "The beat's cover art has been updated successfully.",
+                              });
+                            } catch (error) {
+                              console.error('Error uploading cover art:', error);
+                              toast({
+                                title: "Error",
+                                description: "Failed to update cover art. Please try again.",
+                                variant: "destructive",
+                              });
+                            }
+                          }
+                        };
+                        input.click();
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </td>
+                <td className="p-2">{beat.title}</td>
+                <td className="p-2">{beat.genre}</td>
+                <td className="p-2">{beat.bpm}</td>
+                <td className="p-2">{beat.key}</td>
+                <td className="p-2">{beat.play_count ?? 0}</td>
+                <td className="p-2">
+                  <BeatActions
+                    beat={beat}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    isPlaying={playingId === beat.id}
+                    onPlayPause={handlePlayPause}
+                    setAudioRef={setAudioRef ? (el: HTMLAudioElement | null) => setAudioRef(beat.id, el) : undefined}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>

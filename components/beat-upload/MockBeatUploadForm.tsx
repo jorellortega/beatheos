@@ -92,21 +92,28 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     acceptedFiles.forEach((file) => {
-      const newAudioFile: AudioFile = {
-        id: `af${audioFiles.length + 1}`,
-        title: file.name,
-        file: file.type === "audio/mpeg" ? file : null,
-        wavFile: file.type === "audio/wav" ? file : null,
-        stemsFile: file.type === "application/zip" ? file : null,
-        coverArt: null,
-        createdAt: new Date(),
-        updatedAt: new Date()
+      // Handle different file types
+      if (file.type === "audio/mpeg") {
+        setMp3File(file);
+      } else if (file.type === "audio/wav") {
+        setWavFile(file);
+      } else if (file.type === "application/zip") {
+        setStemsFile(file);
+      } else if (file.type.startsWith("image/")) {
+        setCoverArt(file);
       }
-      setAudioFiles(prev => [...prev, newAudioFile])
-    })
-  }, [audioFiles])
+    });
+  }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop })
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'audio/mpeg': ['.mp3'],
+      'audio/wav': ['.wav'],
+      'application/zip': ['.zip'],
+      'image/*': ['.png', '.jpg', '.jpeg', '.gif']
+    }
+  });
 
   const simulateUpload = async () => {
     // Simulate upload progress
@@ -345,12 +352,25 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div
             {...getRootProps()}
-            className={`p-10 border-2 border-dashed rounded-lg text-center cursor-pointer ${
-              isDragActive ? "border-primary" : "border-gray-300"
+            className={`p-10 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${
+              isDragActive ? "border-primary bg-primary/10" : "border-gray-300 hover:border-primary/50"
             }`}
           >
             <input {...getInputProps()} />
-            {isDragActive ? <p>Drop the files here ...</p> : <p>Drag 'n' drop some files here, or click to select files</p>}
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <Upload className="h-12 w-12 text-gray-400" />
+              {isDragActive ? (
+                <p className="text-lg font-medium">Drop your files here...</p>
+              ) : (
+                <>
+                  <p className="text-lg font-medium">Drag & drop your files here</p>
+                  <p className="text-sm text-gray-400">or click to select files</p>
+                  <p className="text-xs text-gray-500">
+                    Supported formats: MP3, WAV, ZIP (stems), Images
+                  </p>
+                </>
+              )}
+            </div>
           </div>
 
           <div>

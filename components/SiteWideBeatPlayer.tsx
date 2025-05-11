@@ -19,6 +19,7 @@ import {
   X,
   Repeat,
   DoorClosedIcon as CloseIcon,
+  Shuffle,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "@/components/ui/use-toast"
@@ -59,7 +60,10 @@ export function SiteWideBeatPlayer() {
   const [lyrics, setLyrics] = useState("")
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [newPlaylistName, setNewPlaylistName] = useState("")
-  const [isRepeat, setIsRepeat] = useState(false) // Added repeat state
+  const [isRepeat, setIsRepeat] = useState(false)
+  const [isShuffle, setIsShuffle] = useState(false)
+  const [shuffledBeats, setShuffledBeats] = useState<any[]>([])
+  const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
   const audioRef = useRef<HTMLAudioElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const { user } = useAuth()
@@ -71,7 +75,7 @@ export function SiteWideBeatPlayer() {
   const [showAuthWindow, setShowAuthWindow] = useState(false)
   const [savedSessions, setSavedSessions] = useState<{ id: string; name: string; last_modified: string }[]>([])
   const [isPlaylistsModalOpen, setIsPlaylistsModalOpen] = useState(false)
-  const [isExpandedViewVisible, setIsExpandedViewVisible] = useState(true) // Added expanded view state
+  const [isExpandedViewVisible, setIsExpandedViewVisible] = useState(true)
   const [savingLyrics, setSavingLyrics] = useState(false)
   const [savingSession, setSavingSession] = useState(false)
   const [lyricsFromSession, setLyricsFromSession] = useState(false)
@@ -82,17 +86,6 @@ export function SiteWideBeatPlayer() {
     setIsExpandedViewVisible(false)
     setIsExpanded(false)
   }, [pathname])
-
-  // useEffect(() => {
-  //   // Simulating a beat being played
-  //   setCurrentBeat({
-  //     id: '1',
-  //     title: 'Cosmic Rhythm',
-  //     artist: 'ZeusBeats',
-  //     coverImage: '/placeholder.svg',
-  //     audioUrl: '/placeholder-audio.mp3'
-  //   })
-  // }, [])
 
   useEffect(() => {
     const audio = audioRef.current
@@ -191,7 +184,76 @@ export function SiteWideBeatPlayer() {
     }
   }
 
-  const toggleRepeat = () => setIsRepeat(!isRepeat) // Added toggleRepeat function
+  const toggleRepeat = () => setIsRepeat(!isRepeat)
+
+  const toggleShuffle = async () => {
+    if (!isShuffle) {
+      // Fetch all beats from Supabase
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { data: beats, error } = await supabase
+        .from('beats')
+        .select('id, title, producer_id, mp3_url, cover_art_url');
+      
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch beats for shuffle mode.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get producer display names
+      const beatsWithProducers = await Promise.all(
+        beats.map(async (beat) => {
+          const { data: producer } = await supabase
+            .from('producers')
+            .select('display_name')
+            .eq('user_id', beat.producer_id)
+            .single();
+          return {
+            ...beat,
+            artist: producer?.display_name || beat.producer_id,
+            audioUrl: beat.mp3_url,
+            coverImage: beat.cover_art_url,
+          };
+        })
+      );
+
+      // Shuffle the beats
+      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+      setShuffledBeats(shuffled);
+      setCurrentBeatIndex(0);
+      setCurrentBeat(shuffled[0]);
+      setIsShuffle(true);
+      setIsPlaying(true);
+    } else {
+      setIsShuffle(false);
+      setShuffledBeats([]);
+      setCurrentBeatIndex(0);
+    }
+  };
+
+  const playNextBeat = () => {
+    if (isShuffle && shuffledBeats.length > 0) {
+      const nextIndex = (currentBeatIndex + 1) % shuffledBeats.length;
+      setCurrentBeatIndex(nextIndex);
+      setCurrentBeat(shuffledBeats[nextIndex]);
+      setIsPlaying(true);
+    }
+  };
+
+  const playPreviousBeat = () => {
+    if (isShuffle && shuffledBeats.length > 0) {
+      const prevIndex = (currentBeatIndex - 1 + shuffledBeats.length) % shuffledBeats.length;
+      setCurrentBeatIndex(prevIndex);
+      setCurrentBeat(shuffledBeats[prevIndex]);
+      setIsPlaying(true);
+    }
+  };
 
   const startRecording = async () => {
     try {
@@ -438,7 +500,7 @@ export function SiteWideBeatPlayer() {
               size="icon"
               onClick={() => {
                 setIsExpanded((prev) => !prev)
-                setIsExpandedViewVisible(true) // Added to show expanded view on click
+                setIsExpandedViewVisible(true)
               }}
               className="bg-background rounded-full"
             >
@@ -473,7 +535,7 @@ export function SiteWideBeatPlayer() {
           </div>
           <div className="flex justify-center items-center mb-4">
             <div className="flex items-center space-x-4">
-              <Button size="lg" variant="secondary" onClick={() => {}}>
+              <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
                 <Rewind className="h-6 w-6" />
               </Button>
               <Button
@@ -487,11 +549,14 @@ export function SiteWideBeatPlayer() {
               >
                 {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
               </Button>
-              <Button size="lg" variant="secondary" onClick={() => {}}>
+              <Button size="lg" variant="secondary" onClick={playNextBeat}>
                 <SkipForward className="h-6 w-6" />
               </Button>
               <Button size="lg" variant="secondary" onClick={toggleRepeat}>
                 <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
+              </Button>
+              <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+                <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
               </Button>
               <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
                 Playlists
@@ -599,9 +664,10 @@ export function SiteWideBeatPlayer() {
             src={currentBeat.audioUrl}
           onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
           onEnded={() => {
-            // Added onEnded handler for repeat functionality
             if (isRepeat) {
               audioRef.current?.play()
+            } else if (isShuffle) {
+              playNextBeat()
             } else {
               setIsPlaying(false)
               setProgress(0)

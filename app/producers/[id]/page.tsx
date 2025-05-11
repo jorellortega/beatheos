@@ -51,8 +51,11 @@ export default function ProducerProfilePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+  const [vault, setVault] = useState<any>(null)
+  const [hasVaultAccess, setHasVaultAccess] = useState(false)
+  const [vaultBeats, setVaultBeats] = useState<any[]>([])
 
-  const fetchProducer = async () => {
+    const fetchProducer = async () => {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -89,6 +92,68 @@ export default function ProducerProfilePage() {
     fetchProducer()
   }, [id, user])
 
+  // Fetch Beat Vault info and access
+  useEffect(() => {
+    async function fetchVault() {
+      if (!producer) return;
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { data: vaultData } = await supabase
+        .from('beat_vault')
+        .select('*')
+        .eq('producer_id', producer.id)
+        .single();
+      setVault(vaultData);
+      if (vaultData && user) {
+        const { data: access } = await supabase
+          .from('vault_access')
+          .select('*')
+          .eq('vault_id', vaultData.id)
+          .eq('user_id', user.id)
+          .single();
+        setHasVaultAccess(!!access);
+        if (access) {
+          const { data: beats } = await supabase
+            .from('beats')
+            .select('*')
+            .eq('vault_id', vaultData.id);
+          setVaultBeats(beats || []);
+        }
+      }
+    }
+    fetchVault();
+  }, [producer, user]);
+
+  const handleCreateVault = async () => {
+    if (!producer) return;
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    const { error } = await supabase
+      .from('beat_vault')
+      .insert({
+        producer_id: producer.id,
+        name: `${producer.name}'s Vault`,
+        description: 'Your private vault for unreleased or exclusive beats.',
+        is_public: false
+      });
+    if (!error) {
+      toast({ title: 'Vault Created', description: 'Your Beat Vault has been created.' });
+      // Refetch vault
+      const { data: vaultData } = await supabase
+        .from('beat_vault')
+        .select('*')
+        .eq('producer_id', producer.id)
+        .single();
+      setVault(vaultData);
+    } else {
+      toast({ title: 'Error', description: 'Failed to create vault.', variant: 'destructive' });
+    }
+  };
+
   if (!producer) {
     return <div>Loading...</div>
   }
@@ -104,8 +169,8 @@ export default function ProducerProfilePage() {
           >
             <Avatar className="w-full h-full">
               <AvatarImage src={producer.profile_image_url || "/placeholder.svg"} alt={producer.name} />
-              <AvatarFallback>{producer.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-            </Avatar>
+            <AvatarFallback>{producer.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+          </Avatar>
             {isOwnProfile && (
               <div
                 className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -148,24 +213,7 @@ export default function ProducerProfilePage() {
               </div>
             </div>
             {isOwnProfile && (
-              <div className="flex gap-2 justify-center md:justify-start">
-                <Button
-                  className="gradient-button text-black font-medium hover:text-white"
-                  onClick={() => setIsEditDialogOpen(true)}
-                >
-                  Edit Profile
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    if (window.confirm('Are you sure you want to delete your profile? This action cannot be undone.')) {
-                      // TODO: Add delete logic here
-                    }
-                  }}
-                >
-                  Delete Profile
-                </Button>
-              </div>
+              null
             )}
           </div>
         </div>
@@ -188,6 +236,7 @@ export default function ProducerProfilePage() {
             <TabsTrigger value="beats">Beats</TabsTrigger>
             <TabsTrigger value="pictures">Pictures</TabsTrigger>
             <TabsTrigger value="about">About</TabsTrigger>
+            <TabsTrigger value="beatvault">Beat Vault</TabsTrigger>
           </TabsList>
           <TabsContent value="beats">
             <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
@@ -226,6 +275,16 @@ export default function ProducerProfilePage() {
             </div>
           </TabsContent>
           <TabsContent value="about">
+            {isOwnProfile && (
+              <div className="flex gap-2 mb-4 justify-center md:justify-start">
+                <Button
+                  className="gradient-button text-black font-medium hover:text-white"
+                  onClick={() => setIsEditDialogOpen(true)}
+                >
+                  Edit Profile
+                </Button>
+              </div>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle>About {producer.name}</CardTitle>
@@ -252,6 +311,43 @@ export default function ProducerProfilePage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="beatvault">
+            {isOwnProfile && !vault && (
+              <div className="text-center mb-4">
+                <Button onClick={handleCreateVault} className="gradient-button text-black font-medium hover:text-white">
+                  Create Vault
+                </Button>
+              </div>
+            )}
+            {vault && (
+              <>
+                <h2 className="text-2xl font-bold mb-2">{vault.name}</h2>
+                <p className="mb-2">{vault.description}</p>
+                {vault.cover_image_url && <img src={vault.cover_image_url} alt="Vault Cover" className="mb-4 w-48 h-48 object-cover rounded" />}
+                {hasVaultAccess ? (
+                  <div>
+                    <h3 className="font-semibold mb-2">Vault Beats</h3>
+                    {vaultBeats.length > 0 ? (
+                      <ul className="space-y-2">
+                        {vaultBeats.map(beat => (
+                          <li key={beat.id} className="p-2 bg-secondary rounded flex items-center">
+                            <span className="font-medium">{beat.title}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-400">No beats in this vault yet.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-gray-400 mb-4">This vault is private. Purchase access or enter a key to unlock.</p>
+                    {/* TODO: Add paywall or key entry form here */}
+                  </div>
+                )}
+              </>
+            )}
           </TabsContent>
         </Tabs>
       </main>

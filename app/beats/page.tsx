@@ -122,6 +122,10 @@ export default function BeatsPage() {
   }
 
   const handlePlay = (beat: any) => {
+    if (currentView === "vertical") {
+      // Do not trigger global player in vertical view
+      return;
+    }
     setCurrentBeat({
       id: beat.id.toString(),
       title: beat.title,
@@ -142,14 +146,15 @@ export default function BeatsPage() {
       {filteredBeats.map((beat) => (
         <Card key={beat.id} className="bg-card border-primary flex flex-col">
           <CardHeader className="relative pb-0 pt-0 px-0">
-            <Image
-              src={beat.image || "/placeholder.svg"}
-              alt={beat.title}
-              width={400}
-              height={400}
-              className="rounded-t-lg w-full h-40 object-cover cursor-pointer"
-              onClick={() => handlePlay(beat)}
-            />
+            <div className="relative w-full aspect-square">
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
+                fill
+                className="rounded-t-lg object-cover cursor-pointer"
+                onClick={() => handlePlay(beat)}
+              />
+            </div>
             <Button
               size="icon"
               className="absolute top-2 right-2 rounded-full gradient-button"
@@ -256,6 +261,7 @@ export default function BeatsPage() {
       <table className="w-full text-left">
         <thead>
           <tr className="border-b border-gray-700">
+            <th className="py-2 px-4 text-primary">Cover</th>
             <th className="py-2 px-4 text-primary">Title</th>
             <th className="py-2 px-4 text-primary">Producer</th>
             <th className="py-2 px-4 text-primary">BPM</th>
@@ -266,6 +272,17 @@ export default function BeatsPage() {
         <tbody>
           {filteredBeats.map((beat) => (
             <tr key={beat.id} className="border-b border-gray-700 hover:bg-gray-800">
+              <td className="py-3 px-4">
+                <div className="w-10 h-10 relative">
+                  <Image
+                    src={beat.image || "/placeholder.svg"}
+                    alt={beat.title}
+                    width={40}
+                    height={40}
+                    className="rounded object-cover w-10 h-10"
+                  />
+                </div>
+              </td>
               <td className="py-3 px-4 text-white">{beat.title}</td>
               <td className="py-3 px-4 text-gray-400">{beat.producer}</td>
               <td className="py-3 px-4 text-gray-400">{beat.bpm}</td>
@@ -356,7 +373,7 @@ export default function BeatsPage() {
       {currentView === "grid" && <GridView />}
       {currentView === "list" && <ListView />}
       {currentView === "compact" && <CompactView />}
-      {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} />}
+      {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
 
       {/* Modals */}
       <SaveToPlaylistModal
