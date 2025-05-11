@@ -40,12 +40,12 @@ export function TopLists() {
 
     async function fetchTopLists() {
       setLoading(true)
-      // Fetch top 10 beats this week
+      // Fetch top 10 beats from the last 7 days
       const { data: beatsData } = await supabase
         .from('beats')
         .select('id, title, play_count, cover_art_url, producer_id, created_at, mp3_url')
         .eq('is_draft', false)
-        .gte('created_at', new Date(new Date().setDate(new Date().getDate() - new Date().getDay())).toISOString())
+        .gte('created_at', new Date(new Date().setDate(new Date().getDate() - 7)).toISOString())
         .order('play_count', { ascending: false })
         .limit(10)
 
@@ -111,7 +111,7 @@ export function TopLists() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-      <Card className="bg-card border-primary">
+      <Card className="bg-black border-primary">
         <CardHeader>
           <CardTitle className="flex items-center text-primary">
             <Flame className="mr-2 h-6 w-6" />
@@ -166,7 +166,7 @@ export function TopLists() {
         </CardContent>
       </Card>
 
-      <Card className="bg-card border-primary">
+      <Card className="bg-black border-primary">
         <CardHeader>
           <CardTitle className="flex items-center text-primary">
             <Crown className="mr-2 h-6 w-6" />

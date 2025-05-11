@@ -5,7 +5,7 @@ import { Instagram } from 'lucide-react'
 
 export default function Home() {
   return (
-    <main className="container mx-auto px-4 py-8">
+    <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
       <div className="text-center mb-12">
         <h1 className="text-4xl font-bold mb-4 text-primary">Welcome to Beatheos</h1>
         <p className="text-xl mb-8 max-w-2xl mx-auto text-gray-300">
@@ -26,7 +26,7 @@ export default function Home() {
         </Button>
       </div>
 
-      <div className="max-w-4xl mx-auto">
+      <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
         <TopLists />
       </div>
       <footer className="mt-12 text-center text-sm text-gray-500">

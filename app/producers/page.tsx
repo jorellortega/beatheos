@@ -53,9 +53,9 @@ export default function ProducersPage() {
   if (loading) return <div>Loading producers...</div>
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Sonic Deities</h1>
-      <p className="text-xl mb-8 text-gray-300">Explore the pantheon of beat-making gods and their divine creations.</p>
+    <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
+      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Producers</h1>
+      <p className="text-xl mb-8 text-gray-300">Discover beat making deities.</p>
       
       <div className="flex justify-between items-center mb-8">
         <div className="relative w-64">
@@ -72,7 +72,7 @@ export default function ProducersPage() {
       
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {filteredProducers.map((producer) => (
-          <Card key={producer.id} className="bg-card border-primary">
+          <Card key={producer.id} className="bg-black border-primary">
             <CardHeader className="relative pb-0 pt-0 px-0">
               <Image
                 src={producer.profile_image_url || "/placeholder.svg"}
@@ -88,7 +88,7 @@ export default function ProducersPage() {
                 </Badge>
               )}
             </CardHeader>
-            <CardContent className="pt-4">
+            <CardContent className="pt-4 bg-black">
               <CardTitle className="text-lg mb-2">
                 <Link href={`/producers/${producer.id}`} className="hover:underline">
                   {producer.display_name}
@@ -103,7 +103,6 @@ export default function ProducersPage() {
           </Card>
         ))}
       </div>
-    </div>
+    </main>
   )
 }
-

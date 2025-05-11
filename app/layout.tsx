@@ -28,7 +28,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${poppins.className} ${poppins.variable} gradient-bg min-h-screen text-white`}>
+      <body className={`${poppins.className} ${poppins.variable} gradient-bg min-h-screen text-white bg-[#141414]`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
           <AuthProvider>
             <PlayerProvider>
