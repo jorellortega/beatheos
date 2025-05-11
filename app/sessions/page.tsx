@@ -229,12 +229,12 @@ export default function SessionsPage() {
                         </>
                       ) : (
                         <>
-                          <CardTitle>{session.name}</CardTitle>
-                          <CardDescription>
+                      <CardTitle>{session.name}</CardTitle>
+                      <CardDescription>
                             Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
                             <br />
                             Beats: {session.beat_ids ? session.beat_ids.length : 0}
-                          </CardDescription>
+                      </CardDescription>
                           {beatsBySession[session.id] && beatsBySession[session.id].length > 0 && (
                             <div className="mt-2">
                               <strong>Beats:</strong>
@@ -274,10 +274,10 @@ export default function SessionsPage() {
                         <>
                           <Button size="sm" variant="outline" onClick={() => handleEdit(session)}>
                             <Edit className="h-4 w-4 mr-1" /> Edit
-                          </Button>
+                      </Button>
                           <Button size="sm" variant="destructive" onClick={() => handleDelete(session.id)} disabled={saving}>
                             <Trash2 className="h-4 w-4 mr-1" /> Delete
-                          </Button>
+                      </Button>
                         </>
                       )}
                     </div>
