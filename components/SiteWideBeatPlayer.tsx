@@ -40,8 +40,8 @@ interface Beat {
   id: string
   title: string
   artist: string
-  coverImage: string
   audioUrl: string
+  image?: string
 }
 
 interface Playlist {
@@ -151,8 +151,8 @@ export function SiteWideBeatPlayer() {
   }, [user]);
 
   useEffect(() => {
-    // Only fetch if currentBeat exists and coverImage is missing or empty
-    if (currentBeat && (!currentBeat.coverImage || currentBeat.coverImage === "")) {
+    // Only fetch if currentBeat exists and image is missing or empty
+    if (currentBeat && (!currentBeat.image || currentBeat.image === "")) {
       const supabase = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -164,7 +164,7 @@ export function SiteWideBeatPlayer() {
         .single()
         .then(({ data, error }) => {
           if (data && data.cover_art_url) {
-            setCurrentBeat((prev) => prev ? { ...prev, coverImage: data.cover_art_url } : prev);
+            setCurrentBeat((prev: any) => prev ? { ...prev, image: data.cover_art_url } : prev);
           }
         });
     }
@@ -409,7 +409,7 @@ export function SiteWideBeatPlayer() {
           title: beat.title,
           artist: displayName, // Use display name here
           audioUrl: beat.mp3_url,
-          coverImage: beat.cover_art_url,
+          image: beat.cover_art_url,
         });
         setLyrics(data.lyrics || "");
         toast({
@@ -483,10 +483,8 @@ export function SiteWideBeatPlayer() {
     }
   }
 
-  if (!currentBeat) return null
-
   return (
-    <>
+    <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
         className={`site-wide-player ${isExpanded ? "expanded" : "collapsed"} ${
           isExpandedViewVisible ? "h-auto" : "h-20"
@@ -507,21 +505,21 @@ export function SiteWideBeatPlayer() {
               {isExpanded ? <Minimize className="h-6 w-6" /> : <Expand className="h-6 w-6" />}
             </Button>
           </div>
-          <div className="flex items-center mb-4 relative">
+          <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
             <Image
-              src={(currentBeat as any).coverImage || "/placeholder.svg"}
-              alt={currentBeat.title}
+              src={currentBeat?.image || "/placeholder.svg"}
+              alt={currentBeat?.title || "cover"}
               width={100}
               height={100}
-              className="rounded-md mr-4"
+              className="rounded-md mb-2 sm:mb-0 sm:mr-4"
             />
-            <div className="flex-grow">
-              <h3 className="font-semibold">{currentBeat.title}</h3>
+            <div className="flex-grow flex flex-col items-center sm:items-start w-full">
+              <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
               <Link
-                href={`/producers/${currentBeat.artist}`}
-                className="text-sm text-gray-400 hover:text-primary transition-colors"
+                href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
+                className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
               >
-                {currentBeat.artist}
+                {currentBeat?.artist || ""}
               </Link>
             </div>
             <Button
@@ -533,35 +531,33 @@ export function SiteWideBeatPlayer() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex justify-center items-center mb-4">
-            <div className="flex items-center space-x-4">
-              <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
-                <Rewind className="h-6 w-6" />
-              </Button>
-              <Button
-                size="lg"
-                variant="secondary"
-                onClick={() => {
-                  if (!isRecording) {
-                    togglePlay()
-                  }
-                }}
-              >
-                {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
-              </Button>
-              <Button size="lg" variant="secondary" onClick={playNextBeat}>
-                <SkipForward className="h-6 w-6" />
-              </Button>
-              <Button size="lg" variant="secondary" onClick={toggleRepeat}>
-                <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
-              </Button>
-              <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-                <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-              </Button>
-              <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
-                Playlists
-              </Button>
-            </div>
+          <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
+            <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
+              <Rewind className="h-6 w-6" />
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              onClick={() => {
+                if (!isRecording) {
+                  togglePlay()
+                }
+              }}
+            >
+              {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+            </Button>
+            <Button size="lg" variant="secondary" onClick={playNextBeat}>
+              <SkipForward className="h-6 w-6" />
+            </Button>
+            <Button size="lg" variant="secondary" onClick={toggleRepeat}>
+              <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
+            </Button>
+            <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+              <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+            </Button>
+            <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
+              Playlists
+            </Button>
           </div>
           <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
           {isExpanded && isExpandedViewVisible && (
@@ -661,7 +657,7 @@ export function SiteWideBeatPlayer() {
         {currentBeat?.audioUrl ? (
         <audio
           ref={audioRef}
-            src={currentBeat.audioUrl}
+          src={currentBeat.audioUrl}
           onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
           onEnded={() => {
             if (isRepeat) {
@@ -747,7 +743,7 @@ export function SiteWideBeatPlayer() {
           </div>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   )
 }
 

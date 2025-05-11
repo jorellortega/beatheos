@@ -17,6 +17,65 @@ import { VerticalSlideView } from "@/components/beats/VerticalSlideView"
 import { usePlayer } from "@/contexts/PlayerContext"
 import { Rating } from "@/components/ui/rating"
 import { createClient } from '@supabase/supabase-js'
+import React from "react"
+
+const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void }) {
+  return (
+    <Card key={beat.id} className="bg-card border-primary flex flex-col">
+      <CardHeader className="relative pb-0 pt-0 px-0">
+        <div className="relative w-full aspect-square">
+          <Image
+            src={beat.image || "/placeholder.svg"}
+            alt={beat.title}
+            fill
+            className="rounded-t-lg object-cover cursor-pointer"
+            onClick={() => onPlayPause(beat)}
+          />
+        </div>
+        <Button
+          size="icon"
+          className="absolute top-2 right-2 rounded-full gradient-button"
+          onClick={() => onPlayPause(beat)}
+        >
+          {isPlaying ? (
+            <Pause className="h-4 w-4 text-black" />
+          ) : (
+            <Play className="h-4 w-4 text-black" />
+          )}
+        </Button>
+      </CardHeader>
+      <CardContent className="pt-4 flex-grow flex flex-col justify-between">
+        <div>
+          <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
+          <p className="text-xs text-gray-400 mb-1">by {beat.producer}</p>
+          <div className="flex items-center mb-2">
+            <Rating value={beat.rating || 0} onChange={(newRating) => {}} />
+          </div>
+          <div className="flex justify-between items-center mb-2">
+            <Badge
+              variant="secondary"
+              className="text-[10px] px-1.5 py-0.5 w-full flex items-center justify-center text-center"
+            >
+              <span className="inline-block">{beat.bpm} BPM</span>
+            </Badge>
+            <span className="text-xs text-gray-400">{beat.plays} plays</span>
+          </div>
+        </div>
+        <div className="flex justify-between items-center mt-2">
+          <Button variant="outline" size="icon" onClick={() => {}}>
+            <Plus className="h-4 w-4" />
+          </Button>
+          <Button
+            className="gradient-button text-black font-medium hover:text-white"
+            onClick={() => {}}
+          >
+            BUY
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
 
 export default function BeatsPage() {
   const [currentView, setCurrentView] = useState<"grid" | "list" | "compact" | "vertical">("grid")
@@ -33,7 +92,7 @@ export default function BeatsPage() {
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
   const [displayedBeats, setDisplayedBeats] = useState<any[]>([])
   const [playingBeatId, setPlayingBeatId] = useState<string | null>(null)
-  const { setCurrentBeat, setIsPlaying } = usePlayer()
+  const { setCurrentBeat, setIsPlaying, isPlaying } = usePlayer()
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -121,19 +180,23 @@ export default function BeatsPage() {
     setIsPurchaseModalOpen(true)
   }
 
-  const handlePlay = (beat: any) => {
-    if (currentView === "vertical") {
-      // Do not trigger global player in vertical view
-      return;
+  const handlePlayPause = (beat: any) => {
+    if (currentView === "vertical") return;
+    if (playingBeatId === beat.id && isPlaying) {
+      setIsPlaying(false); // Pause
+    } else if (playingBeatId === beat.id && !isPlaying) {
+      setIsPlaying(true); // Resume
+    } else {
+      setCurrentBeat({
+        id: beat.id.toString(),
+        title: beat.title,
+        artist: beat.producer,
+        audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
+        image: beat.image || '/placeholder.svg',
+      });
+      setIsPlaying(true); // Play
+      setPlayingBeatId(beat.id);
     }
-    setCurrentBeat({
-      id: beat.id.toString(),
-      title: beat.title,
-      artist: beat.producer,
-      audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
-    })
-    setIsPlaying(true)
-    setPlayingBeatId(beat.id)
   }
 
   const handleRatingChange = (beatId: number, newRating: number) => {
@@ -144,59 +207,12 @@ export default function BeatsPage() {
   const GridView = () => (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
       {filteredBeats.map((beat) => (
-        <Card key={beat.id} className="bg-card border-primary flex flex-col">
-          <CardHeader className="relative pb-0 pt-0 px-0">
-            <div className="relative w-full aspect-square">
-              <Image
-                src={beat.image || "/placeholder.svg"}
-                alt={beat.title}
-                fill
-                className="rounded-t-lg object-cover cursor-pointer"
-                onClick={() => handlePlay(beat)}
-              />
-            </div>
-            <Button
-              size="icon"
-              className="absolute top-2 right-2 rounded-full gradient-button"
-              onClick={() => handlePlay(beat)}
-            >
-              {playingBeatId === beat.id ? (
-                <Pause className="h-4 w-4 text-black" />
-              ) : (
-                <Play className="h-4 w-4 text-black" />
-              )}
-            </Button>
-          </CardHeader>
-          <CardContent className="pt-4 flex-grow flex flex-col justify-between">
-            <div>
-              <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
-              <p className="text-xs text-gray-400 mb-1">by {beat.producer}</p>
-              <div className="flex items-center mb-2">
-                <Rating value={beat.rating || 0} onChange={(newRating) => handleRatingChange(beat.id, newRating)} />
-              </div>
-              <div className="flex justify-between items-center mb-2">
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] px-1.5 py-0.5 w-full flex items-center justify-center text-center"
-                >
-                  <span className="inline-block">{beat.bpm} BPM</span>
-                </Badge>
-                <span className="text-xs text-gray-400">{beat.plays} plays</span>
-              </div>
-            </div>
-            <div className="flex justify-between items-center mt-2">
-              <Button variant="outline" size="icon" onClick={() => handleSaveToPlaylist(beat)}>
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Button
-                className="gradient-button text-black font-medium hover:text-white"
-                onClick={() => handlePurchase(beat)}
-              >
-                BUY
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <BeatCard
+          key={beat.id}
+          beat={beat}
+          isPlaying={playingBeatId === beat.id && isPlaying}
+          onPlayPause={handlePlayPause}
+        />
       ))}
     </div>
   )
@@ -212,7 +228,7 @@ export default function BeatsPage() {
               width={100}
               height={100}
               className="rounded-lg sm:mr-4 w-full sm:w-auto h-32 sm:h-24 object-cover cursor-pointer"
-              onClick={() => handlePlay(beat)}
+              onClick={() => handlePlayPause(beat)}
             />
             <div className="flex-grow text-center sm:text-left">
               <h3 className="text-lg font-semibold text-white">{beat.title}</h3>
@@ -233,10 +249,10 @@ export default function BeatsPage() {
                 <Button
                   size="sm"
                   className="gradient-button text-black font-medium rounded-full shadow-lg hover:text-black"
-                  onClick={() => handlePlay(beat)}
+                  onClick={() => handlePlayPause(beat)}
                 >
-                  {playingBeatId === beat.id ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
-                  {playingBeatId === beat.id ? "Pause" : "Play"}
+                  {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+                  {playingBeatId === beat.id && isPlaying ? "Pause" : "Play"}
                 </Button>
                 <Button variant="outline" size="icon" onClick={() => handleSaveToPlaylist(beat)}>
                   <Plus className="h-4 w-4" />
@@ -293,9 +309,9 @@ export default function BeatsPage() {
                     size="sm"
                     variant="ghost"
                     className="text-gray-400 hover:text-white"
-                    onClick={() => handlePlay(beat)}
+                    onClick={() => handlePlayPause(beat)}
                   >
-                    {playingBeatId === beat.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                   </Button>
                   <Button
                     size="sm"
