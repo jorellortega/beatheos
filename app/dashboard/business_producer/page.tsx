@@ -30,20 +30,20 @@ const supabase = createClient(
 )
 
 interface Beat {
-  id: string | number
-  title: string
-  genre: string
-  bpm: number
-  key: string
-  is_draft: boolean
-  play_count: number
-  mp3_url: string
-  mp3_path: string
-  signed_mp3_url?: string
-  producers?: {
-    display_name: string
-  }
-  cover_art_url?: string
+  id: string | number;
+  title: string;
+  genre: string;
+  bpm: number;
+  key: string;
+  is_draft: boolean;
+  play_count: number;
+  mp3_url: string;
+  mp3_path: string;
+  cover_art_url?: string;
+  signed_mp3_url?: string;
+  producer: {
+    display_name: string;
+  };
 }
 
 interface BeatActionsProps {
@@ -93,6 +93,7 @@ function BeatActions({ beat, onEdit, onDelete, isPlaying, onPlayPause, setAudioR
 function MyBeatsManager({ userId }: { userId: string }) {
   const [beats, setBeats] = useState<Beat[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | number | null>(null)
   const [editForm, setEditForm] = useState<{
     title?: string;
@@ -107,36 +108,59 @@ function MyBeatsManager({ userId }: { userId: string }) {
 
   useEffect(() => {
     async function fetchBeats() {
-      setLoading(true)
-      const res = await fetch(`/api/beats?producerId=${userId}`)
-      let data: Beat[] = await res.json()
-      data = await Promise.all(data.map(async (beat: Beat) => {
-        let storagePath = beat.mp3_path as string | undefined
-        if (!storagePath && beat.mp3_url) {
-          try {
-            const url = new URL(beat.mp3_url)
-            storagePath = url.pathname.split('/beats/')[1]
-          } catch (e) {
-            storagePath = undefined
-          }
+      try {
+        setLoading(true)
+        setError(null)
+
+        // Fetch beats for this user (producer_id === userId)
+        const { data: beatsData, error: beatsError } = await supabase
+          .from('beats')
+          .select(`
+            id,
+            title,
+            genre,
+            bpm,
+            key,
+            is_draft,
+            play_count,
+            mp3_url,
+            mp3_path,
+            cover_art_url
+          `)
+          .eq('producer_id', userId)
+          .order('created_at', { ascending: false });
+
+        // Fetch the producer's display_name
+        const { data: producer, error: producerError } = await supabase
+          .from('producers')
+          .select('display_name')
+          .eq('user_id', userId)
+          .single();
+
+        if (beatsError) {
+          setError('Failed to fetch beats: ' + beatsError.message);
+          setBeats([]);
+          setLoading(false);
+          return;
         }
-        if (storagePath) {
-          const { data: signed } = await supabase.storage.from('beats').createSignedUrl(storagePath, 60 * 60)
-          if (signed?.signedUrl) {
-            (beat as any).signed_mp3_url = signed.signedUrl
-          } else {
-            (beat as any).signed_mp3_url = beat.mp3_url
-          }
-        } else {
-          (beat as any).signed_mp3_url = beat.mp3_url
-        }
-        return beat
-      }))
-      setBeats(data)
-      setLoading(false)
+
+        // Attach display_name to each beat
+        const beatsWithProducer = (beatsData || []).map(beat => ({
+          ...beat,
+          producer: { display_name: producer?.display_name || 'Unknown' }
+        }));
+
+        setBeats(beatsWithProducer);
+      } catch (err) {
+        setError('Failed to load beats. Please try again.');
+        setBeats([]);
+      } finally {
+        setLoading(false);
+      }
     }
-    fetchBeats()
-  }, [userId])
+
+    fetchBeats();
+  }, [userId]);
 
   const handleDelete = async (id: string | number) => {
     if (!confirm('Are you sure you want to delete this beat?')) return
@@ -201,8 +225,29 @@ function MyBeatsManager({ userId }: { userId: string }) {
     audioRefs.current[id] = el;
   };
 
-  if (loading) return <div>Loading your beats...</div>
-  if (!beats.length) return <div className="text-gray-400">No beats uploaded yet.</div>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-red-500">{error}</div>
+      </div>
+    )
+  }
+
+  if (!beats.length) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-gray-400">No beats uploaded yet.</div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

@@ -533,7 +533,7 @@ export function SiteWideBeatPlayer() {
           </div>
           <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
             <div className="flex items-center justify-center gap-2">
-              <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
+            <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
                 <Rewind className="h-6 w-6" />
               </Button>
               <Button
@@ -547,7 +547,7 @@ export function SiteWideBeatPlayer() {
               >
                 {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
               </Button>
-              <Button size="lg" variant="secondary" onClick={playNextBeat}>
+            <Button size="lg" variant="secondary" onClick={playNextBeat}>
                 <SkipForward className="h-6 w-6" />
               </Button>
             </div>
@@ -555,9 +555,9 @@ export function SiteWideBeatPlayer() {
               <Button size="lg" variant="secondary" onClick={toggleRepeat}>
                 <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
               </Button>
-              <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-                <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-              </Button>
+            <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+              <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+            </Button>
               <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
                 Playlists
               </Button>

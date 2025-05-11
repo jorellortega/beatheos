@@ -94,40 +94,41 @@ export default function BeatsPage() {
   const [playingBeatId, setPlayingBeatId] = useState<string | null>(null)
   const { setCurrentBeat, setIsPlaying, isPlaying } = usePlayer()
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
+
     async function fetchBeats() {
+      try {
       setLoading(true)
+        setError(null)
+        
       const { data: beatsData, error: beatsError } = await supabase
         .from('beats')
         .select('id, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url')
         .eq('is_draft', false)
         .order('created_at', { ascending: false })
         .limit(100)
-      if (beatsError) {
-        console.error('Supabase beats error:', beatsError)
-        setDisplayedBeats([])
-        setLoading(false)
-        return
-      }
+
+        if (beatsError) throw beatsError
+
       if (!beatsData || beatsData.length === 0) {
-        console.warn('No beats found in database.')
         setDisplayedBeats([])
-        setLoading(false)
         return
       }
+
       const producerIds = [...new Set(beatsData.map((b: any) => b.producer_id))]
       const { data: producersData, error: producersError } = await supabase
         .from('producers')
         .select('user_id, display_name, image')
         .in('user_id', producerIds)
-      if (producersError) {
-        console.error('Supabase producers error:', producersError)
-      }
+
+        if (producersError) throw producersError
+
       const beats = beatsData.map((b: any) => {
         const producer = producersData?.find((p: any) => p.user_id === b.producer_id)
         return {
@@ -145,9 +146,17 @@ export default function BeatsPage() {
           producer_image: producer?.image || '/placeholder.svg',
         }
       })
+
       setDisplayedBeats(beats)
+      } catch (err) {
+        console.error('Error fetching beats:', err)
+        setError('Failed to load beats. Please try again.')
+        setDisplayedBeats([])
+      } finally {
       setLoading(false)
+      }
     }
+
     fetchBeats()
   }, [])
 
@@ -337,6 +346,22 @@ export default function BeatsPage() {
       </table>
     </div>
   )
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-500">{error}</div>
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">

@@ -19,30 +19,52 @@ export default function ProducersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [displayedProducers, setDisplayedProducers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [beatCounts, setBeatCounts] = useState<{ [producerId: string]: number }>({})
 
   useEffect(() => {
     async function fetchProducers() {
+      try {
       setLoading(true)
+        setError(null)
+        
       const { data, error } = await supabase.from('producers').select('*')
-      if (error) {
+        
+        if (error) throw error
+        
+        if (!data) {
         setDisplayedProducers([])
-    } else {
-        setDisplayedProducers(data || [])
+          return
+        }
+
+        setDisplayedProducers(data)
+        
         // Fetch beat counts for each producer
         const counts: { [producerId: string]: number } = {}
         await Promise.all(
-          (data || []).map(async (producer: any) => {
+          data.map(async (producer: any) => {
             if (!producer.user_id) return
+            try {
             const res = await fetch(`/api/beats?producerId=${producer.user_id}`)
+              if (!res.ok) throw new Error('Failed to fetch beat count')
             const beats = await res.json()
             counts[producer.id] = Array.isArray(beats) ? beats.length : 0
+            } catch (err) {
+              console.error(`Error fetching beats for producer ${producer.id}:`, err)
+              counts[producer.id] = 0
+            }
           })
         )
         setBeatCounts(counts)
-      }
+      } catch (err) {
+        console.error('Error fetching producers:', err)
+        setError('Failed to load producers. Please try again.')
+        setDisplayedProducers([])
+      } finally {
       setLoading(false)
     }
+    }
+
     fetchProducers()
   }, [])
 
@@ -50,7 +72,21 @@ export default function ProducersPage() {
     producer.display_name?.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  if (loading) return <div>Loading producers...</div>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-500">{error}</div>
+      </div>
+    )
+  }
 
   return (
     <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
