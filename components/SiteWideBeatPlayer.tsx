@@ -532,32 +532,36 @@ export function SiteWideBeatPlayer() {
             </Button>
           </div>
           <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
-            <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
-              <Rewind className="h-6 w-6" />
-            </Button>
-            <Button
-              size="lg"
-              variant="secondary"
-              onClick={() => {
-                if (!isRecording) {
-                  togglePlay()
-                }
-              }}
-            >
-              {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
-            </Button>
-            <Button size="lg" variant="secondary" onClick={playNextBeat}>
-              <SkipForward className="h-6 w-6" />
-            </Button>
-            <Button size="lg" variant="secondary" onClick={toggleRepeat}>
-              <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
-            </Button>
-            <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-              <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-            </Button>
-            <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
-              Playlists
-            </Button>
+            <div className="flex items-center justify-center gap-2">
+              <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
+                <Rewind className="h-6 w-6" />
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                onClick={() => {
+                  if (!isRecording) {
+                    togglePlay()
+                  }
+                }}
+              >
+                {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+              </Button>
+              <Button size="lg" variant="secondary" onClick={playNextBeat}>
+                <SkipForward className="h-6 w-6" />
+              </Button>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <Button size="lg" variant="secondary" onClick={toggleRepeat}>
+                <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
+              </Button>
+              <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+                <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+              </Button>
+              <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
+                Playlists
+              </Button>
+            </div>
           </div>
           <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
           {isExpanded && isExpandedViewVisible && (

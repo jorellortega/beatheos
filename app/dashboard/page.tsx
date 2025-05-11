@@ -38,16 +38,17 @@ export default function DashboardPage() {
     return null
   }
 
-  const username = user.email.split('@')[0]
+  const username = user.email?.split('@')[0] || 'User'
 
   return (
+    <div className="min-h-screen bg-[#141414]">
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">
         Welcome, {username}!
       </h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <Card className="bg-card border-primary">
+          <Card className="bg-black border-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium">Total Plays</CardTitle>
             <BarChart className="h-4 w-4 text-muted-foreground" />
@@ -57,7 +58,7 @@ export default function DashboardPage() {
             <Progress value={75} className="mt-2" />
           </CardContent>
         </Card>
-        <Card className="bg-card border-primary">
+          <Card className="bg-black border-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium">Followers</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -67,7 +68,7 @@ export default function DashboardPage() {
             <Progress value={60} className="mt-2" />
           </CardContent>
         </Card>
-        <Card className="bg-card border-primary">
+          <Card className="bg-black border-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium">Beats Uploaded</CardTitle>
             <Music className="h-4 w-4 text-muted-foreground" />
@@ -77,7 +78,7 @@ export default function DashboardPage() {
             <Progress value={40} className="mt-2" />
           </CardContent>
         </Card>
-        <Card className="bg-card border-primary">
+          <Card className="bg-black border-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium">Earnings</CardTitle>
             <Headphones className="h-4 w-4 text-muted-foreground" />
@@ -101,6 +102,7 @@ export default function DashboardPage() {
             Upload Beats
           </Link>
         </Button>
+        </div>
       </div>
     </div>
   )

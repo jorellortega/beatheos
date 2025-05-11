@@ -1,0 +1,12 @@
+{
+  "title": "Test Beat",
+  "producer_id": "test-producer",
+  "bpm": 140,
+  "key": "Am",
+  "genre": "Trap",
+  "tags": ["trap", "dark", "melodic"],
+  "description": "A test beat for the audio library system",
+  "created_at": "2024-03-20T00:00:00Z",
+  "updated_at": "2024-03-20T00:00:00Z",
+  "is_draft": false
+} 

@@ -378,22 +378,23 @@ export default function BusinessProducerDashboard() {
   if (!user) return null
 
   return (
+    <div className="min-h-screen bg-[#141414]">
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Business Producer Dashboard</h1>
-          <p className="text-xl text-gray-400">Welcome back, {displayName || ('username' in user ? (user as any).username : user?.email?.split('@')[0])}</p>
+            <p className="text-xl text-gray-400">Welcome back, {displayName || ('username' in user ? (user as any).username : user?.email?.split('@')[0])}</p>
         </div>
       </div>
       
-      <Suspense fallback={null}>
-        <TabManager setActiveTab={setActiveTab} />
-      </Suspense>
+        <Suspense fallback={null}>
+          <TabManager setActiveTab={setActiveTab} />
+        </Suspense>
       <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="mb-8">
-        <TabsList className="grid w-full grid-cols-7">
+          <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
-          <TabsTrigger value="mybeats">My Beats</TabsTrigger>
+            <TabsTrigger value="mybeats">My Beats</TabsTrigger>
           <TabsTrigger value="promo">Promo</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="support">Support</TabsTrigger>
@@ -402,7 +403,7 @@ export default function BusinessProducerDashboard() {
         
         <TabsContent value="overview" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card className="hover:border-primary transition-all">
+              <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <Package className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Beat Marketplace</CardTitle>
@@ -413,7 +414,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
             
-            <Card className="hover:border-primary transition-all">
+              <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <BarChart2 className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Professional Analytics</CardTitle>
@@ -424,7 +425,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
             
-            <Card className="hover:border-primary transition-all">
+              <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <Activity className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Rhythm Forge Pro</CardTitle>
@@ -437,7 +438,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
             
-            <Card className="hover:border-primary transition-all">
+              <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <HelpCircle className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Dedicated Support</CardTitle>
@@ -448,7 +449,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
             
-            <Card className="hover:border-primary transition-all">
+              <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <Users className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Fan Management</CardTitle>
@@ -459,7 +460,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
             
-            <Card className="hover:border-primary transition-all">
+              <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <Upload className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Quick Upload</CardTitle>
@@ -544,79 +545,23 @@ export default function BusinessProducerDashboard() {
         </TabsContent>
         
         <TabsContent value="marketplace" className="mt-6">
-          <div className="grid grid-cols-1 gap-6">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Marketplace Items</CardTitle>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add New Item
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="border rounded-md">
-                  <div className="grid grid-cols-6 bg-secondary p-3 rounded-t-md">
-                    <div className="font-medium">Title</div>
-                    <div className="font-medium">Type</div>
-                    <div className="font-medium">Price</div>
-                    <div className="font-medium">Sales</div>
-                    <div className="font-medium">Promo</div>
-                    <div className="font-medium">Actions</div>
-                  </div>
-                  {items.map((item) => (
-                    <div key={item.id} className="grid grid-cols-6 p-4 border-t items-center">
-                      <div className="font-medium">{item.title}</div>
-                      <div className="capitalize">{item.type}</div>
-                      <div>${item.price.toFixed(2)}</div>
-                      <div className="flex items-center">
-                        {item.sales} 
-                        <span className="flex items-center ml-2 text-gray-400">
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-                          {item.rating}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Switch 
-                          checked={item.promo}
-                          onCheckedChange={() => togglePromo(item.id)}
-                        />
-                        {item.promo && (
-                          <Percent className="h-4 w-4 text-green-500" />
-                        )}
-                      </div>
-                      <div className="flex space-x-2">
-                        <Button variant="outline" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="sm">
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card>
+            <Card className="bg-black border-primary">
               <CardHeader>
                 <CardTitle>Marketplace Analytics</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-secondary p-4 rounded-md">
+                  <div className="bg-black border border-primary p-4 rounded-md">
                     <div className="text-sm text-gray-400">Total Revenue</div>
                     <div className="text-2xl font-bold">$7,892.45</div>
                     <div className="text-sm text-green-500">+12% from last month</div>
                   </div>
-                  <div className="bg-secondary p-4 rounded-md">
+                  <div className="bg-black border border-primary p-4 rounded-md">
                     <div className="text-sm text-gray-400">Total Sales</div>
                     <div className="text-2xl font-bold">413</div>
                     <div className="text-sm text-green-500">+8% from last month</div>
                   </div>
-                  <div className="bg-secondary p-4 rounded-md">
+                  <div className="bg-black border border-primary p-4 rounded-md">
                     <div className="text-sm text-gray-400">Avg. Rating</div>
                     <div className="text-2xl font-bold flex items-center">
                       4.7
@@ -627,63 +572,26 @@ export default function BusinessProducerDashboard() {
                 </div>
               </CardContent>
             </Card>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Create New Sound Kit</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="kitTitle">Sound Kit Title</Label>
-                      <Input id="kitTitle" placeholder="e.g. Trap Essentials Vol. 2" />
-                    </div>
-                    <div>
-                      <Label htmlFor="kitPrice">Price ($)</Label>
-                      <Input id="kitPrice" type="number" min="0" step="0.01" placeholder="29.99" />
-                    </div>
-                    <Button className="w-full">Create Sound Kit</Button>
-                  </div>
+          </TabsContent>
+          
+          <TabsContent value="mybeats" className="mt-6">
+            <Card className="bg-black border-primary">
+              <CardContent className="p-6">
+                <MyBeatsManager userId={user.id} />
                 </CardContent>
               </Card>
-              
-              <Card>
-                <CardHeader>
-                  <CardTitle>Create Loop Pack</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="loopTitle">Loop Pack Title</Label>
-                      <Input id="loopTitle" placeholder="e.g. Melodic Hip Hop Loops" />
-                    </div>
-                    <div>
-                      <Label htmlFor="loopPrice">Price ($)</Label>
-                      <Input id="loopPrice" type="number" min="0" step="0.01" placeholder="19.99" />
-                    </div>
-                    <Button className="w-full">Create Loop Pack</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="mybeats" className="mt-6">
-          <MyBeatsManager userId={user.id} />
         </TabsContent>
         
         <TabsContent value="promo" className="mt-6">
           <div className="grid grid-cols-1 gap-6">
-            <Card>
+              <Card className="bg-black border-primary">
               <CardHeader>
                 <CardTitle>Active Promotions</CardTitle>
                 <CardDescription>Manage your ongoing promotional campaigns</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="border rounded-md">
-                  <div className="grid grid-cols-5 bg-secondary p-3 rounded-t-md">
+                  <div className="border border-primary rounded-md">
+                    <div className="grid grid-cols-5 bg-black p-3 rounded-t-md">
                     <div className="font-medium">Item</div>
                     <div className="font-medium">Original Price</div>
                     <div className="font-medium">Promo Price</div>
@@ -691,7 +599,7 @@ export default function BusinessProducerDashboard() {
                     <div className="font-medium">Actions</div>
                   </div>
                   {items.filter(item => item.promo).map((item) => (
-                    <div key={item.id} className="grid grid-cols-5 p-4 border-t items-center">
+                      <div key={item.id} className="grid grid-cols-5 p-4 border-t border-primary items-center">
                       <div className="font-medium">{item.title}</div>
                       <div className="line-through">${item.price.toFixed(2)}</div>
                       <div className="text-green-500 font-medium">${(item.price * 0.75).toFixed(2)}</div>
@@ -716,7 +624,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
 
-            <Card>
+              <Card className="bg-black border-primary">
               <CardHeader>
                 <CardTitle>Promo Settings</CardTitle>
                 <CardDescription>Configure how promotions work for your products</CardDescription>
@@ -755,7 +663,7 @@ export default function BusinessProducerDashboard() {
               </CardContent>
             </Card>
             
-            <Card>
+              <Card className="bg-black border-primary">
               <CardHeader>
                 <CardTitle>Schedule Promotion</CardTitle>
                 <CardDescription>Plan future promotional campaigns</CardDescription>
@@ -778,7 +686,7 @@ export default function BusinessProducerDashboard() {
                   </div>
                   <div>
                     <Label htmlFor="promo-items">Select Items</Label>
-                    <div className="border rounded-md p-4 mt-2 space-y-2 max-h-40 overflow-y-auto">
+                      <div className="border border-primary rounded-md p-4 mt-2 space-y-2 max-h-40 overflow-y-auto">
                       {items.map(item => (
                         <div key={item.id} className="flex items-center space-x-2">
                           <Checkbox id={`item-${item.id}`} />
@@ -795,12 +703,12 @@ export default function BusinessProducerDashboard() {
         </TabsContent>
         
         <TabsContent value="analytics" className="mt-6">
-          <Card>
+            <Card className="bg-black border-primary">
             <CardHeader>
               <CardTitle>Performance Analytics</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-80 flex items-center justify-center border rounded-md">
+                <div className="h-80 flex items-center justify-center border border-primary rounded-md">
                 <p className="text-gray-500">Analytics charts and data visualizations would appear here</p>
               </div>
             </CardContent>
@@ -808,7 +716,7 @@ export default function BusinessProducerDashboard() {
         </TabsContent>
         
         <TabsContent value="support" className="mt-6">
-          <Card>
+            <Card className="bg-black border-primary">
             <CardHeader>
               <CardTitle>Business Producer Support</CardTitle>
             </CardHeader>
@@ -824,7 +732,7 @@ export default function BusinessProducerDashboard() {
         <TabsContent value="others" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Link href="/ai-loop-stacker">
-              <Card className="hover:border-primary transition-all cursor-pointer">
+                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Wand2 className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>AI Loop Stacker</CardTitle>
@@ -834,7 +742,7 @@ export default function BusinessProducerDashboard() {
             </Link>
 
             <Link href="/eternal-loops">
-              <Card className="hover:border-primary transition-all cursor-pointer">
+                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Music2 className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Eternal Loops</CardTitle>
@@ -844,7 +752,7 @@ export default function BusinessProducerDashboard() {
             </Link>
 
             <Link href="/beat-maker">
-              <Card className="hover:border-primary transition-all cursor-pointer">
+                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Layers className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Beat Maker</CardTitle>
@@ -854,7 +762,7 @@ export default function BusinessProducerDashboard() {
             </Link>
 
             <Link href="/shuffle">
-              <Card className="hover:border-primary transition-all cursor-pointer">
+                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Shuffle className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Shuffle</CardTitle>
@@ -864,7 +772,7 @@ export default function BusinessProducerDashboard() {
             </Link>
 
             <Link href="/producer">
-              <Card className="hover:border-primary transition-all cursor-pointer">
+                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <User className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Producer Profile</CardTitle>
@@ -875,6 +783,7 @@ export default function BusinessProducerDashboard() {
           </div>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   )
 }

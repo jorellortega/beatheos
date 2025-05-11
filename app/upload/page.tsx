@@ -6,14 +6,22 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Upload } from 'lucide-react'
+import { Upload, Loader } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
+import { toast } from "@/components/ui/use-toast"
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function UploadPage() {
   const { user } = useAuth()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
 
   // Auto-save draft to localStorage
   useEffect(() => {
@@ -34,48 +42,76 @@ export default function UploadPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file || !user) return;
+    console.log('Form submitted'); // Debug log
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-
-    // Upload file to Supabase Storage
-    const { data: fileData, error: fileError } = await supabase.storage
-      .from('beats')
-      .upload(`${user.id}/${file.name}`, file);
-
-    if (fileError) {
-      console.error('Error uploading file:', fileError);
+    if (!file || !user) {
+      toast({
+        title: "Error",
+        description: "Please select a file and ensure you're logged in.",
+        variant: "destructive"
+      });
       return;
     }
 
-    // Get the public URL of the uploaded file
-    const { data: { publicUrl } } = supabase.storage
-      .from('beats')
-      .getPublicUrl(`${user.id}/${file.name}`);
+    try {
+      setIsUploading(true);
+      console.log('Starting upload process'); // Debug log
 
-    // Save beat details to the beats table
-    const { data: beatData, error: beatError } = await supabase
-      .from('beats')
-      .insert({
-        title,
-        description,
-        mp3_url: publicUrl,
-        producer_id: user.id,
-        play_count: 0,
-        price: 0 // or let the user set a price
+      // Upload file to Supabase Storage
+      const { data: fileData, error: fileError } = await supabase.storage
+        .from('beats')
+        .upload(`${user.id}/${file.name}`, file);
+
+      if (fileError) {
+        console.error('File upload error:', fileError); // Debug log
+        throw new Error(`Error uploading file: ${fileError.message}`);
+      }
+
+      console.log('File uploaded successfully'); // Debug log
+
+      // Get the public URL of the uploaded file
+      const { data: { publicUrl } } = supabase.storage
+        .from('beats')
+        .getPublicUrl(`${user.id}/${file.name}`);
+
+      // Save beat details to the beats table
+      const { data: beatData, error: beatError } = await supabase
+        .from('beats')
+        .insert({
+          title,
+          description,
+          mp3_url: publicUrl,
+          producer_id: user.id,
+          play_count: 0,
+          price: 0
+        });
+
+      if (beatError) {
+        console.error('Database error:', beatError); // Debug log
+        throw new Error(`Error saving beat: ${beatError.message}`);
+      }
+
+      console.log('Beat saved to database'); // Debug log
+      
+      toast({
+        title: "Success",
+        description: "Beat uploaded successfully!",
       });
 
-    if (beatError) {
-      console.error('Error saving beat:', beatError);
-      return;
+      // Reset form
+      setTitle('');
+      setDescription('');
+      setFile(null);
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An error occurred during upload",
+        variant: "destructive"
+      });
+    } finally {
+      setIsUploading(false);
     }
-
-    // Clear the draft after successful upload
-    localStorage.removeItem('beatDraft');
-    alert('Beat uploaded successfully!');
   }
 
   return (
@@ -96,6 +132,7 @@ export default function UploadPage() {
                 onChange={(e) => setTitle(e.target.value)}
                 required
                 className="bg-secondary text-white"
+                disabled={isUploading}
               />
             </div>
             <div>
@@ -106,6 +143,7 @@ export default function UploadPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 className="bg-secondary text-white"
                 rows={4}
+                disabled={isUploading}
               />
             </div>
             <div>
@@ -114,14 +152,33 @@ export default function UploadPage() {
                 id="file"
                 type="file"
                 accept="audio/*"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  const selectedFile = e.target.files?.[0];
+                  console.log('File selected:', selectedFile?.name); // Debug log
+                  setFile(selectedFile || null);
+                }}
                 required
                 className="bg-secondary text-white"
+                disabled={isUploading}
               />
             </div>
-            <Button type="submit" className="w-full gradient-button text-black font-medium hover:text-white">
-              <Upload className="mr-2 h-4 w-4" />
-              Upload Beat
+            <Button 
+              type="submit" 
+              className="w-full gradient-button text-black font-medium hover:text-white"
+              disabled={isUploading || !file}
+              onClick={() => console.log('Button clicked')} // Debug log
+            >
+              {isUploading ? (
+                <>
+                  <Loader className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload Beat
+                </>
+              )}
             </Button>
           </form>
         </CardContent>

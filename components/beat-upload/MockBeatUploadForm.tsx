@@ -59,6 +59,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [bpm, setBpm] = useState(initialData?.bpm || "")
   const [key, setKey] = useState(initialData?.key || "")
   const [genre, setGenre] = useState(initialData?.genre || "")
+  const [customGenre, setCustomGenre] = useState<string | null>(null)
   const [mp3File, setMp3File] = useState<File | null>(null)
   const [wavFile, setWavFile] = useState<File | null>(initialData?.wavFile || null)
   const [stemsFile, setStemsFile] = useState<File | null>(initialData?.stemsFile || null)
@@ -132,6 +133,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
+    console.log('handleSubmit called');
     e.preventDefault()
     setIsUploading(true)
 
@@ -203,6 +205,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       setBpm("")
       setKey("")
       setGenre("")
+      setCustomGenre(null)
       setMp3File(null)
       setWavFile(null)
       setStemsFile(null)
@@ -409,6 +412,38 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
           <TagInput tags={tags} setTags={setTags} />
 
+          <div>
+            <Label htmlFor="genre">Genre</Label>
+            <select
+              id="genre"
+              name="genre"
+              value={genre}
+              onChange={e => setGenre(e.target.value)}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-secondary text-white"
+            >
+              <option value="">Select a genre</option>
+              <option value="Trap">Trap</option>
+              <option value="Hip Hop">Hip Hop</option>
+              <option value="R&B">R&B</option>
+              <option value="Pop">Pop</option>
+              <option value="Rock">Rock</option>
+              <option value="Electronic">Electronic</option>
+              <option value="Jazz">Jazz</option>
+              <option value="Classical">Classical</option>
+              <option value="Other">Other (type below)</option>
+            </select>
+            {genre === 'Other' && (
+              <Input
+                type="text"
+                name="customGenre"
+                value={customGenre || ''}
+                onChange={e => setCustomGenre(e.target.value)}
+                placeholder="Enter custom genre"
+                className="mt-2 bg-secondary text-white"
+              />
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="bpm">BPM</Label>
@@ -491,7 +526,6 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
           <Button
             type="submit"
             className="w-full gradient-button text-black font-medium hover:text-white"
-            disabled={isUploading}
           >
             {isUploading ? (
               <>

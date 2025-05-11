@@ -1,0 +1,13 @@
+{
+  "name": "rhythm-forge-audio-library",
+  "version": "1.0.0",
+  "description": "Audio library management for Rhythm Forge",
+  "main": "upload.js",
+  "scripts": {
+    "upload": "node upload.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1"
+  }
+} 

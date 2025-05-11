@@ -187,10 +187,10 @@ export default function BeatsPage() {
     } else if (playingBeatId === beat.id && !isPlaying) {
       setIsPlaying(true); // Resume
     } else {
-      setCurrentBeat({
-        id: beat.id.toString(),
-        title: beat.title,
-        artist: beat.producer,
+    setCurrentBeat({
+      id: beat.id.toString(),
+      title: beat.title,
+      artist: beat.producer,
         audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
         image: beat.image || '/placeholder.svg',
       });
