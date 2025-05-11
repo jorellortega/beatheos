@@ -76,6 +76,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({})
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [droppedFiles, setDroppedFiles] = useState<File[]>([])
 
   useEffect(() => {
     async function fetchDrafts() {
@@ -91,18 +92,25 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   }, [user]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    acceptedFiles.forEach((file) => {
-      // Handle different file types
-      if (file.type === "audio/mpeg") {
-        setMp3File(file);
-      } else if (file.type === "audio/wav") {
-        setWavFile(file);
-      } else if (file.type === "application/zip") {
-        setStemsFile(file);
-      } else if (file.type.startsWith("image/")) {
-        setCoverArt(file);
-      }
-    });
+    // Categorize files
+    const mp3s = acceptedFiles.filter(f => f.type === "audio/mpeg");
+    const wavs = acceptedFiles.filter(f => f.type === "audio/wav");
+    const zips = acceptedFiles.filter(f => f.type === "application/zip");
+    const images = acceptedFiles.filter(f => f.type.startsWith("image/"));
+    // If exactly one mp3, one wav, and one zip (or just one mp3), assign to fields
+    if (
+      (mp3s.length === 1 && wavs.length <= 1 && zips.length <= 1 && acceptedFiles.length <= 3) ||
+      (mp3s.length === 1 && acceptedFiles.length === 1)
+    ) {
+      setMp3File(mp3s[0] || null);
+      setWavFile(wavs[0] || null);
+      setStemsFile(zips[0] || null);
+      setCoverArt(images[0] || null);
+      setDroppedFiles([]);
+    } else {
+      // Otherwise, put all files in the Files tab
+      setDroppedFiles(acceptedFiles);
+    }
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
