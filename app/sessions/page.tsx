@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,6 +10,8 @@ import { Plus, Upload, Download, Share2, Mic, Play, Pause, Trash2, Edit } from "
 import { useToast } from "@/components/ui/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { useAuth } from "@/contexts/AuthContext"
+import { createClient } from "@supabase/supabase-js"
 
 interface Session {
   id: string
@@ -22,28 +24,128 @@ interface Session {
 }
 
 export default function SessionsPage() {
+  const { user } = useAuth()
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("my-sessions")
-  const [sessions, setSessions] = useState<Session[]>([
-    {
-      id: "1",
-      name: "Cosmic Rhythm Session",
-      date: "2024-04-05",
-      duration: "2:45",
-      stems: 8,
-      collaborators: ["Artist1", "Producer1"],
-      status: "recording"
-    },
-    {
-      id: "2",
-      name: "Trap Essentials Draft",
-      date: "2024-04-04",
-      duration: "3:15",
-      stems: 12,
-      collaborators: ["Artist2"],
-      status: "completed"
+  const [sessions, setSessions] = useState<any[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<{ name: string; lyrics: string }>({ name: "", lyrics: "" })
+  const [saving, setSaving] = useState(false)
+  const [beatsBySession, setBeatsBySession] = useState<{ [sessionId: string]: any[] }>({})
+  const [playingBeatId, setPlayingBeatId] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // Fetch sessions from Supabase
+  useEffect(() => {
+    if (!user) return
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    supabase
+      .from('sessions')
+      .select('id, name, last_modified, beat_ids, lyrics')
+      .eq('user_id', user.id)
+      .order('last_modified', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) {
+          toast({ title: "Error", description: "Could not fetch sessions", variant: "destructive" })
+        } else {
+          setSessions(data || [])
+        }
+      })
+  }, [user])
+
+  // Fetch beats for each session
+  useEffect(() => {
+    async function fetchBeatsForSessions() {
+      if (!sessions.length) return;
+      const allBeatIds = sessions.flatMap(s => s.beat_ids || []);
+      if (allBeatIds.length === 0) return;
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+      const { data: beats } = await supabase
+        .from('beats')
+        .select('id, title, producer_id, cover_art_url, mp3_url')
+        .in('id', allBeatIds);
+      const beatMap: { [id: string]: any } = {};
+      (beats || []).forEach(beat => { beatMap[beat.id] = beat; });
+      const sessionBeats: { [sessionId: string]: any[] } = {};
+      sessions.forEach(session => {
+        sessionBeats[session.id] = (session.beat_ids || []).map((id: string) => beatMap[id]).filter(Boolean);
+      });
+      setBeatsBySession(sessionBeats);
     }
-  ])
+    fetchBeatsForSessions();
+  }, [sessions]);
+
+  const handleEdit = (session: any) => {
+    setEditingId(session.id)
+    setEditForm({ name: session.name || "", lyrics: session.lyrics || "" })
+  }
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setEditForm(f => ({ ...f, [name]: value }))
+  }
+
+  const handleSave = async (id: string) => {
+    if (!user) return
+    setSaving(true)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { error } = await supabase
+      .from('sessions')
+      .update({ name: editForm.name, lyrics: editForm.lyrics })
+      .eq('id', id)
+    setSaving(false)
+    if (!error) {
+      toast({ title: "Session Updated", description: "Session updated successfully." })
+      setEditingId(null)
+      // Refetch sessions after save
+      const { data: newSessions } = await supabase
+        .from('sessions')
+        .select('id, name, last_modified, beat_ids, lyrics')
+        .eq('user_id', user.id)
+        .order('last_modified', { ascending: false });
+      setSessions(newSessions || [])
+    } else {
+      toast({ title: "Error", description: "Failed to update session.", variant: "destructive" })
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this session?")) return
+    if (!user) return
+    setSaving(true)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { data, error } = await supabase
+      .from('sessions')
+      .delete()
+      .eq('id', id)
+    console.log('Delete response:', { data, error });
+    setSaving(false)
+    if (!error) {
+      toast({ title: "Session Deleted", description: "Session deleted successfully." })
+      setEditingId(null)
+      // Refetch sessions to ensure UI is up to date
+      const { data: newSessions } = await supabase
+        .from('sessions')
+        .select('id, name, last_modified, beat_ids, lyrics')
+        .eq('user_id', user.id)
+        .order('last_modified', { ascending: false });
+      setSessions(newSessions || [])
+    } else {
+      toast({ title: "Error", description: "Failed to delete session.", variant: "destructive" })
+    }
+  }
 
   const handleUploadSession = () => {
     // TODO: Implement session upload logic
@@ -60,6 +162,19 @@ export default function SessionsPage() {
       description: "Share this session with collaborators",
     })
   }
+
+  const handlePlayPause = (beat: any) => {
+    if (playingBeatId === beat.id) {
+      audioRef.current?.pause();
+      setPlayingBeatId(null);
+    } else {
+      if (audioRef.current) {
+        audioRef.current.src = beat.mp3_url;
+        audioRef.current.play();
+        setPlayingBeatId(beat.id);
+      }
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -83,39 +198,97 @@ export default function SessionsPage() {
 
         <TabsContent value="my-sessions" className="mt-6">
           <div className="grid grid-cols-1 gap-6">
+            {sessions.length === 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>No Sessions Found</CardTitle>
+                  <CardDescription>You have not created any sessions yet.</CardDescription>
+                </CardHeader>
+              </Card>
+            )}
             {sessions.map((session) => (
               <Card key={session.id} className="hover:border-primary transition-all">
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <div>
-                      <CardTitle>{session.name}</CardTitle>
-                      <CardDescription>
-                        Created on {session.date} • {session.duration} • {session.stems} stems
-                      </CardDescription>
+                      {editingId === session.id ? (
+                        <>
+                          <Input
+                            name="name"
+                            value={editForm.name}
+                            onChange={handleEditChange}
+                            className="mb-2"
+                          />
+                          <Label>Lyrics</Label>
+                          <textarea
+                            name="lyrics"
+                            value={editForm.lyrics}
+                            onChange={handleEditChange}
+                            className="w-full h-24 mb-2 bg-secondary text-white rounded p-2"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <CardTitle>{session.name}</CardTitle>
+                          <CardDescription>
+                            Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
+                            <br />
+                            Beats: {session.beat_ids ? session.beat_ids.length : 0}
+                          </CardDescription>
+                          {beatsBySession[session.id] && beatsBySession[session.id].length > 0 && (
+                            <div className="mt-2">
+                              <strong>Beats:</strong>
+                              <ul className="list-disc ml-6">
+                                {beatsBySession[session.id].map(beat => (
+                                  <li key={beat.id} className="flex items-center space-x-2">
+                                    {beat.cover_art_url && (
+                                      <img src={beat.cover_art_url} alt="cover" className="w-8 h-8 rounded object-cover" />
+                                    )}
+                                    <span>{beat.title}</span>
+                                    <button
+                                      className="ml-2"
+                                      onClick={() => handlePlayPause(beat)}
+                                      aria-label={playingBeatId === beat.id ? 'Pause' : 'Play'}
+                                    >
+                                      {playingBeatId === beat.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                     <div className="flex space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => handleShareSession(session.id)}>
-                        <Share2 className="h-4 w-4 mr-2" />
-                        Share
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        <Download className="h-4 w-4 mr-2" />
-                        Download
-                      </Button>
+                      {editingId === session.id ? (
+                        <>
+                          <Button size="sm" onClick={() => handleSave(session.id)} disabled={saving}>
+                            Save
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setEditingId(null)} disabled={saving}>
+                            Cancel
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => handleEdit(session)}>
+                            <Edit className="h-4 w-4 mr-1" /> Edit
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(session.id)} disabled={saving}>
+                            <Trash2 className="h-4 w-4 mr-1" /> Delete
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center space-x-4">
                     <div className="flex items-center space-x-2">
-                      <Mic className="h-4 w-4 text-primary" />
                       <span className="text-sm text-gray-400">
-                        {session.collaborators.length} collaborator{session.collaborators.length !== 1 ? 's' : ''}
+                        Lyrics: {editingId === session.id ? null : (session.lyrics ? session.lyrics.slice(0, 40) + (session.lyrics.length > 40 ? "..." : "") : "-")}
                       </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Play className="h-4 w-4 text-primary" />
-                      <span className="text-sm text-gray-400">{session.status}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -156,6 +329,12 @@ export default function SessionsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <audio
+        ref={audioRef}
+        onEnded={() => setPlayingBeatId(null)}
+        style={{ display: 'none' }}
+      />
     </div>
   )
 } 

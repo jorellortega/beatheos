@@ -293,10 +293,10 @@ export function SiteWideBeatPlayer() {
         lyrics, // Save lyrics to the session
       })
       if (!error) {
-        toast({
-          title: "Session Saved",
-          description: "Your session has been saved to your Sessions playlist.",
-        })
+      toast({
+        title: "Session Saved",
+        description: "Your session has been saved to your Sessions playlist.",
+      })
       } else {
         toast({
           title: "Error",
@@ -594,20 +594,20 @@ export function SiteWideBeatPlayer() {
           )}
         </CardContent>
         {currentBeat?.audioUrl ? (
-          <audio
-            ref={audioRef}
+        <audio
+          ref={audioRef}
             src={currentBeat.audioUrl}
-            onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
-            onEnded={() => {
-              // Added onEnded handler for repeat functionality
-              if (isRepeat) {
-                audioRef.current?.play()
-              } else {
-                setIsPlaying(false)
-                setProgress(0)
-              }
-            }}
-          />
+          onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+          onEnded={() => {
+            // Added onEnded handler for repeat functionality
+            if (isRepeat) {
+              audioRef.current?.play()
+            } else {
+              setIsPlaying(false)
+              setProgress(0)
+            }
+          }}
+        />
         ) : null}
       </Card>
       {showAuthPrompt && (

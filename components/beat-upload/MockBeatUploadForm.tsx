@@ -503,23 +503,23 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
                   />
                   <h3 className="font-medium truncate">{draft.title}</h3>
                 </div>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2"
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2"
                     onClick={() => handleEditDraft(draft)}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-destructive hover:text-destructive"
-                    onClick={() => deleteDraft(draft.id)}
-                  >
-                    Delete
-                  </Button>
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-destructive hover:text-destructive"
+                      onClick={() => deleteDraft(draft.id)}
+                    >
+                      Delete
+                    </Button>
                 </div>
               </div>
             ))

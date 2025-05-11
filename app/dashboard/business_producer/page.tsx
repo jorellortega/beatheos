@@ -223,12 +223,12 @@ function MyBeatsManager({ userId }: { userId: string }) {
               <tr key={beat.id} className="border-t border-gray-700">
                 {editingId === beat.id ? (
                   <>
-                    <td className="p-2"><input name="title" value={editForm.title} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
+                    <td className="p-2"><input name="title" value={editForm.title || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
                     <td className="p-2">{beat.producers?.display_name || "-"}</td>
-                    <td className="p-2"><input name="genre" value={editForm.genre} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
-                    <td className="p-2"><input name="bpm" value={editForm.bpm} onChange={handleEditChange} className="bg-black text-white p-1 rounded" type="number" /></td>
-                    <td className="p-2"><input name="key" value={editForm.key} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
-                    <td className="p-2"><input name="is_draft" type="checkbox" checked={editForm.is_draft} onChange={handleEditChange} /></td>
+                    <td className="p-2"><input name="genre" value={editForm.genre || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
+                    <td className="p-2"><input name="bpm" value={editForm.bpm || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" type="number" /></td>
+                    <td className="p-2"><input name="key" value={editForm.key || ""} onChange={handleEditChange} className="bg-black text-white p-1 rounded" /></td>
+                    <td className="p-2"><input name="is_draft" type="checkbox" checked={!!editForm.is_draft} onChange={handleEditChange} /></td>
                     <td className="p-2"></td>
                     <td className="p-2 space-x-2">
                       <Button size="sm" onClick={() => handleEditSave(beat.id)}>Save</Button>
