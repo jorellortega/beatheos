@@ -37,18 +37,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.getUser()
       if (data?.user) {
         const role = await fetchUserRole(data.user.id)
-        setUser({ id: data.user.id ?? '', email: data.user.email ?? null, role })
+        setUser(prev =>
+          prev && prev.id === data.user.id && prev.role === role && prev.email === data.user.email
+            ? prev
+            : { id: data.user.id ?? '', email: data.user.email ?? null, role }
+        )
       } else {
         setUser(null)
-    }
-    setIsLoading(false)
+      }
+      setIsLoading(false)
     }
     getSession()
     // Listen for auth state changes
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         const role = await fetchUserRole(session.user.id)
-        setUser({ id: session.user.id ?? '', email: session.user.email ?? null, role })
+        setUser(prev =>
+          prev && prev.id === session.user.id && prev.role === role && prev.email === session.user.email
+            ? prev
+            : { id: session.user.id ?? '', email: session.user.email ?? null, role }
+        )
       } else {
         setUser(null)
       }
