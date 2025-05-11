@@ -35,11 +35,11 @@ export function ViewSelector({ currentView, onViewChange }: ViewSelectorProps) {
       </Button>
       <Button
         variant={currentView === "vertical" ? "default" : "outline"}
-        className={`gradient-button text-black font-medium hover:text-white ${currentView === "vertical" ? "bg-primary" : ""}`}
+        className={`text-xs opacity-50 px-2 py-1 ${currentView === "vertical" ? "bg-primary" : ""}`}
+        style={{ pointerEvents: 'none' }}
         onClick={() => onViewChange("vertical")}
       >
-        <Smartphone className="mr-2 h-4 w-4" />
-        Vertical View
+        Other
       </Button>
     </div>
   )
