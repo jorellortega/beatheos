@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Search, Bell, User, LogOut } from "lucide-react"
+import { createClient } from '@supabase/supabase-js'
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
   const pathname = usePathname()
   const { user, logout } = useAuth()
+  const [producerId, setProducerId] = useState<string | null>(null)
 
   const getDashboardPath = () => {
     switch (user?.role) {
@@ -46,6 +48,30 @@ export default function Header() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
+  useEffect(() => {
+    async function fetchProducerId() {
+      if (!user) {
+        setProducerId(null)
+        return
+      }
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+      const { data, error } = await supabase
+        .from('producers')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+      if (data && data.id) {
+        setProducerId(data.id)
+      } else {
+        setProducerId(null)
+      }
+    }
+    fetchProducerId()
+  }, [user])
+
   const navItems = [
     { name: "Home", path: "/" },
     { name: "Producers", path: "/producers" },
@@ -69,6 +95,11 @@ export default function Header() {
                 <Button variant="outline" className="text-white hover:text-primary" asChild>
                   <Link href={getDashboardPath()}>Dashboard</Link>
                 </Button>
+                {producerId && (
+                  <Button variant="outline" className="text-white hover:text-primary" asChild>
+                    <Link href={`/producers/${producerId}`}>Profile</Link>
+                  </Button>
+                )}
                 <Button variant="outline" className="text-white hover:text-primary" asChild>
                   <Link href="/beatvault">Beat Vault</Link>
                 </Button>
