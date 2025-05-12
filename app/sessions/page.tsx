@@ -13,6 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useAuth } from "@/contexts/AuthContext"
 import { createClient } from "@supabase/supabase-js"
 
+// DEBUG: Log Supabase client creation
+console.debug('[DEBUG] Creating Supabase client in app/sessions/page.tsx');
+
 interface Session {
   id: string
   name: string

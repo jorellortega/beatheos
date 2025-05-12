@@ -3,6 +3,9 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+// DEBUG: Log Supabase client creation
+console.debug('[DEBUG] Creating Supabase client in rhythm-forge/audio-library/upload.js');
+
 // Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

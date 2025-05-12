@@ -52,12 +52,11 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
           beatId: beat.id,
           licenseType: selectedLicense,
           price,
-          title: beat.title,
+          productName: beat.title,
         })
       })
       const data = await res.json()
       if (data.url) {
-        const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
         window.location.href = data.url
       } else {
         toast({ title: 'Stripe Error', description: data.error || 'Could not start checkout', variant: 'destructive' })

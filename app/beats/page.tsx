@@ -21,7 +21,7 @@ import React from "react"
 
 const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
   return (
-    <Card key={beat.id} className="bg-card border-primary flex flex-col">
+    <Card key={beat.id} className="bg-black border-primary flex flex-col">
       <CardHeader className="relative pb-0 pt-0 px-0">
         <div className="relative w-full aspect-square">
           <Image
@@ -213,15 +213,61 @@ export default function BeatsPage() {
   }
 
   const GridView = () => (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
       {filteredBeats.map((beat) => (
-        <BeatCard
-          key={beat.id}
-          beat={beat}
-          isPlaying={playingBeatId === beat.id && isPlaying}
-          onPlayPause={handlePlayPause}
-          onPurchase={handlePurchase}
-        />
+        <Card key={beat.id} className="bg-black border-primary flex flex-col">
+          <CardHeader className="relative pb-0 pt-0 px-0">
+            <div className="relative w-full aspect-square">
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
+                fill
+                className="rounded-t-lg object-cover cursor-pointer"
+                onClick={() => handlePlayPause(beat)}
+              />
+            </div>
+            <Button
+              size="icon"
+              className="absolute top-2 right-2 rounded-full gradient-button"
+              onClick={() => handlePlayPause(beat)}
+            >
+              {playingBeatId === beat.id && isPlaying ? (
+                <Pause className="h-4 w-4 text-black" />
+              ) : (
+                <Play className="h-4 w-4 text-black" />
+              )}
+            </Button>
+          </CardHeader>
+          <CardContent className="pt-4 flex-grow flex flex-col justify-between">
+            <div>
+              <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
+              <p className="text-xs text-gray-400 mb-1">by {beat.producer}</p>
+              <div className="flex items-center mb-2">
+                <Rating value={beat.rating || 0} onChange={(newRating) => {}} />
+              </div>
+              <div className="flex justify-between items-center mb-2">
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] px-1.5 py-0.5 w-full flex items-center justify-center text-center"
+                >
+                  <span className="inline-block">{beat.bpm} BPM</span>
+                </Badge>
+                <span className="text-xs text-gray-400">{beat.plays} plays</span>
+              </div>
+            </div>
+            <div className="flex justify-between items-center mt-2">
+              <Button variant="outline" size="icon" onClick={() => {}}>
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Button
+                className="gradient-button text-black font-medium hover:text-white"
+                onClick={() => handlePurchase(beat)}
+              >
+                BUY
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   )
@@ -229,7 +275,7 @@ export default function BeatsPage() {
   const ListView = () => (
     <div className="space-y-4">
       {filteredBeats.map((beat) => (
-        <Card key={beat.id} className="bg-card border-primary">
+        <Card key={beat.id} className="bg-black border-primary">
           <CardContent className="flex flex-col sm:flex-row items-center p-4 space-y-4 sm:space-y-0">
             <Image
               src={beat.image || "/placeholder.svg"}
@@ -364,69 +410,71 @@ export default function BeatsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-4xl font-bold font-display tracking-wider text-primary">Beats</h1>
-        <ViewSelector currentView={currentView} onViewChange={setCurrentView} />
-      </div>
-
-      {/* Search and filters */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-8">
-        <div className="relative flex-1">
-          <Input
-            type="text"
-            placeholder="Search beats..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-secondary text-white focus:bg-accent w-full"
-          />
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+    <div style={{ background: '#141414', minHeight: '100vh' }} className="w-full">
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold font-display tracking-wider text-primary">Beats</h1>
+          <ViewSelector currentView={currentView} onViewChange={setCurrentView} />
         </div>
-        <Button onClick={shuffleBeats}>
-          <Shuffle className="h-4 w-4 mr-2" />
-          Shuffle
-        </Button>
-      </div>
 
-      {/* Advanced filters */}
-      {showAdvancedSearch && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <Select value={advancedFilters.genre} onValueChange={(value) => setAdvancedFilters({ ...advancedFilters, genre: value })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Genre" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">All Genres</SelectItem>
-              <SelectItem value="Epic">Epic</SelectItem>
-              <SelectItem value="Ambient">Ambient</SelectItem>
-              <SelectItem value="Trap">Trap</SelectItem>
-              <SelectItem value="Classical">Classical</SelectItem>
-              <SelectItem value="EDM">EDM</SelectItem>
-              <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
-              <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
-            </SelectContent>
-          </Select>
-          {/* Add other filters similarly */}
+        {/* Search and filters */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-8">
+          <div className="relative flex-1">
+            <Input
+              type="text"
+              placeholder="Search beats..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 bg-secondary text-white focus:bg-accent w-full"
+            />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+          </div>
+          <Button onClick={shuffleBeats}>
+            <Shuffle className="h-4 w-4 mr-2" />
+            Shuffle
+          </Button>
         </div>
-      )}
 
-      {/* View content */}
-      {currentView === "grid" && <GridView />}
-      {currentView === "list" && <ListView />}
-      {currentView === "compact" && <CompactView />}
-      {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+        {/* Advanced filters */}
+        {showAdvancedSearch && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <Select value={advancedFilters.genre} onValueChange={(value) => setAdvancedFilters({ ...advancedFilters, genre: value })}>
+              <SelectTrigger>
+                <SelectValue placeholder="Genre" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Genres</SelectItem>
+                <SelectItem value="Epic">Epic</SelectItem>
+                <SelectItem value="Ambient">Ambient</SelectItem>
+                <SelectItem value="Trap">Trap</SelectItem>
+                <SelectItem value="Classical">Classical</SelectItem>
+                <SelectItem value="EDM">EDM</SelectItem>
+                <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
+                <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
+              </SelectContent>
+            </Select>
+            {/* Add other filters similarly */}
+          </div>
+        )}
 
-      {/* Modals */}
-      <SaveToPlaylistModal
-        isOpen={isPlaylistModalOpen}
-        onClose={() => setIsPlaylistModalOpen(false)}
-        beat={selectedBeat}
-      />
-      <PurchaseOptionsModal
-        isOpen={isPurchaseModalOpen}
-        onClose={() => setIsPurchaseModalOpen(false)}
-        beat={selectedBeat}
-      />
+        {/* View content */}
+        {currentView === "grid" && <GridView />}
+        {currentView === "list" && <ListView />}
+        {currentView === "compact" && <CompactView />}
+        {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+
+        {/* Modals */}
+        <SaveToPlaylistModal
+          isOpen={isPlaylistModalOpen}
+          onClose={() => setIsPlaylistModalOpen(false)}
+          beat={selectedBeat}
+        />
+        <PurchaseOptionsModal
+          isOpen={isPurchaseModalOpen}
+          onClose={() => setIsPurchaseModalOpen(false)}
+          beat={selectedBeat}
+        />
+      </div>
     </div>
   )
 }

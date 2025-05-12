@@ -10,6 +10,9 @@ import { Upload, Loader } from 'lucide-react'
 import { createClient } from '@supabase/supabase-js'
 import { toast } from "@/components/ui/use-toast"
 
+// DEBUG: Log Supabase client creation
+console.debug('[DEBUG] Creating Supabase client in app/upload/page.tsx');
+
 // Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

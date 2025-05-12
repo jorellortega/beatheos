@@ -109,16 +109,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signup = async (email: string, password: string, username: string, role: string): Promise<User> => {
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { username } } })
-    if (error || !data.user) throw new Error(error?.message || "Signup failed")
-    // Insert or update the role in the users table
-    await supabase.from("users").update({ role }).eq("id", data.user.id)
-    // Insert into producers table
-    await supabase.from("producers").insert({ user_id: data.user.id, display_name: username })
-    const userRole = await fetchUserRole(data.user.id)
-    const userObj = { id: data.user.id ?? '', email: data.user.email ?? null, role: userRole }
-    setUser(userObj)
-    return userObj
+    setIsLoading(true);
+    try {
+      // 1. Create user in Supabase Auth
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { username } } });
+      if (error || !data.user) throw new Error(error?.message || "Signup failed");
+
+      // 2. Insert into users table
+      const { error: userError } = await supabase
+        .from("users")
+        .insert({
+          id: data.user.id,
+          email,
+          username,
+          role,
+          created_at: new Date().toISOString(),
+          display_name: username
+        });
+      if (userError) throw new Error(userError.message);
+
+      // 3. Insert into producers table (for ALL users)
+      const { error: producerError } = await supabase
+        .from("producers")
+        .insert({
+          user_id: data.user.id,
+          display_name: username,
+          created_at: new Date().toISOString()
+        });
+      if (producerError) throw new Error(producerError.message);
+
+      // Fetch user role and set user state as before
+      const userRole = await fetchUserRole(data.user.id);
+      const userObj = { id: data.user.id ?? '', email: data.user.email ?? null, role: userRole };
+      setUser(userObj);
+      return userObj;
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   const logout = async () => {

@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { ProducerBeats } from "@/components/producer/ProducerBeats"
 import Header from '@/components/header'
 import { Search, Award, Music, Plus, Camera } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 import { EditProfileDialog } from "@/components/EditProfileDialog"
 import { ProfilePictureUpload } from "@/components/ProfilePictureUpload"
 import { useToast } from "@/components/ui/use-toast"
@@ -20,7 +20,7 @@ import { useToast } from "@/components/ui/use-toast"
 interface Producer {
   id: string
   user_id: string
-  name: string
+  display_name: string
   profile_image_url: string
   bio: string
   followers: number
@@ -51,15 +51,12 @@ export default function ProducerProfilePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
-  const [vault, setVault] = useState<any>(null)
-  const [hasVaultAccess, setHasVaultAccess] = useState(false)
-  const [vaultBeats, setVaultBeats] = useState<any[]>([])
 
-    const fetchProducer = async () => {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+  // DEBUG: Log when the Supabase client is created
+  console.debug('[DEBUG] Creating Supabase client in ProducerProfilePage');
+
+  const fetchProducer = async () => {
+    console.debug('[DEBUG] fetchProducer called for id:', id);
     const { data, error } = await supabase
       .from('producers')
       .select('*')
@@ -69,7 +66,7 @@ export default function ProducerProfilePage() {
       setProducer({
         id: data.id,
         user_id: data.user_id,
-        name: data.display_name,
+        display_name: data.display_name,
         profile_image_url: data.profile_image_url || "/placeholder.svg",
         bio: data.bio || "",
         followers: data.followers ?? 0,
@@ -89,70 +86,9 @@ export default function ProducerProfilePage() {
   }
 
   useEffect(() => {
+    console.debug('[DEBUG] useEffect triggered: id =', id);
     fetchProducer()
-  }, [id, user])
-
-  // Fetch Beat Vault info and access
-  useEffect(() => {
-    async function fetchVault() {
-      if (!producer) return;
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
-      const { data: vaultData } = await supabase
-        .from('beat_vault')
-        .select('*')
-        .eq('producer_id', producer.id)
-        .single();
-      setVault(vaultData);
-      if (vaultData && user) {
-        const { data: access } = await supabase
-          .from('vault_access')
-          .select('*')
-          .eq('vault_id', vaultData.id)
-          .eq('user_id', user.id)
-          .single();
-        setHasVaultAccess(!!access);
-        if (access) {
-          const { data: beats } = await supabase
-            .from('beats')
-            .select('*')
-            .eq('vault_id', vaultData.id);
-          setVaultBeats(beats || []);
-        }
-      }
-    }
-    fetchVault();
-  }, [producer, user]);
-
-  const handleCreateVault = async () => {
-    if (!producer) return;
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    const { error } = await supabase
-      .from('beat_vault')
-      .insert({
-        producer_id: producer.id,
-        name: `${producer.name}'s Vault`,
-        description: 'Your private vault for unreleased or exclusive beats.',
-        is_public: false
-      });
-    if (!error) {
-      toast({ title: 'Vault Created', description: 'Your Beat Vault has been created.' });
-      // Refetch vault
-      const { data: vaultData } = await supabase
-        .from('beat_vault')
-        .select('*')
-        .eq('producer_id', producer.id)
-        .single();
-      setVault(vaultData);
-    } else {
-      toast({ title: 'Error', description: 'Failed to create vault.', variant: 'destructive' });
-    }
-  };
+  }, [id])
 
   if (!producer) {
     return <div>Loading...</div>
@@ -167,10 +103,14 @@ export default function ProducerProfilePage() {
             className="relative group w-32 h-32 md:w-48 md:h-48 mb-4 md:mb-0 md:mr-8"
             style={{ borderRadius: '50%', overflow: 'hidden' }}
           >
-            <Avatar className="w-full h-full">
-              <AvatarImage src={producer.profile_image_url || "/placeholder.svg"} alt={producer.name} />
-            <AvatarFallback>{producer.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-          </Avatar>
+            <Avatar className="w-full h-full" style={{ width: 'auto', height: 'auto', maxWidth: '100%', maxHeight: '100%' }}>
+              <AvatarImage
+                src={producer.profile_image_url || "/placeholder.svg"}
+                alt={producer.display_name}
+                style={{ objectFit: "cover", width: "100%", height: "100%" }}
+              />
+              <AvatarFallback>{producer.display_name.slice(0, 2).toUpperCase()}</AvatarFallback>
+            </Avatar>
             {isOwnProfile && (
               <div
                 className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -182,7 +122,7 @@ export default function ProducerProfilePage() {
             )}
           </div>
           <div className="text-center md:text-left">
-            <h1 className="text-3xl font-bold mb-2">{producer.name}</h1>
+            <h1 className="text-3xl font-bold mb-2">{producer.display_name}</h1>
             <div className="flex flex-wrap gap-2 mb-4 justify-center md:justify-start">
               {producer.topProducerCount > 0 && (
                 <Badge variant="secondary" className="flex items-center">
@@ -236,7 +176,6 @@ export default function ProducerProfilePage() {
             <TabsTrigger value="beats">Beats</TabsTrigger>
             <TabsTrigger value="pictures">Pictures</TabsTrigger>
             <TabsTrigger value="about">About</TabsTrigger>
-            <TabsTrigger value="beatvault">Beat Vault</TabsTrigger>
           </TabsList>
           <TabsContent value="beats">
             <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
@@ -287,7 +226,7 @@ export default function ProducerProfilePage() {
             )}
             <Card>
               <CardHeader>
-                <CardTitle>About {producer.name}</CardTitle>
+                <CardTitle>About {producer.display_name}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="mb-4">{producer.bio}</p>
@@ -311,43 +250,6 @@ export default function ProducerProfilePage() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-          <TabsContent value="beatvault">
-            {isOwnProfile && !vault && (
-              <div className="text-center mb-4">
-                <Button onClick={handleCreateVault} className="gradient-button text-black font-medium hover:text-white">
-                  Create Vault
-                </Button>
-              </div>
-            )}
-            {vault && (
-              <>
-                <h2 className="text-2xl font-bold mb-2">{vault.name}</h2>
-                <p className="mb-2">{vault.description}</p>
-                {vault.cover_image_url && <img src={vault.cover_image_url} alt="Vault Cover" className="mb-4 w-48 h-48 object-cover rounded" />}
-                {hasVaultAccess ? (
-                  <div>
-                    <h3 className="font-semibold mb-2">Vault Beats</h3>
-                    {vaultBeats.length > 0 ? (
-                      <ul className="space-y-2">
-                        {vaultBeats.map(beat => (
-                          <li key={beat.id} className="p-2 bg-secondary rounded flex items-center">
-                            <span className="font-medium">{beat.title}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-gray-400">No beats in this vault yet.</p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <p className="text-gray-400 mb-4">This vault is private. Purchase access or enter a key to unlock.</p>
-                    {/* TODO: Add paywall or key entry form here */}
-                  </div>
-                )}
-              </>
-            )}
           </TabsContent>
         </Tabs>
       </main>

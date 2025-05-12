@@ -34,7 +34,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { usePathname } from "next/navigation"
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 
 interface Beat {
   id: string
@@ -119,10 +119,6 @@ export function SiteWideBeatPlayer() {
     // Fetch lyrics for the current beat from Supabase
     async function fetchLyrics() {
       if (!currentBeat) return;
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
       const { data, error } = await supabase
         .from('beats')
         .select('lyrics')
@@ -136,10 +132,6 @@ export function SiteWideBeatPlayer() {
 
   useEffect(() => {
     if (!user) return;
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
     supabase
       .from('sessions')
       .select('id, name, beat_ids, last_modified')
@@ -153,10 +145,6 @@ export function SiteWideBeatPlayer() {
   useEffect(() => {
     // Only fetch if currentBeat exists and image is missing or empty
     if (currentBeat && (!currentBeat.image || currentBeat.image === "")) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
       supabase
         .from('beats')
         .select('cover_art_url')
@@ -189,10 +177,6 @@ export function SiteWideBeatPlayer() {
   const toggleShuffle = async () => {
     if (!isShuffle) {
       // Fetch all beats from Supabase
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
       const { data: beats, error } = await supabase
         .from('beats')
         .select('id, title, producer_id, mp3_url, cover_art_url');
@@ -344,10 +328,6 @@ export function SiteWideBeatPlayer() {
       return
     }
     if (currentBeat) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
       const { error } = await supabase.from('sessions').insert({
         user_id: user.id,
         name: `${currentBeat.title} Session`,
@@ -376,10 +356,6 @@ export function SiteWideBeatPlayer() {
   }
 
   const openSession = async (sessionId: string) => {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
     const { data, error } = await supabase
       .from('sessions')
       .select('beat_ids, lyrics')
@@ -583,10 +559,6 @@ export function SiteWideBeatPlayer() {
                     onClick={async () => {
                       if (!currentBeat) return;
                       setSavingLyrics(true);
-                      const supabase = createClient(
-                        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-                      );
                       const { error } = await supabase
                         .from('beats')
                         .update({ lyrics })
