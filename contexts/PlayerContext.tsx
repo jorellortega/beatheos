@@ -7,6 +7,8 @@ interface Beat {
   title: string
   artist: string
   audioUrl: string
+  image?: string
+  lyrics?: string
 }
 
 interface PlayerContextType {

@@ -20,6 +20,7 @@ import {
   Repeat,
   DoorClosedIcon as CloseIcon,
   Shuffle,
+  ShoppingCart,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "@/components/ui/use-toast"
@@ -35,6 +36,7 @@ import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { usePathname } from "next/navigation"
 import { supabase } from '@/lib/supabaseClient'
+import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 
 interface Beat {
   id: string
@@ -42,6 +44,7 @@ interface Beat {
   artist: string
   audioUrl: string
   image?: string
+  lyrics?: string
 }
 
 interface Playlist {
@@ -64,6 +67,7 @@ export function SiteWideBeatPlayer() {
   const [isShuffle, setIsShuffle] = useState(false)
   const [shuffledBeats, setShuffledBeats] = useState<any[]>([])
   const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
+  const [playerMode, setPlayerMode] = useState<'default' | 'full'>('default')
   const audioRef = useRef<HTMLAudioElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const { user } = useAuth()
@@ -79,6 +83,7 @@ export function SiteWideBeatPlayer() {
   const [savingLyrics, setSavingLyrics] = useState(false)
   const [savingSession, setSavingSession] = useState(false)
   const [lyricsFromSession, setLyricsFromSession] = useState(false)
+  const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
 
   const pathname = usePathname()
 
@@ -462,190 +467,208 @@ export function SiteWideBeatPlayer() {
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
-        className={`site-wide-player ${isExpanded ? "expanded" : "collapsed"} ${
-          isExpandedViewVisible ? "h-auto" : "h-20"
+        className={`transition-all duration-300 ${
+          playerMode === 'full'
+            ? 'max-w-[680px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4'
+            : 'w-auto h-10 fixed bottom-4 right-4'
         }`}
-        style={{ marginTop: isExpanded && isExpandedViewVisible ? "2rem" : "0" }}
+        style={{ marginTop: playerMode === 'full' ? undefined : '0' }}
       >
-        <CardContent className={`p-4 pt-0 h-full flex flex-col ${isExpanded ? "pb-16" : ""}`}>
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setIsExpanded((prev) => !prev)
-                setIsExpandedViewVisible(true)
-              }}
-              className="bg-background rounded-full"
-            >
-              {isExpanded ? <Minimize className="h-6 w-6" /> : <Expand className="h-6 w-6" />}
-            </Button>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
-            <Image
-              src={currentBeat?.image || "/placeholder.svg"}
-              alt={currentBeat?.title || "cover"}
-              width={100}
-              height={100}
-              className="rounded-md mb-2 sm:mb-0 sm:mr-4"
-            />
-            <div className="flex-grow flex flex-col items-center sm:items-start w-full">
-              <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
-              <Link
-                href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
-                className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
-              >
-                {currentBeat?.artist || ""}
-              </Link>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleClose}
-              className="absolute top-0 right-0 rounded-none h-8 w-8 p-0 flex items-center justify-center"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
-            <div className="flex items-center justify-center gap-2">
-            <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
-                <Rewind className="h-6 w-6" />
-              </Button>
-              <Button
-                size="lg"
-                variant="secondary"
-                onClick={() => {
-                  if (!isRecording) {
-                    togglePlay()
-                  }
-                }}
-              >
-                {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
-              </Button>
-            <Button size="lg" variant="secondary" onClick={playNextBeat}>
-                <SkipForward className="h-6 w-6" />
-              </Button>
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <Button size="lg" variant="secondary" onClick={toggleRepeat}>
-                <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
-              </Button>
-            <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-              <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-            </Button>
-              <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
-                Playlists
-              </Button>
-            </div>
-          </div>
-          <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
-          {isExpanded && isExpandedViewVisible && (
-            <div className="flex-grow overflow-hidden">
-              <div className="flex flex-col h-full">
-                <div className="mb-4"></div>
-                <div className="flex-grow mb-2">
-                  <h4 className="font-semibold mb-1">Lyrics</h4>
-                  <Textarea
-                    value={lyrics}
-                    onChange={e => setLyrics(e.target.value)}
-                    placeholder="Type or paste lyrics here..."
-                    className="h-32 mb-2 resize-none bg-secondary text-white"
-                  />
-                  <Button
-                    size="sm"
-                    className="mt-1"
-                    disabled={savingLyrics}
-                    onClick={async () => {
-                      if (!currentBeat) return;
-                      setSavingLyrics(true);
-                      const { error } = await supabase
-                        .from('beats')
-                        .update({ lyrics })
-                        .eq('id', currentBeat.id);
-                      setSavingLyrics(false);
-                      if (!error) {
-                        toast({
-                          title: "Lyrics Saved",
-                          description: "Lyrics have been updated for this beat.",
-                        });
-                      } else {
-                        toast({
-                          title: "Error",
-                          description: "Failed to save lyrics.",
-                          variant: "destructive",
-                        });
-                      }
-                    }}
-                  >
-                    {savingLyrics ? <span className="animate-spin mr-2">⏳</span> : null}
-                    Save Lyrics
-                  </Button>
-                </div>
-              </div>
-              <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="secondary" size="sm">
-                      Open Session
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    {savedSessions.length > 0 ? (
-                      savedSessions.map((session) => (
-                        <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
-                          {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button
-                  variant={isRecording ? "destructive" : "secondary"}
-                  onClick={isRecording ? stopRecording : startRecording}
-                  className={`w-12 h-12 rounded-full ${isRecording ? "animate-pulse" : ""}`}
-                >
-                  <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
-                  <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
-                </Button>
-                <Button variant="secondary" size="sm" onClick={async () => {
-                  setSavingSession(true);
-                  await saveSession();
-                  setSavingSession(false);
-                }} disabled={savingSession}>
-                  {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
-                  Save Session
-                </Button>
-              </div>
+        <CardContent className={`p-2 pt-0 h-full flex flex-col ${playerMode === 'full' ? "pb-16" : ""}`}>
+          {playerMode === 'full' && (
+            <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-4"
-                onClick={() => setIsExpandedViewVisible(false)}
+                onClick={() => setPlayerMode('default')}
+                className="bg-background rounded-full"
               >
-                <X className="h-6 w-6" />
+                <Minimize className="h-6 w-6" />
               </Button>
             </div>
           )}
+          
+          {playerMode === 'default' ? (
+            <div className="flex items-center justify-end gap-1 h-full">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={togglePlay}
+                className="h-8 w-8"
+              >
+                {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setPlayerMode('full')}
+                className="h-8 w-8"
+              >
+                <Expand className="h-3 w-3" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleClose}
+                className="h-8 w-8"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
+                <Image
+                  src={currentBeat?.image || "/placeholder.svg"}
+                  alt={currentBeat?.title || "cover"}
+                  width={100}
+                  height={100}
+                  className="rounded-md mb-2 sm:mb-0 sm:mr-4"
+                />
+                <div className="flex-grow flex flex-col items-center sm:items-start w-full">
+                  <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+                  <Link
+                    href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
+                    className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
+                  >
+                    {currentBeat?.artist || ""}
+                  </Link>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
+                <div className="flex items-center justify-center gap-2">
+                  <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
+                    <Rewind className="h-6 w-6" />
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    onClick={() => {
+                      if (!isRecording) {
+                        togglePlay()
+                      }
+                    }}
+                  >
+                    {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+                  </Button>
+                  <Button size="lg" variant="secondary" onClick={playNextBeat}>
+                    <SkipForward className="h-6 w-6" />
+                  </Button>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <Button size="lg" variant="secondary" onClick={toggleRepeat}>
+                    <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
+                  </Button>
+                  <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+                    <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+                  </Button>
+                  <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
+                    Playlists
+                  </Button>
+                  <Button
+                    size="lg"
+                    className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
+                    onClick={() => setIsPurchaseModalOpen(true)}
+                  >
+                    <ShoppingCart className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+              <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
+              <div className="flex-grow overflow-hidden">
+                <div className="flex flex-col h-full">
+                  <div className="mb-4"></div>
+                  <div className="flex-grow mb-2">
+                    <h4 className="font-semibold mb-1">Lyrics</h4>
+                    <Textarea
+                      value={lyrics}
+                      onChange={e => setLyrics(e.target.value)}
+                      placeholder="Type or paste lyrics here..."
+                      className="h-32 mb-2 resize-none bg-secondary text-white"
+                    />
+                    <Button
+                      size="sm"
+                      className="mt-1"
+                      disabled={savingLyrics}
+                      onClick={async () => {
+                        if (!currentBeat) return;
+                        setSavingLyrics(true);
+                        const { error } = await supabase
+                          .from('beats')
+                          .update({ lyrics })
+                          .eq('id', currentBeat.id);
+                        setSavingLyrics(false);
+                        if (!error) {
+                          toast({
+                            title: "Lyrics Saved",
+                            description: "Lyrics have been updated for this beat.",
+                          });
+                        } else {
+                          toast({
+                            title: "Error",
+                            description: "Failed to save lyrics.",
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                    >
+                      {savingLyrics ? <span className="animate-spin mr-2">⏳</span> : null}
+                      Save Lyrics
+                    </Button>
+                  </div>
+                </div>
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger>
+                      <Button variant="secondary" size="sm">
+                        Open Session
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      {savedSessions.length > 0 ? (
+                        savedSessions.map((session) => (
+                          <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
+                            {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
+                          </DropdownMenuItem>
+                        ))
+                      ) : (
+                        <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    variant={isRecording ? "destructive" : "secondary"}
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`w-12 h-12 rounded-full ${isRecording ? "animate-pulse" : ""}`}
+                  >
+                    <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
+                    <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={async () => {
+                    await saveSession();
+                    setSavingSession(false);
+                  }} disabled={savingSession}>
+                    {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
+                    Save Session
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
         {currentBeat?.audioUrl ? (
-        <audio
-          ref={audioRef}
-          src={currentBeat.audioUrl}
-          onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
-          onEnded={() => {
-            if (isRepeat) {
-              audioRef.current?.play()
-            } else if (isShuffle) {
-              playNextBeat()
-            } else {
-              setIsPlaying(false)
-              setProgress(0)
-            }
-          }}
-        />
+          <audio
+            ref={audioRef}
+            src={currentBeat.audioUrl}
+            onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+            onEnded={() => {
+              if (isRepeat) {
+                audioRef.current?.play()
+              } else if (isShuffle) {
+                playNextBeat()
+              }
+            }}
+          />
         ) : null}
       </Card>
       {showAuthPrompt && (
@@ -719,6 +742,11 @@ export function SiteWideBeatPlayer() {
           </div>
         </DialogContent>
       </Dialog>
+      <PurchaseOptionsModal
+        isOpen={isPurchaseModalOpen}
+        onClose={() => setIsPurchaseModalOpen(false)}
+        beat={currentBeat}
+      />
     </div>
   )
 }
