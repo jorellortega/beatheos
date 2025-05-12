@@ -6,7 +6,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useEffect, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 
 interface Beat {
   id: number
@@ -33,11 +33,6 @@ export function TopLists() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-
     async function fetchTopLists() {
       setLoading(true)
       // Fetch top 10 beats from the last 7 days
@@ -121,7 +116,7 @@ export function TopLists() {
         <CardContent>
           <ul className="space-y-2">
             {topBeats.map((beat, index) => (
-              <li key={beat.id} className="flex items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors">
+              <li key={beat.id + '-' + index} className="flex items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors">
                 <div className="flex items-center">
                   <span className="text-2xl font-bold text-primary w-8 mr-4">{index + 1}</span>
                   <div className="relative w-10 h-10 mr-3">
@@ -176,7 +171,7 @@ export function TopLists() {
         <CardContent>
           <ul className="space-y-2">
             {topProducers.map((producer, index) => (
-              <li key={producer.id} className="flex items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors">
+              <li key={producer.id + '-' + index} className="flex items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors">
                 <div className="flex items-center">
                   <span className="text-2xl font-bold text-primary w-8 mr-4">{index + 1}</span>
                   <div className="relative w-10 h-10 mr-3">

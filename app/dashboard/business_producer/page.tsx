@@ -13,7 +13,7 @@ import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCi
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 import { Suspense } from "react"
 import Image from "next/image"
 
@@ -23,11 +23,6 @@ const mockItems = [
   { id: 2, title: "Lo-Fi Melodies", type: "loops", price: 19.99, sales: 75, rating: 4.5, promo: true },
   { id: 3, title: "808 Collection Pro", type: "soundkit", price: 34.99, sales: 210, rating: 4.9, promo: false },
 ]
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface Beat {
   id: string | number;
@@ -384,10 +379,6 @@ export default function BusinessProducerDashboard() {
       router.push("/login")
     } else {
       // Fetch display_name from producers table
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
       supabase
         .from('producers')
         .select('display_name')

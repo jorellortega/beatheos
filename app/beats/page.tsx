@@ -16,7 +16,7 @@ import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { VerticalSlideView } from "@/components/beats/VerticalSlideView"
 import { usePlayer } from "@/contexts/PlayerContext"
 import { Rating } from "@/components/ui/rating"
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 import React from "react"
 
 const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void }) {
@@ -97,11 +97,6 @@ export default function BeatsPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-
     async function fetchBeats() {
       try {
       setLoading(true)
