@@ -458,6 +458,7 @@ export function SiteWideBeatPlayer() {
   const handleClose = () => {
     setCurrentBeat(null)
     setIsPlaying(false)
+    setPlayerMode('default')
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current.currentTime = 0
@@ -654,6 +655,15 @@ export function SiteWideBeatPlayer() {
                 </div>
               </div>
             </>
+          )}
+          {playerMode === 'full' && (
+            <button
+              onClick={handleClose}
+              className="absolute bottom-3 right-3 z-10 bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+              aria-label="Close player"
+            >
+              <X className="h-5 w-5 text-white" />
+            </button>
           )}
         </CardContent>
         {currentBeat?.audioUrl ? (
