@@ -25,10 +25,10 @@ export default function LoginPage() {
     try {
       const user = await login(email, password)
       if (user) {
-        toast({
-          title: "Login Successful",
+      toast({
+        title: "Login Successful",
           description: `Welcome back, ${user.email}!`,
-        })
+      })
         router.push(`/dashboard/${user.role}`)
       }
     } catch (error) {

@@ -19,7 +19,7 @@ import { Rating } from "@/components/ui/rating"
 import { supabase } from '@/lib/supabaseClient'
 import React from "react"
 
-const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void }) {
+const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
   return (
     <Card key={beat.id} className="bg-card border-primary flex flex-col">
       <CardHeader className="relative pb-0 pt-0 px-0">
@@ -67,7 +67,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause }: 
           </Button>
           <Button
             className="gradient-button text-black font-medium hover:text-white"
-            onClick={() => {}}
+            onClick={() => onPurchase(beat)}
           >
             BUY
           </Button>
@@ -104,7 +104,7 @@ export default function BeatsPage() {
         
       const { data: beatsData, error: beatsError } = await supabase
         .from('beats')
-        .select('id, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url')
+        .select('id, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
         .eq('is_draft', false)
         .order('created_at', { ascending: false })
         .limit(100)
@@ -139,6 +139,10 @@ export default function BeatsPage() {
           price: b.price || 0,
           rating: b.rating ?? 0,
           producer_image: producer?.image || '/placeholder.svg',
+          price_lease: b.price_lease,
+          price_premium_lease: b.price_premium_lease,
+          price_exclusive: b.price_exclusive,
+          price_buyout: b.price_buyout,
         }
       })
 
@@ -216,6 +220,7 @@ export default function BeatsPage() {
           beat={beat}
           isPlaying={playingBeatId === beat.id && isPlaying}
           onPlayPause={handlePlayPause}
+          onPurchase={handlePurchase}
         />
       ))}
     </div>

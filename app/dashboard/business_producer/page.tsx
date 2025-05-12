@@ -104,7 +104,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
   useEffect(() => {
     async function fetchBeats() {
       try {
-        setLoading(true)
+      setLoading(true)
         setError(null)
 
         // Fetch beats for this user (producer_id === userId)

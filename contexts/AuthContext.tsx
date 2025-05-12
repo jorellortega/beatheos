@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         setIsLoading(true);
         const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
+      if (session?.user) {
           const role = await fetchUserRole(session.user.id)
           setUser({
             id: session.user.id,
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Error initializing auth:', error)
         setUser(null)
       } finally {
-        setIsLoading(false)
+      setIsLoading(false)
       }
     }
 
@@ -62,21 +62,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         setIsLoading(true);
-        if (session?.user) {
-          const role = await fetchUserRole(session.user.id)
-          setUser({
-            id: session.user.id,
-            email: session.user.email ?? null,
-            role
-          })
-        } else {
-          setUser(null)
-        }
+      if (session?.user) {
+        const role = await fetchUserRole(session.user.id)
+        setUser({
+          id: session.user.id,
+          email: session.user.email ?? null,
+          role
+        })
+      } else {
+        setUser(null)
+    }
       } catch (error) {
         console.error('Error handling auth state change:', error)
         setUser(null)
       } finally {
-        setIsLoading(false)
+    setIsLoading(false)
       }
     })
 
@@ -88,18 +88,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string): Promise<User> => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error;
       if (!data.user) throw new Error("No user data received");
       
-      const role = await fetchUserRole(data.user.id)
+    const role = await fetchUserRole(data.user.id)
       const userObj: User = { 
         id: data.user.id, 
         email: data.user.email ?? null, 
         role 
       }
-      setUser(userObj)
-      return userObj
+    setUser(userObj)
+    return userObj
     } catch (error) {
       console.error('Login error:', error);
       throw error;

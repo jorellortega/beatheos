@@ -110,7 +110,11 @@ export async function POST(request: Request) {
       wav_url: wavUrl,
       stems_url: stemsUrl,
       cover_art_url: coverArtUrl,
-      is_draft: isDraft
+      is_draft: isDraft,
+      price_lease: licensing.lease ?? null,
+      price_premium_lease: licensing.premium ?? null,
+      price_exclusive: licensing.exclusive ?? null,
+      price_buyout: licensing.buyout ?? null
     }
 
     console.log('Uploading beat with data:', beatData)
