@@ -55,7 +55,7 @@ export default function ProducerProfilePage() {
   // DEBUG: Log when the Supabase client is created
   console.debug('[DEBUG] Creating Supabase client in ProducerProfilePage');
 
-  const fetchProducer = async () => {
+    const fetchProducer = async () => {
     console.debug('[DEBUG] fetchProducer called for id:', id);
     const { data, error } = await supabase
       .from('producers')
@@ -110,7 +110,7 @@ export default function ProducerProfilePage() {
                 style={{ objectFit: "cover", width: "100%", height: "100%" }}
               />
               <AvatarFallback>{producer.display_name.slice(0, 2).toUpperCase()}</AvatarFallback>
-            </Avatar>
+          </Avatar>
             {isOwnProfile && (
               <div
                 className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -267,6 +267,7 @@ export default function ProducerProfilePage() {
             open={isUploadDialogOpen}
             onOpenChange={setIsUploadDialogOpen}
             onUploadSuccess={fetchProducer}
+            currentImageUrl={producer.profile_image_url}
           />
         </>
       )}

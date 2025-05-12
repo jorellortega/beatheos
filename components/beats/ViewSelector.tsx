@@ -8,7 +8,7 @@ interface ViewSelectorProps {
 
 export function ViewSelector({ currentView, onViewChange }: ViewSelectorProps) {
   return (
-    <div className="flex justify-center space-x-4 mb-8">
+    <div className="flex justify-center space-x-4">
       <Button
         variant={currentView === "grid" ? "default" : "outline"}
         className={`gradient-button text-black font-medium hover:text-white ${currentView === "grid" ? "bg-primary" : ""}`}

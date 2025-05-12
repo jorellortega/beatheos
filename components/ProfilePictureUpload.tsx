@@ -11,9 +11,10 @@ interface ProfilePictureUploadProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onUploadSuccess: () => void
+  currentImageUrl: string
 }
 
-export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadSuccess }: ProfilePictureUploadProps) {
+export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadSuccess, currentImageUrl }: ProfilePictureUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
@@ -78,6 +79,33 @@ export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadS
     }
   }
 
+  const handleDelete = async () => {
+    setIsLoading(true)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const { error: updateError } = await supabase
+      .from('producers')
+      .update({ profile_image_url: '/placeholder.svg' })
+      .eq('id', producerId)
+    setIsLoading(false)
+    if (updateError) {
+      toast({
+        title: "Error",
+        description: "Failed to delete profile picture. Please try again.",
+        variant: "destructive",
+      })
+    } else {
+      toast({
+        title: "Success",
+        description: "Profile picture removed.",
+      })
+      onUploadSuccess()
+      onOpenChange(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -98,6 +126,11 @@ export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadS
             <Button onClick={handleUpload} disabled={!file || isLoading}>
               {isLoading ? "Uploading..." : "Upload"}
             </Button>
+            {currentImageUrl !== "/placeholder.svg" && (
+              <Button variant="destructive" onClick={handleDelete} disabled={isLoading}>
+                {isLoading ? "Deleting..." : "Delete Picture"}
+              </Button>
+            )}
           </DialogFooter>
         </div>
       </DialogContent>

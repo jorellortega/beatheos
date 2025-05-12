@@ -70,14 +70,17 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([])
-  const [selectedFiles, setSelectedFiles] = useState<PairedFile[]>([])
-  const [pairedFiles, setPairedFiles] = useState<PairedFile[]>([])
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([])
   const router = useRouter()
   const [playingDraftId, setPlayingDraftId] = useState<string | null>(null)
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({})
   const [editingDraft, setEditingDraft] = useState<Draft | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [droppedFiles, setDroppedFiles] = useState<File[]>([])
+  const [editingFileId, setEditingFileId] = useState<string | null>(null);
+  const [editingFileTitle, setEditingFileTitle] = useState<string>("");
+  const [batchEditingIds, setBatchEditingIds] = useState<string[]>([]);
+  const [batchEditingTitles, setBatchEditingTitles] = useState<{ [id: string]: string }>({});
+  const [pairedBeat, setPairedBeat] = useState<any | null>(null);
 
   useEffect(() => {
     async function fetchDrafts() {
@@ -92,37 +95,88 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     fetchDrafts();
   }, [user]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    // Categorize files
-    const mp3s = acceptedFiles.filter(f => f.type === "audio/mpeg");
-    const wavs = acceptedFiles.filter(f => f.type === "audio/wav");
-    const zips = acceptedFiles.filter(f => f.type === "application/zip");
-    const images = acceptedFiles.filter(f => f.type.startsWith("image/"));
-    // If exactly one mp3, one wav, and one zip (or just one mp3), assign to fields
-    if (
-      (mp3s.length === 1 && wavs.length <= 1 && zips.length <= 1 && acceptedFiles.length <= 3) ||
-      (mp3s.length === 1 && acceptedFiles.length === 1)
-    ) {
-      setMp3File(mp3s[0] || null);
-      setWavFile(wavs[0] || null);
-      setStemsFile(zips[0] || null);
-      setCoverArt(images[0] || null);
-      setDroppedFiles([]);
+  // Smart assignment for global dropzone (Upload Beat tab)
+  const smartOnDrop = useCallback((acceptedFiles: File[]) => {
+    const mp3s = acceptedFiles.filter(f => f.type === "audio/mpeg" || f.name.toLowerCase().endsWith('.mp3'));
+    const wavs = acceptedFiles.filter(f => f.type === "audio/wav" || f.name.toLowerCase().endsWith('.wav'));
+    const zips = acceptedFiles.filter(f => f.type === "application/zip" || f.name.toLowerCase().endsWith('.zip'));
+    const images = acceptedFiles.filter(f => f.type.startsWith("image/") || [".png", ".jpg", ".jpeg", ".gif"].some(ext => f.name.toLowerCase().endsWith(ext)));
+    if (mp3s.length === 1 && wavs.length === 0 && zips.length === 0 && acceptedFiles.length === 1) {
+      setMp3File(mp3s[0]);
+      setWavFile(null);
+      setStemsFile(null);
+    } else if (mp3s.length === 0 && wavs.length === 1 && zips.length === 0 && acceptedFiles.length === 1) {
+      setMp3File(null);
+      setWavFile(wavs[0]);
+      setStemsFile(null);
+    } else if (mp3s.length === 0 && wavs.length === 0 && zips.length === 1 && acceptedFiles.length === 1) {
+      setMp3File(null);
+      setWavFile(null);
+      setStemsFile(zips[0]);
+    } else if (mp3s.length === 1 && wavs.length === 1 && zips.length === 0 && acceptedFiles.length === 2) {
+      setMp3File(mp3s[0]);
+      setWavFile(wavs[0]);
+      setStemsFile(null);
+    } else if (mp3s.length === 1 && wavs.length === 0 && zips.length === 1 && acceptedFiles.length === 2) {
+      setMp3File(mp3s[0]);
+      setWavFile(null);
+      setStemsFile(zips[0]);
+    } else if (mp3s.length === 0 && wavs.length === 1 && zips.length === 1 && acceptedFiles.length === 2) {
+      setMp3File(null);
+      setWavFile(wavs[0]);
+      setStemsFile(zips[0]);
+    } else if (mp3s.length === 1 && wavs.length === 1 && zips.length === 1 && acceptedFiles.length === 3) {
+      setMp3File(mp3s[0]);
+      setWavFile(wavs[0]);
+      setStemsFile(zips[0]);
+    } else if (images.length === 1 && acceptedFiles.length === 1) {
+      setCoverArt(images[0]);
     } else {
-      // Otherwise, put all files in the Files tab
-      setDroppedFiles(acceptedFiles);
+      setAudioFiles(prev => [
+        ...prev,
+        ...acceptedFiles.map(file => ({
+          id: `af${prev.length + Math.random()}`,
+          title: file.name,
+          file: file.type.startsWith('audio/') ? file : null,
+          wavFile: file.name.toLowerCase().endsWith('.wav') ? file : null,
+          stemsFile: file.name.toLowerCase().endsWith('.zip') ? file : null,
+          coverArt: file.type.startsWith('image/') ? file : null,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }))
+      ]);
+      if (acceptedFiles.length > 1) setActiveTab('audio');
     }
-  }, []);
+  }, [setMp3File, setWavFile, setStemsFile, setCoverArt, setAudioFiles, setActiveTab]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
+  // Always add to files list for Files tab
+  const filesTabOnDrop = useCallback((acceptedFiles: File[]) => {
+    setAudioFiles(prev => [
+      ...prev,
+      ...acceptedFiles.map(file => ({
+        id: `af${prev.length + Math.random()}`,
+        title: file.name,
+        file: file.type.startsWith('audio/') ? file : null,
+        wavFile: file.name.toLowerCase().endsWith('.wav') ? file : null,
+        stemsFile: file.name.toLowerCase().endsWith('.zip') ? file : null,
+        coverArt: file.type.startsWith('image/') ? file : null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }))
+    ]);
+  }, [setAudioFiles]);
+
+  const dropzoneConfig = {
+    onDrop: smartOnDrop,
     accept: {
       'audio/mpeg': ['.mp3'],
       'audio/wav': ['.wav'],
       'application/zip': ['.zip'],
       'image/*': ['.png', '.jpg', '.jpeg', '.gif']
     }
-  });
+  };
+  const globalDropzone = useDropzone(dropzoneConfig);
+  const filesTabDropzone = useDropzone({ ...dropzoneConfig, onDrop: filesTabOnDrop });
 
   const simulateUpload = async () => {
     // Simulate upload progress
@@ -268,30 +322,11 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     })
   }
 
-  const handleFileSelect = (file: AudioFile, type: 'audio' | 'cover' | 'contract' | 'stems') => {
-    const newPairedFile: PairedFile = {
-      id: file.id,
-      title: file.title,
-      type,
-      file: type === 'audio' ? file.file : 
-            type === 'cover' ? file.coverArt :
-            type === 'contract' ? null : // PDF would be handled separately
-            file.stemsFile,
-      createdAt: file.createdAt,
-      updatedAt: new Date()
-    }
-
-    setPairedFiles(prev => [...prev, newPairedFile])
-    setSelectedFiles(prev => [...prev, newPairedFile])
-  }
-
-  const handleCreatePlaylist = () => {
-    if (selectedFiles.length > 0) {
-      // Store selected files in localStorage
-      localStorage.setItem('selectedFiles', JSON.stringify(selectedFiles))
-      router.push('/create-playlist')
-    }
-  }
+  const handleCheckboxChange = (fileId: string, checked: boolean) => {
+    setSelectedFileIds(prev =>
+      checked ? [...prev, fileId] : prev.filter(id => id !== fileId)
+    );
+  };
 
   const handlePlayPause = (draft: any) => {
     if (playingDraftId === draft.id) {
@@ -342,6 +377,94 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     }
   }
 
+  const handleEditFile = (file: AudioFile) => {
+    setEditingFileId(file.id);
+    setEditingFileTitle(file.title);
+  };
+
+  const handleSaveFileTitle = (fileId: string) => {
+    setAudioFiles(prev => prev.map(f => f.id === fileId ? { ...f, title: editingFileTitle } : f));
+    setEditingFileId(null);
+    setEditingFileTitle("");
+    toast({ title: "Title Updated", description: "Beat name updated successfully." });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingFileId(null);
+    setEditingFileTitle("");
+  };
+
+  // Batch edit handlers
+  const handleBatchEditAll = () => {
+    setBatchEditingIds(selectedFileIds);
+    setBatchEditingTitles(
+      Object.fromEntries(
+        audioFiles.filter(f => selectedFileIds.includes(f.id)).map(f => [f.id, f.title])
+      )
+    );
+    setSelectedFileIds([]);
+  };
+
+  const handleBatchEditTitleChange = (id: string, value: string) => {
+    setBatchEditingTitles(prev => ({ ...prev, [id]: value }));
+  };
+
+  const handleBatchSave = (id: string) => {
+    setAudioFiles(prev => prev.map(f => f.id === id ? { ...f, title: batchEditingTitles[id] } : f));
+    setBatchEditingIds(prev => prev.filter(i => i !== id));
+    setBatchEditingTitles(prev => { const t = { ...prev }; delete t[id]; return t; });
+    toast({ title: "Title Updated", description: "Beat name updated successfully." });
+  };
+
+  const handleBatchCancel = (id: string) => {
+    setBatchEditingIds(prev => prev.filter(i => i !== id));
+    setBatchEditingTitles(prev => { const t = { ...prev }; delete t[id]; return t; });
+  };
+
+  // Helper to get file type
+  const getFileType = (file: AudioFile) => {
+    if (file.file?.type === 'audio/mpeg' || file.title.toLowerCase().endsWith('.mp3')) return 'mp3';
+    if (file.wavFile || file.title.toLowerCase().endsWith('.wav')) return 'wav';
+    if (file.stemsFile || file.title.toLowerCase().endsWith('.zip')) return 'zip';
+    if (file.coverArt || /\.(jpg|jpeg|png|gif)$/i.test(file.title)) return 'cover';
+    return 'other';
+  };
+
+  // Validate selection for pairing
+  const canPair = (() => {
+    const types: Record<string, number> = {};
+    for (const id of selectedFileIds) {
+      const file = audioFiles.find(f => f.id === id);
+      if (!file) continue;
+      const type = getFileType(file);
+      types[type] = (types[type] || 0) + 1;
+      if (types[type] > 1) return false;
+    }
+    // Only allow if at least 2 files and all types are unique (no duplicates)
+    return selectedFileIds.length > 1 && Object.values(types).every(v => v === 1);
+  })();
+
+  // Pair action
+  const handlePair = () => {
+    const files = selectedFileIds.map(id => audioFiles.find(f => f.id === id)).filter(Boolean);
+    const mp3 = files.find(f => getFileType(f!) === 'mp3');
+    const wav = files.find(f => getFileType(f!) === 'wav');
+    const zip = files.find(f => getFileType(f!) === 'zip');
+    const cover = files.find(f => getFileType(f!) === 'cover');
+    setPairedBeat({
+      id: `paired-${Date.now()}`,
+      title: '',
+      description: '',
+      mp3File: mp3?.file,
+      wavFile: wav?.wavFile,
+      stemsFile: zip?.stemsFile,
+      coverArt: cover?.coverArt,
+    });
+    // Remove paired files from loose files
+    setAudioFiles(prev => prev.filter(f => !selectedFileIds.includes(f.id)));
+    setSelectedFileIds([]);
+  };
+
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
       <TabsList className="grid w-full grid-cols-3">
@@ -362,15 +485,15 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       <TabsContent value="upload" className="space-y-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div
-            {...getRootProps()}
+            {...globalDropzone.getRootProps()}
             className={`p-10 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${
-              isDragActive ? "border-primary bg-primary/10" : "border-gray-300 hover:border-primary/50"
+              globalDropzone.isDragActive ? "border-primary bg-primary/10" : "border-gray-300 hover:border-primary/50"
             }`}
           >
-            <input {...getInputProps()} />
+            <input {...globalDropzone.getInputProps()} />
             <div className="flex flex-col items-center justify-center space-y-4">
               <Upload className="h-12 w-12 text-gray-400" />
-              {isDragActive ? (
+              {globalDropzone.isDragActive ? (
                 <p className="text-lg font-medium">Drop your files here...</p>
               ) : (
                 <>
@@ -631,106 +754,256 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       </TabsContent>
 
       <TabsContent value="audio">
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold">Files</h3>
-            <div className="flex items-center space-x-2">
-              {selectedFiles.length > 0 && (
-                <Button onClick={handleCreatePlaylist} className="h-8">
-                  Create Playlist/Album ({selectedFiles.length})
-                </Button>
-              )}
-              <Button onClick={handleAudioFileUpload} className="h-8">
-                Upload New
+        <div
+          {...filesTabDropzone.getRootProps()}
+          className={`mb-4 p-6 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${filesTabDropzone.isDragActive ? "border-primary bg-primary/10" : "border-gray-300 hover:border-primary/50"}`}
+        >
+          <input {...filesTabDropzone.getInputProps()} />
+          <div className="flex flex-col items-center justify-center space-y-2">
+            <Upload className="h-8 w-8 text-gray-400" />
+            {filesTabDropzone.isDragActive ? (
+              <span className="text-base font-medium">Drop files to add</span>
+            ) : (
+              <>
+                <span className="text-base font-medium">Drag & drop files here or click to upload</span>
+                <span className="text-xs text-gray-500">Supported: MP3, WAV, ZIP, Images</span>
+              </>
+            )}
+          </div>
+        </div>
+        {selectedFileIds.length > 0 && (
+          <div className="flex gap-2 mb-2">
+            <Button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedFileIds([]);
+              }} 
+              variant="secondary"
+            >
+              Deselect All
+            </Button>
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleBatchEditAll();
+              }}
+              variant="outline"
+            >
+              Edit All
+            </Button>
+            <Button
+              onClick={e => { e.stopPropagation(); handlePair(); }}
+              variant="outline"
+              disabled={!canPair}
+            >
+              Pair
+            </Button>
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                toast({ title: "Publish", description: `Publishing ${selectedFileIds.length} files (stub)`, });
+                setSelectedFileIds([]);
+              }}
+              variant="outline"
+            >
+              Publish
+            </Button>
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                toast({ title: "Save Draft", description: `Saving ${selectedFileIds.length} files as draft (stub)`, });
+                setSelectedFileIds([]);
+              }}
+              variant="outline"
+            >
+              Save Draft
+            </Button>
+            <Button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedFileIds([]);
+              }} 
+              variant="destructive"
+            >
+              Delete Selected
+            </Button>
+          </div>
+        )}
+        {pairedBeat && (
+          <div className="mb-4 p-4 border border-yellow-400 rounded-lg bg-yellow-50">
+            <h3 className="font-bold mb-2 text-yellow-900">Paired Beat</h3>
+            <div className="mb-2">
+              <Input
+                placeholder="Title"
+                value={pairedBeat.title}
+                onChange={e => setPairedBeat({ ...pairedBeat, title: e.target.value })}
+                className="mb-2"
+              />
+              <Textarea
+                placeholder="Description"
+                value={pairedBeat.description}
+                onChange={e => setPairedBeat({ ...pairedBeat, description: e.target.value })}
+                className="mb-2"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  // Save as draft logic (stub)
+                  toast({ title: "Draft Saved", description: "Paired beat saved as draft." });
+                  setPairedBeat(null);
+                }}
+                variant="outline"
+              >
+                Save as Draft
+              </Button>
+              <Button
+                onClick={() => {
+                  // Publish logic (stub)
+                  toast({ title: "Published", description: "Paired beat published." });
+                  setPairedBeat(null);
+                }}
+                className="bg-yellow-400 text-black hover:bg-yellow-500"
+              >
+                Publish
+              </Button>
+              <Button
+                onClick={() => setPairedBeat(null)}
+                variant="destructive"
+              >
+                Cancel
               </Button>
             </div>
           </div>
-          <div className="space-y-2">
-            {audioFiles.map((file) => (
-              <div key={file.id} className="flex items-center justify-between p-3 bg-black rounded-lg hover:bg-secondary/5">
-                <div className="flex items-center space-x-4">
-                  <Checkbox 
-                    checked={selectedFiles.some(f => f.id === file.id)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        handleFileSelect(file, 'audio')
-                      } else {
-                        setSelectedFiles(prev => prev.filter(f => f.id !== file.id))
-                      }
-                    }}
-                  />
-                  <div className="w-10 h-10 flex items-center justify-center bg-secondary/20 rounded">
-                    {file.wavFile ? (
-                      <FileAudio className="w-5 h-5 text-blue-400" />
-                    ) : file.file?.type === 'audio/mpeg' ? (
-                      <Music className="w-5 h-5 text-purple-400" />
-                    ) : file.coverArt ? (
-                      <ImageIcon className="w-5 h-5 text-green-400" />
-                    ) : file.stemsFile ? (
-                      <FileArchive className="w-5 h-5 text-yellow-400" />
-                    ) : file.file?.type === 'application/pdf' ? (
-                      <FileText className="w-5 h-5 text-red-400" />
-                    ) : (
-                      <File className="w-5 h-5 text-gray-400" />
+        )}
+        <div className="space-y-2">
+          {audioFiles.map((file) => (
+            <div
+              key={file.id}
+              className="flex items-center justify-between p-3 bg-black rounded-lg hover:bg-yellow-400/20 cursor-pointer"
+              onClick={() => handleCheckboxChange(file.id, !selectedFileIds.includes(file.id))}
+            >
+              <div className="flex items-center space-x-4">
+                <Checkbox
+                  checked={selectedFileIds.includes(file.id)}
+                  onCheckedChange={checked => handleCheckboxChange(file.id, checked as boolean)}
+                  onClick={e => e.stopPropagation()}
+                />
+                <div className="w-10 h-10 flex items-center justify-center bg-secondary/20 rounded">
+                  {file.wavFile ? (
+                    <FileAudio className="w-5 h-5 text-blue-400" />
+                  ) : file.file?.type === 'audio/mpeg' ? (
+                    <Music className="w-5 h-5 text-purple-400" />
+                  ) : file.coverArt ? (
+                    <ImageIcon className="w-5 h-5 text-green-400" />
+                  ) : file.stemsFile ? (
+                    <FileArchive className="w-5 h-5 text-yellow-400" />
+                  ) : file.file?.type === 'application/pdf' ? (
+                    <FileText className="w-5 h-5 text-red-400" />
+                  ) : (
+                    <File className="w-5 h-5 text-gray-400" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {batchEditingIds.includes(file.id) ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={batchEditingTitles[file.id] || ''}
+                        onChange={e => handleBatchEditTitleChange(file.id, e.target.value)}
+                        className="bg-secondary text-white h-8 px-2"
+                        autoFocus
+                        onClick={e => e.stopPropagation()}
+                        onFocus={e => e.stopPropagation()}
+                      />
+                      <Button size="sm" className="h-8 px-3" onClick={e => { e.stopPropagation(); handleBatchSave(file.id); }}>
+                        Save
+                      </Button>
+                      <Button size="sm" className="h-8 px-3" variant="outline" onClick={e => { e.stopPropagation(); handleBatchCancel(file.id); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : editingFileId === file.id ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={editingFileTitle}
+                        onChange={e => setEditingFileTitle(e.target.value)}
+                        className="bg-secondary text-white h-8 px-2"
+                        autoFocus
+                        onClick={e => e.stopPropagation()}
+                        onFocus={e => e.stopPropagation()}
+                      />
+                      <Button size="sm" className="h-8 px-3" onClick={e => { e.stopPropagation(); handleSaveFileTitle(file.id); }}>
+                        Save
+                      </Button>
+                      <Button size="sm" className="h-8 px-3" variant="outline" onClick={e => { e.stopPropagation(); handleCancelEdit(); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="font-medium text-white">{file.title}</p>
+                  )}
+                  <div className="flex items-center space-x-3 text-sm">
+                    {file.wavFile && (
+                      <span className="flex items-center px-2 py-1 bg-blue-500/20 rounded">
+                        <FileAudio className="w-4 h-4 mr-1 text-blue-400" />
+                        <span className="text-blue-300">WAV</span>
+                      </span>
+                    )}
+                    {file.file?.type === 'audio/mpeg' && (
+                      <span className="flex items-center px-2 py-1 bg-purple-500/20 rounded">
+                        <Music className="w-4 h-4 mr-1 text-purple-400" />
+                        <span className="text-purple-300">MP3</span>
+                      </span>
+                    )}
+                    {file.coverArt && (
+                      <span className="flex items-center px-2 py-1 bg-green-500/20 rounded">
+                        <ImageIcon className="w-4 h-4 mr-1 text-green-400" />
+                        <span className="text-green-300">JPEG</span>
+                      </span>
+                    )}
+                    {file.stemsFile && (
+                      <span className="flex items-center px-2 py-1 bg-yellow-500/20 rounded">
+                        <FileArchive className="w-4 h-4 mr-1 text-yellow-400" />
+                        <span className="text-yellow-300">ZIP</span>
+                      </span>
+                    )}
+                    {file.file?.type === 'application/pdf' && (
+                      <span className="flex items-center px-2 py-1 bg-red-500/20 rounded">
+                        <FileText className="w-4 h-4 mr-1 text-red-400" />
+                        <span className="text-red-300">PDF</span>
+                      </span>
                     )}
                   </div>
-                  <div className="space-y-1">
-                    <p className="font-medium text-white">{file.title}</p>
-                    <div className="flex items-center space-x-3 text-sm">
-                      {file.wavFile && (
-                        <span className="flex items-center px-2 py-1 bg-blue-500/20 rounded">
-                          <FileAudio className="w-4 h-4 mr-1 text-blue-400" />
-                          <span className="text-blue-300">WAV</span>
-                        </span>
-                      )}
-                      {file.file?.type === 'audio/mpeg' && (
-                        <span className="flex items-center px-2 py-1 bg-purple-500/20 rounded">
-                          <Music className="w-4 h-4 mr-1 text-purple-400" />
-                          <span className="text-purple-300">MP3</span>
-                        </span>
-                      )}
-                      {file.coverArt && (
-                        <span className="flex items-center px-2 py-1 bg-green-500/20 rounded">
-                          <ImageIcon className="w-4 h-4 mr-1 text-green-400" />
-                          <span className="text-green-300">JPEG</span>
-                        </span>
-                      )}
-                      {file.stemsFile && (
-                        <span className="flex items-center px-2 py-1 bg-yellow-500/20 rounded">
-                          <FileArchive className="w-4 h-4 mr-1 text-yellow-400" />
-                          <span className="text-yellow-300">ZIP</span>
-                        </span>
-                      )}
-                      {file.file?.type === 'application/pdf' && (
-                        <span className="flex items-center px-2 py-1 bg-red-500/20 rounded">
-                          <FileText className="w-4 h-4 mr-1 text-red-400" />
-                          <span className="text-red-300">PDF</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
                 </div>
-                <div className="flex items-center space-x-2">
+              </div>
+              <div className="flex items-center space-x-2">
+                {editingFileId === file.id ? null : (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 px-3 text-gray-300 hover:text-white hover:bg-secondary/80"
-                    onClick={() => router.push(`/beatupload/${file.id}?type=audio`)}
+                    onClick={e => {
+                      e.stopPropagation();
+                      handleEditFile(file);
+                    }}
                   >
                     Edit
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-3 text-red-400 hover:text-red-300 hover:bg-secondary/80"
-                    onClick={() => handleDeleteAudioFile(file.id)}
-                  >
-                    Delete
-                  </Button>
-                </div>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-red-400 hover:text-red-300 hover:bg-secondary/80"
+                  onClick={e => {
+                    e.stopPropagation();
+                    handleDeleteAudioFile(file.id);
+                  }}
+                >
+                  Delete
+                </Button>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       </TabsContent>
     </Tabs>

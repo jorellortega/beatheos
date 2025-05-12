@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
+import { FileUploader } from "./FileUploader"
+import { Music } from "lucide-react"
 
 const formSchema = z.object({
   title: z.string().min(2, {
@@ -41,6 +43,7 @@ const handleFileUpload = async (file: File, filePath: string) => {
 
 export function BeatUploadForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedWavFile, setSelectedWavFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -60,6 +63,13 @@ export function BeatUploadForm() {
     }
   }
 
+  const handleWavFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setSelectedWavFile(file)
+    }
+  }
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!selectedFile) {
       toast.error("Please select an audio file")
@@ -75,9 +85,16 @@ export function BeatUploadForm() {
       
       const publicUrl = await handleFileUpload(selectedFile, filePath)
       
+      let wavUrl = null
+      if (selectedWavFile) {
+        const wavPath = `${userId}/${values.title}/${selectedWavFile.name}`
+        wavUrl = await handleFileUpload(selectedWavFile, wavPath)
+      }
+      
       const beatData = {
         ...values,
         audioUrl: publicUrl,
+        wavUrl,
         producerId: userId,
       }
       
@@ -87,6 +104,7 @@ export function BeatUploadForm() {
       toast.success("Beat uploaded successfully!")
       form.reset()
       setSelectedFile(null)
+      setSelectedWavFile(null)
     } catch (error) {
       console.error('Error uploading beat:', error)
       toast.error("Failed to upload beat")
@@ -167,14 +185,25 @@ export function BeatUploadForm() {
         />
 
         <div className="space-y-2">
-          <FormLabel>Audio File</FormLabel>
-          <Input
-            type="file"
+          <FileUploader
+            label="Audio File"
             accept="audio/*"
-            onChange={handleFileChange}
+            file={selectedFile}
+            onFileChange={setSelectedFile}
+            icon={<Music className="mr-2 h-4 w-4" />}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <FileUploader
+            label="WAV File (Optional)"
+            accept="audio/wav"
+            file={selectedWavFile}
+            onFileChange={setSelectedWavFile}
+            icon={<Music className="mr-2 h-4 w-4" />}
           />
           <FormDescription>
-            Upload your beat audio file.
+            Optionally upload a high-quality .wav version of your beat.
           </FormDescription>
         </div>
 

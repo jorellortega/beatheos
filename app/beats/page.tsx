@@ -411,69 +411,71 @@ export default function BeatsPage() {
 
   return (
     <div style={{ background: '#141414', minHeight: '100vh' }} className="w-full">
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold font-display tracking-wider text-primary">Beats</h1>
+    <div className="container mx-auto px-2 sm:px-4 py-8">
+      <div className="flex flex-col items-center gap-4 mb-8 sm:flex-row sm:items-center sm:gap-8 beats-header-row">
+        <h1 className="text-4xl font-bold font-display tracking-wider text-primary m-0 text-center sm:text-left">Beats</h1>
+        <div className="w-full flex justify-center sm:w-auto sm:justify-end">
           <ViewSelector currentView={currentView} onViewChange={setCurrentView} />
         </div>
+      </div>
 
-        {/* Search and filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
-          <div className="relative flex-1">
-            <Input
-              type="text"
-              placeholder="Search beats..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-secondary text-white focus:bg-accent w-full"
-            />
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-          </div>
-          <Button onClick={shuffleBeats}>
-            <Shuffle className="h-4 w-4 mr-2" />
-            Shuffle
-          </Button>
+      {/* Search and filters */}
+      <div className="flex flex-col sm:flex-row gap-4 mb-8">
+        <div className="relative flex-1">
+          <Input
+            type="text"
+            placeholder="Search beats..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 bg-secondary text-white focus:bg-accent w-full"
+          />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
         </div>
+        <Button onClick={shuffleBeats}>
+          <Shuffle className="h-4 w-4 mr-2" />
+          Shuffle
+        </Button>
+      </div>
 
-        {/* Advanced filters */}
-        {showAdvancedSearch && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Select value={advancedFilters.genre} onValueChange={(value) => setAdvancedFilters({ ...advancedFilters, genre: value })}>
-              <SelectTrigger>
-                <SelectValue placeholder="Genre" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All Genres</SelectItem>
-                <SelectItem value="Epic">Epic</SelectItem>
-                <SelectItem value="Ambient">Ambient</SelectItem>
-                <SelectItem value="Trap">Trap</SelectItem>
-                <SelectItem value="Classical">Classical</SelectItem>
-                <SelectItem value="EDM">EDM</SelectItem>
-                <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
-                <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
-              </SelectContent>
-            </Select>
-            {/* Add other filters similarly */}
-          </div>
-        )}
+      {/* Advanced filters */}
+      {showAdvancedSearch && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <Select value={advancedFilters.genre} onValueChange={(value) => setAdvancedFilters({ ...advancedFilters, genre: value })}>
+            <SelectTrigger>
+              <SelectValue placeholder="Genre" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All Genres</SelectItem>
+              <SelectItem value="Epic">Epic</SelectItem>
+              <SelectItem value="Ambient">Ambient</SelectItem>
+              <SelectItem value="Trap">Trap</SelectItem>
+              <SelectItem value="Classical">Classical</SelectItem>
+              <SelectItem value="EDM">EDM</SelectItem>
+              <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
+              <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
+            </SelectContent>
+          </Select>
+          {/* Add other filters similarly */}
+        </div>
+      )}
 
-        {/* View content */}
-        {currentView === "grid" && <GridView />}
-        {currentView === "list" && <ListView />}
-        {currentView === "compact" && <CompactView />}
-        {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+      {/* View content */}
+      {currentView === "grid" && <GridView />}
+      {currentView === "list" && <ListView />}
+      {currentView === "compact" && <CompactView />}
+      {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
 
-        {/* Modals */}
-        <SaveToPlaylistModal
-          isOpen={isPlaylistModalOpen}
-          onClose={() => setIsPlaylistModalOpen(false)}
-          beat={selectedBeat}
-        />
-        <PurchaseOptionsModal
-          isOpen={isPurchaseModalOpen}
-          onClose={() => setIsPurchaseModalOpen(false)}
-          beat={selectedBeat}
-        />
+      {/* Modals */}
+      <SaveToPlaylistModal
+        isOpen={isPlaylistModalOpen}
+        onClose={() => setIsPlaylistModalOpen(false)}
+        beat={selectedBeat}
+      />
+      <PurchaseOptionsModal
+        isOpen={isPurchaseModalOpen}
+        onClose={() => setIsPurchaseModalOpen(false)}
+        beat={selectedBeat}
+      />
       </div>
     </div>
   )
