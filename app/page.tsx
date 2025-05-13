@@ -8,12 +8,8 @@ export default function Home() {
     <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
       <div className="text-center mb-12 mt-12 sm:mt-16">
         <h1 className="text-4xl font-bold mb-4 text-primary">Welcome to Beatheos</h1>
-        <p className="text-xl mb-8 max-w-2xl mx-auto text-gray-300">
-          Transcend mortal rhythms in the divine audioscape of Beatheos. Create, explore, and dominate the realm of
-          celestial compositions.
-        </p>
         <Button
-          className="bg-transparent text-white font-medium py-2 px-6 rounded-full shadow-lg hover:bg-gradient-to-r hover:from-[#F4C430] hover:to-[#E8E8E8] hover:text-black transition-all duration-300 border-2 border-transparent bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] bg-clip-padding-box"
+          className="mt-8 bg-transparent text-white font-medium py-2 px-6 rounded-full shadow-lg hover:bg-gradient-to-r hover:from-[#F4C430] hover:to-[#E8E8E8] hover:text-black transition-all duration-300 border-2 border-transparent bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] bg-clip-padding-box"
           style={{
             backgroundClip: "padding-box",
             border: "2px solid transparent",

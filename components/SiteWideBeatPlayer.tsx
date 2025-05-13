@@ -206,6 +206,24 @@ export function SiteWideBeatPlayer() {
     }
   }, [currentBeat, isShuffle, allBeats])
 
+  useEffect(() => {
+    if (currentBeat) {
+      setFullCurrentBeat((prev: any) => {
+        if (prev && String(prev.id) === String(currentBeat.id)) return prev;
+        const beatAny = currentBeat as any;
+        return {
+          id: beatAny.id,
+          title: beatAny.title,
+          price: beatAny.price || 0,
+          price_lease: beatAny.price_lease || 0,
+          price_premium_lease: beatAny.price_premium_lease || 0,
+          price_exclusive: beatAny.price_exclusive || 0,
+          price_buyout: beatAny.price_buyout || 0,
+        };
+      });
+    }
+  }, [currentBeat]);
+
   const togglePlay = () => setIsPlaying(!isPlaying)
 
   const handleVolumeChange = (newVolume: number[]) => {
@@ -566,13 +584,13 @@ export function SiteWideBeatPlayer() {
       >
         <CardContent className={`p-2 pt-0 h-full flex flex-col ${playerMode === 'full' ? "pb-16" : ""}`}>
           {playerMode === 'full' && (
-            <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-              <Button
-                variant="ghost"
-                size="icon"
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+            <Button
+              variant="ghost"
+              size="icon"
                 onClick={() => setPlayerMode('default')}
-                className="bg-background rounded-full"
-              >
+              className="bg-background rounded-full"
+            >
                 <Minimize className="h-6 w-6" />
               </Button>
             </div>
@@ -603,58 +621,58 @@ export function SiteWideBeatPlayer() {
                 className="h-10 w-10"
               >
                 <X className="h-5 w-5" />
-              </Button>
-            </div>
+            </Button>
+          </div>
           ) : (
             <>
-              <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
-                <Image
-                  src={currentBeat?.image || "/placeholder.svg"}
-                  alt={currentBeat?.title || "cover"}
-                  width={100}
-                  height={100}
-                  className="rounded-md mb-2 sm:mb-0 sm:mr-4"
-                />
-                <div className="flex-grow flex flex-col items-center sm:items-start w-full">
-                  <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
-                  <Link
-                    href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
-                    className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
-                  >
-                    {currentBeat?.artist || ""}
-                  </Link>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
-                <div className="flex items-center justify-center gap-2">
-                  <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
-                    <Rewind className="h-6 w-6" />
-                  </Button>
-                  <Button
-                    size="lg"
-                    variant="secondary"
-                    onClick={() => {
-                      if (!isRecording) {
-                        togglePlay()
-                      }
-                    }}
-                  >
-                    {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
-                  </Button>
-                  <Button size="lg" variant="secondary" onClick={playNextBeat}>
-                    <SkipForward className="h-6 w-6" />
-                  </Button>
-                </div>
-                <div className="flex items-center justify-center gap-2">
-                  <Button size="lg" variant="secondary" onClick={toggleRepeat}>
-                    <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
-                  </Button>
-                  <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-                    <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-                  </Button>
-                  <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
-                    Playlists
-                  </Button>
+          <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
+            <Image
+              src={currentBeat?.image || "/placeholder.svg"}
+              alt={currentBeat?.title || "cover"}
+              width={100}
+              height={100}
+              className="rounded-md mb-2 sm:mb-0 sm:mr-4"
+            />
+            <div className="flex-grow flex flex-col items-center sm:items-start w-full">
+              <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+              <Link
+                href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
+                className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
+              >
+                {currentBeat?.artist || ""}
+              </Link>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
+            <div className="flex items-center justify-center gap-2">
+            <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
+                <Rewind className="h-6 w-6" />
+              </Button>
+              <Button
+                size="lg"
+                variant="secondary"
+                onClick={() => {
+                  if (!isRecording) {
+                    togglePlay()
+                  }
+                }}
+              >
+                {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+              </Button>
+            <Button size="lg" variant="secondary" onClick={playNextBeat}>
+                <SkipForward className="h-6 w-6" />
+              </Button>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <Button size="lg" variant="secondary" onClick={toggleRepeat}>
+                <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
+              </Button>
+            <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+              <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+            </Button>
+              <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
+                Playlists
+              </Button>
                   <Button
                     size="lg"
                     className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
@@ -662,28 +680,28 @@ export function SiteWideBeatPlayer() {
                   >
                     <ShoppingCart className="h-5 w-5" />
                   </Button>
-                </div>
-              </div>
-              <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
-              <div className="flex-grow overflow-hidden">
-                <div className="flex flex-col h-full">
-                  <div className="mb-4"></div>
-                  <div className="flex-grow mb-2">
-                    <h4 className="font-semibold mb-1">Lyrics</h4>
-                    <Textarea
-                      value={lyrics}
-                      onChange={e => setLyrics(e.target.value)}
-                      placeholder="Type or paste lyrics here..."
-                      className="h-32 mb-2 resize-none bg-secondary text-white"
-                    />
-                    <Button
-                      size="sm"
-                      className="mt-1"
+            </div>
+          </div>
+          <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
+            <div className="flex-grow overflow-hidden">
+              <div className="flex flex-col h-full">
+                <div className="mb-4"></div>
+                <div className="flex-grow mb-2">
+                  <h4 className="font-semibold mb-1">Lyrics</h4>
+                  <Textarea
+                    value={lyrics}
+                    onChange={e => setLyrics(e.target.value)}
+                    placeholder="Type or paste lyrics here..."
+                    className="h-32 mb-2 resize-none bg-secondary text-white"
+                  />
+                  <Button
+                    size="sm"
+                    className="mt-1"
                       disabled={savingLyrics || !user || !currentBeat}
-                      onClick={async () => {
+                    onClick={async () => {
                         if (!currentBeat || !user) return;
-                        setSavingLyrics(true);
-                        const { error } = await supabase
+                      setSavingLyrics(true);
+                      const { error } = await supabase
                           .from('sessions')
                           .upsert([
                             {
@@ -693,59 +711,59 @@ export function SiteWideBeatPlayer() {
                               lyrics,
                             }
                           ], { onConflict: 'user_id,beat_ids' })
-                        setSavingLyrics(false);
-                        if (!error) {
-                          toast({
-                            title: "Lyrics Saved",
+                      setSavingLyrics(false);
+                      if (!error) {
+                        toast({
+                          title: "Lyrics Saved",
                             description: "Your lyrics have been saved privately.",
-                          });
-                        } else {
-                          toast({
-                            title: "Error",
-                            description: "Failed to save lyrics.",
-                            variant: "destructive",
-                          });
-                        }
-                      }}
-                    >
-                      {savingLyrics ? <span className="animate-spin mr-2">⏳</span> : null}
-                      Save Lyrics
-                    </Button>
-                  </div>
+                        });
+                      } else {
+                        toast({
+                          title: "Error",
+                          description: "Failed to save lyrics.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    {savingLyrics ? <span className="animate-spin mr-2">⏳</span> : null}
+                    Save Lyrics
+                  </Button>
                 </div>
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+              </div>
+              <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                       <span className="inline-flex">
                         <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
-                          Open Session
-                        </Button>
+                      Open Session
+                    </Button>
                       </span>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      {savedSessions.length > 0 ? (
-                        savedSessions.map((session) => (
-                          <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
-                            {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
-                          </DropdownMenuItem>
-                        ))
-                      ) : (
-                        <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button
-                    variant={isRecording ? "destructive" : "secondary"}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    {savedSessions.length > 0 ? (
+                      savedSessions.map((session) => (
+                        <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
+                          {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
+                        </DropdownMenuItem>
+                      ))
+                    ) : (
+                      <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button
+                  variant={isRecording ? "destructive" : "secondary"}
                     onClick={handleMicClick}
-                    className={`w-12 h-12 rounded-full ${isRecording ? "animate-pulse" : ""}`}
-                  >
-                    <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
-                    <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
-                  </Button>
+                  className={`w-12 h-12 rounded-full ${isRecording ? "animate-pulse" : ""}`}
+                >
+                  <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
+                  <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
+                </Button>
                   <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
-                    {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
-                    Save Session
-                  </Button>
+                  {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
+                  Save Session
+                </Button>
                 </div>
               </div>
             </>
@@ -755,24 +773,24 @@ export function SiteWideBeatPlayer() {
               onClick={handleClose}
               className="absolute bottom-3 right-3 z-10 bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
               aria-label="Close player"
-            >
+              >
               <X className="h-5 w-5 text-white" />
             </button>
           )}
         </CardContent>
         {currentBeat?.audioUrl ? (
-          <audio
-            ref={audioRef}
-            src={currentBeat.audioUrl}
-            onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
-            onEnded={() => {
-              if (isRepeat) {
-                audioRef.current?.play()
-              } else if (isShuffle) {
-                playNextBeat()
-              }
-            }}
-          />
+        <audio
+          ref={audioRef}
+          src={currentBeat.audioUrl}
+          onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+          onEnded={() => {
+            if (isRepeat) {
+              audioRef.current?.play()
+            } else if (isShuffle) {
+              playNextBeat()
+            }
+          }}
+        />
         ) : null}
       </Card>
       {showAuthPrompt && (

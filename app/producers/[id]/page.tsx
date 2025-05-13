@@ -140,9 +140,6 @@ export default function ProducerProfilePage() {
             <p className="text-gray-500 mb-4">{producer.bio}</p>
             <div className="flex justify-center md:justify-start space-x-4 mb-4">
               <div>
-                <span className="font-bold">{producer.followers.toLocaleString()}</span> followers
-              </div>
-              <div>
                 <span className="font-bold">{beats.length}</span> beats
               </div>
               <div>
@@ -174,82 +171,9 @@ export default function ProducerProfilePage() {
         <Tabs defaultValue="beats" className="w-full">
           <TabsList>
             <TabsTrigger value="beats">Beats</TabsTrigger>
-            <TabsTrigger value="pictures">Pictures</TabsTrigger>
-            <TabsTrigger value="about">About</TabsTrigger>
           </TabsList>
           <TabsContent value="beats">
             <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
-          </TabsContent>
-          <TabsContent value="pictures">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {producer.pictures?.map((picture) => (
-                <Card key={picture.id} className="overflow-hidden">
-                  <div className="relative aspect-square">
-                    <img
-                      src={picture.url}
-                      alt={picture.caption}
-                      className="object-cover w-full h-full"
-                    />
-                  </div>
-                  <CardContent className="p-4">
-                    <p className="text-sm mb-2">{picture.caption}</p>
-                    <div className="flex items-center justify-between text-sm text-gray-400">
-                      <div className="flex items-center space-x-4">
-                        <span>{picture.likes} likes</span>
-                        <span>{picture.comments} comments</span>
-                      </div>
-                      <span>{picture.date}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-              {isOwnProfile && (
-                <Card className="aspect-square flex items-center justify-center cursor-pointer hover:bg-secondary transition-colors">
-                  <div className="text-center">
-                    <Plus className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                    <span className="text-sm text-gray-400">Add Picture</span>
-                  </div>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-          <TabsContent value="about">
-            {isOwnProfile && (
-              <div className="flex gap-2 mb-4 justify-center md:justify-start">
-                <Button
-                  className="gradient-button text-black font-medium hover:text-white"
-                  onClick={() => setIsEditDialogOpen(true)}
-                >
-                  Edit Profile
-                </Button>
-              </div>
-            )}
-            <Card>
-              <CardHeader>
-                <CardTitle>About {producer.display_name}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="mb-4">{producer.bio}</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <h3 className="font-semibold">Followers</h3>
-                    <p>{producer.followers.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Beats</h3>
-                    <p>{producer.beatsCount}</p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Genre</h3>
-                    <p>{producer.genre}</p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Top 10 Appearances</h3>
-                    <p>Producer: {producer.topProducerCount}, Beats: {producer.topBeatsCount}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </TabsContent>
         </Tabs>
       </main>
