@@ -427,7 +427,7 @@ export default function BusinessProducerDashboard() {
           <TabManager setActiveTab={setActiveTab} />
         </Suspense>
       <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="mb-8">
-          <TabsList className="grid w-full grid-cols-7">
+          <TabsList className="flex w-full overflow-x-auto whitespace-nowrap gap-2 sm:grid sm:grid-cols-7 sm:gap-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
             <TabsTrigger value="mybeats">My Beats</TabsTrigger>

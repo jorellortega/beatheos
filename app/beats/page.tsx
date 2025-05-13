@@ -54,7 +54,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
           <div className="flex justify-between items-center mb-2">
             <Badge
               variant="secondary"
-              className="text-[10px] px-1.5 py-0.5 w-full flex items-center justify-center text-center"
+              className="text-[10px] px-2 py-0.5 w-auto flex items-center justify-center text-center"
             >
               <span className="inline-block">{beat.bpm} BPM</span>
             </Badge>
@@ -248,7 +248,7 @@ export default function BeatsPage() {
               <div className="flex justify-between items-center mb-2">
                 <Badge
                   variant="secondary"
-                  className="text-[10px] px-1.5 py-0.5 w-full flex items-center justify-center text-center"
+                  className="text-[10px] px-2 py-0.5 w-auto flex items-center justify-center text-center"
                 >
                   <span className="inline-block">{beat.bpm} BPM</span>
                 </Badge>
@@ -413,7 +413,7 @@ export default function BeatsPage() {
     <div style={{ background: '#141414', minHeight: '100vh' }} className="w-full">
     <div className="container mx-auto px-2 sm:px-4 py-8">
       <div className="flex flex-col items-center gap-4 mb-8 sm:flex-row sm:items-center sm:gap-8 beats-header-row mt-12 sm:mt-16">
-        <h1 className="text-4xl font-bold font-display tracking-wider text-primary m-0 text-center sm:text-left">Beats</h1>
+        <h1 className="text-5xl sm:text-6xl font-bold font-display tracking-wider text-primary m-0 text-center sm:text-left mb-4">Beats</h1>
         <div className="w-full flex flex-col sm:flex-row justify-center sm:w-auto sm:justify-end gap-2">
           <ViewSelector currentView={currentView} onViewChange={setCurrentView} />
         </div>

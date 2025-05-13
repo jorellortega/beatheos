@@ -281,6 +281,56 @@ export default function SessionsPage() {
                           <Button size="sm" variant="destructive" onClick={() => handleDelete(session.id)} disabled={saving}>
                             <Trash2 className="h-4 w-4 mr-1" /> Delete
                       </Button>
+                          {session.lyrics && (
+                            <Button size="sm" variant="secondary" onClick={() => {
+                              const blob = new Blob([session.lyrics], { type: 'text/plain' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `${session.name || 'lyrics'}.txt`;
+                              document.body.appendChild(a);
+                              a.click();
+                              setTimeout(() => {
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }, 100);
+                            }}>
+                              <Download className="h-4 w-4 mr-1" /> Export Lyrics
+                            </Button>
+                          )}
+                          <Button size="sm" variant="secondary" onClick={async () => {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = '.txt';
+                            input.onchange = async (e) => {
+                              const file = (e.target as HTMLInputElement).files?.[0];
+                              if (file) {
+                                try {
+                                  const text = await file.text();
+                                  // Update lyrics in DB
+                                  const supabase = createClient(
+                                    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                                    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+                                  );
+                                  const { error } = await supabase
+                                    .from('sessions')
+                                    .update({ lyrics: text })
+                                    .eq('id', session.id);
+                                  if (!error) {
+                                    setSessions(sessions => sessions.map(s => s.id === session.id ? { ...s, lyrics: text } : s));
+                                    toast({ title: 'Lyrics Imported', description: 'Lyrics imported successfully.' });
+                                  } else {
+                                    toast({ title: 'Error', description: 'Failed to import lyrics.', variant: 'destructive' });
+                                  }
+                                } catch (err) {
+                                  toast({ title: 'Error', description: 'Failed to read file.', variant: 'destructive' });
+                                }
+                              }
+                            };
+                            input.click();
+                          }}>
+                            <Upload className="h-4 w-4 mr-1" /> Import Lyrics
+                          </Button>
                         </>
                       )}
                     </div>
