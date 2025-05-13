@@ -34,7 +34,7 @@ import { usePlayer } from "@/contexts/PlayerContext"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { supabase } from '@/lib/supabaseClient'
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 
@@ -84,6 +84,9 @@ export function SiteWideBeatPlayer() {
   const [savingSession, setSavingSession] = useState(false)
   const [lyricsFromSession, setLyricsFromSession] = useState(false)
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
+  const router = useRouter()
+  const [showFeatureAuthDialog, setShowFeatureAuthDialog] = useState(false)
+  const [allBeats, setAllBeats] = useState<Beat[]>([])
 
   const pathname = usePathname()
 
@@ -117,23 +120,23 @@ export function SiteWideBeatPlayer() {
   }, [currentBeat?.id, isPlaying])
 
   useEffect(() => {
-    if (lyricsFromSession) {
-      setLyricsFromSession(false)
+    if (!user || !currentBeat) {
+      setLyrics("")
       return
     }
-    // Fetch lyrics for the current beat from Supabase
-    async function fetchLyrics() {
-      if (!currentBeat) return;
+    // Fetch user-specific lyrics from sessions table
+    async function fetchUserLyrics() {
       const { data, error } = await supabase
-        .from('beats')
+        .from('sessions')
         .select('lyrics')
-        .eq('id', currentBeat.id)
+        .eq('user_id', user.id)
+        .eq('beat_ids', String(currentBeat.id))
         .single()
       if (data && data.lyrics) setLyrics(data.lyrics)
       else setLyrics("")
     }
-    fetchLyrics()
-  }, [currentBeat])
+    fetchUserLyrics()
+  }, [currentBeat, user])
 
   useEffect(() => {
     if (!user) return;
@@ -157,11 +160,50 @@ export function SiteWideBeatPlayer() {
         .single()
         .then(({ data, error }) => {
           if (data && data.cover_art_url) {
-            setCurrentBeat((prev: any) => prev ? { ...prev, image: data.cover_art_url } : prev);
+            setCurrentBeat(currentBeat ? { ...currentBeat, image: data.cover_art_url } : currentBeat);
           }
         });
     }
   }, [currentBeat]);
+
+  useEffect(() => {
+    if (currentBeat && !isShuffle && allBeats.length === 0) {
+      (async () => {
+        const { data: beats, error } = await supabase
+          .from('beats')
+          .select('id, title, producer_id, mp3_url, cover_art_url')
+          .eq('is_draft', false)
+          .order('created_at', { ascending: false })
+          .limit(100)
+        if (beats && !error) {
+          const beatsWithProducers = await Promise.all(
+            beats.map(async (beat) => {
+              const { data: producer } = await supabase
+                .from('producers')
+                .select('display_name')
+                .eq('user_id', beat.producer_id)
+                .single();
+              return {
+                id: beat.id,
+                title: beat.title,
+                artist: producer?.display_name || beat.producer_id,
+                audioUrl: beat.mp3_url,
+                image: beat.cover_art_url,
+              }
+            })
+          )
+          setAllBeats(beatsWithProducers)
+        }
+      })()
+    }
+  }, [currentBeat, isShuffle, allBeats.length])
+
+  useEffect(() => {
+    if (!isShuffle && currentBeat && allBeats.length > 0) {
+      const idx = allBeats.findIndex(b => b.id === currentBeat.id)
+      if (idx !== -1) setCurrentBeatIndex(idx)
+    }
+  }, [currentBeat, isShuffle, allBeats])
 
   const togglePlay = () => setIsPlaying(!isPlaying)
 
@@ -228,21 +270,31 @@ export function SiteWideBeatPlayer() {
 
   const playNextBeat = () => {
     if (isShuffle && shuffledBeats.length > 0) {
-      const nextIndex = (currentBeatIndex + 1) % shuffledBeats.length;
-      setCurrentBeatIndex(nextIndex);
-      setCurrentBeat(shuffledBeats[nextIndex]);
-      setIsPlaying(true);
+      const nextIndex = (currentBeatIndex + 1) % shuffledBeats.length
+      setCurrentBeatIndex(nextIndex)
+      setCurrentBeat(shuffledBeats[nextIndex])
+      setIsPlaying(true)
+    } else if (!isShuffle && allBeats.length > 0) {
+      const nextIndex = (currentBeatIndex + 1) % allBeats.length
+      setCurrentBeatIndex(nextIndex)
+      setCurrentBeat(allBeats[nextIndex])
+      setIsPlaying(true)
     }
-  };
+  }
 
   const playPreviousBeat = () => {
     if (isShuffle && shuffledBeats.length > 0) {
-      const prevIndex = (currentBeatIndex - 1 + shuffledBeats.length) % shuffledBeats.length;
-      setCurrentBeatIndex(prevIndex);
-      setCurrentBeat(shuffledBeats[prevIndex]);
-      setIsPlaying(true);
+      const prevIndex = (currentBeatIndex - 1 + shuffledBeats.length) % shuffledBeats.length
+      setCurrentBeatIndex(prevIndex)
+      setCurrentBeat(shuffledBeats[prevIndex])
+      setIsPlaying(true)
+    } else if (!isShuffle && allBeats.length > 0) {
+      const prevIndex = (currentBeatIndex - 1 + allBeats.length) % allBeats.length
+      setCurrentBeatIndex(prevIndex)
+      setCurrentBeat(allBeats[prevIndex])
+      setIsPlaying(true)
     }
-  };
+  }
 
   const startRecording = async () => {
     try {
@@ -336,7 +388,7 @@ export function SiteWideBeatPlayer() {
       const { error } = await supabase.from('sessions').insert({
         user_id: user.id,
         name: `${currentBeat.title} Session`,
-        beat_ids: [String(currentBeat.id)],
+        beat_ids: String(currentBeat.id),
         lyrics, // Save lyrics to the session
       })
       if (!error) {
@@ -465,13 +517,38 @@ export function SiteWideBeatPlayer() {
     }
   }
 
+  const handleOpenSessionClick = () => {
+    if (!user) {
+      setShowFeatureAuthDialog(true)
+      return
+    }
+    setIsPlaylistsModalOpen(true)
+  }
+
+  const handleSaveSessionClick = async () => {
+    if (!user) {
+      setShowFeatureAuthDialog(true)
+      return
+    }
+    await saveSession();
+    setSavingSession(false);
+  }
+
+  const handleMicClick = () => {
+    if (!user) {
+      setShowFeatureAuthDialog(true)
+      return
+    }
+    isRecording ? stopRecording() : startRecording()
+  }
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
         className={`transition-all duration-300 ${
           playerMode === 'full'
             ? 'max-w-[680px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4'
-            : 'w-auto h-10 fixed bottom-4 right-4'
+            : 'w-auto h-16 fixed bottom-4 right-4'
         }`}
         style={{ marginTop: playerMode === 'full' ? undefined : '0' }}
       >
@@ -490,30 +567,30 @@ export function SiteWideBeatPlayer() {
           )}
           
           {playerMode === 'default' ? (
-            <div className="flex items-center justify-end gap-1 h-full">
+            <div className="flex items-center justify-end gap-3 h-full">
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={togglePlay}
-                className="h-8 w-8"
+                className="h-10 w-10"
               >
-                {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
               </Button>
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={() => setPlayerMode('full')}
-                className="h-8 w-8"
+                className="h-10 w-10"
               >
-                <Expand className="h-3 w-3" />
+                <Expand className="h-5 w-5" />
               </Button>
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={handleClose}
-                className="h-8 w-8"
+                className="h-10 w-10"
               >
-                <X className="h-3 w-3" />
+                <X className="h-5 w-5" />
               </Button>
             </div>
           ) : (
@@ -590,19 +667,25 @@ export function SiteWideBeatPlayer() {
                     <Button
                       size="sm"
                       className="mt-1"
-                      disabled={savingLyrics}
+                      disabled={savingLyrics || !user || !currentBeat}
                       onClick={async () => {
-                        if (!currentBeat) return;
+                        if (!currentBeat || !user) return;
                         setSavingLyrics(true);
                         const { error } = await supabase
-                          .from('beats')
-                          .update({ lyrics })
-                          .eq('id', currentBeat.id);
+                          .from('sessions')
+                          .upsert([
+                            {
+                              user_id: user.id,
+                              name: `${currentBeat.title} Session`,
+                              beat_ids: String(currentBeat.id),
+                              lyrics,
+                            }
+                          ], { onConflict: 'user_id,beat_ids' })
                         setSavingLyrics(false);
                         if (!error) {
                           toast({
                             title: "Lyrics Saved",
-                            description: "Lyrics have been updated for this beat.",
+                            description: "Your lyrics have been saved privately.",
                           });
                         } else {
                           toast({
@@ -620,10 +703,12 @@ export function SiteWideBeatPlayer() {
                 </div>
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
                   <DropdownMenu>
-                    <DropdownMenuTrigger>
-                      <Button variant="secondary" size="sm">
-                        Open Session
-                      </Button>
+                    <DropdownMenuTrigger asChild>
+                      <span className="inline-flex">
+                        <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
+                          Open Session
+                        </Button>
+                      </span>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                       {savedSessions.length > 0 ? (
@@ -639,16 +724,13 @@ export function SiteWideBeatPlayer() {
                   </DropdownMenu>
                   <Button
                     variant={isRecording ? "destructive" : "secondary"}
-                    onClick={isRecording ? stopRecording : startRecording}
+                    onClick={handleMicClick}
                     className={`w-12 h-12 rounded-full ${isRecording ? "animate-pulse" : ""}`}
                   >
                     <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
                     <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
                   </Button>
-                  <Button variant="secondary" size="sm" onClick={async () => {
-                    await saveSession();
-                    setSavingSession(false);
-                  }} disabled={savingSession}>
+                  <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
                     {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
                     Save Session
                   </Button>
@@ -755,8 +837,30 @@ export function SiteWideBeatPlayer() {
       <PurchaseOptionsModal
         isOpen={isPurchaseModalOpen}
         onClose={() => setIsPurchaseModalOpen(false)}
-        beat={currentBeat}
+        beat={currentBeat ? {
+          id: Number(currentBeat.id),
+          title: currentBeat.title,
+          price: (currentBeat as any).price || 0,
+          price_lease: (currentBeat as any).price_lease || 0,
+          price_premium_lease: (currentBeat as any).price_premium_lease || 0,
+          price_exclusive: (currentBeat as any).price_exclusive || 0,
+          price_buyout: (currentBeat as any).price_buyout || 0,
+        } : null}
       />
+      {showFeatureAuthDialog && (
+        <Dialog open={showFeatureAuthDialog} onOpenChange={setShowFeatureAuthDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Sign Up or Log In</DialogTitle>
+            </DialogHeader>
+            <p className="mb-4">You need to be signed in to use this feature.</p>
+            <div className="flex gap-4 justify-end">
+              <Button onClick={() => router.push('/signup')} className="bg-primary text-black">Sign Up</Button>
+              <Button variant="outline" onClick={() => router.push('/login')}>Log In</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

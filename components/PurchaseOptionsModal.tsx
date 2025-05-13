@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { X } from "lucide-react"
 import { loadStripe } from '@stripe/stripe-js'
@@ -73,15 +73,7 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="bg-black border-none sm:rounded-lg p-6">
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={onClose}
-          className="absolute right-4 top-4 text-white hover:text-gray-300"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-        <h2 className="text-2xl font-bold mb-6">Purchase</h2>
+        <DialogTitle className="text-2xl font-bold mb-6">Purchase</DialogTitle>
         <div className="space-y-6">
           <div>
             <label className="block mb-2 font-semibold">Choose License</label>
@@ -90,12 +82,14 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
               value={selectedLicense}
               onChange={e => setSelectedLicense(e.target.value as string)}
             >
-              {licenseOptions.map(opt => {
-                if (!opt.priceKey) return null;
+              {licenseOptions.filter(opt => {
+                const priceValue = beat[opt.priceKey as keyof typeof beat];
+                return priceValue && Number(priceValue) > 0;
+              }).map(opt => {
                 const priceValue = beat[opt.priceKey as keyof typeof beat];
                 return (
-                  <option key={opt.id} value={opt.id} disabled={!(priceValue && Number(priceValue) > 0)}>
-                    {opt.label} {priceValue && Number(priceValue) > 0 ? `- $${priceValue}` : '(Not available)'}
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label} - ${priceValue}
                   </option>
                 );
               })}

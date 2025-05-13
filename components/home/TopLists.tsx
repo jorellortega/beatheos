@@ -116,10 +116,10 @@ export function TopLists() {
         <CardContent>
           <ul className="space-y-2">
             {topBeats.map((beat, index) => (
-              <li key={beat.id + '-' + index} className="flex items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors">
-                <div className="flex items-center">
-                  <span className="text-2xl font-bold text-primary w-8 mr-4">{index + 1}</span>
-                  <div className="relative w-10 h-10 mr-3">
+              <li key={beat.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
+                <div className="flex items-center gap-x-2 sm:gap-x-4">
+                  <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                  <div className="relative w-10 h-10">
                     <Image
                       src={beat.image}
                       alt={beat.title}
@@ -130,15 +130,15 @@ export function TopLists() {
                       priority={index < 3}
                     />
                   </div>
-                  <div className="flex flex-col">
+                  <div className="flex flex-col justify-center">
                     <button 
                       onClick={() => handleBeatClick(beat)} 
-                      className="font-semibold text-left hover:text-primary transition-colors"
+                      className="font-semibold text-left hover:text-primary transition-colors text-base sm:text-lg"
                     >
                       {beat.title}
                     </button>
-                    <div className="flex items-center">
-                      <div className="relative w-4 h-4 mr-2">
+                    <div className="flex items-center gap-x-1 mt-1">
+                      <div className="relative w-4 h-4">
                         <Image
                           src={beat.producer_image}
                           alt={beat.producer_name}
@@ -154,7 +154,7 @@ export function TopLists() {
                     </div>
                   </div>
                 </div>
-                <span className="text-sm text-gray-400">{beat.plays.toLocaleString()} plays</span>
+                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{beat.plays.toLocaleString()} plays</span>
               </li>
             ))}
           </ul>
@@ -171,10 +171,10 @@ export function TopLists() {
         <CardContent>
           <ul className="space-y-2">
             {topProducers.map((producer, index) => (
-              <li key={producer.id + '-' + index} className="flex items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors">
-                <div className="flex items-center">
-                  <span className="text-2xl font-bold text-primary w-8 mr-4">{index + 1}</span>
-                  <div className="relative w-10 h-10 mr-3">
+              <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
+                <div className="flex items-center gap-x-2 sm:gap-x-4">
+                  <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                  <div className="relative w-10 h-10">
                     <Image
                       src={producer.image || '/placeholder.svg'}
                       alt={producer.name}
@@ -183,11 +183,11 @@ export function TopLists() {
                       sizes="40px"
                     />
                   </div>
-                  <Link href={`/producers/${producer.id}`} className="font-semibold hover:text-primary transition-colors">
+                  <Link href={`/producers/${producer.id}`} className="font-semibold hover:text-primary transition-colors text-base sm:text-lg">
                     {producer.name}
                   </Link>
                 </div>
-                <span className="text-sm text-gray-400">{producer.weekly_plays.toLocaleString()} plays</span>
+                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
               </li>
             ))}
           </ul>
