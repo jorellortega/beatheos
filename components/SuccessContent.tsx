@@ -45,17 +45,17 @@ export default function SuccessContent() {
       {beat && (
         <div className="mt-4 space-y-2">
           {beat.mp3_url && (
-            <a href={beat.mp3_url} download="beat.mp3" className="block text-primary underline font-semibold text-lg">
+            <a href={beat.mp3_url} download className="block text-primary underline font-semibold text-lg">
               Download MP3
             </a>
           )}
           {beat.wav_url && (
-            <a href={beat.wav_url} download="beat.wav" className="block text-primary underline font-semibold text-lg">
+            <a href={beat.wav_url} download className="block text-primary underline font-semibold text-lg">
               Download WAV
             </a>
           )}
           {beat.stems_url && (
-            <a href={beat.stems_url} download="beat-stems.zip" className="block text-primary underline font-semibold text-lg">
+            <a href={beat.stems_url} download className="block text-primary underline font-semibold text-lg">
               Download Stems
             </a>
           )}
