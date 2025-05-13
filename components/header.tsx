@@ -72,7 +72,7 @@ export default function Header() {
     { name: "Home", path: "/" },
     { name: "Producers", path: "/producers" },
     { name: "Beats", path: "/beats" },
-    { name: "Subscription", path: "/subscription" },
+    { name: "Subscription", path: "/subscriptionplans" },
     { name: "Upload Beat", path: "/upload-beat" },
   ]
 
