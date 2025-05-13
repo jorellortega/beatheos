@@ -5,7 +5,7 @@ import { Crown, Flame } from 'lucide-react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePlayer } from '@/contexts/PlayerContext'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 interface Beat {
@@ -27,10 +27,11 @@ interface Producer {
 }
 
 export function TopLists() {
-  const { setCurrentBeat, setIsPlaying } = usePlayer()
+  const { currentBeat, setCurrentBeat, isPlaying, setIsPlaying } = usePlayer()
   const [topBeats, setTopBeats] = useState<Beat[]>([])
   const [topProducers, setTopProducers] = useState<Producer[]>([])
   const [loading, setLoading] = useState(true)
+  const lastClickRef = useRef<{ id: string; time: number } | null>(null)
 
   useEffect(() => {
     async function fetchTopLists() {
@@ -93,13 +94,31 @@ export function TopLists() {
   }, [])
 
   const handleBeatClick = (beat: Beat) => {
-    setCurrentBeat({
-      id: beat.id.toString(),
-      title: beat.title,
-      artist: beat.producer_name,
-      audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
-    })
-    setIsPlaying(true)
+    const now = Date.now();
+    const beatId = beat.id.toString();
+    if (currentBeat && currentBeat.id === beatId) {
+      if (lastClickRef.current && lastClickRef.current.id === beatId && now - lastClickRef.current.time < 300) {
+        // Double click detected: restart from beginning
+        const audio = document.querySelector('audio[src="' + (beat.audioUrl || '/placeholder-audio.mp3') + '"]') as HTMLAudioElement | null;
+        if (audio) {
+          audio.currentTime = 0;
+          audio.play();
+        }
+        setIsPlaying(true);
+      } else {
+        setIsPlaying(!isPlaying);
+      }
+      lastClickRef.current = { id: beatId, time: now };
+    } else {
+      setCurrentBeat({
+        id: beatId,
+        title: beat.title,
+        artist: beat.producer_name,
+        audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
+      })
+      setIsPlaying(true)
+      lastClickRef.current = { id: beatId, time: now };
+    }
   }
 
   if (loading) return <div className="text-center py-8">Loading top lists...</div>
@@ -116,7 +135,11 @@ export function TopLists() {
         <CardContent>
           <ul className="space-y-2">
             {topBeats.map((beat, index) => (
-              <li key={beat.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
+              <li
+                key={beat.id + '-' + index}
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0 cursor-pointer"
+                onClick={() => handleBeatClick(beat)}
+              >
                 <div className="flex items-center gap-x-2 sm:gap-x-4">
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
                   <div className="relative w-10 h-10">
@@ -132,7 +155,7 @@ export function TopLists() {
                   </div>
                   <div className="flex flex-col justify-center">
                     <button 
-                      onClick={() => handleBeatClick(beat)} 
+                      onClick={e => { e.stopPropagation(); handleBeatClick(beat); }} 
                       className="font-semibold text-left hover:text-primary transition-colors text-base sm:text-lg"
                     >
                       {beat.title}
