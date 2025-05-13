@@ -37,6 +37,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { usePathname, useRouter } from "next/navigation"
 import { supabase } from '@/lib/supabaseClient'
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
+import WavesurferPlayer from "@wavesurfer/react"
 
 interface Beat {
   id: string
@@ -208,19 +209,25 @@ export function SiteWideBeatPlayer() {
 
   useEffect(() => {
     if (currentBeat) {
-      setFullCurrentBeat((prev: any) => {
-        if (prev && String(prev.id) === String(currentBeat.id)) return prev;
-        const beatAny = currentBeat as any;
-        return {
-          id: beatAny.id,
-          title: beatAny.title,
-          price: beatAny.price || 0,
-          price_lease: beatAny.price_lease || 0,
-          price_premium_lease: beatAny.price_premium_lease || 0,
-          price_exclusive: beatAny.price_exclusive || 0,
-          price_buyout: beatAny.price_buyout || 0,
-        };
-      });
+      // Fetch complete beat data from the database
+      supabase
+        .from('beats')
+        .select('id, title, price, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .eq('id', currentBeat.id)
+        .single()
+        .then(({ data, error }) => {
+          if (data) {
+            setFullCurrentBeat({
+              id: data.id,
+              title: data.title,
+              price: data.price || 0,
+              price_lease: data.price_lease || 0,
+              price_premium_lease: data.price_premium_lease || 0,
+              price_exclusive: data.price_exclusive || 0,
+              price_buyout: data.price_buyout || 0,
+            });
+          }
+        });
     }
   }, [currentBeat]);
 
@@ -631,10 +638,34 @@ export function SiteWideBeatPlayer() {
               alt={currentBeat?.title || "cover"}
               width={100}
               height={100}
-              className="rounded-md mb-2 sm:mb-0 sm:mr-4"
+              className="rounded-md mb-2 sm:mb-0 sm:mr-4 mt-12 sm:mt-0"
             />
             <div className="flex-grow flex flex-col items-center sm:items-start w-full">
-              <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+              <div className="flex flex-row items-center w-full">
+                <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+                {/* Modern waveform visualizer only on desktop */}
+                <div className="hidden md:block ml-4 flex-shrink-0" style={{ minWidth: 180, maxWidth: 300 }}>
+                  <div style={{ width: '100%', minWidth: 180, maxWidth: 300 }}>
+                    {currentBeat?.audioUrl && (
+                      <WavesurferPlayer
+                        height={48}
+                        waveColor="#888"
+                        progressColor="#FFD700"
+                        url={currentBeat.audioUrl}
+                        barWidth={2}
+                        barRadius={2}
+                        cursorColor="#FFD700"
+                        interact={false}
+                        onAudioprocess={(ws: any) => {
+                          if (audioRef.current && audioRef.current.duration) {
+                            setProgress((audioRef.current.currentTime / audioRef.current.duration) * 100);
+                          }
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
               <Link
                 href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
                 className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
@@ -670,16 +701,13 @@ export function SiteWideBeatPlayer() {
             <Button size="lg" variant="secondary" onClick={toggleShuffle}>
               <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
             </Button>
-              <Button size="lg" variant="secondary" onClick={openPlaylistsModal}>
-                Playlists
-              </Button>
-                  <Button
-                    size="lg"
-                    className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
-                    onClick={() => setIsPurchaseModalOpen(true)}
-                  >
-                    <ShoppingCart className="h-5 w-5" />
-                  </Button>
+                <Button
+                  size="lg"
+                  className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
+                  onClick={() => setIsPurchaseModalOpen(true)}
+                >
+                  <ShoppingCart className="h-5 w-5" />
+                </Button>
             </div>
           </div>
           <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />

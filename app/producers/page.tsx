@@ -85,7 +85,7 @@ export default function ProducersPage() {
 
   return (
     <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
-      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Producers</h1>
+      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary mt-8 sm:mt-0">Producers</h1>
       <p className="text-xl mb-8 text-gray-300">Discover beat making deities.</p>
       
       <div className="flex justify-between items-center mb-8">
@@ -121,7 +121,7 @@ export default function ProducersPage() {
             </CardHeader>
             <CardContent className="pt-4 bg-black">
               <CardTitle className="text-lg mb-2">
-                <Link href={`/producers/${producer.id}`} className="hover:underline">
+                <Link href={`/producers/${producer.id}`} className="hover:underline truncate max-w-full block">
                   {producer.display_name}
                 </Link>
               </CardTitle>

@@ -207,11 +207,14 @@ export function TopLists() {
                       sizes="40px"
                     />
                   </div>
-                  <Link href={`/producers/${producer.id}`} className="font-semibold hover:text-primary transition-colors text-base sm:text-lg">
-                    {producer.name}
-                  </Link>
+                  <div className="flex flex-col min-w-0">
+                    <Link href={`/producers/${producer.id}`} className="font-semibold hover:text-primary transition-colors text-base sm:text-lg truncate block max-w-[10rem] sm:max-w-xs">
+                      {producer.name}
+                    </Link>
+                    <span className="text-sm text-gray-400 mt-1 block sm:hidden">{producer.weekly_plays.toLocaleString()} plays</span>
+                  </div>
                 </div>
-                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
+                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block whitespace-nowrap">{producer.weekly_plays.toLocaleString()} plays</span>
               </li>
             ))}
           </ul>
