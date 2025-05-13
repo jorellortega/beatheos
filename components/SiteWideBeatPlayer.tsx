@@ -642,7 +642,7 @@ export function SiteWideBeatPlayer() {
             />
             <div className="flex-grow flex flex-col items-center sm:items-start w-full">
               <div className="flex flex-row items-center w-full">
-                <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+              <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
                 {/* Modern waveform visualizer only on desktop */}
                 <div className="hidden md:block ml-4 flex-shrink-0" style={{ minWidth: 180, maxWidth: 300 }}>
                   <div style={{ width: '100%', minWidth: 180, maxWidth: 300 }}>
@@ -707,7 +707,7 @@ export function SiteWideBeatPlayer() {
                   onClick={() => setIsPurchaseModalOpen(true)}
                 >
                   <ShoppingCart className="h-5 w-5" />
-                </Button>
+              </Button>
             </div>
           </div>
           <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />

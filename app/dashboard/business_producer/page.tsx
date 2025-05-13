@@ -332,7 +332,29 @@ function MyBeatsManager({ userId }: { userId: string }) {
                     </Button>
                   </div>
                 </td>
-                <td className="p-2">{beat.title}</td>
+                <td className="p-2">
+                  <div className="flex items-center space-x-2">
+                    {editingId === beat.id ? (
+                      <Input
+                        value={editForm.title}
+                        onChange={handleEditChange}
+                        name="title"
+                        className="w-full bg-secondary"
+                        autoFocus
+                        onBlur={() => handleEditSave(beat.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleEditSave(beat.id);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span onClick={() => handleEdit(beat)} className="cursor-pointer hover:text-primary">
+                        {beat.title}
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="p-2">{beat.genre}</td>
                 <td className="p-2">{beat.bpm}</td>
                 <td className="p-2">{beat.key}</td>

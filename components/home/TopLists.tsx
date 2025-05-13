@@ -110,13 +110,13 @@ export function TopLists() {
       }
       lastClickRef.current = { id: beatId, time: now };
     } else {
-      setCurrentBeat({
+    setCurrentBeat({
         id: beatId,
-        title: beat.title,
-        artist: beat.producer_name,
-        audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
-      })
-      setIsPlaying(true)
+      title: beat.title,
+      artist: beat.producer_name,
+      audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
+    })
+    setIsPlaying(true)
       lastClickRef.current = { id: beatId, time: now };
     }
   }
@@ -209,8 +209,8 @@ export function TopLists() {
                   </div>
                   <div className="flex flex-col min-w-0">
                     <Link href={`/producers/${producer.id}`} className="font-semibold hover:text-primary transition-colors text-base sm:text-lg truncate block max-w-[10rem] sm:max-w-xs">
-                      {producer.name}
-                    </Link>
+                    {producer.name}
+                  </Link>
                     <span className="text-sm text-gray-400 mt-1 block sm:hidden">{producer.weekly_plays.toLocaleString()} plays</span>
                   </div>
                 </div>

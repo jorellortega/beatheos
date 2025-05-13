@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,6 +17,12 @@ export default function SignupPage() {
   const [subscription, setSubscription] = useState("")
   const { signup } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const planParam = searchParams.get("plan")
+
+  useEffect(() => {
+    if (planParam) setSubscription(planParam)
+  }, [planParam])
 
   // Map subscription value to role
   const getRoleFromSubscription = (sub: string) => {
@@ -67,12 +73,6 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="relative">
-      <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-50 pointer-events-auto" style={{backdropFilter: 'blur(2px)'}}>
-        <h2 className="text-3xl font-bold text-white mb-2">Coming Soon</h2>
-        <p className="text-lg text-gray-200">Sign up will be available soon.</p>
-      </div>
-      <div className="opacity-40 pointer-events-none">
     <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-screen">
       <Card className="w-full max-w-md bg-card border-primary">
         <CardHeader>
@@ -122,7 +122,7 @@ export default function SignupPage() {
               <label htmlFor="subscription" className="block text-sm font-medium text-gray-300">
                 Subscription Plan
               </label>
-              <SubscriptionDropdown onSubscriptionChange={setSubscription} />
+              <SubscriptionDropdown onSubscriptionChange={setSubscription} defaultValue={subscription} />
             </div>
             <Button type="submit" className="w-full gradient-button text-black font-medium hover:text-white">
               Sign Up
@@ -136,8 +136,6 @@ export default function SignupPage() {
           </p>
         </CardContent>
       </Card>
-        </div>
-      </div>
     </div>
   )
 }

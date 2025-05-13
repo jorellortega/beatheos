@@ -7,16 +7,16 @@ const subscriptionOptions = [
   { value: "producer_free", label: "Producer: Free" },
   { value: "producer_premium", label: "Producer Premium: $12/month" },
   { value: "producer_business", label: "Producer Business: $25/month" },
-  { value: "later", label: "I'll choose later" },
 ]
 
 interface SubscriptionDropdownProps {
   onSubscriptionChange: (value: string) => void
+  defaultValue?: string
 }
 
-export function SubscriptionDropdown({ onSubscriptionChange }: SubscriptionDropdownProps) {
+export function SubscriptionDropdown({ onSubscriptionChange, defaultValue }: SubscriptionDropdownProps) {
   return (
-    <Select onValueChange={onSubscriptionChange}>
+    <Select onValueChange={onSubscriptionChange} defaultValue={defaultValue}>
       <SelectTrigger className="w-full bg-secondary text-white">
         <SelectValue placeholder="Choose your subscription" />
       </SelectTrigger>
