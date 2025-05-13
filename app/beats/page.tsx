@@ -414,7 +414,7 @@ export default function BeatsPage() {
     <div className="container mx-auto px-2 sm:px-4 py-8">
       <div className="flex flex-col items-center gap-4 mb-8 sm:flex-row sm:items-center sm:gap-8 beats-header-row mt-12 sm:mt-16">
         <h1 className="text-4xl font-bold font-display tracking-wider text-primary m-0 text-center sm:text-left">Beats</h1>
-        <div className="w-full flex flex-col sm:flex-row justify-center sm:w-auto sm:justify-end gap-2 sm:gap-0">
+        <div className="w-full flex flex-col sm:flex-row justify-center sm:w-auto sm:justify-end gap-2">
           <ViewSelector currentView={currentView} onViewChange={setCurrentView} />
         </div>
       </div>

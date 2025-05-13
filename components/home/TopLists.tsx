@@ -152,9 +152,10 @@ export function TopLists() {
                         {beat.producer_name}
                       </Link>
                     </div>
+                    <span className="text-sm text-gray-400 mt-1 block sm:hidden">{beat.plays.toLocaleString()} plays</span>
                   </div>
                 </div>
-                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{beat.plays.toLocaleString()} plays</span>
+                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block">{beat.plays.toLocaleString()} plays</span>
               </li>
             ))}
           </ul>

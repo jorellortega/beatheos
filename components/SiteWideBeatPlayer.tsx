@@ -87,6 +87,7 @@ export function SiteWideBeatPlayer() {
   const router = useRouter()
   const [showFeatureAuthDialog, setShowFeatureAuthDialog] = useState(false)
   const [allBeats, setAllBeats] = useState<Beat[]>([])
+  const [fullCurrentBeat, setFullCurrentBeat] = useState<any>(null)
 
   const pathname = usePathname()
 
@@ -542,6 +543,17 @@ export function SiteWideBeatPlayer() {
     isRecording ? stopRecording() : startRecording()
   }
 
+  const setBeatForPlayer = (beat: any) => {
+    setCurrentBeat({
+      id: beat.id.toString(),
+      title: beat.title,
+      artist: beat.producer || beat.artist,
+      audioUrl: beat.audioUrl || beat.mp3_url,
+      image: beat.image || beat.cover_art_url,
+    })
+    setFullCurrentBeat(beat)
+  }
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
@@ -837,14 +849,14 @@ export function SiteWideBeatPlayer() {
       <PurchaseOptionsModal
         isOpen={isPurchaseModalOpen}
         onClose={() => setIsPurchaseModalOpen(false)}
-        beat={currentBeat ? {
-          id: Number(currentBeat.id),
-          title: currentBeat.title,
-          price: (currentBeat as any).price || 0,
-          price_lease: (currentBeat as any).price_lease || 0,
-          price_premium_lease: (currentBeat as any).price_premium_lease || 0,
-          price_exclusive: (currentBeat as any).price_exclusive || 0,
-          price_buyout: (currentBeat as any).price_buyout || 0,
+        beat={fullCurrentBeat ? {
+          id: Number(fullCurrentBeat.id),
+          title: fullCurrentBeat.title,
+          price: fullCurrentBeat.price || 0,
+          price_lease: fullCurrentBeat.price_lease || 0,
+          price_premium_lease: fullCurrentBeat.price_premium_lease || 0,
+          price_exclusive: fullCurrentBeat.price_exclusive || 0,
+          price_buyout: fullCurrentBeat.price_buyout || 0,
         } : null}
       />
       {showFeatureAuthDialog && (
