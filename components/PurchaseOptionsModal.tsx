@@ -101,7 +101,7 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
             className="w-full bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold py-6 text-lg rounded-lg"
             disabled={loading || !price}
           >
-            {loading ? 'Redirecting...' : 'Checkout with Stripe'}
+            {loading ? 'Redirecting...' : 'Checkout'}
           </Button>
         </div>
       </DialogContent>

@@ -333,27 +333,29 @@ function MyBeatsManager({ userId }: { userId: string }) {
                   </div>
                 </td>
                 <td className="p-2">
-                  <div className="flex items-center space-x-2">
-                    {editingId === beat.id ? (
-                      <Input
-                        value={editForm.title}
-                        onChange={handleEditChange}
-                        name="title"
-                        className="w-full bg-secondary"
-                        autoFocus
-                        onBlur={() => handleEditSave(beat.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleEditSave(beat.id);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <span onClick={() => handleEdit(beat)} className="cursor-pointer hover:text-primary">
-                        {beat.title}
-                      </span>
-                    )}
-                  </div>
+                  {editingId === beat.id ? (
+                    <Input
+                      value={editForm.title}
+                      onChange={handleEditChange}
+                      name="title"
+                      className="w-full bg-secondary"
+                      autoFocus
+                      onBlur={() => handleEditSave(beat.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleEditSave(beat.id);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button
+                      className="w-full text-left text-primary hover:text-yellow-400 cursor-pointer bg-transparent border-0 p-0 m-0"
+                      style={{ background: 'none' }}
+                      onClick={() => window.open(`/beat/${beat.id}`, '_blank')}
+                    >
+                      {beat.title}
+                    </button>
+                  )}
                 </td>
                 <td className="p-2">{beat.genre}</td>
                 <td className="p-2">{beat.bpm}</td>
@@ -450,75 +452,17 @@ export default function BusinessProducerDashboard() {
         </Suspense>
       <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="mb-8">
           <TabsList className="flex w-full overflow-x-auto whitespace-nowrap gap-2 sm:grid sm:grid-cols-7 sm:gap-0">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="mybeats">My Beats</TabsTrigger>
-          <TabsTrigger value="promo">Promo</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="support">Support</TabsTrigger>
-          <TabsTrigger value="others">Others</TabsTrigger>
-        </TabsList>
+            <TabsTrigger value="promo">Promo</TabsTrigger>
+            <TabsTrigger value="support">Support</TabsTrigger>
+            <TabsTrigger value="others">Others</TabsTrigger>
+          </TabsList>
         
         <TabsContent value="overview" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <Package className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Beat Marketplace</CardTitle>
-                <CardDescription>List and sell your beats with 0% commission.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" onClick={() => setActiveTab("marketplace")}>Manage Marketplace</Button>
-              </CardContent>
-            </Card>
-            
-              <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <BarChart2 className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Professional Analytics</CardTitle>
-                <CardDescription>Access comprehensive analytics and forecasting.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" onClick={() => setActiveTab("analytics")}>View Analytics</Button>
-              </CardContent>
-            </Card>
-            
-              <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <Activity className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Rhythm Forge Pro</CardTitle>
-                <CardDescription>Use our most advanced beat creation tools.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/rhythm-forge">
-                  <Button className="w-full">Open Rhythm Forge Pro</Button>
-                </Link>
-              </CardContent>
-            </Card>
-            
-              <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <HelpCircle className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Dedicated Support</CardTitle>
-                <CardDescription>Get priority support from our team.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" onClick={() => setActiveTab("support")}>Contact Support</Button>
-              </CardContent>
-            </Card>
-            
-              <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <Users className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Fan Management</CardTitle>
-                <CardDescription>Engage with your audience and grow your fan base.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full">Manage Audience</Button>
-              </CardContent>
-            </Card>
-            
-              <Card className="bg-black border-primary hover:border-primary transition-all">
+            {/* Quick Upload Card */}
+            <Card className="bg-black border-primary hover:border-primary transition-all">
               <CardHeader>
                 <Upload className="h-8 w-8 mb-2 text-primary" />
                 <CardTitle>Quick Upload</CardTitle>
@@ -530,7 +474,7 @@ export default function BusinessProducerDashboard() {
                 </Link>
               </CardContent>
             </Card>
-
+            {/* Recording Sessions Card */}
             <Link href="/sessions">
               <Card className="hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
@@ -571,68 +515,10 @@ export default function BusinessProducerDashboard() {
                 </CardContent>
               </Card>
             </Link>
-
-            <Card className="bg-card border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold text-primary">Recording Studios</CardTitle>
-                <CardDescription>Post and manage your recording studios</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/recordingstudios">
-                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                    Go to Recording Studios
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold text-primary">Artist Collaborations</CardTitle>
-                <CardDescription>Collaborate with other artists</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/features">
-                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                    Go to Collaborations
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
         
-        <TabsContent value="marketplace" className="mt-6">
-            <Card className="bg-black border-primary">
-              <CardHeader>
-                <CardTitle>Marketplace Analytics</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-black border border-primary p-4 rounded-md">
-                    <div className="text-sm text-gray-400">Total Revenue</div>
-                    <div className="text-2xl font-bold">$7,892.45</div>
-                    <div className="text-sm text-green-500">+12% from last month</div>
-                  </div>
-                  <div className="bg-black border border-primary p-4 rounded-md">
-                    <div className="text-sm text-gray-400">Total Sales</div>
-                    <div className="text-2xl font-bold">413</div>
-                    <div className="text-sm text-green-500">+8% from last month</div>
-                  </div>
-                  <div className="bg-black border border-primary p-4 rounded-md">
-                    <div className="text-sm text-gray-400">Avg. Rating</div>
-                    <div className="text-2xl font-bold flex items-center">
-                      4.7
-                      <Star className="h-5 w-5 fill-yellow-400 text-yellow-400 ml-2" />
-                    </div>
-                    <div className="text-sm text-gray-400">Based on 213 reviews</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          
-          <TabsContent value="mybeats" className="mt-6">
+        <TabsContent value="mybeats" className="mt-6">
             <Card className="bg-black border-primary">
               <CardContent className="p-6">
                 <MyBeatsManager userId={user.id} />
@@ -760,19 +646,6 @@ export default function BusinessProducerDashboard() {
           </div>
         </TabsContent>
         
-        <TabsContent value="analytics" className="mt-6">
-            <Card className="bg-black border-primary">
-            <CardHeader>
-              <CardTitle>Performance Analytics</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <div className="h-80 flex items-center justify-center border border-primary rounded-md">
-                <p className="text-gray-500">Analytics charts and data visualizations would appear here</p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
         <TabsContent value="support" className="mt-6">
             <Card className="bg-black border-primary">
             <CardHeader>
@@ -789,8 +662,83 @@ export default function BusinessProducerDashboard() {
 
         <TabsContent value="others" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Beat Marketplace Card */}
+            <Card className="bg-black border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <Package className="h-8 w-8 mb-2 text-primary" />
+                <CardTitle>Beat Marketplace</CardTitle>
+                <CardDescription>List and sell your beats with 0% commission.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button className="w-full" onClick={() => setActiveTab("marketplace")}>Manage Marketplace</Button>
+              </CardContent>
+            </Card>
+            {/* Professional Analytics Card */}
+            <Card className="bg-black border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <BarChart2 className="h-8 w-8 mb-2 text-primary" />
+                <CardTitle>Professional Analytics</CardTitle>
+                <CardDescription>Access comprehensive analytics and forecasting.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button className="w-full" onClick={() => setActiveTab("analytics")}>View Analytics</Button>
+              </CardContent>
+            </Card>
+            {/* Rhythm Forge Pro Card */}
+            <Card className="bg-black border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <Activity className="h-8 w-8 mb-2 text-primary" />
+                <CardTitle>Rhythm Forge Pro</CardTitle>
+                <CardDescription>Use our most advanced beat creation tools.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link href="/rhythm-forge">
+                  <Button className="w-full">Open Rhythm Forge Pro</Button>
+                </Link>
+              </CardContent>
+            </Card>
+            {/* Fan Management Card */}
+            <Card className="bg-black border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <Users className="h-8 w-8 mb-2 text-primary" />
+                <CardTitle>Fan Management</CardTitle>
+                <CardDescription>Engage with your audience and grow your fan base.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button className="w-full">Manage Audience</Button>
+              </CardContent>
+            </Card>
+            {/* Recording Studios Card */}
+            <Card className="bg-card border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <CardTitle className="text-2xl font-bold text-primary">Recording Studios</CardTitle>
+                <CardDescription>Post and manage your recording studios</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link href="/recordingstudios">
+                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                    Go to Recording Studios
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+            {/* Artist Collaborations Card */}
+            <Card className="bg-card border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <CardTitle className="text-2xl font-bold text-primary">Artist Collaborations</CardTitle>
+                <CardDescription>Collaborate with other artists</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link href="/features">
+                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                    Go to Collaborations
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+            {/* AI Loop Stacker Card */}
             <Link href="/ai-loop-stacker">
-                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Wand2 className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>AI Loop Stacker</CardTitle>
@@ -798,9 +746,9 @@ export default function BusinessProducerDashboard() {
                 </CardHeader>
               </Card>
             </Link>
-
+            {/* Eternal Loops Card */}
             <Link href="/eternal-loops">
-                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Music2 className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Eternal Loops</CardTitle>
@@ -808,9 +756,9 @@ export default function BusinessProducerDashboard() {
                 </CardHeader>
               </Card>
             </Link>
-
+            {/* Beat Maker Card */}
             <Link href="/beat-maker">
-                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Layers className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Beat Maker</CardTitle>
@@ -818,9 +766,9 @@ export default function BusinessProducerDashboard() {
                 </CardHeader>
               </Card>
             </Link>
-
+            {/* Shuffle Card */}
             <Link href="/shuffle">
-                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Shuffle className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Shuffle</CardTitle>
@@ -828,9 +776,9 @@ export default function BusinessProducerDashboard() {
                 </CardHeader>
               </Card>
             </Link>
-
+            {/* Producer Profile Card */}
             <Link href="/producer">
-                <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <User className="h-8 w-8 mb-2 text-primary" />
                   <CardTitle>Producer Profile</CardTitle>
@@ -838,6 +786,17 @@ export default function BusinessProducerDashboard() {
                 </CardHeader>
               </Card>
             </Link>
+            {/* Dedicated Support Card */}
+            <Card className="bg-black border-primary hover:border-primary transition-all">
+              <CardHeader>
+                <HelpCircle className="h-8 w-8 mb-2 text-primary" />
+                <CardTitle>Dedicated Support</CardTitle>
+                <CardDescription>Get priority support from our team.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button className="w-full" onClick={() => setActiveTab("support")}>Contact Support</Button>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       </Tabs>
