@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-const subscriptionOptions = [
+export const subscriptionOptions = [
   { value: "artist_free", label: "Artist: Free" },
   { value: "artist_pro", label: "Pro Artist: $15/month" },
   { value: "producer_free", label: "Producer: Free" },
@@ -11,12 +11,15 @@ const subscriptionOptions = [
 
 interface SubscriptionDropdownProps {
   onSubscriptionChange: (value: string) => void
-  defaultValue?: string
+  value?: string
 }
 
-export function SubscriptionDropdown({ onSubscriptionChange, defaultValue }: SubscriptionDropdownProps) {
+export function SubscriptionDropdown({ onSubscriptionChange, value }: SubscriptionDropdownProps) {
+  console.log("Dropdown received value:", value)
+  // Only pass a string or undefined to value
+  const selectValue = typeof value === 'string' && value.length > 0 ? value : undefined
   return (
-    <Select onValueChange={onSubscriptionChange} defaultValue={defaultValue}>
+    <Select onValueChange={onSubscriptionChange} value={selectValue}>
       <SelectTrigger className="w-full bg-secondary text-white">
         <SelectValue placeholder="Choose your subscription" />
       </SelectTrigger>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,20 +9,37 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SubscriptionDropdown } from "@/components/SubscriptionDropdown"
 import Link from "next/link"
 import { toast } from "@/components/ui/use-toast"
+import { subscriptionOptions } from "@/components/SubscriptionDropdown"
 
 function SignupForm() {
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [subscription, setSubscription] = useState("")
+  const [mounted, setMounted] = useState(false)
   const { signup } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const planParam = searchParams.get("plan")
+
+  const freePlans = ["artist_free", "producer_free"];
 
   useEffect(() => {
-    if (planParam) setSubscription(planParam)
-  }, [planParam])
+    setMounted(true)
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      const plan = params.get("plan") || ""
+      setSubscription((prev) => {
+        if (!prev && plan) {
+          console.log("Detected plan (set once):", plan)
+          return plan
+        }
+        return prev
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    console.log('subscription state updated:', subscription)
+  }, [subscription])
 
   // Map subscription value to role
   const getRoleFromSubscription = (sub: string) => {
@@ -39,14 +56,28 @@ function SignupForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const role = getRoleFromSubscription(subscription)
+    const isFree = freePlans.includes(subscription)
+    const subscriptionStatus = isFree ? "active" : "pending"
+
     try {
-      const user = await signup(email, password, username, role)
+      const user = await signup(email, password, username, role, subscription, subscriptionStatus)
       if (user) {
         toast({
           title: "Signup Successful",
           description: "Your account has been created. Welcome to Beatheos!",
         })
-        router.push(`/dashboard/${user.role}`)
+        if (isFree) {
+          router.push(`/dashboard/${user.role}`)
+        } else {
+          // Paid plan: redirect to Stripe checkout
+          const res = await fetch("/api/create-checkout-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: user.id, plan: subscription }),
+          })
+          const { url } = await res.json()
+          window.location.href = url
+        }
       } else {
         throw new Error("Failed to create user")
       }
@@ -71,6 +102,8 @@ function SignupForm() {
       })
     }
   }
+
+  if (!mounted) return null
 
   return (
     <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-screen">
@@ -122,7 +155,10 @@ function SignupForm() {
               <label htmlFor="subscription" className="block text-sm font-medium text-gray-300">
                 Subscription Plan
               </label>
-              <SubscriptionDropdown onSubscriptionChange={setSubscription} defaultValue={subscription} />
+              <SubscriptionDropdown onSubscriptionChange={setSubscription} value={subscription} />
+            </div>
+            <div className="text-center text-primary font-bold mb-2">
+              You are signing up for: {subscriptionOptions.find(opt => opt.value === subscription)?.label || "No plan selected"}
             </div>
             <Button type="submit" className="w-full gradient-button text-black font-medium hover:text-white">
               Sign Up

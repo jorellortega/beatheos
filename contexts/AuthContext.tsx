@@ -12,7 +12,7 @@ interface User {
 interface AuthContextType {
   user: User | null
   login: (email: string, password: string) => Promise<User>
-  signup: (email: string, password: string, username: string, role: string) => Promise<User>
+  signup: (email: string, password: string, username: string, role: string, subscriptionTier?: string, subscriptionStatus?: string) => Promise<User>
   logout: () => Promise<void>
   isLoading: boolean
 }
@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const signup = async (email: string, password: string, username: string, role: string): Promise<User> => {
+  const signup = async (email: string, password: string, username: string, role: string, subscriptionTier?: string, subscriptionStatus?: string): Promise<User> => {
     setIsLoading(true);
     try {
       // 1. Create user in Supabase Auth
@@ -123,6 +123,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email,
           username,
           role,
+          subscription_tier: subscriptionTier,
+          subscription_status: subscriptionStatus,
           created_at: new Date().toISOString(),
           display_name: username
         });
