@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/use-toast"
-import { Upload, Music, ImageIcon, Loader, FileText, AudioLines, FileAudio, FileArchive, File, Play, Pause } from "lucide-react"
+import { Upload, Music, ImageIcon, Loader, FileText, AudioLines, FileAudio, FileArchive, File, Play, Pause, CheckCircle, XCircle } from "lucide-react"
 import { FileUploader } from "./FileUploader"
 import { BeatPreviewPlayer } from "./BeatPreviewPlayer"
 import { LicensingOptions } from "./LicensingOptions"
@@ -81,6 +81,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [batchEditingIds, setBatchEditingIds] = useState<string[]>([]);
   const [batchEditingTitles, setBatchEditingTitles] = useState<{ [id: string]: string }>({});
   const [pairedBeat, setPairedBeat] = useState<any | null>(null);
+  const [publishStatus, setPublishStatus] = useState<{ [fileId: string]: 'pending' | 'success' | 'error' }>({});
 
   useEffect(() => {
     async function fetchDrafts() {
@@ -137,7 +138,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         ...acceptedFiles.map(file => ({
           id: `af${prev.length + Math.random()}`,
           title: file.name,
-          file: file.type.startsWith('audio/') ? file : null,
+          file: file.type.startsWith('image/') ? file : (file.type.startsWith('audio/') ? file : null),
           wavFile: file.name.toLowerCase().endsWith('.wav') ? file : null,
           stemsFile: file.name.toLowerCase().endsWith('.zip') ? file : null,
           coverArt: file.type.startsWith('image/') ? file : null,
@@ -156,7 +157,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       ...acceptedFiles.map(file => ({
         id: `af${prev.length + Math.random()}`,
         title: file.name,
-        file: file.type.startsWith('audio/') ? file : null,
+        file: file.type.startsWith('image/') ? file : (file.type.startsWith('audio/') ? file : null),
         wavFile: file.name.toLowerCase().endsWith('.wav') ? file : null,
         stemsFile: file.name.toLowerCase().endsWith('.zip') ? file : null,
         coverArt: file.type.startsWith('image/') ? file : null,
@@ -465,6 +466,77 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     setSelectedFileIds([]);
   };
 
+  // Helper to get coverArt debug info
+  const coverArtDebug = coverArt ? (coverArt.name ? `${coverArt.name} (${coverArt.type})` : coverArt.type) : 'None';
+
+  // Debug: show coverArt info above Files tab
+  const CoverArtDebugDisplay = () => (
+    <div className="mb-2 text-xs text-gray-400">
+      <span className="font-bold">Current CoverArt:</span> {coverArtDebug}
+    </div>
+  );
+
+  // Apply selected coverArt to selected files (not paired)
+  const handleApplyCoverToSelected = () => {
+    if (!coverArt || selectedFileIds.length === 0) return;
+    setAudioFiles(prev => prev.map(f =>
+      selectedFileIds.includes(f.id) && getFileType(f) !== 'cover'
+        ? { ...f, coverArt }
+        : f
+    ));
+    toast({ title: "Cover Applied", description: `Cover image applied to ${selectedFileIds.length} file(s).` });
+    toast({ title: "DEBUG", description: `handleApplyCoverToSelected fired. coverArt: ${coverArtDebug}, selected: ${selectedFileIds.length}` });
+  };
+
+  // Batch publish selected files in Files tab
+  const handleBatchPublish = async () => {
+    if (!user || selectedFileIds.length === 0) return;
+    setIsUploading(true);
+    setPublishStatus({});
+    for (const fileId of selectedFileIds) {
+      setPublishStatus(prev => ({ ...prev, [fileId]: 'pending' }));
+      const fileObj = audioFiles.find(f => f.id === fileId);
+      if (!fileObj || !fileObj.file) continue;
+      try {
+        const formData = new FormData();
+        formData.append('title', fileObj.title);
+        formData.append('description', '');
+        formData.append('genre', '');
+        formData.append('bpm', '');
+        formData.append('key', '');
+        formData.append('tags', JSON.stringify([]));
+        formData.append('licensing', JSON.stringify({}));
+        formData.append('isDraft', 'false');
+        formData.append('mp3File', fileObj.file);
+        if (fileObj.coverArt) formData.append('coverArt', fileObj.coverArt);
+        if (fileObj.wavFile) formData.append('wavFile', fileObj.wavFile);
+        if (fileObj.stemsFile) formData.append('stemsFile', fileObj.stemsFile);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('You must be logged in to upload beats');
+        const response = await fetch('/api/beats', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          body: formData,
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
+          throw new Error(error.error || 'Failed to upload beat');
+        }
+        setPublishStatus(prev => ({ ...prev, [fileId]: 'success' }));
+        toast({ title: 'Beat Uploaded', description: `${fileObj.title} uploaded successfully!` });
+      } catch (error) {
+        setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
+        toast({ title: 'Upload Error', description: error instanceof Error ? error.message : 'An error occurred during upload', variant: 'destructive' });
+      }
+    }
+    setIsUploading(false);
+    setSelectedFileIds([]);
+    setTimeout(() => {
+      setActiveTab('mybeats');
+    }, 1200);
+  };
+
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
       <TabsList className="grid w-full grid-cols-3">
@@ -754,6 +826,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       </TabsContent>
 
       <TabsContent value="audio">
+        <CoverArtDebugDisplay />
         <div
           {...filesTabDropzone.getRootProps()}
           className={`mb-4 p-6 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${filesTabDropzone.isDragActive ? "border-primary bg-primary/10" : "border-gray-300 hover:border-primary/50"}`}
@@ -792,6 +865,13 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
               Edit All
             </Button>
             <Button
+              onClick={e => { e.stopPropagation(); handleApplyCoverToSelected(); }}
+              variant="outline"
+              disabled={(!coverArt || !coverArt.type) || selectedFileIds.length === 0}
+            >
+              Apply Cover to Selected
+            </Button>
+            <Button
               onClick={e => { e.stopPropagation(); handlePair(); }}
               variant="outline"
               disabled={!canPair}
@@ -799,14 +879,11 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
               Pair
             </Button>
             <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                toast({ title: "Publish", description: `Publishing ${selectedFileIds.length} files (stub)`, });
-                setSelectedFileIds([]);
-              }}
+              onClick={e => { e.stopPropagation(); handleBatchPublish(); }}
               variant="outline"
+              disabled={isUploading || selectedFileIds.length === 0}
             >
-              Publish
+              {isUploading ? 'Publishing...' : 'Publish'}
             </Button>
             <Button
               onClick={(e) => {
@@ -883,6 +960,11 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
               className="flex items-center justify-between p-3 bg-black rounded-lg hover:bg-yellow-400/20 cursor-pointer"
               onClick={() => handleCheckboxChange(file.id, !selectedFileIds.includes(file.id))}
             >
+              <div className="w-6 flex-shrink-0 flex items-center justify-center mr-2">
+                {publishStatus[file.id] === 'success' && <CheckCircle className="text-green-500 w-5 h-5" />}
+                {publishStatus[file.id] === 'error' && <XCircle className="text-red-500 w-5 h-5" />}
+                {publishStatus[file.id] === 'pending' && <Loader className="text-yellow-400 w-5 h-5 animate-spin" />}
+              </div>
               <div className="flex items-center space-x-4">
                 <Checkbox
                   checked={selectedFileIds.includes(file.id)}
@@ -977,6 +1059,23 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
                 </div>
               </div>
               <div className="flex items-center space-x-2">
+                {file.file && file.file.type.startsWith('image/') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3 text-green-400 border-green-400 hover:bg-green-100 hover:text-black"
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (file.file) {
+                        setCoverArt(file.file);
+                        toast({ title: 'DEBUG', description: `Set as Cover: ${file.file.name} (${file.file.type})` });
+                        toast({ title: 'Cover Selected', description: `${file.title} set as cover.` });
+                      }
+                    }}
+                  >
+                    Set as Cover
+                  </Button>
+                )}
                 {editingFileId === file.id ? null : (
                   <Button
                     variant="ghost"
