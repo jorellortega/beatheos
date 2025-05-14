@@ -26,6 +26,16 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('unhandledrejection', function(event) {
+      console.debug('[DEBUG] Unhandled promise rejection:', event);
+      if (event.reason && event.reason.name === 'AbortError' && event.reason.message && event.reason.message.includes('aborted')) {
+        // Suppress fetch abort errors from wavesurfer.js
+        event.preventDefault();
+      }
+    });
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${poppins.className} ${poppins.variable} gradient-bg min-h-screen text-white bg-[#141414]`}>

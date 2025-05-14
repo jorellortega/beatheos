@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Image from "next/image"
 import Link from "next/link"
-import { Play, ShoppingCart, Search, Shuffle, Plus, Pause } from "lucide-react"
+import { Play, ShoppingCart, Search, Shuffle, Plus, Pause, ExternalLink } from "lucide-react"
 import { ViewSelector } from "@/components/beats/ViewSelector"
 import { SaveToPlaylistModal } from "@/components/SaveToPlaylistModal"
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
@@ -32,17 +32,19 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
             onClick={() => onPlayPause(beat)}
           />
         </div>
-        <Button
-          size="icon"
-          className="absolute top-2 right-2 rounded-full gradient-button"
-          onClick={() => onPlayPause(beat)}
-        >
-          {isPlaying ? (
-            <Pause className="h-4 w-4 text-black" />
-          ) : (
-            <Play className="h-4 w-4 text-black" />
-          )}
-        </Button>
+        <div className="absolute top-2 right-2">
+          <Button
+            size="icon"
+            className="rounded-full gradient-button"
+            onClick={() => onPlayPause(beat)}
+          >
+            {isPlaying ? (
+              <Pause className="h-4 w-4 text-black" />
+            ) : (
+              <Play className="h-4 w-4 text-black" />
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="pt-4 flex-grow flex flex-col justify-between">
         <div>
@@ -226,21 +228,35 @@ export default function BeatsPage() {
                 onClick={() => handlePlayPause(beat)}
               />
             </div>
-            <Button
-              size="icon"
-              className="absolute top-2 right-2 rounded-full gradient-button"
-              onClick={() => handlePlayPause(beat)}
-            >
-              {playingBeatId === beat.id && isPlaying ? (
-                <Pause className="h-4 w-4 text-black" />
-              ) : (
-                <Play className="h-4 w-4 text-black" />
-              )}
-            </Button>
+            <div className="absolute top-2 right-2">
+              <Button
+                size="icon"
+                className="rounded-full gradient-button"
+                onClick={() => handlePlayPause(beat)}
+              >
+                {playingBeatId === beat.id && isPlaying ? (
+                  <Pause className="h-4 w-4 text-black" />
+                ) : (
+                  <Play className="h-4 w-4 text-black" />
+                )}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="pt-4 flex-grow flex flex-col justify-between">
             <div>
-              <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
+              <CardTitle className="text-sm mb-1 flex items-center justify-between gap-2">
+                <span>{beat.title}</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="p-1"
+                  asChild
+                >
+                  <Link href={`/beat/${beat.id}`} title="View Details">
+                    <ExternalLink className="h-4 w-4 text-yellow-400" />
+                  </Link>
+                </Button>
+              </CardTitle>
               <p className="text-xs text-gray-400 mb-1">by {beat.producer}</p>
               <div className="flex items-center mb-2">
                 <Rating value={beat.rating || 0} onChange={(newRating) => {}} />
@@ -319,6 +335,15 @@ export default function BeatsPage() {
                   <ShoppingCart className="h-4 w-4 mr-2" />
                   BUY
                 </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  asChild
+                >
+                  <Link href={`/beat/${beat.id}`} title="View Details">
+                    <ExternalLink className="h-4 w-4 text-yellow-400" />
+                  </Link>
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -383,6 +408,15 @@ export default function BeatsPage() {
                   >
                     <ShoppingCart className="h-4 w-4 mr-2" />
                     BUY
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    asChild
+                  >
+                    <Link href={`/beat/${beat.id}`} title="View Details">
+                      <ExternalLink className="h-4 w-4 text-yellow-400" />
+                    </Link>
                   </Button>
                 </div>
               </td>

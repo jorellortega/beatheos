@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Play, ShoppingCart, Award, Plus, Pause } from 'lucide-react'
+import { Play, ShoppingCart, Award, Plus, Pause, Star } from 'lucide-react'
 import { SaveToPlaylistModal } from "@/components/SaveToPlaylistModal"
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { usePlayer } from '@/contexts/PlayerContext'
@@ -17,6 +17,7 @@ interface Beat {
   price: number
   audioUrl: string
   producers: any
+  isTopPlayed?: boolean
 }
 
 interface ProducerBeatsProps {
@@ -39,7 +40,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
     const fetchBeats = async () => {
       const res = await fetch(`/api/beats?producerId=${producerId}`)
       const data = await res.json()
-      const beats = (data || []).map((beat: any) => ({
+      let beats = (data || []).map((beat: any) => ({
         id: beat.id,
         title: beat.title,
         plays: beat.play_count ?? 0,
@@ -48,6 +49,12 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
         audioUrl: beat.mp3_url || '',
         producers: beat.producers
       }))
+      // Sort by plays descending and flag top 5
+      const sorted = [...beats].sort((a: Beat, b: Beat): number => {
+        return (b.plays - a.plays);
+      })
+      const topIds = new Set(sorted.slice(0, 5).map(b => b.id))
+      beats = beats.map(b => ({ ...b, isTopPlayed: topIds.has(b.id) }))
       setBeats(beats)
       if (onBeatsFetched) onBeatsFetched(beats)
       }
@@ -91,7 +98,12 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
               <div key={beat.id} className="flex items-center justify-between p-4 bg-secondary rounded-lg">
                 <div className="flex items-center space-x-4">
                   <div>
-                    <h3 className="font-semibold">{beat.title}</h3>
+                    <h3 className="font-semibold flex items-center gap-2">
+                      {beat.title}
+                      {beat.isTopPlayed && (
+                        <Star className="w-5 h-5 text-yellow-400" fill="#facc15" stroke="#facc15" />
+                      )}
+                    </h3>
                     <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
                   </div>
                   {beat.isTopBeat && (
