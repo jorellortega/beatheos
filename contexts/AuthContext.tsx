@@ -7,6 +7,8 @@ interface User {
   id: string
   email: string | null
   role: string | null
+  subscription_tier?: string | null
+  subscription_status?: string | null
 }
 
 interface AuthContextType {
@@ -19,13 +21,18 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-async function fetchUserRole(id: string): Promise<string | null> {
+// Fetch user info (role, subscription_tier, subscription_status)
+async function fetchUserInfo(id: string): Promise<{ role: string | null, subscription_tier?: string | null, subscription_status?: string | null }> {
   const { data, error } = await supabase
     .from("users")
-    .select("role")
+    .select("role, subscription_tier, subscription_status")
     .eq("id", id)
     .single()
-  return data?.role ?? null
+  return {
+    role: data?.role ?? null,
+    subscription_tier: data?.subscription_tier ?? null,
+    subscription_status: data?.subscription_status ?? null,
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -39,20 +46,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         setIsLoading(true);
         const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-          const role = await fetchUserRole(session.user.id)
+        if (session?.user) {
+          const userInfo = await fetchUserInfo(session.user.id)
           setUser({
             id: session.user.id,
             email: session.user.email ?? null,
-            role
+            role: userInfo.role,
+            subscription_tier: userInfo.subscription_tier,
+            subscription_status: userInfo.subscription_status,
           })
         }
       } catch (error) {
         console.error('Error initializing auth:', error)
         setUser(null)
       } finally {
-      setIsLoading(false)
-      setHydrated(true)
+        setIsLoading(false)
+        setHydrated(true)
       }
     }
 
@@ -64,22 +73,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         setIsLoading(true);
-      if (session?.user) {
-        const role = await fetchUserRole(session.user.id)
-        setUser({
-          id: session.user.id,
-          email: session.user.email ?? null,
-          role
-        })
-      } else {
-        setUser(null)
-    }
+        if (session?.user) {
+          const userInfo = await fetchUserInfo(session.user.id)
+          setUser({
+            id: session.user.id,
+            email: session.user.email ?? null,
+            role: userInfo.role,
+            subscription_tier: userInfo.subscription_tier,
+            subscription_status: userInfo.subscription_status,
+          })
+        } else {
+          setUser(null)
+        }
       } catch (error) {
         console.error('Error handling auth state change:', error)
         setUser(null)
       } finally {
-    setIsLoading(false)
-    setHydrated(true)
+        setIsLoading(false)
+        setHydrated(true)
       }
     })
 
@@ -95,11 +106,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
       if (!data.user) throw new Error("No user data received");
       
-    const role = await fetchUserRole(data.user.id)
+    const userInfo = await fetchUserInfo(data.user.id)
       const userObj: User = { 
         id: data.user.id, 
         email: data.user.email ?? null, 
-        role 
+        role: userInfo.role,
+        subscription_tier: userInfo.subscription_tier,
+        subscription_status: userInfo.subscription_status,
       }
     setUser(userObj)
     return userObj
@@ -143,9 +156,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       if (producerError) throw new Error(producerError.message);
 
-      // Fetch user role and set user state as before
-      const userRole = await fetchUserRole(data.user.id);
-      const userObj = { id: data.user.id ?? '', email: data.user.email ?? null, role: userRole };
+      // Fetch user info and set user state as before
+      const userInfo = await fetchUserInfo(data.user.id);
+      const userObj = { id: data.user.id ?? '', email: data.user.email ?? null, role: userInfo.role, subscription_tier: userInfo.subscription_tier, subscription_status: userInfo.subscription_status };
       setUser(userObj);
       return userObj;
     } catch (error) {

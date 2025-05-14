@@ -124,7 +124,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="profile">
             <User className="h-4 w-4 mr-2" />
             Profile
@@ -144,6 +144,10 @@ export default function SettingsPage() {
           <TabsTrigger value="privacy">
             <Shield className="h-4 w-4 mr-2" />
             Privacy
+          </TabsTrigger>
+          <TabsTrigger value="subscription">
+            <CreditCard className="h-4 w-4 mr-2" />
+            Subscription
           </TabsTrigger>
         </TabsList>
 
@@ -296,6 +300,27 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-400">Privacy settings coming soon...</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="subscription" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Subscription</CardTitle>
+              <CardDescription>Manage your subscription plan</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4">
+                <div className="text-lg font-semibold">Current Plan: <span className="capitalize">{user?.subscription_tier?.replace('_', ' ') || 'None'}</span></div>
+                <div className="text-md text-gray-400">Status: <span className="capitalize">{user?.subscription_status || 'Unknown'}</span></div>
+              </div>
+              {user?.subscription_tier && user.subscription_tier !== 'free' && (
+                <Button variant="destructive" className="mt-2">Cancel Subscription</Button>
+              )}
+              {(!user?.subscription_tier || user.subscription_tier === 'free') && (
+                <div className="text-green-500 mt-2">You are on a free plan.</div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
