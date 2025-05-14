@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { ProducerBeats } from "@/components/producer/ProducerBeats"
 import Header from '@/components/header'
-import { Search, Award, Music, Plus, Camera } from 'lucide-react'
+import { Search, Award, Music, Plus, Camera, Pause, Play, Download } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import { EditProfileDialog } from "@/components/EditProfileDialog"
 import { ProfilePictureUpload } from "@/components/ProfilePictureUpload"
@@ -75,7 +75,7 @@ export default function ProducerProfilePage() {
         topProducerCount: data.top_producer_count ?? 0,
         topBeatsCount: data.top_beats_count ?? 0,
         pictures: data.pictures || [],
-      })
+      } as Producer)
       // Check if this is the user's own profile
       if (user && user.id === data.user_id) {
         setIsOwnProfile(true)

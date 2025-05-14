@@ -103,9 +103,12 @@ export default function SubscriptionPlansPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
-          {tiers.map((tier) => (
-            <Link key={tier.id} href={`/signup?plan=${tier.id}`} className="block group">
-              <Card className={`bg-black border-primary hover:border-yellow-400 transition-all relative ${tier.popular ? 'border-2' : ''}`}>
+          {tiers.map((tier) => {
+            const isDisabled = tier.name === "Pro Artist" || tier.name === "Premium Producer";
+            const cardContent = (
+              <Card
+                className={`bg-black border-primary hover:border-yellow-400 transition-all relative ${tier.popular ? 'border-2' : ''} ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+              >
                 {tier.popular && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-primary text-black px-4 py-1 rounded-full text-sm font-semibold">
                     Most Popular
@@ -130,16 +133,25 @@ export default function SubscriptionPlansPage() {
                   </ul>
                 </CardContent>
                 <CardFooter>
-                  <Button 
-                    variant={tier.buttonVariant as "default" | "outline"} 
+                  <Button
+                    variant={tier.buttonVariant as "default" | "outline"}
                     className={`w-full ${tier.popular ? 'gradient-button' : ''}`}
+                    disabled={isDisabled}
                   >
                     {tier.buttonText}
                   </Button>
                 </CardFooter>
               </Card>
-            </Link>
-          ))}
+            );
+            if (isDisabled) {
+              return <div key={tier.id}>{cardContent}</div>;
+            }
+            return (
+              <Link key={tier.id} href={`/signup?plan=${tier.id}`} className="block group">
+                {cardContent}
+              </Link>
+            );
+          })}
         </div>
 
         <div className="mt-16 text-center">

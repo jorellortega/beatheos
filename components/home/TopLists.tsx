@@ -177,51 +177,51 @@ export function TopLists() {
               } else {
                 const beat = topBeats[index]
                 return (
-                  <li
-                    key={beat.id + '-' + index}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0 cursor-pointer"
-                    onClick={() => handleBeatClick(beat)}
-                  >
-                    <div className="flex items-center gap-x-2 sm:gap-x-4">
-                      <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                      <div className="relative w-10 h-10">
+              <li
+                key={beat.id + '-' + index}
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0 cursor-pointer"
+                onClick={() => handleBeatClick(beat)}
+              >
+                <div className="flex items-center gap-x-2 sm:gap-x-4">
+                  <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                  <div className="relative w-10 h-10">
+                    <Image
+                      src={beat.image}
+                      alt={beat.title}
+                      className="rounded-md object-cover"
+                      fill
+                      sizes="40px"
+                      quality={75}
+                      priority={index < 3}
+                    />
+                  </div>
+                  <div className="flex flex-col justify-center">
+                    <button 
+                      onClick={e => { e.stopPropagation(); handleBeatClick(beat); }} 
+                      className="font-semibold text-left hover:text-primary transition-colors text-base sm:text-lg"
+                    >
+                      {beat.title}
+                    </button>
+                    <div className="flex items-center gap-x-1 mt-1">
+                      <div className="relative w-4 h-4">
                         <Image
-                          src={beat.image}
-                          alt={beat.title}
-                          className="rounded-md object-cover"
+                          src={beat.producer_image}
+                          alt={beat.producer_name}
+                          className="rounded-full object-cover"
                           fill
-                          sizes="40px"
+                          sizes="16px"
                           quality={75}
-                          priority={index < 3}
                         />
                       </div>
-                      <div className="flex flex-col justify-center">
-                        <button 
-                          onClick={e => { e.stopPropagation(); handleBeatClick(beat); }} 
-                          className="font-semibold text-left hover:text-primary transition-colors text-base sm:text-lg"
-                        >
-                          {beat.title}
-                        </button>
-                        <div className="flex items-center gap-x-1 mt-1">
-                          <div className="relative w-4 h-4">
-                            <Image
-                              src={beat.producer_image}
-                              alt={beat.producer_name}
-                              className="rounded-full object-cover"
-                              fill
-                              sizes="16px"
-                              quality={75}
-                            />
-                          </div>
-                          <Link href={`/producers/${beat.producer_profile_id}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
-                            {beat.producer_name}
-                          </Link>
-                        </div>
-                        <span className="text-sm text-gray-400 mt-1 block sm:hidden">{beat.plays.toLocaleString()} plays</span>
-                      </div>
+                      <Link href={`/producers/${beat.producer_profile_id}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
+                        {beat.producer_name}
+                      </Link>
                     </div>
-                    <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block">{beat.plays.toLocaleString()} plays</span>
-                  </li>
+                    <span className="text-sm text-gray-400 mt-1 block sm:hidden">{beat.plays.toLocaleString()} plays</span>
+                  </div>
+                </div>
+                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block">{beat.plays.toLocaleString()} plays</span>
+              </li>
                 )
               }
             })}
@@ -256,26 +256,26 @@ export function TopLists() {
               } else {
                 const producer = topProducers[index]
                 return (
-                  <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
-                    <div className="flex items-center gap-x-2 sm:gap-x-4">
-                      <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                      <div className="relative w-10 h-10">
-                        <Image
+              <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
+                <div className="flex items-center gap-x-2 sm:gap-x-4">
+                  <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                  <div className="relative w-10 h-10">
+                    <Image
                           src={producer.image}
-                          alt={producer.name}
-                          className="rounded-full object-cover"
-                          fill
-                          sizes="40px"
+                      alt={producer.name}
+                      className="rounded-full object-cover"
+                      fill
+                      sizes="40px"
                           quality={75}
                           priority={index < 3}
-                        />
-                      </div>
+                    />
+                  </div>
                       <div className="flex flex-col justify-center">
                         <span className="font-semibold text-base sm:text-lg">{producer.name}</span>
-                      </div>
-                    </div>
+                  </div>
+                </div>
                     <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
-                  </li>
+              </li>
                 )
               }
             })}

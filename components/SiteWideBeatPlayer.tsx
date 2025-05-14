@@ -811,13 +811,13 @@ export function SiteWideBeatPlayer() {
               >
                 {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
               </button>
-              <button
-                onClick={handleClose}
+            <button
+              onClick={handleClose}
                 className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-                aria-label="Close player"
+              aria-label="Close player"
               >
-                <X className="h-5 w-5 text-white" />
-              </button>
+              <X className="h-5 w-5 text-white" />
+            </button>
             </div>
           )}
         </CardContent>

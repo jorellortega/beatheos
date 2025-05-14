@@ -25,7 +25,12 @@ export function SubscriptionDropdown({ onSubscriptionChange, value }: Subscripti
       </SelectTrigger>
       <SelectContent>
         {subscriptionOptions.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
+          <SelectItem
+            key={option.value}
+            value={option.value}
+            disabled={option.value === 'artist_pro' || option.value === 'producer_premium'}
+            className={option.value === 'artist_pro' || option.value === 'producer_premium' ? 'opacity-50 pointer-events-none' : ''}
+          >
             {option.label}
           </SelectItem>
         ))}
