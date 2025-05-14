@@ -259,22 +259,22 @@ export default function BeatDetailPage() {
           <CardTitle className="text-5xl font-extrabold text-primary mb-4 flex items-center gap-3">
             {user && beat.producer_id === user.id ? (
               editingField === "title" ? (
-                <div className="flex items-center gap-2 w-full">
-                  <Input name="title" value={fieldValue} onChange={handleFieldChange} className="text-2xl font-bold" />
-                  <Button size="icon" onClick={saveField} disabled={savingField}><Save /></Button>
-                  <Button size="icon" onClick={cancelEdit} variant="ghost"><X /></Button>
-                </div>
-              ) : (
-                <span
-                  className="flex items-center gap-2 group w-full cursor-pointer"
-                  onClick={() => editingField !== "title" && startEdit("title")}
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' && editingField !== "title") startEdit("title") }}
-                  style={{ outline: 'none' }}
-                >
-                  {beat.title}
-                  <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition" tabIndex={-1} onClick={e => { e.stopPropagation(); startEdit("title"); }}> <Edit className="h-5 w-5" /> </Button>
-                </span>
+              <div className="flex items-center gap-2 w-full">
+                <Input name="title" value={fieldValue} onChange={handleFieldChange} className="text-2xl font-bold" />
+                <Button size="icon" onClick={saveField} disabled={savingField}><Save /></Button>
+                <Button size="icon" onClick={cancelEdit} variant="ghost"><X /></Button>
+              </div>
+            ) : (
+              <span
+                className="flex items-center gap-2 group w-full cursor-pointer"
+                onClick={() => editingField !== "title" && startEdit("title")}
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' && editingField !== "title") startEdit("title") }}
+                style={{ outline: 'none' }}
+              >
+                {beat.title}
+                <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition" tabIndex={-1} onClick={e => { e.stopPropagation(); startEdit("title"); }}> <Edit className="h-5 w-5" /> </Button>
+              </span>
               )
             ) : (
               <span>{beat.title}</span>
@@ -311,22 +311,22 @@ export default function BeatDetailPage() {
           <CardDescription className="text-lg text-muted-foreground text-center w-full">
             {user && beat.producer_id === user.id ? (
               editingField === "description" ? (
-                <div className="flex items-center gap-2 w-full">
-                  <Textarea name="description" value={fieldValue} onChange={handleFieldChange} />
-                  <Button size="icon" onClick={saveField} disabled={savingField}><Save /></Button>
-                  <Button size="icon" onClick={cancelEdit} variant="ghost"><X /></Button>
-                </div>
-              ) : (
-                <span
-                  className="flex items-center gap-2 group w-full cursor-pointer"
-                  onClick={() => editingField !== "description" && startEdit("description")}
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' && editingField !== "description") startEdit("description") }}
-                  style={{ outline: 'none' }}
-                >
-                  {beat.description}
-                  <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition" tabIndex={-1} onClick={e => { e.stopPropagation(); startEdit("description"); }}> <Edit className="h-4 w-4" /> </Button>
-                </span>
+              <div className="flex items-center gap-2 w-full">
+                <Textarea name="description" value={fieldValue} onChange={handleFieldChange} />
+                <Button size="icon" onClick={saveField} disabled={savingField}><Save /></Button>
+                <Button size="icon" onClick={cancelEdit} variant="ghost"><X /></Button>
+              </div>
+            ) : (
+              <span
+                className="flex items-center gap-2 group w-full cursor-pointer"
+                onClick={() => editingField !== "description" && startEdit("description")}
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' && editingField !== "description") startEdit("description") }}
+                style={{ outline: 'none' }}
+              >
+                {beat.description}
+                <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition" tabIndex={-1} onClick={e => { e.stopPropagation(); startEdit("description"); }}> <Edit className="h-4 w-4" /> </Button>
+              </span>
               )
             ) : (
               <span>{beat.description}</span>
@@ -345,7 +345,7 @@ export default function BeatDetailPage() {
           {user && beat.producer_id === user.id && (
             <div className="flex flex-col sm:flex-row gap-2 mt-10 justify-center w-full">
               <Button onClick={handleDelete} variant="destructive" disabled={deleting} className="w-full sm:w-auto"><Trash2 className="mr-2 h-4 w-4" />{deleting ? "Deleting..." : "Delete"}</Button>
-            </div>
+          </div>
           )}
         </CardContent>
       </Card>
@@ -359,41 +359,41 @@ export default function BeatDetailPage() {
               <div key={field.key} className={`flex items-center justify-between p-2 rounded bg-secondary/60 hover:bg-secondary transition group ${editingField === field.key ? 'ring-2 ring-primary bg-secondary' : ''}`}> 
                 <span className="font-semibold text-gray-300 w-32">{field.label}:</span>
                 {user && beat.producer_id === user.id ? (
-                  <span className="flex-1 flex items-center gap-2 justify-end w-full cursor-pointer" 
-                    onClick={() => editingField !== field.key && startEdit(field.key)}
-                    tabIndex={0}
-                    onKeyDown={e => { if (e.key === 'Enter' && editingField !== field.key) startEdit(field.key) }}
-                    style={{ outline: 'none' }}
-                  >
-                    {editingField === field.key ? (
-                      <>
-                        {field.type === "input" ? (
-                          <Input name={field.key} value={fieldValue} onChange={handleFieldChange} />
-                        ) : (
-                          <Textarea name={field.key} value={fieldValue} onChange={handleFieldChange} className="text-xs" />
-                        )}
-                        <Button size="icon" onClick={saveField} disabled={savingField}><Save /></Button>
-                        <Button size="icon" onClick={cancelEdit} variant="ghost"><X /></Button>
-                      </>
-                    ) : (
-                      <>
-                        {field.key === "tags"
-                          ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
-                          : field.key === "licensing"
-                            ? <pre className="bg-secondary p-2 rounded text-xs inline-block m-0">{JSON.stringify(beat.licensing, null, 2)}</pre>
-                            : beat[field.key]}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="opacity-0 group-hover:opacity-100 transition"
-                          tabIndex={-1}
-                          onClick={e => { e.stopPropagation(); startEdit(field.key); }}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
-                  </span>
+                <span className="flex-1 flex items-center gap-2 justify-end w-full cursor-pointer" 
+                  onClick={() => editingField !== field.key && startEdit(field.key)}
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' && editingField !== field.key) startEdit(field.key) }}
+                  style={{ outline: 'none' }}
+                >
+                  {editingField === field.key ? (
+                    <>
+                      {field.type === "input" ? (
+                        <Input name={field.key} value={fieldValue} onChange={handleFieldChange} />
+                      ) : (
+                        <Textarea name={field.key} value={fieldValue} onChange={handleFieldChange} className="text-xs" />
+                      )}
+                      <Button size="icon" onClick={saveField} disabled={savingField}><Save /></Button>
+                      <Button size="icon" onClick={cancelEdit} variant="ghost"><X /></Button>
+                    </>
+                  ) : (
+                    <>
+                      {field.key === "tags"
+                        ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
+                        : field.key === "licensing"
+                          ? <pre className="bg-secondary p-2 rounded text-xs inline-block m-0">{JSON.stringify(beat.licensing, null, 2)}</pre>
+                          : beat[field.key]}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="opacity-0 group-hover:opacity-100 transition"
+                        tabIndex={-1}
+                        onClick={e => { e.stopPropagation(); startEdit(field.key); }}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                </span>
                 ) : (
                   <span className="flex-1 flex items-center gap-2 justify-end w-full">
                     {field.key === "tags"
@@ -420,40 +420,40 @@ export default function BeatDetailPage() {
                 <div key={opt.id} className={`flex items-center justify-between p-4 rounded-lg bg-secondary/60 hover:bg-secondary transition group ${editingPrice === opt.id ? 'ring-2 ring-primary bg-secondary' : ''}`}>
                   <span className="font-semibold text-gray-300 w-56">{opt.label}:</span>
                   {user && beat.producer_id === user.id ? (
-                    <span className="flex-1 flex items-center gap-2 justify-end w-full cursor-pointer"
-                      onClick={() => editingPrice !== opt.id && startEditPrice(opt.id, price)}
-                      tabIndex={0}
-                      onKeyDown={e => { if (e.key === 'Enter' && editingPrice !== opt.id) startEditPrice(opt.id, price) }}
-                      style={{ outline: 'none' }}
-                    >
-                      {editingPrice === opt.id ? (
-                        <>
-                          <Input type="number" value={priceValue} onChange={e => setPriceValue(e.target.value)} className="w-24" />
-                          <Button size="icon" onClick={() => savePrice(opt)} disabled={savingField}><Save /></Button>
-                          <Button size="icon" onClick={cancelEditPrice} variant="ghost"><X /></Button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-lg">${price ?? 0}</span>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="opacity-0 group-hover:opacity-100 transition"
-                            tabIndex={-1}
-                            onClick={e => { e.stopPropagation(); startEditPrice(opt.id, price); }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="ml-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold rounded"
-                            onClick={e => { e.stopPropagation(); handlePurchase(opt.id, price); }}
-                          >
-                            Checkout
-                          </Button>
-                        </>
-                      )}
-                    </span>
+                  <span className="flex-1 flex items-center gap-2 justify-end w-full cursor-pointer"
+                    onClick={() => editingPrice !== opt.id && startEditPrice(opt.id, price)}
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' && editingPrice !== opt.id) startEditPrice(opt.id, price) }}
+                    style={{ outline: 'none' }}
+                  >
+                    {editingPrice === opt.id ? (
+                      <>
+                        <Input type="number" value={priceValue} onChange={e => setPriceValue(e.target.value)} className="w-24" />
+                        <Button size="icon" onClick={() => savePrice(opt)} disabled={savingField}><Save /></Button>
+                        <Button size="icon" onClick={cancelEditPrice} variant="ghost"><X /></Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-lg">${price ?? 0}</span>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="opacity-0 group-hover:opacity-100 transition"
+                          tabIndex={-1}
+                          onClick={e => { e.stopPropagation(); startEditPrice(opt.id, price); }}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="ml-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold rounded"
+                          onClick={e => { e.stopPropagation(); handlePurchase(opt.id, price); }}
+                        >
+                          Checkout
+                        </Button>
+                      </>
+                    )}
+                  </span>
                   ) : (
                     <span className="flex-1 flex items-center gap-2 justify-end w-full">
                       <span className="text-lg">${price ?? 0}</span>

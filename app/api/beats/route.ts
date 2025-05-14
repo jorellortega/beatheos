@@ -1,15 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { supabase } from '@/lib/supabaseClient'
 
 export async function POST(request: Request) {
   try {
@@ -120,8 +110,7 @@ export async function POST(request: Request) {
     console.log('Uploading beat with data:', beatData)
 
     // Insert beat into database using service role key
-    const { data: beat, error: dbError } = await supabaseAdmin
-      .from('beats')
+    const { data: beat, error: dbError } = await supabase.from('beats')
       .insert(beatData)
       .select()
       .single()
@@ -187,8 +176,7 @@ export async function DELETE(request: Request) {
   }
 
   // Fetch the beat to get the mp3_path
-  const { data: beat, error: fetchError } = await supabaseAdmin
-    .from('beats')
+  const { data: beat, error: fetchError } = await supabase.from('beats')
     .select('mp3_path')
     .eq('id', id)
     .single()
@@ -199,15 +187,14 @@ export async function DELETE(request: Request) {
 
   // Delete the file from storage if mp3_path exists
   if (beat?.mp3_path) {
-    const { error: storageError } = await supabaseAdmin.storage.from('beats').remove([beat.mp3_path])
+    const { error: storageError } = await supabase.storage.from('beats').remove([beat.mp3_path])
     if (storageError) {
       return NextResponse.json({ error: 'Failed to delete file from storage', details: storageError }, { status: 500 })
     }
   }
 
   // Delete the beat from the database
-  const { error } = await supabaseAdmin
-    .from('beats')
+  const { error } = await supabase.from('beats')
     .delete()
     .eq('id', id)
 
@@ -227,8 +214,7 @@ export async function PATCH(request: Request) {
 
   const body = await request.json()
 
-  const { data, error } = await supabaseAdmin
-    .from('beats')
+  const { data, error } = await supabase.from('beats')
     .update(body)
     .eq('id', id)
     .select()
@@ -252,7 +238,7 @@ export async function PUT(request: Request) {
     if (!id) return new Response(JSON.stringify({ error: 'Missing beat id' }), { status: 400 })
 
     // Use Supabase admin client
-    const { error } = await supabaseAdmin.rpc('increment_play_count', { beat_id: id })
+    const { error } = await supabase.rpc('increment_play_count', { beat_id: id })
     if (error) {
       return new Response(JSON.stringify({ error: error.message }), { status: 500 })
     }

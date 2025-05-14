@@ -595,7 +595,10 @@ export function SiteWideBeatPlayer() {
             <Button
               variant="ghost"
               size="icon"
-                onClick={() => setPlayerMode('default')}
+                onClick={() => {
+                  setIsExpanded(false);
+                  setPlayerMode(playerMode === 'full' ? 'default' : 'full');
+                }}
               className="bg-background rounded-full"
             >
                 <Minimize className="h-6 w-6" />
@@ -797,13 +800,25 @@ export function SiteWideBeatPlayer() {
             </>
           )}
           {playerMode === 'full' && (
-            <button
-              onClick={handleClose}
-              className="absolute bottom-3 right-3 z-10 bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-              aria-label="Close player"
+            <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  setIsExpanded(false);
+                  setPlayerMode(playerMode === 'full' ? 'default' : 'full');
+                }}
+                className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+                aria-label={playerMode === 'full' ? 'Minimize player' : 'Expand player'}
               >
-              <X className="h-5 w-5 text-white" />
-            </button>
+                {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
+              </button>
+              <button
+                onClick={handleClose}
+                className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+                aria-label="Close player"
+              >
+                <X className="h-5 w-5 text-white" />
+              </button>
+            </div>
           )}
         </CardContent>
         {currentBeat?.audioUrl ? (

@@ -1,15 +1,10 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
-import { createClient } from "@supabase/supabase-js"
+import { supabase } from '@/lib/supabaseClient'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-04-30.basil",
 })
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 const TIER_PRICES = {
   premium_producer: process.env.STRIPE_PREMIUM_PRODUCER_PRICE_ID!,

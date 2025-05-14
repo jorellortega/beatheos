@@ -20,7 +20,7 @@ import { useDropzone } from "react-dropzone"
 import { useRouter } from "next/navigation"
 import { AudioFile, PairedFile, PlaylistAlbum } from "@/types/draft"
 import { Checkbox } from "@/components/ui/checkbox"
-import { supabase } from "@/lib/supabase"
+import { supabase } from "@/lib/supabaseClient"
 import { useAuth } from '@/contexts/AuthContext'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 

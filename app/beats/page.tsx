@@ -33,17 +33,17 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
           />
         </div>
         <div className="absolute top-2 right-2">
-          <Button
-            size="icon"
+        <Button
+          size="icon"
             className="rounded-full gradient-button"
-            onClick={() => onPlayPause(beat)}
-          >
-            {isPlaying ? (
-              <Pause className="h-4 w-4 text-black" />
-            ) : (
-              <Play className="h-4 w-4 text-black" />
-            )}
-          </Button>
+          onClick={() => onPlayPause(beat)}
+        >
+          {isPlaying ? (
+            <Pause className="h-4 w-4 text-black" />
+          ) : (
+            <Play className="h-4 w-4 text-black" />
+          )}
+        </Button>
         </div>
       </CardHeader>
       <CardContent className="pt-4 flex-grow flex flex-col justify-between">
@@ -229,17 +229,17 @@ export default function BeatsPage() {
               />
             </div>
             <div className="absolute top-2 right-2">
-              <Button
-                size="icon"
+            <Button
+              size="icon"
                 className="rounded-full gradient-button"
-                onClick={() => handlePlayPause(beat)}
-              >
-                {playingBeatId === beat.id && isPlaying ? (
-                  <Pause className="h-4 w-4 text-black" />
-                ) : (
-                  <Play className="h-4 w-4 text-black" />
-                )}
-              </Button>
+              onClick={() => handlePlayPause(beat)}
+            >
+              {playingBeatId === beat.id && isPlaying ? (
+                <Pause className="h-4 w-4 text-black" />
+              ) : (
+                <Play className="h-4 w-4 text-black" />
+              )}
+            </Button>
             </div>
           </CardHeader>
           <CardContent className="pt-4 flex-grow flex flex-col justify-between">
@@ -380,61 +380,61 @@ export default function BeatsPage() {
       </div>
       {/* Desktop/tablet version (unchanged) */}
       <div className="hidden sm:block overflow-x-auto">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="border-b border-gray-700">
-              <th className="py-2 px-4 text-primary">Cover</th>
-              <th className="py-2 px-4 text-primary">Title</th>
-              <th className="py-2 px-4 text-primary">Producer</th>
-              <th className="py-2 px-4 text-primary">BPM</th>
-              <th className="py-2 px-4 text-primary">Plays</th>
-              <th className="py-2 px-4 text-primary">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredBeats.map((beat) => (
-              <tr key={beat.id} className="border-b border-gray-700 hover:bg-gray-800">
-                <td className="py-3 px-4">
-                  <div className="w-10 h-10 relative">
-                    <Image
-                      src={beat.image || "/placeholder.svg"}
-                      alt={beat.title}
-                      width={40}
-                      height={40}
-                      className="rounded object-cover w-10 h-10"
-                    />
-                  </div>
-                </td>
-                <td className="py-3 px-4 text-white">{beat.title}</td>
-                <td className="py-3 px-4 text-gray-400">{beat.producer}</td>
-                <td className="py-3 px-4 text-gray-400">{beat.bpm}</td>
-                <td className="py-3 px-4 text-gray-400">{beat.plays}</td>
-                <td className="py-3 px-4">
-                  <div className="flex space-x-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-gray-400 hover:text-white"
-                      onClick={() => handlePlayPause(beat)}
-                    >
-                      {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-gray-400 hover:text-white"
-                      onClick={() => handleSaveToPlaylist(beat)}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="gradient-button text-black font-medium hover:text-white"
-                      onClick={() => handlePurchase(beat)}
-                    >
-                      <ShoppingCart className="h-4 w-4 mr-2" />
-                      BUY
-                    </Button>
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-gray-700">
+            <th className="py-2 px-4 text-primary">Cover</th>
+            <th className="py-2 px-4 text-primary">Title</th>
+            <th className="py-2 px-4 text-primary">Producer</th>
+            <th className="py-2 px-4 text-primary">BPM</th>
+            <th className="py-2 px-4 text-primary">Plays</th>
+            <th className="py-2 px-4 text-primary">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredBeats.map((beat) => (
+            <tr key={beat.id} className="border-b border-gray-700 hover:bg-gray-800">
+              <td className="py-3 px-4">
+                <div className="w-10 h-10 relative">
+                  <Image
+                    src={beat.image || "/placeholder.svg"}
+                    alt={beat.title}
+                    width={40}
+                    height={40}
+                    className="rounded object-cover w-10 h-10"
+                  />
+                </div>
+              </td>
+              <td className="py-3 px-4 text-white">{beat.title}</td>
+              <td className="py-3 px-4 text-gray-400">{beat.producer}</td>
+              <td className="py-3 px-4 text-gray-400">{beat.bpm}</td>
+              <td className="py-3 px-4 text-gray-400">{beat.plays}</td>
+              <td className="py-3 px-4">
+                <div className="flex space-x-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-gray-400 hover:text-white"
+                    onClick={() => handlePlayPause(beat)}
+                  >
+                    {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-gray-400 hover:text-white"
+                    onClick={() => handleSaveToPlaylist(beat)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gradient-button text-black font-medium hover:text-white"
+                    onClick={() => handlePurchase(beat)}
+                  >
+                    <ShoppingCart className="h-4 w-4 mr-2" />
+                    BUY
+                  </Button>
                     <Button
                       size="sm"
                       variant="ghost"
@@ -444,13 +444,13 @@ export default function BeatsPage() {
                         <ExternalLink className="h-4 w-4 text-yellow-400" />
                       </Link>
                     </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
     </>
   )
 

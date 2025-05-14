@@ -11,7 +11,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useAuth } from "@/contexts/AuthContext"
-import { createClient } from "@supabase/supabase-js"
+import { supabase } from "@/lib/supabaseClient"
 
 // DEBUG: Log Supabase client creation
 console.debug('[DEBUG] Creating Supabase client in app/sessions/page.tsx');
@@ -41,10 +41,6 @@ export default function SessionsPage() {
   // Fetch sessions from Supabase
   useEffect(() => {
     if (!user) return
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
     supabase
       .from('sessions')
       .select('id, name, last_modified, beat_ids, lyrics')
@@ -65,10 +61,6 @@ export default function SessionsPage() {
       if (!sessions.length) return;
       const allBeatIds = sessions.flatMap(s => s.beat_ids || []);
       if (allBeatIds.length === 0) return;
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
       const { data: beats } = await supabase
         .from('beats')
         .select('id, title, producer_id, cover_art_url, mp3_url')
@@ -97,10 +89,6 @@ export default function SessionsPage() {
   const handleSave = async (id: string) => {
     if (!user) return
     setSaving(true)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
     const { error } = await supabase
       .from('sessions')
       .update({ name: editForm.name, lyrics: editForm.lyrics })
@@ -125,10 +113,6 @@ export default function SessionsPage() {
     if (!confirm("Are you sure you want to delete this session?")) return
     if (!user) return
     setSaving(true)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
     const { data, error } = await supabase
       .from('sessions')
       .delete()
@@ -308,10 +292,6 @@ export default function SessionsPage() {
                                 try {
                                   const text = await file.text();
                                   // Update lyrics in DB
-                                  const supabase = createClient(
-                                    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                                    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-                                  );
                                   const { error } = await supabase
                                     .from('sessions')
                                     .update({ lyrics: text })

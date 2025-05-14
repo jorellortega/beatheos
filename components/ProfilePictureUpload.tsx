@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 import { useToast } from "@/components/ui/use-toast"
 
 interface ProfilePictureUploadProps {
@@ -29,10 +29,6 @@ export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadS
     if (!file) return
 
     setIsLoading(true)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
 
     const fileExt = file.name.split('.').pop()
     const fileName = `${producerId}-${Math.random()}.${fileExt}`
@@ -81,10 +77,6 @@ export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadS
 
   const handleDelete = async () => {
     setIsLoading(true)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
     const { error: updateError } = await supabase
       .from('producers')
       .update({ profile_image_url: '/placeholder.svg' })

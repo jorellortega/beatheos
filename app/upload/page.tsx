@@ -7,17 +7,11 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Upload, Loader } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 import { toast } from "@/components/ui/use-toast"
 
 // DEBUG: Log Supabase client creation
 console.debug('[DEBUG] Creating Supabase client in app/upload/page.tsx');
-
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 export default function UploadPage() {
   const { user } = useAuth()

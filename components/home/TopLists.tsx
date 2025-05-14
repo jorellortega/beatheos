@@ -32,6 +32,8 @@ export function TopLists() {
   const [topProducers, setTopProducers] = useState<Producer[]>([])
   const [loading, setLoading] = useState(true)
   const lastClickRef = useRef<{ id: string; time: number } | null>(null)
+  const [revealedBeats, setRevealedBeats] = useState<number>(0)
+  const [revealedProducers, setRevealedProducers] = useState<number>(0)
 
   useEffect(() => {
     async function fetchTopLists() {
@@ -68,6 +70,7 @@ export function TopLists() {
         })
       }
       setTopBeats(beats)
+      setRevealedBeats(0)
 
       // Fetch top 10 producers this week
       const { data: topProducersData } = await supabase.rpc('top_producers_this_week')
@@ -88,10 +91,27 @@ export function TopLists() {
           }
         })
       )
+      setRevealedProducers(0)
       setLoading(false)
     }
     fetchTopLists()
   }, [])
+
+  // Progressive reveal for beats
+  useEffect(() => {
+    if (!loading && topBeats.length > 0 && revealedBeats < topBeats.length) {
+      const timer = setTimeout(() => setRevealedBeats(revealedBeats + 1), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [loading, topBeats, revealedBeats])
+
+  // Progressive reveal for producers
+  useEffect(() => {
+    if (!loading && topProducers.length > 0 && revealedProducers < topProducers.length) {
+      const timer = setTimeout(() => setRevealedProducers(revealedProducers + 1), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [loading, topProducers, revealedProducers])
 
   const handleBeatClick = (beat: Beat) => {
     const now = Date.now();
@@ -134,53 +154,77 @@ export function TopLists() {
         </CardHeader>
         <CardContent>
           <ul className="space-y-2">
-            {topBeats.map((beat, index) => (
-              <li
-                key={beat.id + '-' + index}
-                className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0 cursor-pointer"
-                onClick={() => handleBeatClick(beat)}
-              >
-                <div className="flex items-center gap-x-2 sm:gap-x-4">
-                  <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                  <div className="relative w-10 h-10">
-                    <Image
-                      src={beat.image}
-                      alt={beat.title}
-                      className="rounded-md object-cover"
-                      fill
-                      sizes="40px"
-                      quality={75}
-                      priority={index < 3}
-                    />
-                  </div>
-                  <div className="flex flex-col justify-center">
-                    <button 
-                      onClick={e => { e.stopPropagation(); handleBeatClick(beat); }} 
-                      className="font-semibold text-left hover:text-primary transition-colors text-base sm:text-lg"
-                    >
-                      {beat.title}
-                    </button>
-                    <div className="flex items-center gap-x-1 mt-1">
-                      <div className="relative w-4 h-4">
+            {[...Array(10)].map((_, index) => {
+              if (loading || index >= revealedBeats || !topBeats[index]) {
+                // Skeleton row
+                return (
+                  <li key={index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 animate-pulse bg-secondary/10 rounded-lg gap-y-2 sm:gap-y-0">
+                    <div className="flex items-center gap-x-2 sm:gap-x-4">
+                      <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                      <div className="relative w-10 h-10 bg-gray-800 rounded-md" />
+                      <div className="flex flex-col justify-center">
+                        <div className="h-4 w-24 bg-gray-700 rounded mb-1" />
+                        <div className="flex items-center gap-x-1 mt-1">
+                          <div className="relative w-4 h-4 bg-gray-800 rounded-full" />
+                          <div className="h-3 w-12 bg-gray-700 rounded" />
+                        </div>
+                        <span className="h-3 w-16 bg-gray-700 rounded mt-1 block sm:hidden" />
+                      </div>
+                    </div>
+                    <span className="h-3 w-12 bg-gray-700 rounded text-right sm:text-left mt-1 sm:mt-0 hidden sm:block" />
+                  </li>
+                )
+              } else {
+                const beat = topBeats[index]
+                return (
+                  <li
+                    key={beat.id + '-' + index}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0 cursor-pointer"
+                    onClick={() => handleBeatClick(beat)}
+                  >
+                    <div className="flex items-center gap-x-2 sm:gap-x-4">
+                      <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                      <div className="relative w-10 h-10">
                         <Image
-                          src={beat.producer_image}
-                          alt={beat.producer_name}
-                          className="rounded-full object-cover"
+                          src={beat.image}
+                          alt={beat.title}
+                          className="rounded-md object-cover"
                           fill
-                          sizes="16px"
+                          sizes="40px"
                           quality={75}
+                          priority={index < 3}
                         />
                       </div>
-                      <Link href={`/producers/${beat.producer_profile_id}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
-                        {beat.producer_name}
-                      </Link>
+                      <div className="flex flex-col justify-center">
+                        <button 
+                          onClick={e => { e.stopPropagation(); handleBeatClick(beat); }} 
+                          className="font-semibold text-left hover:text-primary transition-colors text-base sm:text-lg"
+                        >
+                          {beat.title}
+                        </button>
+                        <div className="flex items-center gap-x-1 mt-1">
+                          <div className="relative w-4 h-4">
+                            <Image
+                              src={beat.producer_image}
+                              alt={beat.producer_name}
+                              className="rounded-full object-cover"
+                              fill
+                              sizes="16px"
+                              quality={75}
+                            />
+                          </div>
+                          <Link href={`/producers/${beat.producer_profile_id}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
+                            {beat.producer_name}
+                          </Link>
+                        </div>
+                        <span className="text-sm text-gray-400 mt-1 block sm:hidden">{beat.plays.toLocaleString()} plays</span>
+                      </div>
                     </div>
-                    <span className="text-sm text-gray-400 mt-1 block sm:hidden">{beat.plays.toLocaleString()} plays</span>
-                  </div>
-                </div>
-                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block">{beat.plays.toLocaleString()} plays</span>
-              </li>
-            ))}
+                    <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block">{beat.plays.toLocaleString()} plays</span>
+                  </li>
+                )
+              }
+            })}
           </ul>
         </CardContent>
       </Card>
@@ -194,29 +238,47 @@ export function TopLists() {
         </CardHeader>
         <CardContent>
           <ul className="space-y-2">
-            {topProducers.map((producer, index) => (
-              <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
-                <div className="flex items-center gap-x-2 sm:gap-x-4">
-                  <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                  <div className="relative w-10 h-10">
-                    <Image
-                      src={producer.image || '/placeholder.svg'}
-                      alt={producer.name}
-                      className="rounded-full object-cover"
-                      fill
-                      sizes="40px"
-                    />
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <Link href={`/producers/${producer.id}`} className="font-semibold hover:text-primary transition-colors text-base sm:text-lg truncate block max-w-[10rem] sm:max-w-xs">
-                    {producer.name}
-                  </Link>
-                    <span className="text-sm text-gray-400 mt-1 block sm:hidden">{producer.weekly_plays.toLocaleString()} plays</span>
-                  </div>
-                </div>
-                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0 hidden sm:block whitespace-nowrap">{producer.weekly_plays.toLocaleString()} plays</span>
-              </li>
-            ))}
+            {[...Array(10)].map((_, index) => {
+              if (loading || index >= revealedProducers || !topProducers[index]) {
+                // Skeleton row
+                return (
+                  <li key={index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 animate-pulse bg-secondary/10 rounded-lg gap-y-2 sm:gap-y-0">
+                    <div className="flex items-center gap-x-2 sm:gap-x-4">
+                      <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                      <div className="relative w-10 h-10 bg-gray-800 rounded-full" />
+                      <div className="flex flex-col justify-center">
+                        <div className="h-4 w-24 bg-gray-700 rounded mb-1" />
+                      </div>
+                    </div>
+                    <span className="h-3 w-12 bg-gray-700 rounded text-right sm:text-left mt-1 sm:mt-0" />
+                  </li>
+                )
+              } else {
+                const producer = topProducers[index]
+                return (
+                  <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
+                    <div className="flex items-center gap-x-2 sm:gap-x-4">
+                      <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
+                      <div className="relative w-10 h-10">
+                        <Image
+                          src={producer.image}
+                          alt={producer.name}
+                          className="rounded-full object-cover"
+                          fill
+                          sizes="40px"
+                          quality={75}
+                          priority={index < 3}
+                        />
+                      </div>
+                      <div className="flex flex-col justify-center">
+                        <span className="font-semibold text-base sm:text-lg">{producer.name}</span>
+                      </div>
+                    </div>
+                    <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
+                  </li>
+                )
+              }
+            })}
           </ul>
         </CardContent>
       </Card>
