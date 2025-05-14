@@ -9,13 +9,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 import { supabase } from '@/lib/supabaseClient'
 import { Suspense } from "react"
 import Image from "next/image"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 
 // Mock marketplace items
 const mockItems = [
@@ -36,9 +37,16 @@ interface Beat {
   mp3_path: string;
   cover_art_url?: string;
   signed_mp3_url?: string;
+  wav_url?: string;
+  stems_url?: string;
   producer: {
     display_name: string;
   };
+  tags?: string[];
+  price_lease?: number;
+  price_premium_lease?: number;
+  price_exclusive?: number;
+  price_buyout?: number;
 }
 
 interface BeatActionsProps {
@@ -98,8 +106,20 @@ function MyBeatsManager({ userId }: { userId: string }) {
     is_draft?: boolean;
   }>({})
   const [playingId, setPlayingId] = useState<string | number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
+  const [editColumn, setEditColumn] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState<string>("");
+  const [showEditInput, setShowEditInput] = useState(false);
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({});
   const { toast } = useToast();
+  const [expandedTagsId, setExpandedTagsId] = useState<string | number | null>(null);
+  const [expandedPricesId, setExpandedPricesId] = useState<string | number | null>(null);
+  const [expandAllTags, setExpandAllTags] = useState(false);
+  const [expandAllPrices, setExpandAllPrices] = useState(false);
+  const [expandAllPricesType, setExpandAllPricesType] = useState<null | 'lease' | 'premium' | 'exclusive' | 'buyout' | 'all'>(null);
+  const [showPricesMenu, setShowPricesMenu] = useState(false);
+  const [showFilesMenu, setShowFilesMenu] = useState(false);
+  const [expandAllFilesType, setExpandAllFilesType] = useState<null | 'mp3' | 'wav' | 'stems' | 'all'>(null);
 
   useEffect(() => {
     async function fetchBeats() {
@@ -120,7 +140,12 @@ function MyBeatsManager({ userId }: { userId: string }) {
             play_count,
             mp3_url,
             mp3_path,
-            cover_art_url
+            cover_art_url,
+            tags,
+            price_lease,
+            price_premium_lease,
+            price_exclusive,
+            price_buyout
           `)
           .eq('producer_id', userId)
           .order('created_at', { ascending: false });
@@ -220,6 +245,50 @@ function MyBeatsManager({ userId }: { userId: string }) {
     audioRefs.current[id] = el;
   };
 
+  // Handle file upload for MP3, WAV, Stems
+  const handleFileUpload = async (beat: Beat, fileType: 'mp3' | 'wav' | 'stems') => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (fileType === 'mp3') input.accept = 'audio/mpeg';
+    if (fileType === 'wav') input.accept = 'audio/wav';
+    if (fileType === 'stems') input.accept = '.zip,application/zip';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        let storagePath = `${userId}/${beat.title.trim()}/${fileType}/${file.name.trim()}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('beats')
+          .upload(storagePath, file, { upsert: true });
+        if (uploadError) throw uploadError;
+        const { data: { publicUrl } } = supabase.storage
+          .from('beats')
+          .getPublicUrl(storagePath);
+        // Update the beat in the database
+        const updateField = fileType === 'mp3' ? { mp3_url: publicUrl } : fileType === 'wav' ? { wav_url: publicUrl } : { stems_url: publicUrl };
+        const { error: updateError } = await supabase
+          .from('beats')
+          .update(updateField)
+          .eq('id', beat.id);
+        if (updateError) throw updateError;
+        // Update local state
+        setBeats(beats.map(b => b.id === beat.id ? { ...b, ...updateField } : b));
+        toast({
+          title: `${fileType.toUpperCase()} File Updated`,
+          description: `The beat's ${fileType.toUpperCase()} file has been updated successfully.`,
+        });
+      } catch (error) {
+        console.error('Error uploading file:', error);
+        toast({
+          title: 'Error',
+          description: `Failed to update ${fileType.toUpperCase()} file. Please try again.`,
+          variant: 'destructive',
+        });
+      }
+    };
+    input.click();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -246,25 +315,144 @@ function MyBeatsManager({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-bold mb-4">My Uploaded Beats</h2>
+      <div className="flex items-center mb-4">
+        <h2 className="text-2xl font-bold mr-4">My Uploaded Beats</h2>
+        {selectedIds.length > 0 && (
+          <div className="flex gap-2 items-center">
+            <Button size="sm" variant="destructive" onClick={() => {
+              if (!confirm('Delete selected beats?')) return;
+              selectedIds.forEach(id => handleDelete(id));
+              setSelectedIds([]);
+            }}>Delete Selected</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline">Edit</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {['title', 'genre', 'tags', 'price_lease', 'price_premium_lease', 'price_exclusive', 'price_buyout'].map(col => (
+                  <DropdownMenuItem key={col} onClick={() => { setEditColumn(col); setShowEditInput(true); }}>
+                    Edit {col === 'price_lease' ? 'Lease Price' :
+                          col === 'price_premium_lease' ? 'Premium Lease Price' :
+                          col === 'price_exclusive' ? 'Exclusive Price' :
+                          col === 'price_buyout' ? 'Buy Out Price' :
+                          col.charAt(0).toUpperCase() + col.slice(1)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {showEditInput && editColumn && (
+              <form className="flex items-center gap-2 ml-2" onSubmit={async e => {
+                e.preventDefault();
+                for (const id of selectedIds) {
+                  await fetch(`/api/beats?id=${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ [editColumn]: editColumn === 'tags' ? editValue.split(',').map(t => t.trim()) : editColumn.startsWith('price_') ? Number(editValue) : editValue })
+                  });
+                }
+                setBeats(beats.map(b => selectedIds.includes(b.id) ? { ...b, [editColumn]: editColumn === 'tags' ? editValue.split(',').map(t => t.trim()) : editColumn.startsWith('price_') ? Number(editValue) : editValue } : b));
+                setShowEditInput(false);
+                setEditColumn(null);
+                setEditValue("");
+              }}>
+                <Input
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  placeholder={`New ${editColumn}`}
+                  className="w-32"
+                  autoFocus
+                  type={editColumn.startsWith('price_') ? 'number' : 'text'}
+                />
+                <Button size="sm" type="submit">Save</Button>
+                <Button size="sm" variant="ghost" type="button" onClick={() => { setShowEditInput(false); setEditColumn(null); setEditValue(""); }}>Cancel</Button>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
       <div className="overflow-x-auto">
-        <table className="min-w-full bg-secondary rounded-lg">
+        <table
+          className="min-w-full"
+          style={{ borderCollapse: 'separate' }}
+        >
           <thead>
             <tr>
-              <th className="p-2 text-left">Cover</th>
-              <th className="p-2 text-left">Title</th>
-              <th className="p-2 text-left">Genre</th>
-              <th className="p-2 text-left">BPM</th>
-              <th className="p-2 text-left">Key</th>
-              <th className="p-2 text-left">Plays</th>
-              <th className="p-2 text-left">Actions</th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.length === beats.length && beats.length > 0}
+                  onChange={e => {
+                    if (e.target.checked) {
+                      setSelectedIds(beats.map(b => b.id));
+                    } else {
+                      setSelectedIds([]);
+                    }
+                  }}
+                />
+              </th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Cover</th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Title</th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">View</th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Genre</th>
+              <th
+                className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary cursor-pointer select-none hover:text-yellow-400"
+                onClick={() => setExpandAllTags(v => !v)}
+              >
+                Tags
+              </th>
+              <th
+                className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary cursor-pointer select-none hover:text-yellow-400 relative"
+                onClick={() => setShowPricesMenu(v => !v)}
+              >
+                Prices
+                {showPricesMenu && (
+                  <div className="absolute z-10 mt-2 bg-black border border-primary rounded shadow-lg p-2">
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllPricesType('lease'); setShowPricesMenu(false); }}>Lease</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllPricesType('premium'); setShowPricesMenu(false); }}>Premium Lease</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllPricesType('exclusive'); setShowPricesMenu(false); }}>Exclusive</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllPricesType('buyout'); setShowPricesMenu(false); }}>Buy Out</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllPricesType('all'); setShowPricesMenu(false); }}>All</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer text-red-400" onClick={e => { e.stopPropagation(); setExpandAllPricesType(null); setShowPricesMenu(false); }}>Cancel</div>
+                  </div>
+                )}
+              </th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Plays</th>
+              <th
+                className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary cursor-pointer select-none hover:text-yellow-400 relative"
+                onClick={() => setShowFilesMenu(v => !v)}
+              >
+                File
+                {showFilesMenu && (
+                  <div className="absolute z-10 mt-2 bg-black border border-primary rounded shadow-lg p-2">
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllFilesType('mp3'); setShowFilesMenu(false); }}>MP3</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllFilesType('wav'); setShowFilesMenu(false); }}>WAV</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllFilesType('stems'); setShowFilesMenu(false); }}>Stems</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer" onClick={e => { e.stopPropagation(); setExpandAllFilesType('all'); setShowFilesMenu(false); }}>All</div>
+                    <div className="hover:bg-primary/10 px-2 py-1 cursor-pointer text-red-400" onClick={e => { e.stopPropagation(); setExpandAllFilesType(null); setShowFilesMenu(false); }}>Cancel</div>
+                  </div>
+                )}
+              </th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Actions</th>
             </tr>
           </thead>
           <tbody>
             {beats.map(beat => (
-              <tr key={beat.id} className="border-t border-gray-700">
-                <td className="p-2">
-                  <div className="relative w-12 h-12 aspect-square overflow-hidden">
+              <tr key={beat.id} className="border-t border-gray-700 bg-[#141414]">
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(beat.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedIds(ids => [...ids, beat.id]);
+                      } else {
+                        setSelectedIds(ids => ids.filter(id => id !== beat.id));
+                      }
+                    }}
+                  />
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  <div className="relative w-12 h-12 aspect-square">
                     <Image
                       src={beat.cover_art_url || "/placeholder.svg"}
                       alt={beat.title}
@@ -332,36 +520,144 @@ function MyBeatsManager({ userId }: { userId: string }) {
                     </Button>
                   </div>
                 </td>
-                <td className="p-2">
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
                   {editingId === beat.id ? (
-                    <Input
-                      value={editForm.title}
-                      onChange={handleEditChange}
-                      name="title"
-                      className="w-full bg-secondary"
-                      autoFocus
-                      onBlur={() => handleEditSave(beat.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleEditSave(beat.id);
-                        }
-                      }}
-                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={editForm.title}
+                        onChange={handleEditChange}
+                        name="title"
+                        className="w-full bg-secondary"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleEditSave(beat.id);
+                          }
+                        }}
+                      />
+                      <Button size="sm" type="button" onClick={() => handleEditSave(beat.id)}>Save</Button>
+                      <Button size="sm" variant="ghost" type="button" onClick={() => setEditingId(null)}>Cancel</Button>
+                    </div>
                   ) : (
-                    <button
-                      className="w-full text-left text-primary hover:text-yellow-400 cursor-pointer bg-transparent border-0 p-0 m-0"
-                      style={{ background: 'none' }}
-                      onClick={() => window.open(`/beat/${beat.id}`, '_blank')}
+                    <span
+                      className="text-yellow-400 font-medium cursor-pointer hover:underline"
+                      onClick={() => handleEdit(beat)}
                     >
                       {beat.title}
-                    </button>
+                    </span>
                   )}
                 </td>
-                <td className="p-2">{beat.genre}</td>
-                <td className="p-2">{beat.bpm}</td>
-                <td className="p-2">{beat.key}</td>
-                <td className="p-2">{beat.play_count ?? 0}</td>
-                <td className="p-2">
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  <a
+                    href={`/beat/${beat.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center text-primary hover:text-yellow-400"
+                    title="View beat details"
+                  >
+                    <ExternalLink className="h-5 w-5" />
+                  </a>
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">{beat.genre}</td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  {expandAllTags || expandedTagsId === beat.id ? (
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {(Array.isArray(beat.tags) ? beat.tags : []).length > 0
+                        ? (Array.isArray(beat.tags) ? beat.tags : []).map((tag, idx) => (
+                            <span key={idx} className="bg-primary/20 text-primary px-2 py-1 rounded text-xs font-medium">
+                              {tag}
+                            </span>
+                          ))
+                        : <span className="text-muted-foreground">No tags</span>
+                      }
+                      {!expandAllTags && (
+                        <Button size="sm" variant="ghost" onClick={() => setExpandedTagsId(null)}>Hide</Button>
+                      )}
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => setExpandedTagsId(beat.id)}>
+                      View Tags
+                    </Button>
+                  )}
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  {expandAllPricesType ? (
+                    <div className="flex flex-col gap-1">
+                      {(expandAllPricesType === 'lease' || expandAllPricesType === 'all') && (
+                        beat.price_lease && beat.price_lease > 0 ?
+                          <span>Lease: ${beat.price_lease}</span> :
+                          <span className="bg-black text-muted-foreground px-2 py-1 rounded">Lease: N/A</span>
+                      )}
+                      {(expandAllPricesType === 'premium' || expandAllPricesType === 'all') && (
+                        beat.price_premium_lease && beat.price_premium_lease > 0 ?
+                          <span>Premium Lease: ${beat.price_premium_lease}</span> :
+                          <span className="bg-black text-muted-foreground px-2 py-1 rounded">Premium Lease: N/A</span>
+                      )}
+                      {(expandAllPricesType === 'exclusive' || expandAllPricesType === 'all') && (
+                        beat.price_exclusive && beat.price_exclusive > 0 ?
+                          <span>Exclusive: ${beat.price_exclusive}</span> :
+                          <span className="bg-black text-muted-foreground px-2 py-1 rounded">Exclusive: N/A</span>
+                      )}
+                      {(expandAllPricesType === 'buyout' || expandAllPricesType === 'all') && (
+                        beat.price_buyout && beat.price_buyout > 0 ?
+                          <span>Buy Out: ${beat.price_buyout}</span> :
+                          <span className="bg-black text-muted-foreground px-2 py-1 rounded">Buy Out: N/A</span>
+                      )}
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => setExpandedPricesId(beat.id)}>
+                      View Prices
+                    </Button>
+                  )}
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">{beat.play_count ?? 0}</td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  {expandAllFilesType ? (
+                    <div className="flex flex-col gap-1">
+                      {(expandAllFilesType === 'mp3' || expandAllFilesType === 'all') && (
+                        <span>
+                          MP3: {beat.mp3_url ? (
+                            <>
+                              <a href={beat.mp3_url} target="_blank" rel="noopener noreferrer" className="text-primary underline">Download</a>
+                              <Button size="sm" variant="ghost" onClick={() => handleFileUpload(beat, 'mp3')}>Replace</Button>
+                            </>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => handleFileUpload(beat, 'mp3')}>Add</Button>
+                          )}
+                        </span>
+                      )}
+                      {(expandAllFilesType === 'wav' || expandAllFilesType === 'all') && (
+                        <span>
+                          WAV: {beat.wav_url ? (
+                            <>
+                              <a href={beat.wav_url} target="_blank" rel="noopener noreferrer" className="text-primary underline">Download</a>
+                              <Button size="sm" variant="ghost" onClick={() => handleFileUpload(beat, 'wav')}>Replace</Button>
+                            </>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => handleFileUpload(beat, 'wav')}>Add</Button>
+                          )}
+                        </span>
+                      )}
+                      {(expandAllFilesType === 'stems' || expandAllFilesType === 'all') && (
+                        <span>
+                          Stems: {beat.stems_url ? (
+                            <>
+                              <a href={beat.stems_url} target="_blank" rel="noopener noreferrer" className="text-primary underline">Download</a>
+                              <Button size="sm" variant="ghost" onClick={() => handleFileUpload(beat, 'stems')}>Replace</Button>
+                            </>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => handleFileUpload(beat, 'stems')}>Add</Button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => setExpandAllFilesType('all')}>
+                      View Files
+                    </Button>
+                  )}
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
                   <BeatActions
                     beat={beat}
                     onEdit={handleEdit}

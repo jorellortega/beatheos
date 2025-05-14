@@ -31,6 +31,7 @@ async function fetchUserRole(id: string): Promise<string | null> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
     // Get initial session
@@ -51,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
       } finally {
       setIsLoading(false)
+      setHydrated(true)
       }
     }
 
@@ -77,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
       } finally {
     setIsLoading(false)
+    setHydrated(true)
       }
     })
 
@@ -165,6 +168,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     isLoading
   }), [user, isLoading]);
+
+  // Only render children after hydration
+  if (!hydrated) return null
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
