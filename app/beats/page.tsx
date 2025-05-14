@@ -353,78 +353,105 @@ export default function BeatsPage() {
   )
 
   const CompactView = () => (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-gray-700">
-            <th className="py-2 px-4 text-primary">Cover</th>
-            <th className="py-2 px-4 text-primary">Title</th>
-            <th className="py-2 px-4 text-primary">Producer</th>
-            <th className="py-2 px-4 text-primary">BPM</th>
-            <th className="py-2 px-4 text-primary">Plays</th>
-            <th className="py-2 px-4 text-primary">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
+    <>
+      {/* Mobile version */}
+      <div className="sm:hidden">
+        <div className="flex flex-col gap-2">
           {filteredBeats.map((beat) => (
-            <tr key={beat.id} className="border-b border-gray-700 hover:bg-gray-800">
-              <td className="py-3 px-4">
-                <div className="w-10 h-10 relative">
-                  <Image
-                    src={beat.image || "/placeholder.svg"}
-                    alt={beat.title}
-                    width={40}
-                    height={40}
-                    className="rounded object-cover w-10 h-10"
-                  />
-                </div>
-              </td>
-              <td className="py-3 px-4 text-white">{beat.title}</td>
-              <td className="py-3 px-4 text-gray-400">{beat.producer}</td>
-              <td className="py-3 px-4 text-gray-400">{beat.bpm}</td>
-              <td className="py-3 px-4 text-gray-400">{beat.plays}</td>
-              <td className="py-3 px-4">
-                <div className="flex space-x-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-400 hover:text-white"
-                    onClick={() => handlePlayPause(beat)}
-                  >
-                    {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-400 hover:text-white"
-                    onClick={() => handleSaveToPlaylist(beat)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="gradient-button text-black font-medium hover:text-white"
-                    onClick={() => handlePurchase(beat)}
-                  >
-                    <ShoppingCart className="h-4 w-4 mr-2" />
-                    BUY
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    asChild
-                  >
-                    <Link href={`/beat/${beat.id}`} title="View Details">
-                      <ExternalLink className="h-4 w-4 text-yellow-400" />
-                    </Link>
-                  </Button>
-                </div>
-              </td>
-            </tr>
+            <div
+              key={beat.id}
+              className="flex flex-col items-center bg-black border border-primary rounded-lg p-3 cursor-pointer hover:bg-gray-900 transition"
+              onClick={() => handlePlayPause(beat)}
+            >
+              <div className="w-20 h-20 relative mb-2">
+                <Image
+                  src={beat.image || "/placeholder.svg"}
+                  alt={beat.title}
+                  width={80}
+                  height={80}
+                  className="rounded object-cover w-20 h-20"
+                />
+              </div>
+              <div className="text-white text-base font-semibold text-center w-full truncate">{beat.title}</div>
+              <div className="text-xs text-gray-400 text-center w-full truncate">by {beat.producer}</div>
+            </div>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </div>
+      </div>
+      {/* Desktop/tablet version (unchanged) */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="border-b border-gray-700">
+              <th className="py-2 px-4 text-primary">Cover</th>
+              <th className="py-2 px-4 text-primary">Title</th>
+              <th className="py-2 px-4 text-primary">Producer</th>
+              <th className="py-2 px-4 text-primary">BPM</th>
+              <th className="py-2 px-4 text-primary">Plays</th>
+              <th className="py-2 px-4 text-primary">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredBeats.map((beat) => (
+              <tr key={beat.id} className="border-b border-gray-700 hover:bg-gray-800">
+                <td className="py-3 px-4">
+                  <div className="w-10 h-10 relative">
+                    <Image
+                      src={beat.image || "/placeholder.svg"}
+                      alt={beat.title}
+                      width={40}
+                      height={40}
+                      className="rounded object-cover w-10 h-10"
+                    />
+                  </div>
+                </td>
+                <td className="py-3 px-4 text-white">{beat.title}</td>
+                <td className="py-3 px-4 text-gray-400">{beat.producer}</td>
+                <td className="py-3 px-4 text-gray-400">{beat.bpm}</td>
+                <td className="py-3 px-4 text-gray-400">{beat.plays}</td>
+                <td className="py-3 px-4">
+                  <div className="flex space-x-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-gray-400 hover:text-white"
+                      onClick={() => handlePlayPause(beat)}
+                    >
+                      {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-gray-400 hover:text-white"
+                      onClick={() => handleSaveToPlaylist(beat)}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="gradient-button text-black font-medium hover:text-white"
+                      onClick={() => handlePurchase(beat)}
+                    >
+                      <ShoppingCart className="h-4 w-4 mr-2" />
+                      BUY
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      asChild
+                    >
+                      <Link href={`/beat/${beat.id}`} title="View Details">
+                        <ExternalLink className="h-4 w-4 text-yellow-400" />
+                      </Link>
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 
   if (loading) {
