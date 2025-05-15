@@ -183,7 +183,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }), [user, isLoading]);
 
   // Only render children after hydration
-  if (!hydrated) return null
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <span className="ml-4 text-primary">Loading...</span>
+      </div>
+    );
+  }
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
 }
