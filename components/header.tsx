@@ -7,14 +7,16 @@ import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Search, Bell, User, LogOut } from "lucide-react"
+import { Search, Bell, User, LogOut, Menu, X } from "lucide-react"
 import { supabase } from '@/lib/supabaseClient'
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
   const pathname = usePathname()
   const { user, logout } = useAuth()
   const [producerId, setProducerId] = useState<string | null>(null)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const getDashboardPath = () => {
     switch (user?.role) {
@@ -76,6 +78,85 @@ export default function Header() {
     { name: "Upload Beat", path: "/upload-beat" },
   ]
 
+  const MobileNav = () => (
+    <div className="flex flex-col space-y-4 p-4">
+      {navItems
+        .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
+        .map((item) => (
+          <Link
+            key={item.path}
+            href={item.path}
+            className={`text-lg transition-colors ${
+              pathname === item.path ? "text-primary font-semibold" : "text-gray-300 hover:text-white"
+            }`}
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            {item.name}
+          </Link>
+        ))}
+      {user ? (
+        <>
+          <Link
+            href={getDashboardPath()}
+            className="text-lg text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Dashboard
+          </Link>
+          {producerId && (
+            <Link
+              href={`/producers/${producerId}`}
+              className="text-lg text-gray-300 hover:text-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Profile
+            </Link>
+          )}
+          <Link
+            href="/beatvault"
+            className="text-lg text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Beat Vault
+          </Link>
+          <Link
+            href="/settings"
+            className="text-lg text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Settings
+          </Link>
+          <button
+            onClick={() => {
+              logout()
+              setIsMobileMenuOpen(false)
+            }}
+            className="text-lg text-gray-300 hover:text-white text-left"
+          >
+            Logout
+          </button>
+        </>
+      ) : (
+        <>
+          <Link
+            href="/login"
+            className="text-lg text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Login
+          </Link>
+          <Link
+            href="/signup"
+            className="text-lg text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Sign Up
+          </Link>
+        </>
+      )}
+    </div>
+  )
+
   return (
     <header className={`fixed top-0 w-full z-50 transition-all duration-500 gradient-header`}>
       <div className="container mx-auto px-4 py-4">
@@ -85,7 +166,9 @@ export default function Header() {
               <span className="text-2xl font-bold font-display text-primary">BEATHEOS</span>
             </Link>
           </div>
-          <div className="flex items-center space-x-4">
+          
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-4">
             {user ? (
               <>
                 <Button variant="outline" className="text-white hover:text-primary" asChild>
@@ -137,8 +220,24 @@ export default function Header() {
               </>
             )}
           </div>
+
+          {/* Mobile Menu Button */}
+          <div className="md:hidden">
+            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-white hover:text-primary">
+                  <Menu size={24} />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-[300px] bg-black border-primary">
+                <MobileNav />
+              </SheetContent>
+            </Sheet>
+          </div>
         </div>
-        <nav className="flex space-x-6">
+
+        {/* Desktop Navigation Menu */}
+        <nav className="hidden md:flex space-x-6">
           {navItems
             .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
             .map((item) => (
