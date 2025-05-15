@@ -29,7 +29,11 @@ export default function LoginPage() {
         title: "Login Successful",
           description: `Welcome back, ${user.email}!`,
       })
-        router.push(`/dashboard/${user.role}`)
+        if (user.role === 'ceo') {
+          router.push('/ceo')
+        } else {
+          router.push(`/dashboard/${user.role}`)
+        }
       }
     } catch (error) {
       console.error("Login error:", error)

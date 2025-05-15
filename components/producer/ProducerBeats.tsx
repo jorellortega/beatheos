@@ -15,10 +15,15 @@ interface Beat {
   plays: number
   isTopBeat: boolean
   price: number
+  price_lease: number
+  price_premium_lease: number
+  price_exclusive: number
+  price_buyout: number
   audioUrl: string
   producers: any
   isTopPlayed?: boolean
   cover: string
+  cover_art_url: string
 }
 
 interface ProducerBeatsProps {
@@ -47,9 +52,14 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
         plays: beat.play_count ?? 0,
         isTopBeat: false, // You can update this logic if you have a field for top beats
         price: beat.price ?? 0,
+        price_lease: beat.price_lease,
+        price_premium_lease: beat.price_premium_lease,
+        price_exclusive: beat.price_exclusive,
+        price_buyout: beat.price_buyout,
         audioUrl: beat.mp3_url || '',
         producers: beat.producers,
         cover: beat.cover_art_url || '/placeholder.svg',
+        cover_art_url: beat.cover_art_url || '/placeholder.svg',
       }))
       // Sort by plays descending and flag top 5
       const sorted = [...beats].sort((a: Beat, b: Beat): number => {
@@ -136,7 +146,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                     onClick={() => handlePurchase(beat)}
                   >
                     BUY
-                  </Button>
+                      </Button>
                 </div>
               </div>
             ))}
@@ -153,7 +163,10 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
       <PurchaseOptionsModal
         isOpen={isPurchaseModalOpen}
         onClose={() => setIsPurchaseModalOpen(false)}
-        beat={selectedBeat && typeof selectedBeat.id === 'number' ? { id: selectedBeat.id, title: selectedBeat.title, price: selectedBeat.price } : selectedBeat && !isNaN(Number(selectedBeat.id)) ? { id: Number(selectedBeat.id), title: selectedBeat.title, price: selectedBeat.price } : null}
+        beat={selectedBeat && selectedBeat.id ? {
+          ...selectedBeat,
+          id: typeof selectedBeat.id === 'string' ? Number(selectedBeat.id) : selectedBeat.id
+        } : null}
       />
     </>
   )

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { User, Lock, Bell, CreditCard, Shield } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { supabase } from '@/lib/supabaseClient'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -28,14 +29,14 @@ export default function SettingsPage() {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("profile")
   const [formData, setFormData] = useState({
-    username: user?.username || "",
+    username: "",
     email: user?.email || "",
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
   })
   const [profileData, setProfileData] = useState({
-    username: user?.username || '',
+    username: '',
     email: user?.email || '',
     bio: '',
     website: '',
@@ -65,6 +66,22 @@ export default function SettingsPage() {
       router.push("/login")
     }
   }, [user, router])
+
+  useEffect(() => {
+    async function fetchDisplayName() {
+      if (user?.id) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('display_name')
+          .eq('id', user.id)
+          .single();
+        if (data?.display_name) {
+          setFormData(f => ({ ...f, username: data.display_name }));
+        }
+      }
+    }
+    fetchDisplayName();
+  }, [user]);
 
   if (!user) return null
 
@@ -118,7 +135,7 @@ export default function SettingsPage() {
         </div>
         <div className="text-right">
           <p className="text-lg font-medium">Logged in as</p>
-          <p className="text-primary">{user?.username || user?.email?.split('@')[0]}</p>
+          <p className="text-primary">{formData.username || user?.email?.split('@')[0]}</p>
           <p className="text-sm text-gray-400 capitalize">{user?.role?.replace('_', ' ')}</p>
         </div>
       </div>
@@ -129,21 +146,9 @@ export default function SettingsPage() {
             <User className="h-4 w-4 mr-2" />
             Profile
           </TabsTrigger>
-          <TabsTrigger value="security">
-            <Lock className="h-4 w-4 mr-2" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="notifications">
-            <Bell className="h-4 w-4 mr-2" />
-            Notifications
-          </TabsTrigger>
           <TabsTrigger value="billing">
             <CreditCard className="h-4 w-4 mr-2" />
             Billing
-          </TabsTrigger>
-          <TabsTrigger value="privacy">
-            <Shield className="h-4 w-4 mr-2" />
-            Privacy
           </TabsTrigger>
           <TabsTrigger value="subscription">
             <CreditCard className="h-4 w-4 mr-2" />
@@ -184,62 +189,6 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="security" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Security Settings</CardTitle>
-              <CardDescription>Update your password and security settings</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="currentPassword">Current Password</Label>
-                  <Input
-                    id="currentPassword"
-                    type="password"
-                    value={formData.currentPassword}
-                    onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
-                    placeholder="Enter your current password"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="newPassword">New Password</Label>
-                  <Input
-                    id="newPassword"
-                    type="password"
-                    value={formData.newPassword}
-                    onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
-                    placeholder="Enter your new password"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={formData.confirmPassword}
-                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                    placeholder="Confirm your new password"
-                  />
-                </div>
-                <Button className="mt-4">Update Password</Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="notifications" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Notification Settings</CardTitle>
-              <CardDescription>Manage your notification preferences</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-400">Notification settings coming soon...</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="billing" className="mt-6">
           <Card>
             <CardHeader>
@@ -250,7 +199,7 @@ export default function SettingsPage() {
               <div className="space-y-6">
                 <div>
                   <Label className="text-lg font-semibold">Current Account Type</Label>
-                  <p className="text-white mt-1">{user?.subscription || 'Free Account'}</p>
+                  <p className="text-white mt-1">{user?.subscription_tier?.replace('_', ' ') || 'Free Account'}</p>
                 </div>
                 <div className="flex space-x-4">
                   <DropdownMenu>
@@ -288,18 +237,6 @@ export default function SettingsPage() {
                   </DropdownMenu>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="privacy" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Privacy Settings</CardTitle>
-              <CardDescription>Manage your privacy preferences</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-400">Privacy settings coming soon...</p>
             </CardContent>
           </Card>
         </TabsContent>

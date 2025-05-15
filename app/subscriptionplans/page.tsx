@@ -159,9 +159,11 @@ export default function SubscriptionPlansPage() {
           <p className="text-gray-400 mb-6">
             Contact us for custom enterprise solutions and special requirements.
           </p>
-          <Button variant="outline" className="gradient-button">
-            Contact Sales
-          </Button>
+          <Link href="/contact">
+            <Button variant="outline" className="gradient-button">
+              Contact Sales
+            </Button>
+          </Link>
         </div>
       </div>
     </div>

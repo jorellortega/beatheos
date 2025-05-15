@@ -126,14 +126,15 @@ export function SiteWideBeatPlayer() {
 
   useEffect(() => {
     if (!user || !currentBeat) {
-      setLyrics("")
+      setLyrics("");
       if (lyricsTextareaRef.current) {
         lyricsTextareaRef.current.style.height = 'auto';
       }
-      return
+      return;
     }
     // Fetch user-specific lyrics from sessions table
     async function fetchUserLyrics() {
+      if (!user || !currentBeat) return;
       const { data, error } = await supabase
         .from('sessions')
         .select('lyrics')
@@ -149,14 +150,14 @@ export function SiteWideBeatPlayer() {
           }
         }, 0);
       } else {
-        setLyrics("")
+        setLyrics("");
         if (lyricsTextareaRef.current) {
           lyricsTextareaRef.current.style.height = 'auto';
         }
       }
     }
-    fetchUserLyrics()
-  }, [currentBeat, user])
+    fetchUserLyrics();
+  }, [currentBeat, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -434,12 +435,12 @@ export function SiteWideBeatPlayer() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('beat_ids, lyrics')
-        .eq('id', sessionId)
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('beat_ids, lyrics')
+      .eq('id', sessionId)
         .eq('user_id', user.id)
-        .single();
+      .single();
 
       if (error) throw error;
 
@@ -461,34 +462,34 @@ export function SiteWideBeatPlayer() {
 
       if (beatError || !beat) throw beatError || new Error('Beat not found');
 
-      // Fetch the producer's display name
-      const { data: producer } = await supabase
-        .from('producers')
-        .select('display_name')
-        .eq('user_id', beat.producer_id)
-        .single();
+        // Fetch the producer's display name
+        const { data: producer } = await supabase
+          .from('producers')
+          .select('display_name')
+          .eq('user_id', beat.producer_id)
+          .single();
 
-      setLyricsFromSession(true);
-      setCurrentBeat({
-        id: beat.id,
-        title: beat.title,
+        setLyricsFromSession(true);
+        setCurrentBeat({
+          id: beat.id,
+          title: beat.title,
         artist: producer?.display_name || beat.producer_id,
-        audioUrl: beat.mp3_url,
-        image: beat.cover_art_url,
-      });
-      setLyrics(data.lyrics || "");
+          audioUrl: beat.mp3_url,
+          image: beat.cover_art_url,
+        });
+        setLyrics(data.lyrics || "");
       setOpenSessionId(sessionId);
-      toast({
+        toast({
         title: "Session Loaded",
         description: "Your session has been loaded successfully.",
-      });
+        });
     } catch (error) {
-      toast({
-        title: "Error",
+        toast({
+          title: "Error",
         description: "Failed to load session. Please try again.",
-        variant: "destructive",
-      });
-    }
+          variant: "destructive",
+        });
+      }
   };
 
   const addToPlaylist = (playlistId: string) => {
@@ -559,7 +560,7 @@ export function SiteWideBeatPlayer() {
     if (openSessionId) {
       // If a session is open, update it directly
       await saveSession(undefined, openSessionId);
-      setSavingSession(false);
+    setSavingSession(false);
     } else {
       setSessionNameInput(currentBeat ? `${currentBeat.title} Session` : "My Session");
       setShowSessionNameDialog(true);
@@ -656,13 +657,13 @@ export function SiteWideBeatPlayer() {
             <>
           <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
             <Link href={currentBeat ? `/beat/${currentBeat.id}` : '#'}>
-              <Image
-                src={currentBeat?.image || "/placeholder.svg"}
-                alt={currentBeat?.title || "cover"}
-                width={100}
-                height={100}
+            <Image
+              src={currentBeat?.image || "/placeholder.svg"}
+              alt={currentBeat?.title || "cover"}
+              width={100}
+              height={100}
                 className="rounded-md mb-2 sm:mb-0 sm:mr-4 mt-12 sm:mt-0 cursor-pointer hover:opacity-80 transition"
-              />
+            />
             </Link>
             <div className="flex-grow flex flex-col items-center sm:items-start w-full">
               <div className="flex flex-row items-center w-full">
@@ -706,11 +707,7 @@ export function SiteWideBeatPlayer() {
               <Button
                 size="lg"
                 variant="secondary"
-                onClick={() => {
-                  if (!isRecording) {
-                    togglePlay()
-                  }
-                }}
+                onClick={togglePlay}
               >
                 {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
               </Button>
@@ -793,55 +790,58 @@ export function SiteWideBeatPlayer() {
                   />
                 </div>
               </div>
-              <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                      <span className="inline-flex">
-                        <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
-                      Open Session
+              {/* Center session buttons, keep round buttons at bottom right */}
+              {playerMode === 'full' && (
+                <>
+                  <div className="absolute bottom-3 left-0 right-0 z-10 flex justify-center items-center gap-2 w-full">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <span className="inline-flex">
+                          <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
+                            Open Session
+                          </Button>
+                        </span>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {savedSessions.length > 0 ? (
+                          savedSessions.map((session) => (
+                            <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
+                              {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
+                            </DropdownMenuItem>
+                          ))
+                        ) : (
+                          <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
+                      {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
+                      {openSessionId ? 'Update' : 'Save Session'}
                     </Button>
-                      </span>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    {savedSessions.length > 0 ? (
-                      savedSessions.map((session) => (
-                        <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
-                          {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
-                        </DropdownMenuItem>
-                      ))
-                    ) : (
-                      <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                  <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
-                  {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
-                  {openSessionId ? 'Update' : 'Save Session'}
-                </Button>
-                </div>
-              </div>
-            </>
-          )}
-          {playerMode === 'full' && (
-            <div className="absolute bottom-3 right-3 z-10 flex items-center space-x-2">
-              <button
-                onClick={() => {
-                  setIsExpanded(false);
-                  setPlayerMode(playerMode === 'full' ? 'default' : 'full');
-                }}
-                className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-                aria-label={playerMode === 'full' ? 'Minimize player' : 'Expand player'}
-              >
-                {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
-              </button>
-            <button
-              onClick={handleClose}
-                className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-              aria-label="Close player"
-              >
-              <X className="h-5 w-5 text-white" />
-            </button>
+                  </div>
+                  <div className="absolute bottom-3 right-4 z-20 flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setIsExpanded(false);
+                        setPlayerMode(playerMode === 'full' ? 'default' : 'full');
+                      }}
+                      className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+                      aria-label={playerMode === 'full' ? 'Minimize player' : 'Expand player'}
+                    >
+                      {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
+                    </button>
+                    <button
+                      onClick={handleClose}
+                      className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+                      aria-label="Close player"
+                    >
+                      <X className="h-5 w-5 text-white" />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
+            </>
           )}
         </CardContent>
         {currentBeat?.audioUrl ? (

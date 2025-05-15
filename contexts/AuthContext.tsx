@@ -41,12 +41,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
+    let hydratedTimeout = setTimeout(() => {
+      if (!hydrated) {
+        console.error('Hydration forced by timeout. Supabase may be slow or unresponsive.');
+        setHydrated(true);
+        setIsLoading(false);
+      }
+    }, 3000);
+
     // Get initial session
     const initializeAuth = async () => {
       try {
         setIsLoading(true);
         const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
+        if (session?.user) {
           const userInfo = await fetchUserInfo(session.user.id)
           setUser({
             id: session.user.id,
@@ -60,8 +68,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Error initializing auth:', error)
         setUser(null)
       } finally {
-      setIsLoading(false)
-      setHydrated(true)
+        setIsLoading(false)
+        setHydrated(true)
+        clearTimeout(hydratedTimeout)
       }
     }
 
@@ -73,28 +82,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         setIsLoading(true);
-      if (session?.user) {
+        if (session?.user) {
           const userInfo = await fetchUserInfo(session.user.id)
-        setUser({
-          id: session.user.id,
-          email: session.user.email ?? null,
+          setUser({
+            id: session.user.id,
+            email: session.user.email ?? null,
             role: userInfo.role,
             subscription_tier: userInfo.subscription_tier,
             subscription_status: userInfo.subscription_status,
-        })
-      } else {
-        setUser(null)
-    }
+          })
+        } else {
+          setUser(null)
+        }
       } catch (error) {
         console.error('Error handling auth state change:', error)
         setUser(null)
       } finally {
-    setIsLoading(false)
-    setHydrated(true)
+        setIsLoading(false)
+        setHydrated(true)
+        clearTimeout(hydratedTimeout)
       }
     })
 
     return () => {
+      clearTimeout(hydratedTimeout)
       subscription.unsubscribe()
     }
   }, [])

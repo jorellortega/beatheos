@@ -174,7 +174,7 @@ export default function ProducerProfilePage() {
           </TabsList>
           <TabsContent value="beats">
             <div className="bg-black rounded-xl shadow-lg">
-              <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
+            <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
             </div>
           </TabsContent>
         </Tabs>

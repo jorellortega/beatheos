@@ -693,6 +693,8 @@ export default function BusinessProducerDashboard() {
   const [promoEnabled, setPromoEnabled] = useState(false)
   const { toast } = useToast()
   const [displayName, setDisplayName] = useState<string | null>(null)
+  const [beatStats, setBeatStats] = useState<{ totalBeats: number; totalPlays: number }>({ totalBeats: 0, totalPlays: 0 });
+  const [topBeats, setTopBeats] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user || user.role !== "business_producer") {
@@ -707,6 +709,20 @@ export default function BusinessProducerDashboard() {
         .then(({ data }) => {
           setDisplayName(data?.display_name || null)
         })
+
+      // Fetch analytics stats
+      supabase
+        .from('beats')
+        .select('id, title, play_count, cover_art_url')
+        .eq('producer_id', user.id)
+        .then(({ data }) => {
+          const totalBeats = data?.length || 0;
+          const totalPlays = (data || []).reduce((sum, b) => sum + (b.play_count || 0), 0);
+          setBeatStats({ totalBeats, totalPlays });
+          // Sort and get top 5
+          const sorted = (data || []).sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
+          setTopBeats(sorted.slice(0, 5));
+        });
     }
   }, [user, router])
 
@@ -747,15 +763,58 @@ export default function BusinessProducerDashboard() {
           <TabManager setActiveTab={setActiveTab} />
         </Suspense>
       <Tabs defaultValue="overview" value={activeTab} onValueChange={setActiveTab} className="mb-8">
-          <TabsList className="flex w-full overflow-x-auto whitespace-nowrap gap-2 sm:grid sm:grid-cols-7 sm:gap-0">
+          <TabsList className="flex w-full overflow-x-auto whitespace-nowrap gap-2 sm:grid sm:grid-cols-8 sm:gap-0">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="mybeats">My Beats</TabsTrigger>
+            <TabsTrigger value="beats">Beats</TabsTrigger>
             <TabsTrigger value="promo">Promo</TabsTrigger>
             <TabsTrigger value="support">Support</TabsTrigger>
-            <TabsTrigger value="others">Others</TabsTrigger>
+            <TabsTrigger value="others" disabled style={{ pointerEvents: 'none', opacity: 0.6, cursor: 'not-allowed' }}>Others</TabsTrigger>
           </TabsList>
         
         <TabsContent value="overview" className="mt-6">
+          {/* Analytics Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+            <Card className="bg-black border-primary">
+              <CardContent className="p-6 flex flex-col items-center justify-center">
+                <div className="text-4xl font-bold text-primary">{beatStats.totalBeats}</div>
+                <div className="text-lg text-gray-300 mt-2">Total Beats</div>
+              </CardContent>
+            </Card>
+            <Card className="bg-black border-primary">
+              <CardContent className="p-6 flex flex-col items-center justify-center">
+                <div className="text-4xl font-bold text-primary">{beatStats.totalPlays}</div>
+                <div className="text-lg text-gray-300 mt-2">Total Plays</div>
+              </CardContent>
+            </Card>
+          </div>
+          {/* Top 5 Beats by Plays */}
+          <div className="mb-8">
+            <div className="text-xl font-bold text-primary mb-4">Top 5 Most Played Beats</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+              {topBeats.length === 0 ? (
+                <div className="text-gray-400 col-span-full">No beats found.</div>
+              ) : (
+                topBeats.map((beat) => (
+                  <Link key={beat.id} href={`/beat/${beat.id}`} target="_blank" rel="noopener noreferrer" className="block">
+                    <Card className="bg-black border-primary flex flex-col items-center p-2 min-w-0 hover:border-yellow-400 transition-colors cursor-pointer">
+                      <div className="w-14 h-14 mb-1 relative">
+                        <Image
+                          src={beat.cover_art_url || "/placeholder.svg"}
+                          alt={beat.title}
+                          width={56}
+                          height={56}
+                          className="rounded object-cover w-full h-full"
+                        />
+                      </div>
+                      <div className="font-semibold text-white text-center truncate w-full text-base" title={beat.title}>{beat.title}</div>
+                      <div className="text-primary text-xs mt-0.5">{beat.play_count ?? 0} plays</div>
+                    </Card>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Quick Upload Card */}
             <Card className="bg-black border-primary hover:border-primary transition-all">
@@ -822,124 +881,21 @@ export default function BusinessProducerDashboard() {
               </Card>
         </TabsContent>
         
+        <TabsContent value="beats" className="mt-6">
+          <Card className="bg-black border-primary">
+            <CardContent className="p-6">
+              <SimpleBeatsList userId={user.id} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
         <TabsContent value="promo" className="mt-6">
-          <div className="grid grid-cols-1 gap-6">
-              <Card className="bg-black border-primary">
-              <CardHeader>
-                <CardTitle>Active Promotions</CardTitle>
-                <CardDescription>Manage your ongoing promotional campaigns</CardDescription>
-              </CardHeader>
-              <CardContent>
-                  <div className="border border-primary rounded-md">
-                    <div className="grid grid-cols-5 bg-black p-3 rounded-t-md">
-                    <div className="font-medium">Item</div>
-                    <div className="font-medium">Original Price</div>
-                    <div className="font-medium">Promo Price</div>
-                    <div className="font-medium">Status</div>
-                    <div className="font-medium">Actions</div>
-                  </div>
-                  {items.filter(item => item.promo).map((item) => (
-                      <div key={item.id} className="grid grid-cols-5 p-4 border-t border-primary items-center">
-                      <div className="font-medium">{item.title}</div>
-                      <div className="line-through">${item.price.toFixed(2)}</div>
-                      <div className="text-green-500 font-medium">${(item.price * 0.75).toFixed(2)}</div>
-                      <div>
-                        <span className="bg-green-500/20 text-green-600 px-2 py-1 rounded-full text-xs font-medium">
-                          Active
-                        </span>
-                      </div>
-                      <div className="flex space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => togglePromo(item.id)}>
-                          End Promo
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {items.filter(item => item.promo).length === 0 && (
-                    <div className="p-8 text-center text-muted-foreground">
-                      No active promotions. Enable promotions for your products in the Marketplace tab.
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-              <Card className="bg-black border-primary">
-              <CardHeader>
-                <CardTitle>Promo Settings</CardTitle>
-                <CardDescription>Configure how promotions work for your products</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="discount-percent">Default Discount (%)</Label>
-                      <Input id="discount-percent" type="number" min="5" max="75" defaultValue="25" />
-                    </div>
-                    <div>
-                      <Label htmlFor="promo-duration">Default Duration (days)</Label>
-                      <Input id="promo-duration" type="number" min="1" max="30" defaultValue="7" />
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-between items-center pt-2">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="feature-promos">Feature Promoted Items</Label>
-                      <p className="text-sm text-muted-foreground">Promoted items appear at the top of marketplace listings</p>
-                    </div>
-                    <Switch id="feature-promos" defaultChecked />
-                  </div>
-                  
-                  <div className="flex justify-between items-center pt-2">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="auto-social">Auto-share to Social</Label>
-                      <p className="text-sm text-muted-foreground">Automatically announce promotions on your social profiles</p>
-                    </div>
-                    <Switch id="auto-social" />
-                  </div>
-                  
-                  <Button className="w-full">Save Promo Settings</Button>
-                </div>
-              </CardContent>
-            </Card>
-            
-              <Card className="bg-black border-primary">
-              <CardHeader>
-                <CardTitle>Schedule Promotion</CardTitle>
-                <CardDescription>Plan future promotional campaigns</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="promo-name">Campaign Name</Label>
-                    <Input id="promo-name" placeholder="e.g. Summer Sale 2023" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="start-date">Start Date</Label>
-                      <Input id="start-date" type="date" />
-                    </div>
-                    <div>
-                      <Label htmlFor="end-date">End Date</Label>
-                      <Input id="end-date" type="date" />
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="promo-items">Select Items</Label>
-                      <div className="border border-primary rounded-md p-4 mt-2 space-y-2 max-h-40 overflow-y-auto">
-                      {items.map(item => (
-                        <div key={item.id} className="flex items-center space-x-2">
-                          <Checkbox id={`item-${item.id}`} />
-                          <label htmlFor={`item-${item.id}`} className="text-sm">{item.title}</label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <Button className="w-full">Schedule Promotion</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="bg-black border-primary">
+            <CardContent className="p-8 text-center">
+              <div className="text-2xl font-bold text-primary mb-2">Promo Tab</div>
+              <div className="text-gray-300 text-lg">This feature is under development.</div>
+            </CardContent>
+          </Card>
         </TabsContent>
         
         <TabsContent value="support" className="mt-6">
@@ -950,154 +906,117 @@ export default function BusinessProducerDashboard() {
             <CardContent>
               <div className="space-y-4">
                 <p>As a Business Producer, you have access to priority support.</p>
-                <Button>Contact Support Team</Button>
+                <Link href="/contact">
+                  <Button>Contact Support Team</Button>
+                </Link>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="others" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Beat Marketplace Card */}
-            <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <Package className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Beat Marketplace</CardTitle>
-                <CardDescription>List and sell your beats with 0% commission.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" onClick={() => setActiveTab("marketplace")}>Manage Marketplace</Button>
-              </CardContent>
-            </Card>
-            {/* Professional Analytics Card */}
-            <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <BarChart2 className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Professional Analytics</CardTitle>
-                <CardDescription>Access comprehensive analytics and forecasting.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" onClick={() => setActiveTab("analytics")}>View Analytics</Button>
-              </CardContent>
-            </Card>
-            {/* Rhythm Forge Pro Card */}
-            <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <Activity className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Rhythm Forge Pro</CardTitle>
-                <CardDescription>Use our most advanced beat creation tools.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/rhythm-forge">
-                  <Button className="w-full">Open Rhythm Forge Pro</Button>
-                </Link>
-              </CardContent>
-            </Card>
-            {/* Fan Management Card */}
-            <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <Users className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Fan Management</CardTitle>
-                <CardDescription>Engage with your audience and grow your fan base.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full">Manage Audience</Button>
-              </CardContent>
-            </Card>
-            {/* Recording Studios Card */}
-            <Card className="bg-card border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold text-primary">Recording Studios</CardTitle>
-                <CardDescription>Post and manage your recording studios</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/recordingstudios">
-                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                    Go to Recording Studios
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-            {/* Artist Collaborations Card */}
-            <Card className="bg-card border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold text-primary">Artist Collaborations</CardTitle>
-                <CardDescription>Collaborate with other artists</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/features">
-                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                    Go to Collaborations
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-            {/* AI Loop Stacker Card */}
-            <Link href="/ai-loop-stacker">
-              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
-                <CardHeader>
-                  <Wand2 className="h-8 w-8 mb-2 text-primary" />
-                  <CardTitle>AI Loop Stacker</CardTitle>
-                  <CardDescription>Create unique loops with AI assistance.</CardDescription>
-                </CardHeader>
-              </Card>
-            </Link>
-            {/* Eternal Loops Card */}
-            <Link href="/eternal-loops">
-              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
-                <CardHeader>
-                  <Music2 className="h-8 w-8 mb-2 text-primary" />
-                  <CardTitle>Eternal Loops</CardTitle>
-                  <CardDescription>Explore and create endless loop combinations.</CardDescription>
-                </CardHeader>
-              </Card>
-            </Link>
-            {/* Beat Maker Card */}
-            <Link href="/beat-maker">
-              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
-                <CardHeader>
-                  <Layers className="h-8 w-8 mb-2 text-primary" />
-                  <CardTitle>Beat Maker</CardTitle>
-                  <CardDescription>Professional beat creation studio.</CardDescription>
-                </CardHeader>
-              </Card>
-            </Link>
-            {/* Shuffle Card */}
-            <Link href="/shuffle">
-              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
-                <CardHeader>
-                  <Shuffle className="h-8 w-8 mb-2 text-primary" />
-                  <CardTitle>Shuffle</CardTitle>
-                  <CardDescription>Mix and match beats in new ways.</CardDescription>
-                </CardHeader>
-              </Card>
-            </Link>
-            {/* Producer Profile Card */}
-            <Link href="/producer">
-              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
-                <CardHeader>
-                  <User className="h-8 w-8 mb-2 text-primary" />
-                  <CardTitle>Producer Profile</CardTitle>
-                  <CardDescription>Manage your producer profile and settings.</CardDescription>
-                </CardHeader>
-              </Card>
-            </Link>
-            {/* Dedicated Support Card */}
-            <Card className="bg-black border-primary hover:border-primary transition-all">
-              <CardHeader>
-                <HelpCircle className="h-8 w-8 mb-2 text-primary" />
-                <CardTitle>Dedicated Support</CardTitle>
-                <CardDescription>Get priority support from our team.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button className="w-full" onClick={() => setActiveTab("support")}>Contact Support</Button>
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="bg-black border-primary">
+            <CardContent className="p-8 text-center">
+              <div className="text-2xl font-bold text-primary mb-2">Others Tab</div>
+              <div className="text-gray-300 text-lg">This feature is under development.</div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
       </div>
     </div>
   )
+}
+
+// Minimal type for beats in the 'Beats' tab
+type SimpleBeat = { id: string | number; title: string; mp3_url: string; cover_art_url?: string };
+
+function SimpleBeatsList({ userId }: { userId: string }) {
+  const [beats, setBeats] = useState<SimpleBeat[]>([]);
+  const [playingId, setPlayingId] = useState<string | number | null>(null);
+  const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({});
+
+  useEffect(() => {
+    async function fetchBeats() {
+      const { data } = await supabase
+        .from('beats')
+        .select('id, title, mp3_url, cover_art_url')
+        .eq('producer_id', userId)
+        .order('created_at', { ascending: false });
+      setBeats(data || []);
+    }
+    fetchBeats();
+  }, [userId]);
+
+  const handlePlayPause = (id: string | number) => {
+    if (playingId === id) {
+      const audio = audioRefs.current[id];
+      if (audio) audio.pause();
+      setPlayingId(null);
+    } else {
+      if (playingId && audioRefs.current[playingId]) {
+        audioRefs.current[playingId]?.pause();
+        audioRefs.current[playingId]?.currentTime && (audioRefs.current[playingId]!.currentTime = 0);
+      }
+      const audio = audioRefs.current[id];
+      if (audio) {
+        audio.play();
+        setPlayingId(id);
+      }
+    }
+  };
+
+  const setAudioRef = (id: string | number, el: HTMLAudioElement | null) => {
+    audioRefs.current[id] = el;
+  };
+
+  if (!beats.length) {
+    return <div className="text-gray-400 text-center">No beats uploaded yet.</div>;
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {beats.map(beat => (
+        <div key={beat.id} className="flex flex-col items-center bg-[#181818] rounded-lg p-4 border border-primary">
+          <div className="w-20 h-20 mb-2 relative">
+            <Image
+              src={beat.cover_art_url || "/placeholder.svg"}
+              alt={beat.title}
+              width={160}
+              height={160}
+              className="rounded object-cover w-full h-full"
+            />
+            <audio
+              ref={el => setAudioRef(beat.id, el)}
+              src={beat.mp3_url}
+              style={{ display: 'none' }}
+              preload="none"
+              onEnded={() => setPlayingId(null)}
+            />
+          </div>
+          <div className="font-semibold text-white text-center truncate w-full mb-1" title={beat.title}>{beat.title}</div>
+          <div className="flex gap-2 mt-2">
+            <a
+              href={`/beat/${beat.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center text-primary hover:text-yellow-400"
+              title="View beat details"
+            >
+              <ExternalLink className="h-5 w-5" />
+            </a>
+            <button
+              className={`rounded-full p-2 ${playingId === beat.id ? 'bg-primary text-white' : 'bg-secondary text-primary'} transition-colors`}
+              onClick={() => handlePlayPause(beat.id)}
+              aria-label={playingId === beat.id ? 'Pause' : 'Play'}
+              type="button"
+            >
+              {playingId === beat.id ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 

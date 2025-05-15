@@ -2,14 +2,31 @@ import { Button } from "@/components/ui/button"
 import { TopLists } from "@/components/home/TopLists"
 import Link from "next/link"
 import { Instagram } from 'lucide-react'
+import { supabase } from '@/lib/supabaseClient'
 
-export default function Home() {
+async function getBrandingLogo() {
+  const { data, error } = await supabase.from('branding').select('image_url').order('id', { ascending: true }).limit(1)
+  if (error || !data || !data[0]?.image_url) return null
+  return data[0].image_url
+}
+
+export default async function Home() {
+  const logoUrl = await getBrandingLogo()
   return (
     <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
-      <div className="text-center mb-12 mt-12 sm:mt-16">
-        <h1 className="text-4xl font-bold mb-4 text-primary">Welcome to Beatheos</h1>
+      <div className="w-full flex flex-col items-center justify-center pt-2 pb-0">
+        {/* Logo Placeholder or Real Logo */}
+        {logoUrl ? (
+          <img src={logoUrl} alt="Logo" className="w-[36rem] h-[18rem] object-contain" />
+        ) : (
+          <div className="w-[36rem] h-[18rem] flex items-center justify-center text-6xl font-bold text-gray-300" style={{ background: 'none', border: 'none' }}>
+            LOGO
+          </div>
+        )}
+      </div>
+      <div className="text-center mb-8 mt-0">
         <Button
-          className="mt-8 bg-transparent text-white font-medium py-2 px-6 rounded-full shadow-lg hover:bg-gradient-to-r hover:from-[#F4C430] hover:to-[#E8E8E8] hover:text-black transition-all duration-300 border-2 border-transparent bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] bg-clip-padding-box"
+          className="mt-0 bg-transparent text-white font-medium py-2 px-6 rounded-full shadow-lg hover:bg-gradient-to-r hover:from-[#F4C430] hover:to-[#E8E8E8] hover:text-black transition-all duration-300 border-2 border-transparent bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] bg-clip-padding-box"
           style={{
             backgroundClip: "padding-box",
             border: "2px solid transparent",

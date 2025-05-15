@@ -186,16 +186,16 @@ export function TopLists() {
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
                   <Link href={`/beat/${beat.id}`}>
                     <div className="relative w-10 h-10 cursor-pointer group">
-                      <Image
-                        src={beat.image}
-                        alt={beat.title}
+                    <Image
+                      src={beat.image}
+                      alt={beat.title}
                         className="rounded-md object-cover transition-transform duration-200 group-hover:scale-110 group-hover:shadow-lg"
-                        fill
-                        sizes="40px"
-                        quality={75}
-                        priority={index < 3}
-                      />
-                    </div>
+                      fill
+                      sizes="40px"
+                      quality={75}
+                      priority={index < 3}
+                    />
+                  </div>
                   </Link>
                   <div className="flex flex-col justify-center">
                     <button 
@@ -263,20 +263,20 @@ export function TopLists() {
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
                   <div className="relative w-10 h-10 cursor-pointer group-hover:scale-110 group-hover:shadow-lg transition-transform duration-200">
                     <Image
-                      src={producer.image}
+                          src={producer.image}
                       alt={producer.name}
                       className="rounded-full object-cover"
                       fill
                       sizes="40px"
-                      quality={75}
-                      priority={index < 3}
+                          quality={75}
+                          priority={index < 3}
                     />
                   </div>
-                  <div className="flex flex-col justify-center">
-                    <span className="font-semibold text-base sm:text-lg">{producer.name}</span>
+                      <div className="flex flex-col justify-center">
+                        <span className="font-semibold text-base sm:text-lg">{producer.name}</span>
                   </div>
                 </Link>
-                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
+                    <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
               </li>
                 )
               }

@@ -78,9 +78,12 @@ export default function Header() {
     { name: "Upload Beat", path: "/upload-beat" },
   ]
 
+  // Only include nav items except Beats and Beat Vault for mobile dropdown
+  const mobileNavItems = navItems.filter(item => item.name !== "Beats")
+
   const MobileNav = () => (
     <div className="flex flex-col space-y-4 p-4">
-      {navItems
+      {mobileNavItems
         .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
         .map((item) => (
           <Link
@@ -113,38 +116,15 @@ export default function Header() {
             </Link>
           )}
           <Link
-            href="/beatvault"
-            className="text-lg text-gray-300 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            Beat Vault
-          </Link>
-          <Link
             href="/settings"
             className="text-lg text-gray-300 hover:text-white"
             onClick={() => setIsMobileMenuOpen(false)}
           >
             Settings
           </Link>
-          <button
-            onClick={() => {
-              logout()
-              setIsMobileMenuOpen(false)
-            }}
-            className="text-lg text-gray-300 hover:text-white text-left"
-          >
-            Logout
-          </button>
         </>
       ) : (
         <>
-          <Link
-            href="/login"
-            className="text-lg text-gray-300 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            Login
-          </Link>
           <Link
             href="/signup"
             className="text-lg text-gray-300 hover:text-white"
@@ -179,12 +159,6 @@ export default function Header() {
                     <Link href={`/producers/${producerId}`}>Profile</Link>
                   </Button>
                 )}
-                <Button variant="outline" className="text-white hover:text-primary" asChild>
-                  <Link href="/beatvault">Beat Vault</Link>
-                </Button>
-                <Button variant="ghost" size="icon" className="text-white hover:text-primary">
-                  <Bell size={20} />
-                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="text-white hover:text-primary">
@@ -221,8 +195,29 @@ export default function Header() {
             )}
           </div>
 
-          {/* Mobile Menu Button */}
-          <div className="md:hidden">
+          {/* Mobile Menu: Beats and Login/Logout always visible */}
+          <div className="md:hidden flex items-center gap-2">
+            <Link
+              href="/beats"
+              className={`text-lg px-2 py-1 rounded transition-colors ${pathname === "/beats" ? "text-primary font-semibold" : "text-gray-300 hover:text-white"}`}
+            >
+              Beats
+            </Link>
+            {user ? (
+              <button
+                onClick={logout}
+                className="text-lg px-2 py-1 rounded text-gray-300 hover:text-white"
+              >
+                Logout
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className={`text-lg px-2 py-1 rounded transition-colors ${pathname === "/login" ? "text-primary font-semibold" : "text-gray-300 hover:text-white"}`}
+              >
+                Login
+              </Link>
+            )}
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="text-white hover:text-primary">
