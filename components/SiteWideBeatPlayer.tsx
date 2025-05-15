@@ -59,8 +59,6 @@ export function SiteWideBeatPlayer() {
   const [volume, setVolume] = useState(80)
   const [progress, setProgress] = useState(0)
   const [isExpanded, setIsExpanded] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null)
   const [lyrics, setLyrics] = useState("")
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [newPlaylistName, setNewPlaylistName] = useState("")
@@ -70,7 +68,6 @@ export function SiteWideBeatPlayer() {
   const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
   const [playerMode, setPlayerMode] = useState<'default' | 'full'>('default')
   const audioRef = useRef<HTMLAudioElement>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const { user } = useAuth()
   const [session, setSession] = useState<{ lyrics: string; recordedAudio: Blob | null }>({
     lyrics: "",
@@ -89,6 +86,12 @@ export function SiteWideBeatPlayer() {
   const [showFeatureAuthDialog, setShowFeatureAuthDialog] = useState(false)
   const [allBeats, setAllBeats] = useState<Beat[]>([])
   const [fullCurrentBeat, setFullCurrentBeat] = useState<any>(null)
+  const lyricsTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [showSessionNameDialog, setShowSessionNameDialog] = useState(false)
+  const [sessionNameInput, setSessionNameInput] = useState("")
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null)
+  const [editingSessionName, setEditingSessionName] = useState(false)
+  const [editingSessionNameValue, setEditingSessionNameValue] = useState("")
 
   const pathname = usePathname()
 
@@ -124,6 +127,9 @@ export function SiteWideBeatPlayer() {
   useEffect(() => {
     if (!user || !currentBeat) {
       setLyrics("")
+      if (lyricsTextareaRef.current) {
+        lyricsTextareaRef.current.style.height = 'auto';
+      }
       return
     }
     // Fetch user-specific lyrics from sessions table
@@ -132,10 +138,22 @@ export function SiteWideBeatPlayer() {
         .from('sessions')
         .select('lyrics')
         .eq('user_id', user.id)
-        .eq('beat_ids', String(currentBeat.id))
-        .single()
-      if (data && data.lyrics) setLyrics(data.lyrics)
-      else setLyrics("")
+        .contains('beat_ids', [String(currentBeat.id)])
+        .single();
+      if (data && data.lyrics) {
+        setLyrics(data.lyrics);
+        setTimeout(() => {
+          if (lyricsTextareaRef.current) {
+            lyricsTextareaRef.current.style.height = 'auto';
+            lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
+          }
+        }, 0);
+      } else {
+        setLyrics("")
+        if (lyricsTextareaRef.current) {
+          lyricsTextareaRef.current.style.height = 'auto';
+        }
+      }
     }
     fetchUserLyrics()
   }, [currentBeat, user])
@@ -322,174 +340,156 @@ export function SiteWideBeatPlayer() {
     }
   }
 
-  const startRecording = async () => {
+  const saveSession = async (sessionName?: string, sessionId?: string) => {
+    if (!user || !currentBeat) {
+      setShowFeatureAuthDialog(true);
+      return;
+    }
+    setSavingSession(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-
-      // Create sources for microphone and beat
-      const micSource = audioContext.createMediaStreamSource(stream)
-      const beatSource = audioContext.createMediaElementSource(audioRef.current!)
-
-      // Create gain nodes for volume control
-      const micGain = audioContext.createGain()
-      const beatGain = audioContext.createGain()
-
-      // Set volumes
-      micGain.gain.setValueAtTime(0.9, audioContext.currentTime) // 90% volume for mic
-      beatGain.gain.setValueAtTime(0.65, audioContext.currentTime) // 65% volume for beat
-
-      // Connect the sources to their respective gain nodes
-      micSource.connect(micGain)
-      beatSource.connect(beatGain)
-
-      // Create a merger to combine both audio streams
-      const merger = audioContext.createChannelMerger(2)
-      micGain.connect(merger, 0, 0)
-      beatGain.connect(merger, 0, 1)
-
-      // Connect the merger to the destination (speakers)
-      merger.connect(audioContext.destination)
-
-      // Start recording the merged audio
-      const destStream = audioContext.createMediaStreamDestination()
-      merger.connect(destStream)
-
-      mediaRecorderRef.current = new MediaRecorder(destStream.stream)
-      const chunks: BlobPart[] = []
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data)
+      let error;
+      if (sessionId) {
+        // Update existing session
+        const sessionData = {
+          name: sessionName || `${currentBeat.title} Session`,
+          beat_ids: [String(currentBeat.id)],
+          lyrics,
+          last_modified: new Date().toISOString(),
+        };
+        const { error: updateError } = await supabase
+          .from('sessions')
+          .update(sessionData)
+          .eq('id', sessionId);
+        error = updateError;
+      } else {
+        // First check if a session already exists for this user and beat
+        const { data: existingSession } = await supabase
+          .from('sessions')
+          .select('id')
+          .eq('user_id', user.id)
+          .contains('beat_ids', [String(currentBeat.id)])
+          .single();
+        const sessionData = {
+          user_id: user.id,
+          name: sessionName || `${currentBeat.title} Session`,
+          beat_ids: [String(currentBeat.id)],
+          lyrics,
+          last_modified: new Date().toISOString(),
+        };
+        if (existingSession) {
+          const { error: updateError } = await supabase
+            .from('sessions')
+            .update(sessionData)
+            .eq('id', existingSession.id);
+          error = updateError;
+        } else {
+          const { error: insertError } = await supabase
+            .from('sessions')
+            .insert(sessionData);
+          error = insertError;
         }
       }
-
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/ogg; codecs=opus" })
-        setRecordedAudio(blob)
+      if (error) throw error;
+      toast({
+        title: sessionId ? "Session Updated" : "Session Saved",
+        description: sessionId ? "Your session has been updated successfully." : "Your session has been saved successfully.",
+      });
+      // Refresh saved sessions list
+      const { data: updatedSessions } = await supabase
+        .from('sessions')
+        .select('id, name, last_modified')
+        .eq('user_id', user.id)
+        .order('last_modified', { ascending: false });
+      if (updatedSessions) {
+        setSavedSessions(updatedSessions);
       }
-
-      mediaRecorderRef.current.start()
-      setIsRecording(true)
-      if (audioRef.current && !isPlaying) {
-        audioRef.current.play()
-        setIsPlaying(true)
+      if (!sessionId) {
+        // If this was a new session, set it as open
+        const { data: newSession } = await supabase
+          .from('sessions')
+          .select('id')
+          .eq('user_id', user.id)
+          .contains('beat_ids', [String(currentBeat.id)])
+          .order('last_modified', { ascending: false })
+          .limit(1)
+          .single();
+        if (newSession?.id) setOpenSessionId(newSession.id);
       }
     } catch (error) {
-      console.error("Error starting recording:", error)
-      toast({
-        title: "Recording Error",
-        description: "Failed to start recording. Please check your microphone permissions.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-      saveRecording()
-    }
-  }
-
-  const saveRecording = () => {
-    if (recordedAudio && currentBeat) {
-      // TODO: Implement actual saving logic
-      console.log("Saving recording for beat:", currentBeat.id)
-      toast({
-        title: "Recording Saved",
-        description: "Your recording has been saved and added to your playlist.",
-      })
-    }
-  }
-
-  const saveSession = async () => {
-    if (!user) {
-      setSession({ lyrics, recordedAudio })
-      setShowAuthPrompt(true)
-      return
-    }
-    if (currentBeat) {
-      const { error } = await supabase.from('sessions').insert({
-        user_id: user.id,
-        name: `${currentBeat.title} Session`,
-        beat_ids: String(currentBeat.id),
-        lyrics, // Save lyrics to the session
-      })
-      if (!error) {
-      toast({
-        title: "Session Saved",
-        description: "Your session has been saved to your Sessions playlist.",
-      })
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to save session.",
-          variant: "destructive",
-        })
-      }
-    } else {
+      console.error('Error saving session:', error);
       toast({
         title: "Error",
-        description: "No beat is currently playing. Unable to save session.",
+        description: "Failed to save session. Please try again.",
         variant: "destructive",
-      })
+      });
+    } finally {
+      setSavingSession(false);
     }
-  }
+  };
 
   const openSession = async (sessionId: string) => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .select('beat_ids, lyrics')
-      .eq('id', sessionId)
-      .single();
-    if (data && data.beat_ids && data.beat_ids.length > 0) {
+    if (!user) {
+      setShowFeatureAuthDialog(true);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('beat_ids, lyrics')
+        .eq('id', sessionId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) throw error;
+
+      if (!data || !data.beat_ids) {
+        toast({
+          title: "Error",
+          description: "No beats found in this session.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       // Fetch the full beat details
       const { data: beat, error: beatError } = await supabase
         .from('beats')
         .select('id, title, producer_id, mp3_url, cover_art_url')
-        .eq('id', data.beat_ids[0])
+        .eq('id', data.beat_ids)
         .single();
-      if (beat) {
-        // Fetch the producer's display name
-        let displayName = beat.producer_id;
-        const { data: producer } = await supabase
-          .from('producers')
-          .select('display_name')
-          .eq('user_id', beat.producer_id)
-          .single();
-        if (producer && producer.display_name) {
-          displayName = producer.display_name;
-        }
-        setLyricsFromSession(true);
-        setCurrentBeat({
-          id: beat.id,
-          title: beat.title,
-          artist: displayName, // Use display name here
-          audioUrl: beat.mp3_url,
-          image: beat.cover_art_url,
-        });
-        setLyrics(data.lyrics || "");
-        toast({
-          title: "Session Opened",
-          description: `Session ${sessionId} has been loaded.`,
-        });
-      } else {
-        toast({
-          title: "Error",
-          description: "Could not load beat details for this session.",
-          variant: "destructive",
-        });
-      }
-    } else {
+
+      if (beatError || !beat) throw beatError || new Error('Beat not found');
+
+      // Fetch the producer's display name
+      const { data: producer } = await supabase
+        .from('producers')
+        .select('display_name')
+        .eq('user_id', beat.producer_id)
+        .single();
+
+      setLyricsFromSession(true);
+      setCurrentBeat({
+        id: beat.id,
+        title: beat.title,
+        artist: producer?.display_name || beat.producer_id,
+        audioUrl: beat.mp3_url,
+        image: beat.cover_art_url,
+      });
+      setLyrics(data.lyrics || "");
+      setOpenSessionId(sessionId);
+      toast({
+        title: "Session Loaded",
+        description: "Your session has been loaded successfully.",
+      });
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to open session or no beats in session.",
+        description: "Failed to load session. Please try again.",
         variant: "destructive",
       });
     }
-  }
+  };
 
   const addToPlaylist = (playlistId: string) => {
     if (currentBeat) {
@@ -556,16 +556,20 @@ export function SiteWideBeatPlayer() {
       setShowFeatureAuthDialog(true)
       return
     }
-    await saveSession();
-    setSavingSession(false);
+    if (openSessionId) {
+      // If a session is open, update it directly
+      await saveSession(undefined, openSessionId);
+      setSavingSession(false);
+    } else {
+      setSessionNameInput(currentBeat ? `${currentBeat.title} Session` : "My Session");
+      setShowSessionNameDialog(true);
+    }
   }
 
-  const handleMicClick = () => {
-    if (!user) {
-      setShowFeatureAuthDialog(true)
-      return
-    }
-    isRecording ? stopRecording() : startRecording()
+  const handleConfirmSaveSession = async () => {
+    setShowSessionNameDialog(false);
+    await saveSession(sessionNameInput);
+    setSavingSession(false);
   }
 
   const setBeatForPlayer = (beat: any) => {
@@ -579,17 +583,32 @@ export function SiteWideBeatPlayer() {
     setFullCurrentBeat(beat)
   }
 
+  // Update session name in DB and UI
+  const handleSessionNameEdit = async () => {
+    if (!openSessionId) return;
+    const trimmed = editingSessionNameValue.trim();
+    if (!trimmed) return;
+    const { error } = await supabase
+      .from('sessions')
+      .update({ name: trimmed })
+      .eq('id', openSessionId);
+    if (!error) {
+      setSavedSessions(sessions => sessions.map(s => s.id === openSessionId ? { ...s, name: trimmed } : s));
+    }
+    setEditingSessionName(false);
+  };
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
         className={`transition-all duration-300 ${
           playerMode === 'full'
-            ? 'max-w-[680px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4'
+            ? 'max-w-[680px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4 max-h-[90vh] overflow-y-auto'
             : 'w-auto h-16 fixed bottom-4 right-4'
         }`}
         style={{ marginTop: playerMode === 'full' ? undefined : '0' }}
       >
-        <CardContent className={`p-2 pt-0 h-full flex flex-col ${playerMode === 'full' ? "pb-16" : ""}`}>
+        <CardContent className={`p-2 pt-0 flex flex-col ${playerMode === 'full' ? "pb-16" : ""}`} style={playerMode === 'full' ? { maxHeight: '80vh', overflowY: 'auto' } : {}}>
           {playerMode === 'full' && (
           <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
             <Button
@@ -636,13 +655,15 @@ export function SiteWideBeatPlayer() {
           ) : (
             <>
           <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
-            <Image
-              src={currentBeat?.image || "/placeholder.svg"}
-              alt={currentBeat?.title || "cover"}
-              width={100}
-              height={100}
-              className="rounded-md mb-2 sm:mb-0 sm:mr-4 mt-12 sm:mt-0"
-            />
+            <Link href={currentBeat ? `/beat/${currentBeat.id}` : '#'}>
+              <Image
+                src={currentBeat?.image || "/placeholder.svg"}
+                alt={currentBeat?.title || "cover"}
+                width={100}
+                height={100}
+                className="rounded-md mb-2 sm:mb-0 sm:mr-4 mt-12 sm:mt-0 cursor-pointer hover:opacity-80 transition"
+              />
+            </Link>
             <div className="flex-grow flex flex-col items-center sm:items-start w-full">
               <div className="flex flex-row items-center w-full">
               <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
@@ -718,48 +739,58 @@ export function SiteWideBeatPlayer() {
               <div className="flex flex-col h-full">
                 <div className="mb-4"></div>
                 <div className="flex-grow mb-2">
-                  <h4 className="font-semibold mb-1">Lyrics</h4>
-                  <Textarea
-                    value={lyrics}
-                    onChange={e => setLyrics(e.target.value)}
-                    placeholder="Type or paste lyrics here..."
-                    className="h-32 mb-2 resize-none bg-secondary text-white"
-                  />
-                  <Button
-                    size="sm"
-                    className="mt-1"
-                      disabled={savingLyrics || !user || !currentBeat}
-                    onClick={async () => {
-                        if (!currentBeat || !user) return;
-                      setSavingLyrics(true);
-                      const { error } = await supabase
-                          .from('sessions')
-                          .upsert([
-                            {
-                              user_id: user.id,
-                              name: `${currentBeat.title} Session`,
-                              beat_ids: String(currentBeat.id),
-                              lyrics,
-                            }
-                          ], { onConflict: 'user_id,beat_ids' })
-                      setSavingLyrics(false);
-                      if (!error) {
-                        toast({
-                          title: "Lyrics Saved",
-                            description: "Your lyrics have been saved privately.",
-                        });
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className="font-semibold">Lyrics</h4>
+                    {openSessionId && (() => {
+                      const session = savedSessions.find(s => s.id === openSessionId);
+                      if (!editingSessionName) {
+                        return (
+                          <span
+                            className="text-xs text-gray-400 font-normal truncate max-w-[200px] cursor-pointer hover:underline flex items-center gap-1"
+                            title={session ? session.name : ''}
+                            onClick={() => {
+                              setEditingSessionNameValue(session ? session.name : "");
+                              setEditingSessionName(true);
+                            }}
+                          >
+                            {session ? session.name : ''}
+                            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" className="inline ml-1 text-gray-400" xmlns="http://www.w3.org/2000/svg"><path d="M14.7 2.29a1 1 0 0 1 1.42 0l1.59 1.59a1 1 0 0 1 0 1.42l-9.3 9.3a1 1 0 0 1-.45.26l-3.59 1a1 1 0 0 1-1.23-1.23l1-3.59a1 1 0 0 1 .26-.45l9.3-9.3ZM15.41 4 14 2.59 4.29 12.3l-.7 2.52 2.52-.7L15.41 4Z" fill="currentColor"/></svg>
+                          </span>
+                        );
                       } else {
-                        toast({
-                          title: "Error",
-                          description: "Failed to save lyrics.",
-                          variant: "destructive",
-                        });
+                        return (
+                          <input
+                            className="text-xs text-white bg-secondary border border-gray-500 rounded px-1 max-w-[200px] outline-none"
+                            value={editingSessionNameValue}
+                            autoFocus
+                            onChange={e => setEditingSessionNameValue(e.target.value)}
+                            onBlur={handleSessionNameEdit}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                handleSessionNameEdit();
+                              } else if (e.key === 'Escape') {
+                                setEditingSessionName(false);
+                              }
+                            }}
+                          />
+                        );
+                      }
+                    })()}
+                  </div>
+                  <Textarea
+                    ref={lyricsTextareaRef}
+                    value={lyrics}
+                    onChange={e => {
+                      setLyrics(e.target.value);
+                      // Auto-resize logic
+                      if (lyricsTextareaRef.current) {
+                        lyricsTextareaRef.current.style.height = 'auto';
+                        lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
                       }
                     }}
-                  >
-                    {savingLyrics ? <span className="animate-spin mr-2">⏳</span> : null}
-                    Save Lyrics
-                  </Button>
+                    placeholder="Type or paste lyrics here..."
+                    className="mb-2 resize-none bg-secondary text-white overflow-hidden min-h-[80px] max-h-[400px]"
+                  />
                 </div>
               </div>
               <div className="absolute bottom-4 left-0 right-0 flex justify-center items-center space-x-2">
@@ -783,17 +814,9 @@ export function SiteWideBeatPlayer() {
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <Button
-                  variant={isRecording ? "destructive" : "secondary"}
-                    onClick={handleMicClick}
-                  className={`w-12 h-12 rounded-full ${isRecording ? "animate-pulse" : ""}`}
-                >
-                  <Mic className={`h-5 w-5 ${isRecording ? "text-white" : ""}`} />
-                  <span className="sr-only">{isRecording ? "Stop Recording" : "Start Recording"}</span>
-                </Button>
                   <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
                   {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
-                  Save Session
+                  {openSessionId ? 'Update' : 'Save Session'}
                 </Button>
                 </div>
               </div>
@@ -934,6 +957,29 @@ export function SiteWideBeatPlayer() {
           </DialogContent>
         </Dialog>
       )}
+      {/* Session Name Dialog */}
+      <Dialog open={showSessionNameDialog} onOpenChange={setShowSessionNameDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Name Your Session</DialogTitle>
+          </DialogHeader>
+          <input
+            type="text"
+            className="w-full border rounded p-2 mb-4 text-white bg-secondary placeholder:text-gray-400"
+            value={sessionNameInput}
+            onChange={e => setSessionNameInput(e.target.value)}
+            placeholder="Session Name"
+            autoFocus
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowSessionNameDialog(false)}>Cancel</Button>
+            <Button onClick={handleConfirmSaveSession} disabled={!sessionNameInput.trim() || savingSession}>
+              {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
+              Save
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

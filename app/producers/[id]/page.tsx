@@ -95,7 +95,7 @@ export default function ProducerProfilePage() {
   }
 
   return (
-    <>
+    <div style={{ background: '#141414', minHeight: '100vh' }}>
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div className="flex flex-col md:flex-row items-center md:items-start mb-8">
@@ -173,7 +173,9 @@ export default function ProducerProfilePage() {
             <TabsTrigger value="beats">Beats</TabsTrigger>
           </TabsList>
           <TabsContent value="beats">
-            <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
+            <div className="bg-black rounded-xl shadow-lg">
+              <ProducerBeats producerId={producer.user_id} searchQuery={searchQuery} isOwnProfile={isOwnProfile} onBeatsFetched={setBeats} />
+            </div>
           </TabsContent>
         </Tabs>
       </main>
@@ -195,7 +197,7 @@ export default function ProducerProfilePage() {
           />
         </>
       )}
-    </>
+    </div>
   )
 }
 

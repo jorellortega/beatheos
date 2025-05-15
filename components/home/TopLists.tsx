@@ -184,17 +184,19 @@ export function TopLists() {
               >
                 <div className="flex items-center gap-x-2 sm:gap-x-4">
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                  <div className="relative w-10 h-10">
-                    <Image
-                      src={beat.image}
-                      alt={beat.title}
-                      className="rounded-md object-cover"
-                      fill
-                      sizes="40px"
-                      quality={75}
-                      priority={index < 3}
-                    />
-                  </div>
+                  <Link href={`/beat/${beat.id}`}>
+                    <div className="relative w-10 h-10 cursor-pointer group">
+                      <Image
+                        src={beat.image}
+                        alt={beat.title}
+                        className="rounded-md object-cover transition-transform duration-200 group-hover:scale-110 group-hover:shadow-lg"
+                        fill
+                        sizes="40px"
+                        quality={75}
+                        priority={index < 3}
+                      />
+                    </div>
+                  </Link>
                   <div className="flex flex-col justify-center">
                     <button 
                       onClick={e => { e.stopPropagation(); handleBeatClick(beat); }} 
@@ -257,24 +259,24 @@ export function TopLists() {
                 const producer = topProducers[index]
                 return (
               <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
-                <div className="flex items-center gap-x-2 sm:gap-x-4">
+                <Link href={`/producers/${producer.id}`} className="flex items-center gap-x-2 sm:gap-x-4 group">
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                  <div className="relative w-10 h-10">
+                  <div className="relative w-10 h-10 cursor-pointer group-hover:scale-110 group-hover:shadow-lg transition-transform duration-200">
                     <Image
-                          src={producer.image}
+                      src={producer.image}
                       alt={producer.name}
                       className="rounded-full object-cover"
                       fill
                       sizes="40px"
-                          quality={75}
-                          priority={index < 3}
+                      quality={75}
+                      priority={index < 3}
                     />
                   </div>
-                      <div className="flex flex-col justify-center">
-                        <span className="font-semibold text-base sm:text-lg">{producer.name}</span>
+                  <div className="flex flex-col justify-center">
+                    <span className="font-semibold text-base sm:text-lg">{producer.name}</span>
                   </div>
-                </div>
-                    <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
+                </Link>
+                <span className="text-sm text-gray-400 text-right sm:text-left mt-1 sm:mt-0">{producer.weekly_plays.toLocaleString()} plays</span>
               </li>
                 )
               }

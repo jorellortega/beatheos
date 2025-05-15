@@ -133,8 +133,8 @@ export default function SubscriptionPlansPage() {
                   </ul>
                 </CardContent>
                 <CardFooter>
-                  <Button
-                    variant={tier.buttonVariant as "default" | "outline"}
+                  <Button 
+                    variant={tier.buttonVariant as "default" | "outline"} 
                     className={`w-full ${tier.popular ? 'gradient-button' : ''}`}
                     disabled={isDisabled}
                   >
@@ -149,7 +149,7 @@ export default function SubscriptionPlansPage() {
             return (
               <Link key={tier.id} href={`/signup?plan=${tier.id}`} className="block group">
                 {cardContent}
-              </Link>
+            </Link>
             );
           })}
         </div>

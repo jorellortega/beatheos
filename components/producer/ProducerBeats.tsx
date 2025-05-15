@@ -18,6 +18,7 @@ interface Beat {
   audioUrl: string
   producers: any
   isTopPlayed?: boolean
+  cover: string
 }
 
 interface ProducerBeatsProps {
@@ -47,7 +48,8 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
         isTopBeat: false, // You can update this logic if you have a field for top beats
         price: beat.price ?? 0,
         audioUrl: beat.mp3_url || '',
-        producers: beat.producers
+        producers: beat.producers,
+        cover: beat.cover_art_url || '/placeholder.svg',
       }))
       // Sort by plays descending and flag top 5
       const sorted = [...beats].sort((a: Beat, b: Beat): number => {
@@ -88,15 +90,27 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
 
   return (
     <>
-      <Card>
+      <Card className="bg-black">
         <CardHeader>
           <CardTitle>Beats</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {filteredBeats.map((beat) => (
-              <div key={beat.id} className="flex items-center justify-between p-4 bg-secondary rounded-lg">
+              <div key={beat.id} className="flex items-center justify-between p-4 bg-secondary rounded-lg" onClick={() => handlePlay(beat)}>
                 <div className="flex items-center space-x-4">
+                  <a
+                    href={`/beat/${beat.id}`}
+                    onClick={e => e.stopPropagation()}
+                    tabIndex={0}
+                    aria-label={`View details for ${beat.title}`}
+                  >
+                    <img
+                      src={beat.cover}
+                      alt={beat.title}
+                      className="w-16 h-16 rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+                    />
+                  </a>
                   <div>
                     <h3 className="font-semibold flex items-center gap-2">
                       {beat.title}
@@ -117,20 +131,12 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                   <Button variant="outline" size="icon" onClick={() => handlePlay(beat)}>
                     {playingBeatId === beat.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                   </Button>
-                  {!isOwnProfile && (
-                    <>
-                      <Button variant="outline" size="icon" onClick={() => handleSaveToPlaylist(beat)}>
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                      <Button className="gradient-button text-black font-medium hover:text-white" onClick={() => handlePurchase(beat)}>
-                        <ShoppingCart className="h-4 w-4 mr-2" />
-                        ${beat.price.toFixed(2)}
-                      </Button>
-                    </>
-                  )}
-                  {isOwnProfile && (
-                    <Button variant="outline">Edit Beat</Button>
-                  )}
+                  <Button
+                    className="gradient-button text-black font-medium hover:text-white"
+                    onClick={() => handlePurchase(beat)}
+                  >
+                    BUY
+                  </Button>
                 </div>
               </div>
             ))}
