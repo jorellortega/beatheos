@@ -31,6 +31,8 @@ export default function LoginPage() {
       })
         if (user.role === 'ceo') {
           router.push('/ceo')
+        } else if (user.role === 'free_artist') {
+          router.push('/dashboard/artist')
         } else {
           router.push(`/dashboard/${user.role}`)
         }

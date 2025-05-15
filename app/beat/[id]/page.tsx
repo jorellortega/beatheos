@@ -13,6 +13,7 @@ import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { useAuth } from '@/contexts/AuthContext'
 import Image from "next/image"
 import { AudioWaveform } from "@/components/AudioWaveform"
+import Link from 'next/link'
 
 const editableFields = [
   { key: "title", label: "Title", type: "input" },
@@ -286,19 +287,29 @@ export default function BeatDetailPage() {
               <AudioWaveform audioUrl={beat.mp3_url} />
             </div>
           )}
-          {(producerUser || producer) && (
-            <div className="flex items-center gap-2 mb-4 mt-16">
+          <div className="h-6" />
+          {producer?.user_id ? (
+            <Link href={`/producers/${producer.user_id}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
+              {producer?.profile_image_url && (
+                <Image src={producer.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover transition-transform duration-200" />
+              )}
+              <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
+                {producerUser?.display_name || producer?.display_name}
+              </span>
+            </Link>
+          ) : (
+            <>
               {producer?.profile_image_url && (
                 <Image src={producer.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover" />
               )}
               <span className="text-lg font-semibold text-gray-300">
                 {producerUser?.display_name || producer?.display_name || 'NO DISPLAY NAME FOUND'}
               </span>
-            </div>
+            </>
           )}
           {!user || beat.producer_id !== user.id ? (
             <>
-              <div className="h-10" />
+              <div className="h-4" />
               <Button
                 className="gradient-button text-black font-medium hover:text-white mb-4"
                 onClick={() => setShowPurchaseModal(true)}
@@ -354,7 +365,7 @@ export default function BeatDetailPage() {
           <CardTitle className="text-2xl font-bold text-primary">Beat Info</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {editableFields.filter(f => ["genre","bpm","key","tags","licensing"].includes(f.key)).map(field => (
               <div key={field.key} className={`flex items-center justify-between p-2 rounded bg-secondary/60 hover:bg-secondary transition group ${editingField === field.key ? 'ring-2 ring-primary bg-secondary' : ''}`}> 
                 <span className="font-semibold text-gray-300 w-32">{field.label}:</span>

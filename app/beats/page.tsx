@@ -80,7 +80,12 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
 });
 
 export default function BeatsPage() {
-  const [currentView, setCurrentView] = useState<"grid" | "list" | "compact" | "vertical">("grid")
+  const [currentView, setCurrentView] = useState<"grid" | "list" | "compact" | "vertical">(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      return "list";
+    }
+    return "grid";
+  });
   const [searchQuery, setSearchQuery] = useState("")
   const [advancedFilters, setAdvancedFilters] = useState({
     genre: "",
@@ -160,6 +165,13 @@ export default function BeatsPage() {
 
     fetchBeats()
   }, [])
+
+  useEffect(() => {
+    // On mount, if mobile, set to list view
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      setCurrentView('list');
+    }
+  }, []);
 
   const filteredBeats = useMemo(() => {
     return displayedBeats.filter(

@@ -39,7 +39,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false)
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
   const [playingBeatId, setPlayingBeatId] = useState<string | null>(null);
-  const { setCurrentBeat, setIsPlaying } = usePlayer()
+  const { setCurrentBeat, setIsPlaying, isPlaying, currentBeat } = usePlayer()
 
   useEffect(() => {
     // Fetch beats for the producer from the API
@@ -88,14 +88,19 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
   }
 
   const handlePlay = (beat: Beat) => {
-    setCurrentBeat({
-      id: String(beat.id),
-      title: beat.title,
-      artist: beat.producers?.display_name || 'Unknown Producer',
-      audioUrl: beat.audioUrl
-    })
-    setIsPlaying(true)
-    setPlayingBeatId(beat.id === playingBeatId ? null : String(beat.id))
+    const isCurrent = currentBeat && String(currentBeat.id) === String(beat.id);
+    if (isCurrent) {
+      setIsPlaying(!isPlaying);
+    } else {
+      setCurrentBeat({
+        id: String(beat.id),
+        title: beat.title,
+        artist: beat.producers?.display_name || 'Unknown Producer',
+        audioUrl: beat.audioUrl
+      });
+      setIsPlaying(true);
+    }
+    setPlayingBeatId(String(beat.id));
   }
 
   return (
@@ -107,7 +112,11 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
         <CardContent>
           <div className="space-y-4">
             {filteredBeats.map((beat) => (
-              <div key={beat.id} className="flex items-center justify-between p-4 bg-secondary rounded-lg" onClick={() => handlePlay(beat)}>
+              <div
+                key={beat.id}
+                className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${currentBeat && String(currentBeat.id) === String(beat.id) ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+                onClick={() => handlePlay(beat)}
+              >
                 <div className="flex items-center space-x-4">
                   <a
                     href={`/beat/${beat.id}`}
@@ -118,7 +127,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                     <img
                       src={beat.cover}
                       alt={beat.title}
-                      className="w-16 h-16 rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+                      className="w-16 h-16 aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
                     />
                   </a>
                   <div>
@@ -139,7 +148,11 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                 </div>
                 <div className="flex items-center space-x-2">
                   <Button variant="outline" size="icon" onClick={() => handlePlay(beat)}>
-                    {playingBeatId === beat.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    {currentBeat && String(currentBeat.id) === String(beat.id) && isPlaying ? (
+                      <Pause className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
                   </Button>
                   <Button
                     className="gradient-button text-black font-medium hover:text-white"

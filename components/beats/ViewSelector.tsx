@@ -11,26 +11,26 @@ export function ViewSelector({ currentView, onViewChange }: ViewSelectorProps) {
     <div className="flex justify-center space-x-4">
       <Button
         variant="outline"
-        className={`bg-black border border-gray-700 text-gray-400 font-medium transition ${currentView === "grid" ? "bg-gradient-to-r from-yellow-300 to-yellow-100 text-black font-bold" : ""} hover:bg-gradient-to-r hover:from-yellow-300 hover:to-yellow-100 hover:text-black hover:font-bold`}
+        className={"bg-black border border-gray-700 text-gray-400 font-medium transition hover:bg-gradient-to-r hover:from-yellow-300 hover:to-yellow-100 hover:text-black hover:font-bold"}
         onClick={() => onViewChange("grid")}
       >
-        <Grid className="h-4 w-4" />
+        <Grid className={`h-4 w-4 ${currentView === "grid" ? "text-yellow-400" : ""}`} />
         <span className="hidden sm:inline ml-2">Grid View</span>
       </Button>
       <Button
         variant="outline"
-        className={`bg-black border border-gray-700 text-gray-400 font-medium transition ${currentView === "list" ? "bg-gradient-to-r from-yellow-300 to-yellow-100 text-black font-bold" : ""} hover:bg-gradient-to-r hover:from-yellow-300 hover:to-yellow-100 hover:text-black hover:font-bold`}
+        className={"bg-black border border-gray-700 text-gray-400 font-medium transition hover:bg-gradient-to-r hover:from-yellow-300 hover:to-yellow-100 hover:text-black hover:font-bold"}
         onClick={() => onViewChange("list")}
       >
-        <List className="h-4 w-4" />
+        <List className={`h-4 w-4 ${currentView === "list" ? "text-yellow-400" : ""}`} />
         <span className="hidden sm:inline ml-2">List View</span>
       </Button>
       <Button
         variant="outline"
-        className={`bg-black border border-gray-700 text-gray-400 font-medium transition ${currentView === "compact" ? "bg-gradient-to-r from-yellow-300 to-yellow-100 text-black font-bold" : ""} hover:bg-gradient-to-r hover:from-yellow-300 hover:to-yellow-100 hover:text-black hover:font-bold`}
+        className={"bg-black border border-gray-700 text-gray-400 font-medium transition hover:bg-gradient-to-r hover:from-yellow-300 hover:to-yellow-100 hover:text-black hover:font-bold"}
         onClick={() => onViewChange("compact")}
       >
-        <Columns className="h-4 w-4" />
+        <Columns className={`h-4 w-4 ${currentView === "compact" ? "text-yellow-400" : ""}`} />
         <span className="hidden sm:inline ml-2">Compact View</span>
       </Button>
       <Button

@@ -27,7 +27,7 @@ export default function Header() {
       case "pro_artist":
         return "/dashboard/pro_artist"
       case "free_artist":
-        return "/dashboard/free_artist"
+        return "/dashboard/artist"
       case "free_producer":
         return "/dashboard/free_producer"
       case "premium_producer":

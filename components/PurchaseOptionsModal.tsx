@@ -79,6 +79,7 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
             <label className="block mb-2 font-semibold">Choose License</label>
             <select
               className="w-full p-2 rounded bg-secondary text-white"
+              tabIndex={-1}
               value={selectedLicense}
               onChange={e => setSelectedLicense(e.target.value as string)}
             >

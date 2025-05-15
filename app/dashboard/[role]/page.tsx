@@ -3,7 +3,7 @@
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
-import FreeArtistDashboard from "../free_artist/page"
+import FreeArtistDashboard from "../artist/page"
 import ProArtistDashboard from "../pro_artist/page"
 import FreeProducerDashboard from "../free_producer/page"
 import PremiumProducerDashboard from "../premium_producer/page"

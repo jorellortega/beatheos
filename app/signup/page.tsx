@@ -67,7 +67,11 @@ function SignupForm() {
           description: "Your account has been created. Welcome to Beatheos!",
         })
         if (isFree) {
-        router.push(`/dashboard/${user.role}`)
+          if (user.role === 'free_artist') {
+            router.push('/dashboard/artist')
+          } else {
+            router.push(`/dashboard/${user.role}`)
+          }
         } else {
           // Paid plan: redirect to Stripe checkout
           const res = await fetch("/api/create-checkout-session", {
