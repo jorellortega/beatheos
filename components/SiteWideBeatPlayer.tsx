@@ -793,7 +793,7 @@ export function SiteWideBeatPlayer() {
               {/* Center session buttons, keep round buttons at bottom right */}
               {playerMode === 'full' && (
                 <>
-                  <div className="absolute bottom-3 left-0 right-0 z-10 flex justify-center items-center gap-2 w-full">
+                  <div className="absolute bottom-3 left-4 right-4 sm:left-0 sm:right-0 z-10 flex justify-start sm:justify-center items-center gap-2 w-full">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <span className="inline-flex">
@@ -819,7 +819,7 @@ export function SiteWideBeatPlayer() {
                       {openSessionId ? 'Update' : 'Save Session'}
                     </Button>
                   </div>
-                  <div className="absolute bottom-3 left-4 right-4 sm:right-4 sm:left-auto z-20 flex items-center gap-2">
+                  <div className="absolute bottom-3 right-4 z-20 flex items-center gap-2">
                     <button
                       onClick={() => {
                         setIsExpanded(false);
