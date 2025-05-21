@@ -92,11 +92,11 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
     if (isCurrent) {
       setIsPlaying(!isPlaying);
     } else {
-      setCurrentBeat({
-        id: String(beat.id),
-        title: beat.title,
-        artist: beat.producers?.display_name || 'Unknown Producer',
-        audioUrl: beat.audioUrl
+    setCurrentBeat({
+      id: String(beat.id),
+      title: beat.title,
+      artist: beat.producers?.display_name || 'Unknown Producer',
+      audioUrl: beat.audioUrl
       });
       setIsPlaying(true);
     }

@@ -82,7 +82,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
 export default function BeatsPage() {
   const [currentView, setCurrentView] = useState<"grid" | "list" | "compact" | "vertical">(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      return "list";
+      return "compact";
     }
     return "grid";
   });
@@ -167,9 +167,9 @@ export default function BeatsPage() {
   }, [])
 
   useEffect(() => {
-    // On mount, if mobile, set to list view
+    // On mount, if mobile, set to compact view
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      setCurrentView('list');
+      setCurrentView('compact');
     }
   }, []);
 
@@ -365,105 +365,53 @@ export default function BeatsPage() {
   )
 
   const CompactView = () => (
-    <>
-      {/* Mobile version */}
-      <div className="sm:hidden">
-        <div className="flex flex-col gap-2">
+    <div className="space-y-4">
           {filteredBeats.map((beat) => (
             <div
               key={beat.id}
-              className="flex flex-col items-center bg-black border border-primary rounded-lg p-3 cursor-pointer hover:bg-gray-900 transition"
+          className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
               onClick={() => handlePlayPause(beat)}
             >
-              <div className="w-20 h-20 relative mb-2">
+          <div className="flex items-center space-x-4">
+            <a
+              href={`/beat/${beat.id}`}
+              onClick={e => e.stopPropagation()}
+              tabIndex={0}
+              aria-label={`View details for ${beat.title}`}
+            >
                 <Image
                   src={beat.image || "/placeholder.svg"}
                   alt={beat.title}
-                  width={80}
-                  height={80}
-                  className="rounded object-cover w-20 h-20"
+                width={64}
+                height={64}
+                className="w-16 h-16 aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
                 />
-              </div>
-              <div className="text-white text-base font-semibold text-center w-full truncate">{beat.title}</div>
-              <div className="text-xs text-gray-400 text-center w-full truncate">by {beat.producer}</div>
+            </a>
+            <div>
+              <h3 className="font-semibold flex items-center gap-2">
+                {beat.title}
+              </h3>
+              <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             </div>
-          ))}
         </div>
-      </div>
-      {/* Desktop/tablet version (unchanged) */}
-      <div className="hidden sm:block overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="border-b border-gray-700">
-            <th className="py-2 px-4 text-primary">Cover</th>
-            <th className="py-2 px-4 text-primary">Title</th>
-            <th className="py-2 px-4 text-primary">Producer</th>
-            <th className="py-2 px-4 text-primary">BPM</th>
-            <th className="py-2 px-4 text-primary">Plays</th>
-            <th className="py-2 px-4 text-primary">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredBeats.map((beat) => (
-            <tr key={beat.id} className="border-b border-gray-700 hover:bg-gray-800">
-              <td className="py-3 px-4">
-                <div className="w-10 h-10 relative">
-                  <Image
-                    src={beat.image || "/placeholder.svg"}
-                    alt={beat.title}
-                    width={40}
-                    height={40}
-                    className="rounded object-cover w-10 h-10"
-                  />
-                </div>
-              </td>
-              <td className="py-3 px-4 text-white">{beat.title}</td>
-              <td className="py-3 px-4 text-gray-400">{beat.producer}</td>
-              <td className="py-3 px-4 text-gray-400">{beat.bpm}</td>
-              <td className="py-3 px-4 text-gray-400">{beat.plays}</td>
-              <td className="py-3 px-4">
-                <div className="flex space-x-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-400 hover:text-white"
-                    onClick={() => handlePlayPause(beat)}
-                  >
-                    {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          <div className="flex items-center space-x-2">
+            <Button variant="outline" size="icon" onClick={e => { e.stopPropagation(); handlePlayPause(beat); }}>
+              {playingBeatId === beat.id && isPlaying ? (
+                <Pause className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
                   </Button>
                   <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-400 hover:text-white"
-                    onClick={() => handleSaveToPlaylist(beat)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
                     className="gradient-button text-black font-medium hover:text-white"
-                    onClick={() => handlePurchase(beat)}
+              onClick={e => { e.stopPropagation(); handlePurchase(beat); }}
                   >
-                    <ShoppingCart className="h-4 w-4 mr-2" />
                     BUY
                   </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      asChild
-                    >
-                      <Link href={`/beat/${beat.id}`} title="View Details">
-                        <ExternalLink className="h-4 w-4 text-yellow-400" />
-                      </Link>
-                    </Button>
+          </div>
                 </div>
-              </td>
-            </tr>
           ))}
-        </tbody>
-      </table>
     </div>
-    </>
   )
 
   if (loading) {
