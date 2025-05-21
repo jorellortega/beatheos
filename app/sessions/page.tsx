@@ -177,7 +177,7 @@ export default function SessionsPage() {
       </div>
 
       <Tabs defaultValue="my-sessions" value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="flex w-full overflow-x-auto whitespace-nowrap gap-2 sm:grid sm:grid-cols-3 sm:gap-0">
           <TabsTrigger value="my-sessions">My Sessions</TabsTrigger>
           <TabsTrigger value="shared-sessions">Shared Sessions</TabsTrigger>
           <TabsTrigger value="collaborations">Collaborations</TabsTrigger>
@@ -194,9 +194,9 @@ export default function SessionsPage() {
               </Card>
             )}
             {sessions.map((session) => (
-              <Card key={session.id} className="hover:border-primary transition-all">
+              <Card key={session.id} className="hover:border-primary transition-all p-3 sm:p-6">
                 <CardHeader>
-                  <div className="flex justify-between items-start">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-0">
                     <div>
                       {editingId === session.id ? (
                         <>
@@ -247,7 +247,7 @@ export default function SessionsPage() {
                         </>
                       )}
                     </div>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-wrap gap-2 mt-2 sm:mt-0">
                       {editingId === session.id ? (
                         <>
                           <Button size="sm" onClick={() => handleSave(session.id)} disabled={saving}>

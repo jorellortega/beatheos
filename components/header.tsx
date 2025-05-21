@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Search, Bell, User, LogOut, Menu, X } from "lucide-react"
 import { supabase } from '@/lib/supabaseClient'
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
@@ -81,59 +80,82 @@ export default function Header() {
   // Only include nav items except Beats and Beat Vault for mobile dropdown
   const mobileNavItems = navItems.filter(item => item.name !== "Beats")
 
-  const MobileNav = () => (
-    <div className="flex flex-col space-y-4 p-4">
-      {mobileNavItems
-        .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
-        .map((item) => (
-          <Link
-            key={item.path}
-            href={item.path}
-            className={`text-lg transition-colors ${
-              pathname === item.path ? "text-primary font-semibold" : "text-gray-300 hover:text-white"
-            }`}
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            {item.name}
-          </Link>
-        ))}
-      {user ? (
-        <>
-          <Link
-            href={getDashboardPath()}
-            className="text-lg text-gray-300 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            Dashboard
-          </Link>
-          {producerId && (
+  // Modern Mobile Overlay Menu
+  const MobileMenuOverlay = () => (
+    <div
+      className="fixed inset-0 z-[100] bg-black bg-opacity-95 flex flex-col justify-between items-center transition-all animate-fade-in"
+      onClick={() => setIsMobileMenuOpen(false)}
+    >
+      <div className="w-full flex justify-end p-4">
+        <button
+          className="text-white text-4xl p-2 rounded-full hover:bg-primary/20 focus:outline-none"
+          onClick={e => { e.stopPropagation(); setIsMobileMenuOpen(false); }}
+          aria-label="Close menu"
+        >
+          <X size={36} />
+        </button>
+      </div>
+      <nav className="flex flex-col items-center justify-center flex-1 w-full space-y-8">
+        {mobileNavItems
+          .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
+          .map((item) => (
             <Link
-              href={`/producers/${producerId}`}
-              className="text-lg text-gray-300 hover:text-white"
+              key={item.path}
+              href={item.path}
+              className={`text-2xl font-semibold transition-colors ${
+                pathname === item.path ? "text-primary" : "text-gray-300 hover:text-white"
+              }`}
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              Profile
+              {item.name}
             </Link>
-          )}
-          <Link
-            href="/settings"
-            className="text-lg text-gray-300 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            Settings
-          </Link>
-        </>
-      ) : (
-        <>
-          <Link
-            href="/signup"
-            className="text-lg text-gray-300 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            Sign Up
-          </Link>
-        </>
-      )}
+          ))}
+        {user ? (
+          <>
+            <Link
+              href={getDashboardPath()}
+              className="text-2xl font-semibold text-gray-300 hover:text-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Dashboard
+            </Link>
+            {producerId && (
+              <Link
+                href={`/producers/${producerId}`}
+                className="text-2xl font-semibold text-gray-300 hover:text-white"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Profile
+              </Link>
+            )}
+            <Link
+              href="/settings"
+              className="text-2xl font-semibold text-gray-300 hover:text-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Settings
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              href="/signup"
+              className="text-2xl font-semibold text-gray-300 hover:text-white"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Sign Up
+            </Link>
+          </>
+        )}
+      </nav>
+      <div className="w-full flex justify-center p-6">
+        <button
+          className="text-white text-xl px-8 py-3 rounded-full bg-primary hover:bg-yellow-400 focus:outline-none font-bold shadow-lg"
+          onClick={e => { e.stopPropagation(); setIsMobileMenuOpen(false); }}
+        >
+          Close Menu
+        </button>
+      </div>
     </div>
   )
 
@@ -218,16 +240,9 @@ export default function Header() {
                 Login
               </Link>
             )}
-            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-white hover:text-primary">
-                  <Menu size={24} />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-[300px] bg-black border-primary">
-                <MobileNav />
-              </SheetContent>
-            </Sheet>
+            <Button variant="ghost" size="icon" className="text-white hover:text-primary" onClick={() => setIsMobileMenuOpen(true)}>
+              <Menu size={24} />
+            </Button>
           </div>
         </div>
 
@@ -248,6 +263,7 @@ export default function Header() {
             ))}
         </nav>
       </div>
+      {isMobileMenuOpen && <MobileMenuOverlay />}
     </header>
   )
 }

@@ -819,7 +819,7 @@ export function SiteWideBeatPlayer() {
                       {openSessionId ? 'Update' : 'Save Session'}
                     </Button>
                   </div>
-                  <div className="absolute bottom-3 right-4 z-20 flex items-center gap-2">
+                  <div className="absolute bottom-3 right-4 sm:right-4 sm:left-auto left-4 right-auto z-20 flex items-center gap-2">
                     <button
                       onClick={() => {
                         setIsExpanded(false);

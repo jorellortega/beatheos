@@ -124,11 +124,13 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                     tabIndex={0}
                     aria-label={`View details for ${beat.title}`}
                   >
-                    <img
-                      src={beat.cover}
-                      alt={beat.title}
-                      className="w-16 h-16 aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-                    />
+                    <div className="w-16 h-16 rounded overflow-hidden border border-primary shadow flex items-center justify-center bg-black">
+                      <img
+                        src={beat.cover}
+                        alt={beat.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                   </a>
                   <div>
                     <h3 className="font-semibold flex items-center gap-2">
