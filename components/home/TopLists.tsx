@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabaseClient'
 
 interface Beat {
   id: number
+  slug: string
   title: string
   producer_name: string
   plays: number
@@ -41,7 +42,7 @@ export function TopLists() {
       // Fetch top 10 beats from the last 7 days
       const { data: beatsData } = await supabase
         .from('beats')
-        .select('id, title, play_count, cover_art_url, producer_id, created_at, mp3_url')
+        .select('id, slug, title, play_count, cover_art_url, producer_id, created_at, mp3_url')
         .eq('is_draft', false)
         .gte('created_at', new Date(new Date().setDate(new Date().getDate() - 7)).toISOString())
         .order('play_count', { ascending: false })
@@ -59,6 +60,7 @@ export function TopLists() {
           const producer = producersData?.find((p: any) => p.user_id === b.producer_id)
           return {
             id: b.id,
+            slug: b.slug,
             title: b.title,
             producer_name: producer?.display_name || 'Unknown',
             plays: b.play_count || 0,
@@ -184,7 +186,7 @@ export function TopLists() {
               >
                 <div className="flex items-center gap-x-2 sm:gap-x-4">
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
-                  <Link href={`/beat/${beat.id}`}>
+                  <Link href={`/beat/${beat.slug}`}>
                     <div className="relative w-10 h-10 cursor-pointer group">
                     <Image
                       src={beat.image}

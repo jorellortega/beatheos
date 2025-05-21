@@ -183,7 +183,6 @@ function MyBeatsManager({ userId }: { userId: string }) {
   }, [userId]);
 
   const handleDelete = async (id: string | number) => {
-    if (!confirm('Are you sure you want to delete this beat?')) return
     const res = await fetch(`/api/beats?id=${id}`, { method: 'DELETE' })
     if (res.ok) {
       setBeats(beats.filter((b: Beat) => b.id !== id))

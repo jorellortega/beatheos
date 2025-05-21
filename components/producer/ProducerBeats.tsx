@@ -11,6 +11,7 @@ import { usePlayer } from '@/contexts/PlayerContext'
 
 interface Beat {
   id: string | number
+  slug: string
   title: string
   plays: number
   isTopBeat: boolean
@@ -48,6 +49,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
       const data = await res.json()
       let beats = (data || []).map((beat: any) => ({
         id: beat.id,
+        slug: beat.slug,
         title: beat.title,
         plays: beat.play_count ?? 0,
         isTopBeat: false, // You can update this logic if you have a field for top beats
@@ -119,17 +121,17 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
               >
                 <div className="flex items-center space-x-4">
                   <a
-                    href={`/beat/${beat.id}`}
+                    href={`/beat/${beat.slug}`}
                     onClick={e => e.stopPropagation()}
                     tabIndex={0}
                     aria-label={`View details for ${beat.title}`}
                   >
                     <div className="w-16 h-16 rounded overflow-hidden border border-primary shadow flex items-center justify-center bg-black">
-                      <img
-                        src={beat.cover}
-                        alt={beat.title}
+                    <img
+                      src={beat.cover}
+                      alt={beat.title}
                         className="w-full h-full object-cover"
-                      />
+                    />
                     </div>
                   </a>
                   <div>

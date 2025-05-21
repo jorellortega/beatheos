@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabaseClient'
+import { generateUniqueSlug } from '@/lib/slugGenerator'
 
 export async function POST(request: Request) {
   try {
@@ -26,6 +27,9 @@ export async function POST(request: Request) {
     const licensing = JSON.parse(formData.get('licensing') as string)
     const isDraft = formData.get('isDraft') === 'true'
     
+    // Generate unique slug for the beat
+    const slug = await generateUniqueSlug(title)
+    
     // Handle file uploads
     const mp3File = formData.get('mp3File') as File
     const wavFile = formData.get('wavFile') as File | null
@@ -37,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     // Upload files to Supabase Storage
-    const mp3Path = `${user.id}/${title.trim()}/${mp3File.name.trim()}`
+    const mp3Path = `${user.id}/${slug}/${mp3File.name.trim()}`
     const { data: mp3Data, error: mp3Error } = await supabase.storage
       .from('beats')
       .upload(mp3Path, mp3File)
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
 
     let wavUrl = null
     if (wavFile) {
-      const wavPath = `${user.id}/${title.trim()}/wav/${wavFile.name.trim()}`
+      const wavPath = `${user.id}/${slug}/wav/${wavFile.name.trim()}`
       const { data: wavData, error: wavError } = await supabase.storage
         .from('beats')
         .upload(wavPath, wavFile)
@@ -63,7 +67,7 @@ export async function POST(request: Request) {
 
     let stemsUrl = null
     if (stemsFile) {
-      const stemsPath = `${user.id}/${title.trim()}/stems/${stemsFile.name.trim()}`
+      const stemsPath = `${user.id}/${slug}/stems/${stemsFile.name.trim()}`
       const { data: stemsData, error: stemsError } = await supabase.storage
         .from('beats')
         .upload(stemsPath, stemsFile)
@@ -75,7 +79,7 @@ export async function POST(request: Request) {
 
     let coverArtUrl = null
     if (coverArt) {
-      const coverPath = `${user.id}/${title.trim()}/cover/${coverArt.name.trim()}`
+      const coverPath = `${user.id}/${slug}/cover/${coverArt.name.trim()}`
       const { data: coverData, error: coverError } = await supabase.storage
         .from('beats')
         .upload(coverPath, coverArt)
@@ -104,7 +108,8 @@ export async function POST(request: Request) {
       price_lease: licensing.lease ?? null,
       price_premium_lease: licensing.premium ?? null,
       price_exclusive: licensing.exclusive ?? null,
-      price_buyout: licensing.buyout ?? null
+      price_buyout: licensing.buyout ?? null,
+      slug
     }
 
     console.log('Uploading beat with data:', beatData)

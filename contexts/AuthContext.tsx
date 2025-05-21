@@ -41,9 +41,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    let hydratedTimeout = setTimeout(() => {
+    let hydratedTimeout = setTimeout(async () => {
       if (!hydrated) {
-        console.error('Hydration forced by timeout. Supabase may be slow or unresponsive.');
+        // Debug info
+        let supabaseSession = null;
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          supabaseSession = session;
+        } catch (e) {
+          supabaseSession = `Error fetching session: ${e}`;
+        }
+        let localStorageKeys: Record<string, string | null> = {};
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.toLowerCase().includes('supabase')) {
+              localStorageKeys[key] = localStorage.getItem(key);
+            }
+          }
+        } catch (e) {
+          localStorageKeys = { error: `Error reading localStorage: ${e}` };
+        }
+        let cookies = document.cookie;
+        console.error('Hydration forced by timeout. Supabase may be slow or unresponsive.', {
+          supabaseSession,
+          user,
+          localStorageKeys,
+          cookies,
+        });
         setHydrated(true);
         setIsLoading(false);
       }

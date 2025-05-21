@@ -58,7 +58,7 @@ export default function BeatDetailPage() {
       const { data, error } = await supabase
         .from("beats")
         .select("*")
-        .eq("id", id)
+        .eq("slug", id)
         .single()
       if (error) {
         setError("Beat not found or error fetching beat.")

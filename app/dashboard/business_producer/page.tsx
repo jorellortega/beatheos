@@ -27,6 +27,7 @@ const mockItems = [
 
 interface Beat {
   id: string | number;
+  slug: string;
   title: string;
   genre: string;
   bpm: number;
@@ -132,6 +133,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
           .from('beats')
           .select(`
             id,
+            slug,
             title,
             genre,
             bpm,
@@ -183,7 +185,6 @@ function MyBeatsManager({ userId }: { userId: string }) {
   }, [userId]);
 
   const handleDelete = async (id: string | number) => {
-    if (!confirm('Are you sure you want to delete this beat?')) return
     const res = await fetch(`/api/beats?id=${id}`, { method: 'DELETE' })
     if (res.ok) {
       setBeats(beats.filter((b: Beat) => b.id !== id))
@@ -549,7 +550,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
                 </td>
                 <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
                   <a
-                    href={`/beat/${beat.id}`}
+                    href={`/beat/${beat.slug}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center justify-center text-primary hover:text-yellow-400"
@@ -713,7 +714,7 @@ export default function BusinessProducerDashboard() {
       // Fetch analytics stats
       supabase
         .from('beats')
-        .select('id, title, play_count, cover_art_url')
+        .select('id, slug, title, play_count, cover_art_url')
         .eq('producer_id', user.id)
         .then(({ data }) => {
           const totalBeats = data?.length || 0;
@@ -796,7 +797,7 @@ export default function BusinessProducerDashboard() {
                 <div className="text-gray-400 col-span-full">No beats found.</div>
               ) : (
                 topBeats.map((beat) => (
-                  <Link key={beat.id} href={`/beat/${beat.id}`} target="_blank" rel="noopener noreferrer" className="block">
+                  <Link key={beat.id} href={`/beat/${beat.slug}`} target="_blank" rel="noopener noreferrer" className="block">
                     <Card className="bg-black border-primary flex flex-col items-center p-2 min-w-0 hover:border-yellow-400 transition-colors cursor-pointer">
                       <div className="w-14 h-14 mb-1 relative">
                         <Image
@@ -929,7 +930,7 @@ export default function BusinessProducerDashboard() {
 }
 
 // Minimal type for beats in the 'Beats' tab
-type SimpleBeat = { id: string | number; title: string; mp3_url: string; cover_art_url?: string };
+type SimpleBeat = { id: string | number; slug: string; title: string; mp3_url: string; cover_art_url?: string };
 
 function SimpleBeatsList({ userId }: { userId: string }) {
   const [beats, setBeats] = useState<SimpleBeat[]>([]);
@@ -940,7 +941,7 @@ function SimpleBeatsList({ userId }: { userId: string }) {
     async function fetchBeats() {
       const { data } = await supabase
         .from('beats')
-        .select('id, title, mp3_url, cover_art_url')
+        .select('id, slug, title, mp3_url, cover_art_url')
         .eq('producer_id', userId)
         .order('created_at', { ascending: false });
       setBeats(data || []);
@@ -997,7 +998,7 @@ function SimpleBeatsList({ userId }: { userId: string }) {
           <div className="font-semibold text-white text-center truncate w-full mb-1" title={beat.title}>{beat.title}</div>
           <div className="flex gap-2 mt-2">
             <a
-              href={`/beat/${beat.id}`}
+              href={`/beat/${beat.slug}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center text-primary hover:text-yellow-400"

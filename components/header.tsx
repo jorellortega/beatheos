@@ -96,57 +96,57 @@ export default function Header() {
         </button>
       </div>
       <nav className="flex flex-col items-center justify-center flex-1 w-full space-y-8">
-        {mobileNavItems
-          .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
-          .map((item) => (
-            <Link
-              key={item.path}
-              href={item.path}
+      {mobileNavItems
+        .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
+        .map((item) => (
+          <Link
+            key={item.path}
+            href={item.path}
               className={`text-2xl font-semibold transition-colors ${
                 pathname === item.path ? "text-primary" : "text-gray-300 hover:text-white"
-              }`}
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              {item.name}
-            </Link>
-          ))}
-        {user ? (
-          <>
-            <Link
-              href={getDashboardPath()}
+            }`}
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            {item.name}
+          </Link>
+        ))}
+      {user ? (
+        <>
+          <Link
+            href={getDashboardPath()}
               className="text-2xl font-semibold text-gray-300 hover:text-white"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              Dashboard
-            </Link>
-            {producerId && (
-              <Link
-                href={`/producers/${producerId}`}
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Dashboard
+          </Link>
+          {producerId && (
+            <Link
+              href={`/producers/${producerId}`}
                 className="text-2xl font-semibold text-gray-300 hover:text-white"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                Profile
-              </Link>
-            )}
-            <Link
-              href="/settings"
-              className="text-2xl font-semibold text-gray-300 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              Settings
+              Profile
             </Link>
-          </>
-        ) : (
-          <>
-            <Link
-              href="/signup"
+          )}
+          <Link
+            href="/settings"
               className="text-2xl font-semibold text-gray-300 hover:text-white"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              Sign Up
-            </Link>
-          </>
-        )}
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Settings
+          </Link>
+        </>
+      ) : (
+        <>
+          <Link
+            href="/signup"
+              className="text-2xl font-semibold text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Sign Up
+          </Link>
+        </>
+      )}
       </nav>
       <div className="w-full flex justify-center p-6">
         <button
@@ -241,8 +241,8 @@ export default function Header() {
               </Link>
             )}
             <Button variant="ghost" size="icon" className="text-white hover:text-primary" onClick={() => setIsMobileMenuOpen(true)}>
-              <Menu size={24} />
-            </Button>
+                  <Menu size={24} />
+                </Button>
           </div>
         </div>
 

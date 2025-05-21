@@ -111,7 +111,7 @@ export default function BeatsPage() {
         
       const { data: beatsData, error: beatsError } = await supabase
         .from('beats')
-        .select('id, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .select('id, slug, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
         .eq('is_draft', false)
         .order('created_at', { ascending: false })
         .limit(100)
@@ -135,6 +135,7 @@ export default function BeatsPage() {
         const producer = producersData?.find((p: any) => p.user_id === b.producer_id)
         return {
           id: b.id,
+          slug: b.slug,
           title: b.title || '',
           producer: producer?.display_name || 'Unknown',
           image: b.cover_art_url || '/placeholder.svg',
@@ -227,65 +228,38 @@ export default function BeatsPage() {
   }
 
   const GridView = () => (
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {filteredBeats.map((beat) => (
-        <Card key={beat.id} className="bg-black border-primary flex flex-col">
-          <CardHeader className="relative pb-0 pt-0 px-0">
-            <div className="relative w-full aspect-square">
-              <Image
-                src={beat.image || "/placeholder.svg"}
-                alt={beat.title}
-                fill
-                className="rounded-t-lg object-cover cursor-pointer"
-                onClick={() => handlePlayPause(beat)}
-              />
-            </div>
-            <div className="absolute top-2 right-2">
-            <Button
-              size="icon"
-                className="rounded-full gradient-button"
-              onClick={() => handlePlayPause(beat)}
-            >
-              {playingBeatId === beat.id && isPlaying ? (
-                <Pause className="h-4 w-4 text-black" />
-              ) : (
-                <Play className="h-4 w-4 text-black" />
-              )}
-            </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-4 flex-grow flex flex-col justify-between">
-            <div>
-              <CardTitle className="text-sm mb-1 flex items-center justify-between gap-2">
-                <span>{beat.title}</span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="p-1"
-                  asChild
-                >
-                  <Link href={`/beat/${beat.id}`} title="View Details">
-                    <ExternalLink className="h-4 w-4 text-yellow-400" />
-                  </Link>
-                </Button>
-              </CardTitle>
-              <p className="text-xs text-gray-400 mb-1">by {beat.producer}</p>
-              <div className="flex items-center mb-2">
-                <Rating value={beat.rating || 0} onChange={(newRating) => {}} />
-              </div>
-              <div className="flex justify-between items-center mb-2">
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] px-2 py-0.5 w-auto flex items-center justify-center text-center"
-                >
-                  <span className="inline-block">{beat.bpm} BPM</span>
-                </Badge>
-                <span className="text-xs text-gray-400">{beat.plays} plays</span>
-              </div>
-            </div>
-            <div className="flex justify-between items-center mt-2">
-              <Button variant="outline" size="icon" onClick={() => {}}>
-                <Plus className="h-4 w-4" />
+        <div
+          key={beat.id}
+          className={`flex flex-col bg-secondary rounded-lg overflow-hidden transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+        >
+          <a
+            href={`/beat/${beat.slug}`}
+            onClick={e => e.stopPropagation()}
+            tabIndex={0}
+            aria-label={`View details for ${beat.title}`}
+          >
+            <Image
+              src={beat.image || "/placeholder.svg"}
+              alt={beat.title}
+              width={300}
+              height={300}
+              className="w-full aspect-square object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+            />
+          </a>
+          <div className="p-4">
+            <h3 className="font-semibold flex items-center gap-2">
+              {beat.title}
+            </h3>
+            <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
+            <div className="flex items-center justify-between mt-4">
+              <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
+                {playingBeatId === beat.id && isPlaying ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
               </Button>
               <Button
                 className="gradient-button text-black font-medium hover:text-white"
@@ -294,8 +268,8 @@ export default function BeatsPage() {
                 BUY
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ))}
     </div>
   )
@@ -303,89 +277,24 @@ export default function BeatsPage() {
   const ListView = () => (
     <div className="space-y-4">
       {filteredBeats.map((beat) => (
-        <Card key={beat.id} className="bg-black border-primary">
-          <CardContent className="flex flex-col sm:flex-row items-center p-4 space-y-4 sm:space-y-0">
-            <Image
-              src={beat.image || "/placeholder.svg"}
-              alt={beat.title}
-              width={100}
-              height={100}
-              className="rounded-lg sm:mr-4 w-full sm:w-auto h-32 sm:h-24 object-cover cursor-pointer"
-              onClick={() => handlePlayPause(beat)}
-            />
-            <div className="flex-grow text-center sm:text-left">
-              <h3 className="text-lg font-semibold text-white">{beat.title}</h3>
-              <p className="text-sm text-gray-400">by {beat.producer}</p>
-              <div className="flex items-center justify-center sm:justify-start mt-2">
-                <Rating value={beat.rating || 0} readOnly onChange={() => {}} />
-                <span className="text-xs text-gray-400 ml-2">({beat.rating || 0})</span>
-              </div>
-              <div className="flex items-center justify-center sm:justify-start mt-2">
-                <Badge variant="secondary" className="mr-2">
-                  {beat.bpm} BPM
-                </Badge>
-                <span className="text-sm text-gray-400">{beat.plays} plays</span>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
-              <div className="flex space-x-2">
-                <Button
-                  size="sm"
-                  className="gradient-button text-black font-medium rounded-full shadow-lg hover:text-black"
-                  onClick={() => handlePlayPause(beat)}
-                >
-                  {playingBeatId === beat.id && isPlaying ? <Pause className="h-4 w-4 mr-2" /> : <Play className="h-4 w-4 mr-2" />}
-                  {playingBeatId === beat.id && isPlaying ? "Pause" : "Play"}
-                </Button>
-                <Button variant="outline" size="icon" onClick={() => handleSaveToPlaylist(beat)}>
-                  <Plus className="h-4 w-4" />
-                </Button>
-                <Button
-                  className="gradient-button text-black font-medium hover:text-white"
-                  onClick={() => handlePurchase(beat)}
-                >
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  BUY
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  asChild
-                >
-                  <Link href={`/beat/${beat.id}`} title="View Details">
-                    <ExternalLink className="h-4 w-4 text-yellow-400" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  )
-
-  const CompactView = () => (
-    <div className="space-y-4">
-          {filteredBeats.map((beat) => (
-            <div
-              key={beat.id}
+        <div
+          key={beat.id}
           className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
-              onClick={() => handlePlayPause(beat)}
-            >
+        >
           <div className="flex items-center space-x-4">
             <a
-              href={`/beat/${beat.id}`}
+              href={`/beat/${beat.slug}`}
               onClick={e => e.stopPropagation()}
               tabIndex={0}
               aria-label={`View details for ${beat.title}`}
             >
-                <Image
-                  src={beat.image || "/placeholder.svg"}
-                  alt={beat.title}
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
                 width={64}
                 height={64}
                 className="w-16 h-16 aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-                />
+              />
             </a>
             <div>
               <h3 className="font-semibold flex items-center gap-2">
@@ -393,7 +302,57 @@ export default function BeatsPage() {
               </h3>
               <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
+              {playingBeatId === beat.id && isPlaying ? (
+                <Pause className="h-4 w-4" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              className="gradient-button text-black font-medium hover:text-white"
+              onClick={() => handlePurchase(beat)}
+            >
+              BUY
+            </Button>
+          </div>
         </div>
+      ))}
+    </div>
+  )
+
+  const CompactView = () => (
+    <div className="space-y-4">
+      {filteredBeats.map((beat) => (
+        <div
+          key={beat.id}
+          className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+          onClick={() => handlePlayPause(beat)}
+        >
+          <div className="flex items-center space-x-4">
+            <a
+              href={`/beat/${beat.slug}`}
+              onClick={e => e.stopPropagation()}
+              tabIndex={0}
+              aria-label={`View details for ${beat.title}`}
+            >
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
+                width={64}
+                height={64}
+                className="w-16 h-16 aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+              />
+            </a>
+            <div>
+              <h3 className="font-semibold flex items-center gap-2">
+                {beat.title}
+              </h3>
+              <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
+            </div>
+          </div>
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="icon" onClick={e => { e.stopPropagation(); handlePlayPause(beat); }}>
               {playingBeatId === beat.id && isPlaying ? (
@@ -401,16 +360,16 @@ export default function BeatsPage() {
               ) : (
                 <Play className="h-4 w-4" />
               )}
-                  </Button>
-                  <Button
-                    className="gradient-button text-black font-medium hover:text-white"
+            </Button>
+            <Button
+              className="gradient-button text-black font-medium hover:text-white"
               onClick={e => { e.stopPropagation(); handlePurchase(beat); }}
-                  >
-                    BUY
-                  </Button>
+            >
+              BUY
+            </Button>
           </div>
-                </div>
-          ))}
+        </div>
+      ))}
     </div>
   )
 
