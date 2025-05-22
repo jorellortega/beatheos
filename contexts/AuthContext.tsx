@@ -17,6 +17,7 @@ interface AuthContextType {
   signup: (email: string, password: string, username: string, role: string, subscriptionTier?: string, subscriptionStatus?: string) => Promise<User>
   logout: () => Promise<void>
   isLoading: boolean
+  error: Error | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -39,26 +40,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [hydrated, setHydrated] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
     let mounted = true;
-    let hydratedTimeout = setTimeout(async () => {
-      if (!hydrated && mounted) {
-        console.warn('Auth hydration timeout reached - forcing hydration');
-        setHydrated(true);
-        setIsLoading(false);
-      }
-    }, 5000); // Increased timeout to 5 seconds
+    let authSubscription: { unsubscribe: () => void } | null = null;
 
-    // Get initial session
     const initializeAuth = async () => {
       if (!mounted) return;
       
       try {
-        setIsLoading(true);
+        setError(null);
         const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user && mounted) {
+        
+        if (!mounted) return;
+        
+        if (session?.user) {
           const userInfo = await fetchUserInfo(session.user.id)
+          if (!mounted) return;
+          
           setUser({
             id: session.user.id,
             email: session.user.email ?? null,
@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Error initializing auth:', error)
         if (mounted) {
+          setError(error instanceof Error ? error : new Error('Failed to initialize auth'))
           setUser(null)
         }
       } finally {
@@ -77,22 +78,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsLoading(false)
           setHydrated(true)
         }
-        clearTimeout(hydratedTimeout)
       }
     }
 
+    // Initialize auth
     initializeAuth()
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Set up auth state change listener
+    authSubscription = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
       
       try {
-        setIsLoading(true);
+        setError(null);
         if (session?.user) {
           const userInfo = await fetchUserInfo(session.user.id)
+          if (!mounted) return;
+          
           setUser({
             id: session.user.id,
             email: session.user.email ?? null,
@@ -105,20 +106,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('Error handling auth state change:', error)
-        setUser(null)
+        if (mounted) {
+          setError(error instanceof Error ? error : new Error('Failed to handle auth state change'))
+          setUser(null)
+        }
       } finally {
         if (mounted) {
           setIsLoading(false)
-          setHydrated(true)
         }
-        clearTimeout(hydratedTimeout)
       }
-    })
+    }).data.subscription
 
     return () => {
       mounted = false;
-      clearTimeout(hydratedTimeout)
-      subscription.unsubscribe()
+      if (authSubscription) {
+        authSubscription.unsubscribe()
+      }
     }
   }, [])
 
@@ -202,15 +205,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     signup,
     logout,
-    isLoading
-  }), [user, isLoading]);
+    isLoading,
+    error
+  }), [user, isLoading, error]);
 
-  // Only render children after hydration
+  // Show loading state only during initial hydration
   if (!hydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         <span className="ml-4 text-primary">Loading...</span>
+      </div>
+    );
+  }
+
+  // Show error state if there's an error
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <div className="text-red-500">
+          <p>Error: {error.message}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-primary text-black rounded hover:bg-primary/90"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

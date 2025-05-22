@@ -18,7 +18,7 @@ const poppins = Poppins({
 export const metadata = {
   title: "Beatheos - Realm of the Beat God",
   description: "Transcend mortal rhythms in the divine audioscape of Beatheos",
-    generator: 'v0.dev'
+  generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -42,10 +42,14 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
           <AuthProvider>
             <PlayerProvider>
-              <Header />
-              <div className="pt-24 pb-20">{children}</div>
-              <SiteWideBeatPlayer />
-              <Toaster />
+              <div className="relative min-h-screen">
+                <Header />
+                <main className="pt-24 pb-20">
+                  {children}
+                </main>
+                <SiteWideBeatPlayer />
+                <Toaster />
+              </div>
             </PlayerProvider>
           </AuthProvider>
         </ThemeProvider>
@@ -53,7 +57,5 @@ export default function RootLayout({
     </html>
   )
 }
-
-
 
 import './globals.css'
