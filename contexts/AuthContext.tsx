@@ -41,45 +41,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
+    let mounted = true;
     let hydratedTimeout = setTimeout(async () => {
-      if (!hydrated) {
-        // Debug info
-        let supabaseSession = null;
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          supabaseSession = session;
-        } catch (e) {
-          supabaseSession = `Error fetching session: ${e}`;
-        }
-        let localStorageKeys: Record<string, string | null> = {};
-        try {
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.toLowerCase().includes('supabase')) {
-              localStorageKeys[key] = localStorage.getItem(key);
-            }
-          }
-        } catch (e) {
-          localStorageKeys = { error: `Error reading localStorage: ${e}` };
-        }
-        let cookies = document.cookie;
-        console.error('Hydration forced by timeout. Supabase may be slow or unresponsive.', {
-          supabaseSession,
-          user,
-          localStorageKeys,
-          cookies,
-        });
+      if (!hydrated && mounted) {
+        console.warn('Auth hydration timeout reached - forcing hydration');
         setHydrated(true);
         setIsLoading(false);
       }
-    }, 3000);
+    }, 5000); // Increased timeout to 5 seconds
 
     // Get initial session
     const initializeAuth = async () => {
+      if (!mounted) return;
+      
       try {
         setIsLoading(true);
         const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
+        if (session?.user && mounted) {
           const userInfo = await fetchUserInfo(session.user.id)
           setUser({
             id: session.user.id,
@@ -91,10 +69,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error('Error initializing auth:', error)
-        setUser(null)
+        if (mounted) {
+          setUser(null)
+        }
       } finally {
-        setIsLoading(false)
-        setHydrated(true)
+        if (mounted) {
+          setIsLoading(false)
+          setHydrated(true)
+        }
         clearTimeout(hydratedTimeout)
       }
     }
@@ -105,6 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+      
       try {
         setIsLoading(true);
         if (session?.user) {
@@ -123,13 +107,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Error handling auth state change:', error)
         setUser(null)
       } finally {
-        setIsLoading(false)
-        setHydrated(true)
+        if (mounted) {
+          setIsLoading(false)
+          setHydrated(true)
+        }
         clearTimeout(hydratedTimeout)
       }
     })
 
     return () => {
+      mounted = false;
       clearTimeout(hydratedTimeout)
       subscription.unsubscribe()
     }
