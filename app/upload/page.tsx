@@ -57,7 +57,7 @@ export default function UploadPage() {
       // Upload file to Supabase Storage
       const { data: fileData, error: fileError } = await supabase.storage
         .from('beats')
-        .upload(`${user.id}/${file.name}`, file);
+        .upload(`profiles/${user.id}/beats/${file.name}`, file);
 
       if (fileError) {
         console.error('File upload error:', fileError); // Debug log
@@ -69,7 +69,7 @@ export default function UploadPage() {
       // Get the public URL of the uploaded file
       const { data: { publicUrl } } = supabase.storage
         .from('beats')
-        .getPublicUrl(`${user.id}/${file.name}`);
+        .getPublicUrl(`profiles/${user.id}/beats/${file.name}`);
 
       // Save beat details to the beats table
       const { data: beatData, error: beatError } = await supabase

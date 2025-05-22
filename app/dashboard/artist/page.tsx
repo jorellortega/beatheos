@@ -255,7 +255,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       try {
-        let storagePath = `${userId}/${beat.title.trim()}/${fileType}/${file.name.trim()}`;
+        let storagePath = `profiles/${userId}/${beat.title.trim()}/${fileType}/${file.name.trim()}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('beats')
           .upload(storagePath, file, { upsert: true });
@@ -472,7 +472,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
                           if (file) {
                             try {
                               // Upload to Supabase Storage using the same structure as beat upload
-                              const coverPath = `${userId}/${beat.title.trim()}/cover/${file.name.trim()}`;
+                              const coverPath = `profiles/${userId}/${beat.title.trim()}/cover/${file.name.trim()}`;
                               
                               const { data: uploadData, error: uploadError } = await supabase.storage
                                 .from('beats')

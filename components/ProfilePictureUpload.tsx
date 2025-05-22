@@ -32,7 +32,7 @@ export function ProfilePictureUpload({ producerId, open, onOpenChange, onUploadS
 
     const fileExt = file.name.split('.').pop()
     const fileName = `${producerId}-${Math.random()}.${fileExt}`
-    const filePath = `profile-pics/${fileName}`
+    const filePath = `profiles/${producerId}/profile-pics/${fileName}`
 
     const { error: uploadError } = await supabase.storage
       .from('beats')

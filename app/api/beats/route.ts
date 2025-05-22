@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     // Upload files to Supabase Storage
-    const mp3Path = `${user.id}/${slug}/${mp3File.name.trim()}`
+    const mp3Path = `profiles/${user.id}/${slug}/${mp3File.name.trim()}`
     const { data: mp3Data, error: mp3Error } = await supabase.storage
       .from('beats')
       .upload(mp3Path, mp3File)
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
     let wavUrl = null
     if (wavFile) {
-      const wavPath = `${user.id}/${slug}/wav/${wavFile.name.trim()}`
+      const wavPath = `profiles/${user.id}/${slug}/wav/${wavFile.name.trim()}`
       const { data: wavData, error: wavError } = await supabase.storage
         .from('beats')
         .upload(wavPath, wavFile)
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
     let stemsUrl = null
     if (stemsFile) {
-      const stemsPath = `${user.id}/${slug}/stems/${stemsFile.name.trim()}`
+      const stemsPath = `profiles/${user.id}/${slug}/stems/${stemsFile.name.trim()}`
       const { data: stemsData, error: stemsError } = await supabase.storage
         .from('beats')
         .upload(stemsPath, stemsFile)
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
 
     let coverArtUrl = null
     if (coverArt) {
-      const coverPath = `${user.id}/${slug}/cover/${coverArt.name.trim()}`
+      const coverPath = `profiles/${user.id}/${slug}/cover/${coverArt.name.trim()}`
       const { data: coverData, error: coverError } = await supabase.storage
         .from('beats')
         .upload(coverPath, coverArt)
