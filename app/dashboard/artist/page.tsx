@@ -702,42 +702,65 @@ export default function FreeArtistDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
-            <CardTitle>Basic Tools</CardTitle>
+            <CardTitle>Browse Beats</CardTitle>
+            <CardDescription>Explore and purchase beats from the marketplace.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p>Access basic music creation tools here.</p>
-            <Button className="mt-4">Explore Tools</Button>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle>Upgrade Account</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>Upgrade to Pro Artist to unlock beat uploading and more features!</p>
-            <Button className="mt-4 gradient-button text-black font-medium hover:text-white">Upgrade Now</Button>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle>Recording Studios</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Link href="/recordingstudios">
+            <Link href="/beats">
               <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                Go to Recording Studios
+                Browse Beats
               </Button>
             </Link>
           </CardContent>
         </Card>
         <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
-            <CardTitle>Artist Collaborations</CardTitle>
+            <CardTitle>My Beats</CardTitle>
+            <CardDescription>View and download your beats.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/features">
+            <Link href="/mybeats">
               <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                Go to Collaborations
+                My Beats
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle>Sessions</CardTitle>
+            <CardDescription>Manage and upload your recording sessions, or collaborate with others.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/sessions">
+              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                Go to Sessions
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle>Profile & Settings</CardTitle>
+            <CardDescription>Manage your artist profile and account settings.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/settings">
+              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                Profile & Settings
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle>Support & Help</CardTitle>
+            <CardDescription>Get help or contact support.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/contact">
+              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                Support & Help
               </Button>
             </Link>
           </CardContent>

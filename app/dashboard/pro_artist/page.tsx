@@ -70,34 +70,6 @@ export default function ProArtistDashboardPage() {
             </Link>
           </CardContent>
         </Card>
-
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-primary">Recording Studios</CardTitle>
-            <CardDescription>Post and manage your recording studios</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/recordingstudios">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                Go to Recording Studios
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-primary">Artist Collaborations</CardTitle>
-            <CardDescription>Collaborate with other artists</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/features">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                Go to Collaborations
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

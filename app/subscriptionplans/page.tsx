@@ -13,12 +13,11 @@ const tiers = [
     price: "0",
     description: "Perfect for getting started",
     features: [
-      "Upload up to 5 beats",
-      "Basic analytics",
-      "Standard support",
       "Community access",
       "Basic profile customization",
-      "Standard beat licensing",
+      "Create sessions",
+      "Purchase beats",
+      "Save purchased beats",
     ],
     buttonText: "Get Started",
     buttonVariant: "outline",
@@ -73,17 +72,13 @@ const tiers = [
     price: "25",
     description: "For professional studios",
     features: [
-      "Everything in Pro Artist",
-      "Team collaboration",
-      "API access",
-      "Custom integrations",
-      "Dedicated account manager",
-      "White-label options",
-      "Advanced analytics dashboard",
-      "Custom branding",
+      "Advanced analytics (Total Beats, Total Plays, Top Beats)",
+      "Quick upload (Upload new content)",
+      "Recording sessions management",
+      "Full beat management (edit, delete, bulk actions, cover art, pricing, tags)",
+      "Promo tools (enable/disable promo, item promo)",
       "Priority support",
-      "Unlimited storage",
-      "Custom domain support",
+      "Support tab access",
     ],
     buttonText: "Upgrade to Business",
     buttonVariant: "default",
@@ -127,7 +122,7 @@ export default function SubscriptionPlansPage() {
                     {tier.features.map((feature) => (
                       <li key={feature} className="flex items-start">
                         <Check className="h-5 w-5 text-primary mr-2 mt-0.5 flex-shrink-0" />
-                        <span className="text-sm">{feature}</span>
+                        <span className={`text-sm${feature === 'Create sessions' ? ' text-primary font-semibold' : ''}`}>{feature}</span>
                       </li>
                     ))}
                   </ul>

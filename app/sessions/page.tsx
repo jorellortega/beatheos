@@ -170,7 +170,7 @@ export default function SessionsPage() {
           <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Recording Sessions</h1>
           <p className="text-xl text-gray-400">Manage and collaborate on your recording sessions</p>
         </div>
-        <Button onClick={handleUploadSession}>
+        <Button onClick={handleUploadSession} disabled className="opacity-50 cursor-not-allowed">
           <Upload className="h-4 w-4 mr-2" />
           Upload Session
         </Button>

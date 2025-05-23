@@ -528,7 +528,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
                         value={editForm.title}
                         onChange={handleEditChange}
                         name="title"
-                        className="w-full bg-secondary"
+                        className="w-full bg-secondary text-white"
                         autoFocus
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
