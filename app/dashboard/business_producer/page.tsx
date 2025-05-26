@@ -591,22 +591,19 @@ function MyBeatsManager({ userId }: { userId: string }) {
                 </td>
                 <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
                   {editingId === beat.id ? (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={editForm.title}
-                        onChange={handleEditChange}
-                        name="title"
-                        className="w-full bg-secondary text-white"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleEditSave(beat.id);
-                          }
-                        }}
-                      />
-                      <Button size="sm" type="button" onClick={() => handleEditSave(beat.id)}>Save</Button>
-                      <Button size="sm" variant="ghost" type="button" onClick={() => setEditingId(null)}>Cancel</Button>
-                    </div>
+                    <Input
+                      value={editForm.title}
+                      onChange={handleEditChange}
+                      name="title"
+                      className="w-full bg-secondary text-white"
+                      autoFocus
+                      onBlur={() => handleEditSave(beat.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleEditSave(beat.id);
+                        }
+                      }}
+                    />
                   ) : (
                     <span
                       className="text-yellow-400 font-medium cursor-pointer hover:underline"
