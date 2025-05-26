@@ -48,8 +48,7 @@ export default function BeatDetailPage() {
   const [showPurchaseModal, setShowPurchaseModal] = useState(false)
   const [selectedLicense, setSelectedLicense] = useState<string | null>(null)
   const { user } = useAuth();
-  const [producer, setProducer] = useState<any>(null)
-  const [producerUser, setProducerUser] = useState<any>(null)
+  const [producers, setProducers] = useState<any[]>([])
 
   useEffect(() => {
     async function fetchBeat() {
@@ -72,31 +71,19 @@ export default function BeatDetailPage() {
   }, [id])
 
   useEffect(() => {
-    async function fetchProducer() {
-      if (beat?.producer_id) {
-        const { data: producerData } = await supabase
-          .from('producers')
-          .select('*')
-          .eq('user_id', beat.producer_id)
-          .single()
-        setProducer(producerData)
-        console.log('producer:', producerData);
-        if (producerData?.user_id) {
-          const { data: userData } = await supabase
-            .from('users')
-            .select('display_name')
-            .eq('id', producerData.user_id)
-            .single()
-          setProducerUser(userData)
-          console.log('producerUser:', userData);
-        } else {
-          setProducerUser(null)
-          console.log('producerUser: null');
-        }
-      }
+    async function fetchProducers() {
+      if (!beat) return;
+      // Collect all producer IDs
+      const ids = [beat.producer_id, ...(beat.producer_ids || []).filter((id: string) => id !== beat.producer_id)]
+      if (!ids.length) return;
+      const { data: producersData } = await supabase
+        .from('producers')
+        .select('user_id, display_name, profile_image_url, slug')
+        .in('user_id', ids)
+      setProducers(producersData || [])
     }
-    fetchProducer()
-  }, [beat?.producer_id])
+    fetchProducers()
+  }, [beat])
 
   const startEdit = (field: string) => {
     setEditingField(field)
@@ -288,24 +275,21 @@ export default function BeatDetailPage() {
             </div>
           )}
           <div className="h-6" />
-          {producer?.user_id ? (
-            <Link href={`/producers/${producer.slug}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
-              {producer?.profile_image_url && (
-                <Image src={producer.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover transition-transform duration-200" />
-              )}
-              <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
-                {producerUser?.display_name || producer?.display_name}
-              </span>
-            </Link>
+          {producers.length > 0 ? (
+            <div className="flex flex-wrap gap-4 justify-center items-center">
+              {producers.map((prod: any) => (
+                <Link key={prod.user_id} href={`/producers/${prod.slug}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
+                  {prod.profile_image_url && (
+                    <Image src={prod.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover transition-transform duration-200" />
+                  )}
+                  <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
+                    {prod.display_name}
+                  </span>
+                </Link>
+              ))}
+            </div>
           ) : (
-            <>
-              {producer?.profile_image_url && (
-                <Image src={producer.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover" />
-              )}
-              <span className="text-lg font-semibold text-gray-300">
-                {producerUser?.display_name || producer?.display_name || 'NO DISPLAY NAME FOUND'}
-              </span>
-            </>
+            <span className="text-lg font-semibold text-gray-300">NO PRODUCER FOUND</span>
           )}
           {!user || beat.producer_id !== user.id ? (
             <>
