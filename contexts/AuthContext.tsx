@@ -51,7 +51,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       try {
         setError(null);
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        
+        if (sessionError) {
+          throw sessionError;
+        }
         
         if (!mounted) return;
         
@@ -66,12 +70,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             subscription_tier: userInfo.subscription_tier,
             subscription_status: userInfo.subscription_status,
           })
+        } else {
+          setUser(null)
         }
       } catch (error) {
         console.error('Error initializing auth:', error)
         if (mounted) {
           setError(error instanceof Error ? error : new Error('Failed to initialize auth'))
           setUser(null)
+          // Clear any potentially corrupted session data
+          await supabase.auth.signOut()
         }
       } finally {
         if (mounted) {
@@ -85,11 +93,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth()
 
     // Set up auth state change listener
-    authSubscription = supabase.auth.onAuthStateChange(async (_event, session) => {
+    authSubscription = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       
       try {
         setError(null);
+        
+        // Handle specific auth events
+        if (event === 'SIGNED_OUT') {
+          setUser(null)
+          setIsLoading(false)
+          return
+        }
+        
+        if (event === 'TOKEN_REFRESHED') {
+          // Re-fetch user info after token refresh
+          if (session?.user) {
+            const userInfo = await fetchUserInfo(session.user.id)
+            if (!mounted) return;
+            
+            setUser({
+              id: session.user.id,
+              email: session.user.email ?? null,
+              role: userInfo.role,
+              subscription_tier: userInfo.subscription_tier,
+              subscription_status: userInfo.subscription_status,
+            })
+          }
+          return
+        }
+        
         if (session?.user) {
           const userInfo = await fetchUserInfo(session.user.id)
           if (!mounted) return;
@@ -109,6 +142,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) {
           setError(error instanceof Error ? error : new Error('Failed to handle auth state change'))
           setUser(null)
+          // Clear any potentially corrupted session data
+          await supabase.auth.signOut()
         }
       } finally {
         if (mounted) {
