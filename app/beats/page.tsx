@@ -49,7 +49,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
       <CardContent className="pt-4 flex-grow flex flex-col justify-between">
         <div>
           <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
-          <p className="text-xs text-gray-400 mb-1">by {beat.producer}</p>
+          <p className="text-xs text-gray-400 mb-1">by {beat.producer_names && beat.producer_names.length > 0 ? beat.producer_names.join(', ') : beat.producer}</p>
           <div className="flex items-center mb-2">
             <Rating value={beat.rating || 0} onChange={(newRating) => {}} />
           </div>
@@ -111,7 +111,7 @@ export default function BeatsPage() {
         
       const { data: beatsData, error: beatsError } = await supabase
         .from('beats')
-        .select('id, slug, title, play_count, cover_art_url, producer_id, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
         .eq('is_draft', false)
         .order('created_at', { ascending: false })
         .limit(100)
@@ -123,21 +123,38 @@ export default function BeatsPage() {
         return
       }
 
-      const producerIds = [...new Set(beatsData.map((b: any) => b.producer_id))]
+      // Collect all unique producer_ids (from both producer_id and producer_ids)
+      const allProducerIds = Array.from(new Set([
+        ...beatsData.map((b: any) => b.producer_id),
+        ...beatsData.flatMap((b: any) => b.producer_ids || [])
+      ].filter(Boolean)))
+
       const { data: producersData, error: producersError } = await supabase
         .from('producers')
-        .select('user_id, display_name, image')
-        .in('user_id', producerIds)
+        .select('user_id, display_name, image, slug')
+        .in('user_id', allProducerIds)
 
-        if (producersError) throw producersError
+      if (producersError) throw producersError
+
+      // Map user_id to display_name and slug
+      const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+        p.user_id,
+        { display_name: p.display_name, slug: p.slug }
+      ]))
 
       const beats = beatsData.map((b: any) => {
-        const producer = producersData?.find((p: any) => p.user_id === b.producer_id)
+        // Get all producer ids, names, and slugs for this beat
+        const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
+        const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
+        const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
         return {
           id: b.id,
           slug: b.slug,
           title: b.title || '',
-          producer: producer?.display_name || 'Unknown',
+          producer: producerNames.join(', '),
+          producer_ids: ids,
+          producer_names: producerNames,
+          producer_slugs: producerSlugs,
           image: b.cover_art_url || '/placeholder.svg',
           plays: b.play_count || 0,
           bpm: b.bpm || '',
@@ -146,7 +163,7 @@ export default function BeatsPage() {
           audioUrl: b.mp3_url || '',
           price: b.price || 0,
           rating: b.rating ?? 0,
-          producer_image: producer?.image || '/placeholder.svg',
+          producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
           price_lease: b.price_lease,
           price_premium_lease: b.price_premium_lease,
           price_exclusive: b.price_exclusive,
@@ -252,6 +269,17 @@ export default function BeatsPage() {
             <h3 className="font-semibold flex items-center gap-2">
               {beat.title}
             </h3>
+            <p className="text-xs text-gray-400 mb-1">
+              by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
+                ? beat.producer_names.map((name: string, idx: number) => (
+                    <span key={beat.producer_ids[idx]}>
+                      <Link href={`/producers/${beat.producer_slugs[idx]}`} className="text-gray-400 hover:text-yellow-400">
+                        {name}
+                      </Link>{idx < beat.producer_names.length - 1 ? ', ' : ''}
+                    </span>
+                  ))
+                : beat.producer}
+            </p>
             <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             <div className="flex items-center justify-between mt-4">
               <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
@@ -300,6 +328,17 @@ export default function BeatsPage() {
               <h3 className="font-semibold flex items-center gap-2">
                 {beat.title}
               </h3>
+              <p className="text-xs text-gray-400 mb-1">
+                by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
+                  ? beat.producer_names.map((name: string, idx: number) => (
+                      <span key={beat.producer_ids[idx]}>
+                        <Link href={`/producers/${beat.producer_slugs[idx]}`} className="text-gray-400 hover:text-yellow-400">
+                          {name}
+                        </Link>{idx < beat.producer_names.length - 1 ? ', ' : ''}
+                      </span>
+                    ))
+                  : beat.producer}
+              </p>
               <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             </div>
           </div>
@@ -350,6 +389,17 @@ export default function BeatsPage() {
               <h3 className="font-semibold flex items-center gap-2">
                 {beat.title}
               </h3>
+              <p className="text-xs text-gray-400 mb-1">
+                by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
+                  ? beat.producer_names.map((name: string, idx: number) => (
+                      <span key={beat.producer_ids[idx]}>
+                        <Link href={`/producers/${beat.producer_slugs[idx]}`} className="text-gray-400 hover:text-yellow-400">
+                          {name}
+                        </Link>{idx < beat.producer_names.length - 1 ? ', ' : ''}
+                      </span>
+                    ))
+                  : beat.producer}
+              </p>
               <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             </div>
           </div>

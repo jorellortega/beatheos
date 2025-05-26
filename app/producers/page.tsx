@@ -121,14 +121,14 @@ export default function ProducersPage() {
             </CardHeader>
             <CardContent className="pt-4 bg-black">
               <CardTitle className="text-lg mb-2">
-                <Link href={`/producers/${producer.id}`} className="hover:underline truncate max-w-full block">
+                <Link href={`/producers/${producer.slug}`} className="hover:underline truncate max-w-full block">
                   {producer.display_name}
                 </Link>
               </CardTitle>
               <p className="text-sm text-gray-400 mb-2">{beatCounts[producer.id] ?? 0} beats</p>
               <Badge variant="secondary">{producer.genre}</Badge>
               <Button asChild className="gradient-button text-black font-medium py-2 px-4 rounded-full shadow-lg hover:text-white mt-4 w-full">
-                <Link href={`/producers/${producer.id}`}>View Profile</Link>
+                <Link href={`/producers/${producer.slug}`}>View Profile</Link>
               </Button>
             </CardContent>
           </Card>

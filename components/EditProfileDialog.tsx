@@ -18,6 +18,7 @@ interface Producer {
   instagram: string | null
   twitter: string | null
   youtube: string | null
+  slug: string | null
 }
 
 interface EditProfileDialogProps {
@@ -50,6 +51,9 @@ export function EditProfileDialog({ producer, open, onOpenChange, onProfileUpdat
     e.preventDefault()
     setIsLoading(true)
 
+    // Generate slug from display_name
+    const slug = formData.display_name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+
     const { error } = await supabase
       .from("producers")
       .update({
@@ -61,6 +65,7 @@ export function EditProfileDialog({ producer, open, onOpenChange, onProfileUpdat
         instagram: formData.instagram,
         twitter: formData.twitter,
         youtube: formData.youtube,
+        slug: slug
       })
       .eq("id", producer.id)
 

@@ -210,7 +210,7 @@ export default function Header() {
                 <Button variant="ghost" className="text-white hover:text-primary">
                   <Link href="/login">Login</Link>
                 </Button>
-                <Button className="gradient-button text-black font-medium hover:text-white" disabled>
+                <Button className="gradient-button text-black font-medium hover:text-white">
                   <Link href="/signup">Sign Up</Link>
                 </Button>
               </>

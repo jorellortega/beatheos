@@ -36,6 +36,13 @@ interface Producer {
     comments: number
     date: string
   }[]
+  genres: string[] | null
+  location: string | null
+  phone: string | null
+  instagram: string | null
+  twitter: string | null
+  youtube: string | null
+  slug: string | null
 }
 
 export default function ProducerProfilePage() {
@@ -60,7 +67,7 @@ export default function ProducerProfilePage() {
     const { data, error } = await supabase
       .from('producers')
       .select('*')
-      .eq('id', id)
+      .eq('slug', id)
       .single()
     if (data) {
       setProducer({
@@ -75,6 +82,13 @@ export default function ProducerProfilePage() {
         topProducerCount: data.top_producer_count ?? 0,
         topBeatsCount: data.top_beats_count ?? 0,
         pictures: data.pictures || [],
+        genres: data.genres,
+        location: data.location,
+        phone: data.phone,
+        instagram: data.instagram,
+        twitter: data.twitter,
+        youtube: data.youtube,
+        slug: data.slug,
       } as Producer)
       // Check if this is the user's own profile
       if (user && user.id === data.user_id) {

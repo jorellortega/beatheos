@@ -100,7 +100,7 @@ export default function LoginPage() {
           </form>
           <p className="mt-4 text-center text-gray-400">
             Don't have an account?{' '}
-            <span className="text-primary opacity-50 cursor-not-allowed">Sign up</span>
+            <Link href="/signup" className="text-primary hover:underline">Sign up</Link>
           </p>
         </CardContent>
       </Card>

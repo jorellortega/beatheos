@@ -48,6 +48,7 @@ interface Beat {
   price_premium_lease?: number;
   price_exclusive?: number;
   price_buyout?: number;
+  producer_ids?: string[];
 }
 
 interface BeatActionsProps {
@@ -121,6 +122,10 @@ function MyBeatsManager({ userId }: { userId: string }) {
   const [showPricesMenu, setShowPricesMenu] = useState(false);
   const [showFilesMenu, setShowFilesMenu] = useState(false);
   const [expandAllFilesType, setExpandAllFilesType] = useState<null | 'mp3' | 'wav' | 'stems' | 'all'>(null);
+  const [collabSearch, setCollabSearch] = useState<{ [beatId: string]: string }>({});
+  const [collabResults, setCollabResults] = useState<{ [beatId: string]: any[] }>({});
+  const [collabLoading, setCollabLoading] = useState<{ [beatId: string]: boolean }>({});
+  const [collabError, setCollabError] = useState<{ [beatId: string]: string | null }>({});
 
   useEffect(() => {
     async function fetchBeats() {
@@ -290,6 +295,68 @@ function MyBeatsManager({ userId }: { userId: string }) {
     input.click();
   };
 
+  // Helper to fetch producer by email (search users table, then join with producers)
+  const handleCollabSearch = async (beatId: string, email: string) => {
+    setCollabLoading(prev => ({ ...prev, [beatId]: true }));
+    setCollabError(prev => ({ ...prev, [beatId]: null }));
+    // 1. Search users by email
+    const { data: users, error: userError } = await supabase
+      .from('users')
+      .select('id, email')
+      .ilike('email', `%${email}%`);
+    if (userError) {
+      setCollabError(prev => ({ ...prev, [beatId]: userError.message }));
+      setCollabResults(prev => ({ ...prev, [beatId]: [] }));
+      setCollabLoading(prev => ({ ...prev, [beatId]: false }));
+      return;
+    }
+    if (!users || users.length === 0) {
+      setCollabResults(prev => ({ ...prev, [beatId]: [] }));
+      setCollabLoading(prev => ({ ...prev, [beatId]: false }));
+      return;
+    }
+    const userIds = users.map(u => u.id);
+    // 2. Fetch producers for those user_ids
+    const { data: producers, error: producerError } = await supabase
+      .from('producers')
+      .select('user_id, display_name')
+      .in('user_id', userIds);
+    if (producerError) {
+      setCollabError(prev => ({ ...prev, [beatId]: producerError.message }));
+      setCollabResults(prev => ({ ...prev, [beatId]: [] }));
+      setCollabLoading(prev => ({ ...prev, [beatId]: false }));
+      return;
+    }
+    // 3. Combine results for display
+    const results = (producers || []).map(p => {
+      const user = users.find(u => u.id === p.user_id);
+      return {
+        user_id: p.user_id,
+        display_name: p.display_name,
+        email: user?.email || '',
+      };
+    });
+    setCollabResults(prev => ({ ...prev, [beatId]: results }));
+    setCollabLoading(prev => ({ ...prev, [beatId]: false }));
+  };
+
+  // Helper to add producer to beat
+  const handleAddProducer = async (beat: any, producerId: string) => {
+    const currentIds = Array.isArray(beat.producer_ids) ? beat.producer_ids : [];
+    if (currentIds.includes(producerId)) return;
+    const newIds = [...currentIds, producerId];
+    const { error } = await supabase
+      .from('beats')
+      .update({ producer_ids: newIds })
+      .eq('id', beat.id);
+    if (!error) {
+      setBeats(beats => beats.map(b => b.id === beat.id ? { ...b, producer_ids: newIds } : b));
+      toast({ title: 'Collaborator Added', description: 'Producer added to this beat.' });
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -433,6 +500,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
                   </div>
                 )}
               </th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Collab</th>
               <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Actions</th>
             </tr>
           </thead>
@@ -656,6 +724,45 @@ function MyBeatsManager({ userId }: { userId: string }) {
                     <Button size="sm" variant="outline" onClick={() => setExpandAllFilesType('all')}>
                       View Files
                     </Button>
+                  )}
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  {/* Show current collaborators */}
+                  <div className="mb-2">
+                    <span className="text-xs text-gray-400">Current:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(beat.producer_ids || []).length > 0 ? (
+                        (beat.producer_ids || []).map((pid) => (
+                          <span key={String(pid)} className="bg-primary/20 text-primary px-2 py-1 rounded text-xs font-medium">
+                            {pid}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground">None</span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Search and add new collaborator */}
+                  <div className="flex gap-1 items-center">
+                    <input
+                      type="text"
+                      value={collabSearch[String(beat.id)] || ''}
+                      onChange={e => setCollabSearch(prev => ({ ...prev, [String(beat.id)]: e.target.value }))}
+                      placeholder="Producer email"
+                      className="px-2 py-1 rounded bg-[#232323] text-white text-xs border border-gray-700"
+                    />
+                    <Button size="sm" variant="outline" onClick={() => handleCollabSearch(String(beat.id), collabSearch[String(beat.id)] || '')} disabled={collabLoading[String(beat.id)]}>Search</Button>
+                  </div>
+                  {collabError[String(beat.id)] && <div className="text-xs text-red-500">{collabError[String(beat.id)]}</div>}
+                  {collabResults[String(beat.id)] && collabResults[String(beat.id)].length > 0 && (
+                    <div className="mt-1 space-y-1">
+                      {collabResults[String(beat.id)].map((producer: any) => (
+                        <div key={producer.user_id} className="flex items-center gap-1">
+                          <span className="text-xs text-white">{producer.display_name} ({producer.email})</span>
+                          <Button size="sm" variant="secondary" onClick={() => handleAddProducer(beat, producer.user_id)}>Add</Button>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">

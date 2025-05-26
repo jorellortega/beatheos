@@ -213,7 +213,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .insert({
           user_id: data.user.id,
           display_name: username,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          slug: username.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
         });
       if (producerError) throw new Error(producerError.message);
 

@@ -16,7 +16,7 @@ interface Beat {
   plays: number
   image: string
   producer_image: string
-  producer_profile_id: string
+  producer_slug: string
   audioUrl: string
 }
 
@@ -25,6 +25,7 @@ interface Producer {
   name: string
   weekly_plays: number
   image: string
+  slug: string
 }
 
 export function TopLists() {
@@ -54,7 +55,7 @@ export function TopLists() {
         const producerIds = [...new Set(beatsData.map((b: any) => b.producer_id))]
         const { data: producersData } = await supabase
           .from('producers')
-          .select('id, user_id, display_name, image')
+          .select('id, user_id, display_name, image, slug')
           .in('user_id', producerIds)
         beats = beatsData.map((b: any) => {
           const producer = producersData?.find((p: any) => p.user_id === b.producer_id)
@@ -66,7 +67,7 @@ export function TopLists() {
             plays: b.play_count || 0,
             image: b.cover_art_url || '/placeholder.svg',
             producer_image: producer?.image || '/placeholder.svg',
-            producer_profile_id: producer?.id,
+            producer_slug: producer?.slug,
             audioUrl: b.mp3_url || '',
           }
         })
@@ -80,13 +81,14 @@ export function TopLists() {
       const userIds = (topProducersData || []).map((p: any) => p.user_id)
       const { data: producersData } = await supabase
         .from('producers')
-        .select('id, user_id, profile_image_url')
+        .select('id, user_id, profile_image_url, slug')
         .in('user_id', userIds)
       setTopProducers(
         (topProducersData || []).map((p: any) => {
           const producer = producersData?.find((prod: any) => prod.user_id === p.user_id)
           return {
             id: producer?.id,
+            slug: producer?.slug,
             name: p.display_name,
             weekly_plays: p.total_plays,
             image: producer?.profile_image_url || '/placeholder.svg',
@@ -217,7 +219,7 @@ export function TopLists() {
                           quality={75}
                         />
                       </div>
-                      <Link href={`/producers/${beat.producer_profile_id}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
+                      <Link href={`/producers/${beat.producer_slug}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
                         {beat.producer_name}
                       </Link>
                     </div>
@@ -261,7 +263,7 @@ export function TopLists() {
                 const producer = topProducers[index]
                 return (
               <li key={producer.id + '-' + index} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 hover:bg-secondary rounded-lg transition-colors gap-y-2 sm:gap-y-0">
-                <Link href={`/producers/${producer.id}`} className="flex items-center gap-x-2 sm:gap-x-4 group">
+                <Link href={`/producers/${producer.slug}`} className="flex items-center gap-x-2 sm:gap-x-4 group">
                   <span className="text-2xl font-bold text-primary w-8 text-center">{index + 1}</span>
                   <div className="relative w-10 h-10 cursor-pointer group-hover:scale-110 group-hover:shadow-lg transition-transform duration-200">
                     <Image
