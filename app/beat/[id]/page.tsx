@@ -289,7 +289,7 @@ export default function BeatDetailPage() {
           )}
           <div className="h-6" />
           {producer?.user_id ? (
-            <Link href={`/producers/${producer.user_id}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
+            <Link href={`/producers/${producer.slug}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
               {producer?.profile_image_url && (
                 <Image src={producer.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover transition-transform duration-200" />
               )}
