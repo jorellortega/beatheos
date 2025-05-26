@@ -2,10 +2,10 @@ import { Button } from "@/components/ui/button"
 import { TopLists } from "@/components/home/TopLists"
 import Link from "next/link"
 import { Instagram } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabaseClient'
+import { supabase } from '@/lib/supabaseClient'
 
 async function getBrandingLogo() {
-  const { data, error } = await getSupabaseClient().from('branding').select('image_url').order('id', { ascending: true }).limit(1)
+  const { data, error } = await supabase.from('branding').select('image_url').order('id', { ascending: true }).limit(1)
   if (error || !data || !data[0]?.image_url) return null
   return data[0].image_url
 }

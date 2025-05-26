@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabaseClient'
+import { supabase } from '@/lib/supabaseClient'
 import { generateUniqueSlug } from '@/lib/slugGenerator'
 
 export async function POST(request: Request) {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     const token = authHeader.replace('Bearer ', '')
 
     // Get the user from the token
-    const { data: { user }, error: userError } = await getSupabaseClient().auth.getUser(token)
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token)
     if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
     // Upload files to Supabase Storage
     const mp3Path = `profiles/${user.id}/${slug}/${mp3File.name.trim()}`
-    const { data: mp3Data, error: mp3Error } = await getSupabaseClient().storage
+    const { data: mp3Data, error: mp3Error } = await supabase.storage
       .from('beats')
       .upload(mp3Path, mp3File)
 
@@ -51,41 +51,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to upload MP3 file' }, { status: 500 })
     }
 
-    const mp3Url = getSupabaseClient().storage.from('beats').getPublicUrl(mp3Path).data.publicUrl
+    const mp3Url = supabase.storage.from('beats').getPublicUrl(mp3Path).data.publicUrl
 
     let wavUrl = null
     if (wavFile) {
       const wavPath = `profiles/${user.id}/${slug}/wav/${wavFile.name.trim()}`
-      const { data: wavData, error: wavError } = await getSupabaseClient().storage
+      const { data: wavData, error: wavError } = await supabase.storage
         .from('beats')
         .upload(wavPath, wavFile)
       
       if (!wavError) {
-        wavUrl = getSupabaseClient().storage.from('beats').getPublicUrl(wavPath).data.publicUrl
+        wavUrl = supabase.storage.from('beats').getPublicUrl(wavPath).data.publicUrl
       }
     }
 
     let stemsUrl = null
     if (stemsFile) {
       const stemsPath = `profiles/${user.id}/${slug}/stems/${stemsFile.name.trim()}`
-      const { data: stemsData, error: stemsError } = await getSupabaseClient().storage
+      const { data: stemsData, error: stemsError } = await supabase.storage
         .from('beats')
         .upload(stemsPath, stemsFile)
       
       if (!stemsError) {
-        stemsUrl = getSupabaseClient().storage.from('beats').getPublicUrl(stemsPath).data.publicUrl
+        stemsUrl = supabase.storage.from('beats').getPublicUrl(stemsPath).data.publicUrl
       }
     }
 
     let coverArtUrl = null
     if (coverArt) {
       const coverPath = `profiles/${user.id}/${slug}/cover/${coverArt.name.trim()}`
-      const { data: coverData, error: coverError } = await getSupabaseClient().storage
+      const { data: coverData, error: coverError } = await supabase.storage
         .from('beats')
         .upload(coverPath, coverArt)
       
       if (!coverError) {
-        coverArtUrl = getSupabaseClient().storage.from('beats').getPublicUrl(coverPath).data.publicUrl
+        coverArtUrl = supabase.storage.from('beats').getPublicUrl(coverPath).data.publicUrl
       }
     }
 
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
     console.log('Uploading beat with data:', beatData)
 
     // Insert beat into database using service role key
-    const { data: beat, error: dbError } = await getSupabaseClient().from('beats')
+    const { data: beat, error: dbError } = await supabase.from('beats')
       .insert(beatData)
       .select()
       .single()
@@ -138,7 +138,8 @@ export async function GET(request: Request) {
     const producerId = searchParams.get('producerId')
     const isDraft = searchParams.get('isDraft')
 
-    let query = getSupabaseClient().from('beats')
+    let query = supabase
+      .from('beats')
       .select('*')
 
     if (producerId) {
@@ -180,7 +181,7 @@ export async function DELETE(request: Request) {
   }
 
   // Fetch the beat to get the mp3_path
-  const { data: beat, error: fetchError } = await getSupabaseClient().from('beats')
+  const { data: beat, error: fetchError } = await supabase.from('beats')
     .select('mp3_path')
     .eq('id', id)
     .single()
@@ -191,14 +192,14 @@ export async function DELETE(request: Request) {
 
   // Delete the file from storage if mp3_path exists
   if (beat?.mp3_path) {
-    const { error: storageError } = await getSupabaseClient().storage.from('beats').remove([beat.mp3_path])
+    const { error: storageError } = await supabase.storage.from('beats').remove([beat.mp3_path])
     if (storageError) {
       return NextResponse.json({ error: 'Failed to delete file from storage', details: storageError }, { status: 500 })
     }
   }
 
   // Delete the beat from the database
-  const { error } = await getSupabaseClient().from('beats')
+  const { error } = await supabase.from('beats')
     .delete()
     .eq('id', id)
 
@@ -218,7 +219,7 @@ export async function PATCH(request: Request) {
 
   const body = await request.json()
 
-  const { data, error } = await getSupabaseClient().from('beats')
+  const { data, error } = await supabase.from('beats')
     .update(body)
     .eq('id', id)
     .select()
@@ -242,7 +243,7 @@ export async function PUT(request: Request) {
     if (!id) return new Response(JSON.stringify({ error: 'Missing beat id' }), { status: 400 })
 
     // Use Supabase admin client
-    const { error } = await getSupabaseClient().rpc('increment_play_count', { beat_id: id })
+    const { error } = await supabase.rpc('increment_play_count', { beat_id: id })
     if (error) {
       return new Response(JSON.stringify({ error: error.message }), { status: 500 })
     }

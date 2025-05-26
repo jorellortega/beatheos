@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Upload, Loader } from 'lucide-react'
-import { getSupabaseClient } from '@/lib/supabaseClient'
+import { supabase } from '@/lib/supabaseClient'
 import { toast } from "@/components/ui/use-toast"
 
 // DEBUG: Log Supabase client creation
@@ -55,7 +55,7 @@ export default function UploadPage() {
       console.log('Starting upload process'); // Debug log
 
       // Upload file to Supabase Storage
-      const { data: fileData, error: fileError } = await getSupabaseClient().storage
+      const { data: fileData, error: fileError } = await supabase.storage
         .from('beats')
         .upload(`profiles/${user.id}/beats/${file.name}`, file);
 
@@ -67,12 +67,12 @@ export default function UploadPage() {
       console.log('File uploaded successfully'); // Debug log
 
       // Get the public URL of the uploaded file
-      const { data: { publicUrl } } = getSupabaseClient().storage
+      const { data: { publicUrl } } = supabase.storage
         .from('beats')
         .getPublicUrl(`profiles/${user.id}/beats/${file.name}`);
 
       // Save beat details to the beats table
-      const { data: beatData, error: beatError } = await getSupabaseClient()
+      const { data: beatData, error: beatError } = await supabase
         .from('beats')
         .insert({
           title,

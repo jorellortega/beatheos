@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useState, useContext, useEffect, useMemo } from "react"
-import { getSupabaseClient } from "@/lib/supabaseClient"
+import { supabase } from "@/lib/supabaseClient"
 
 interface User {
   id: string
@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Fetch user info (role, subscription_tier, subscription_status)
 async function fetchUserInfo(id: string): Promise<{ role: string | null, subscription_tier?: string | null, subscription_status?: string | null }> {
-  const { data, error } = await getSupabaseClient()
+  const { data, error } = await supabase
     .from("users")
     .select("role, subscription_tier, subscription_status")
     .eq("id", id)
@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       try {
         setError(null);
-        const { data: { session }, error: sessionError } = await getSupabaseClient().auth.getSession()
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
         
         if (sessionError) {
           throw sessionError;
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setError(error instanceof Error ? error : new Error('Failed to initialize auth'))
           setUser(null)
           // Clear any potentially corrupted session data
-          await getSupabaseClient().auth.signOut()
+          await supabase.auth.signOut()
         }
       } finally {
         if (mounted) {
@@ -93,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth()
 
     // Set up auth state change listener
-    authSubscription = getSupabaseClient().auth.onAuthStateChange(async (event, session) => {
+    authSubscription = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       
       try {
@@ -143,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setError(error instanceof Error ? error : new Error('Failed to handle auth state change'))
           setUser(null)
           // Clear any potentially corrupted session data
-          await getSupabaseClient().auth.signOut()
+          await supabase.auth.signOut()
         }
       } finally {
         if (mounted) {
@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string): Promise<User> => {
     try {
       setIsLoading(true);
-    const { data, error } = await getSupabaseClient().auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error;
       if (!data.user) throw new Error("No user data received");
       
@@ -189,11 +189,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       // 1. Create user in Supabase Auth
-      const { data, error } = await getSupabaseClient().auth.signUp({ email, password, options: { data: { username } } });
+      const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { username } } });
       if (error || !data.user) throw new Error(error?.message || "Signup failed");
 
       // 2. Insert into users table
-      const { error: userError } = await getSupabaseClient()
+      const { error: userError } = await supabase
         .from("users")
         .insert({
           id: data.user.id,
@@ -208,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (userError) throw new Error(userError.message);
 
       // 3. Insert into producers table (for ALL users)
-      const { error: producerError } = await getSupabaseClient()
+      const { error: producerError } = await supabase
         .from("producers")
         .insert({
           user_id: data.user.id,
@@ -231,7 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
-    await getSupabaseClient().auth.signOut()
+    await supabase.auth.signOut()
     setUser(null)
   }
 
