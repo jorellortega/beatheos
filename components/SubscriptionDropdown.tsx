@@ -28,8 +28,8 @@ export function SubscriptionDropdown({ onSubscriptionChange, value }: Subscripti
           <SelectItem
             key={option.value}
             value={option.value}
-            disabled={option.value === 'artist_pro' || option.value === 'producer_premium'}
-            className={option.value === 'artist_pro' || option.value === 'producer_premium' ? 'opacity-50 pointer-events-none' : ''}
+            disabled={option.value === 'artist_pro' || option.value === 'producer_premium' || option.value === 'producer_free'}
+            className={option.value === 'artist_pro' || option.value === 'producer_premium' || option.value === 'producer_free' ? 'opacity-50 pointer-events-none' : ''}
           >
             {option.label}
           </SelectItem>
