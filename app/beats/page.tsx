@@ -230,10 +230,11 @@ export default function BeatsPage() {
     setCurrentBeat({
       id: beat.id.toString(),
       title: beat.title,
-      artist: beat.producer,
-        audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
-        image: beat.image || '/placeholder.svg',
-      });
+      artist: beat.producer_names.join(', '),
+      audioUrl: beat.audioUrl,
+      producerSlug: beat.producer_slugs[0] || '',
+      producers: beat.producers || [],
+    });
       setIsPlaying(true); // Play
       setPlayingBeatId(beat.id);
     }

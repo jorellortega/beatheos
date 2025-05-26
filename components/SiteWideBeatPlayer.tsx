@@ -46,6 +46,8 @@ interface Beat {
   audioUrl: string
   image?: string
   lyrics?: string
+  producerSlug?: string
+  producers: { display_name: string; slug: string }[]
 }
 
 interface Playlist {
@@ -201,7 +203,7 @@ export function SiteWideBeatPlayer() {
             beats.map(async (beat) => {
               const { data: producer } = await supabase
                 .from('producers')
-                .select('display_name')
+                .select('display_name, slug')
                 .eq('user_id', beat.producer_id)
                 .single();
               return {
@@ -210,6 +212,8 @@ export function SiteWideBeatPlayer() {
                 artist: producer?.display_name || beat.producer_id,
                 audioUrl: beat.mp3_url,
                 image: beat.cover_art_url,
+                producerSlug: producer?.slug || '',
+                producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
               }
             })
           )
@@ -282,12 +286,12 @@ export function SiteWideBeatPlayer() {
         return;
       }
 
-      // Get producer display names
+      // Get producer display names and slugs
       const beatsWithProducers = await Promise.all(
         beats.map(async (beat) => {
           const { data: producer } = await supabase
             .from('producers')
-            .select('display_name')
+            .select('display_name, slug')
             .eq('user_id', beat.producer_id)
             .single();
           return {
@@ -295,6 +299,8 @@ export function SiteWideBeatPlayer() {
             artist: producer?.display_name || beat.producer_id,
             audioUrl: beat.mp3_url,
             coverImage: beat.cover_art_url,
+            producerSlug: producer?.slug || '',
+            producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
           };
         })
       );
@@ -465,7 +471,7 @@ export function SiteWideBeatPlayer() {
         // Fetch the producer's display name
         const { data: producer } = await supabase
           .from('producers')
-          .select('display_name')
+          .select('display_name, slug')
           .eq('user_id', beat.producer_id)
           .single();
 
@@ -476,6 +482,7 @@ export function SiteWideBeatPlayer() {
         artist: producer?.display_name || beat.producer_id,
           audioUrl: beat.mp3_url,
           image: beat.cover_art_url,
+          producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
         });
         setLyrics(data.lyrics || "");
       setOpenSessionId(sessionId);
@@ -580,6 +587,8 @@ export function SiteWideBeatPlayer() {
       artist: beat.producer || beat.artist,
       audioUrl: beat.audioUrl || beat.mp3_url,
       image: beat.image || beat.cover_art_url,
+      producerSlug: beat.producerSlug || beat.slug || '',
+      producers: beat.producers || [],
     })
     setFullCurrentBeat(beat)
   }
@@ -691,12 +700,22 @@ export function SiteWideBeatPlayer() {
                   </div>
                 </div>
               </div>
-              <Link
-                href={currentBeat ? `/producers/${currentBeat.artist}` : "#"}
-                className="text-sm text-gray-400 hover:text-primary transition-colors text-center sm:text-left w-full"
-              >
-                {currentBeat?.artist || ""}
-              </Link>
+              {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
+                <div className="text-sm text-gray-400 text-center sm:text-left w-full">
+                  by {(currentBeat?.producers ?? []).filter(p => p && typeof p.slug === 'string' && typeof p.display_name === 'string').map((producer, idx, arr) => (
+                    <span key={(producer as { display_name: string; slug: string }).slug}>
+                      <Link href={`/producers/${(producer as { display_name: string; slug: string }).slug}`} className="hover:text-primary transition-colors">
+                        {(producer as { display_name: string; slug: string }).display_name}
+                      </Link>
+                      {idx < arr.length - 1 && ', '}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-400 text-center sm:text-left w-full">
+                  {currentBeat?.artist || ''}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">

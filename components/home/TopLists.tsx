@@ -13,6 +13,9 @@ interface Beat {
   slug: string
   title: string
   producer_name: string
+  producer_names: string[]
+  producer_slugs: string[]
+  producers: any[]
   plays: number
   image: string
   producer_image: string
@@ -43,7 +46,7 @@ export function TopLists() {
       // Fetch top 10 beats from the last 7 days
       const { data: beatsData } = await supabase
         .from('beats')
-        .select('id, slug, title, play_count, cover_art_url, producer_id, created_at, mp3_url')
+        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, created_at, mp3_url')
         .eq('is_draft', false)
         .gte('created_at', new Date(new Date().setDate(new Date().getDate() - 7)).toISOString())
         .order('play_count', { ascending: false })
@@ -52,22 +55,43 @@ export function TopLists() {
       // Fetch producer info for each beat
       let beats: Beat[] = []
       if (beatsData && beatsData.length > 0) {
-        const producerIds = [...new Set(beatsData.map((b: any) => b.producer_id))]
+        // Get all unique producer IDs from both producer_id and producer_ids
+        const allProducerIds = Array.from(new Set([
+          ...beatsData.map((b: any) => b.producer_id),
+          ...beatsData.flatMap((b: any) => b.producer_ids || [])
+        ].filter(Boolean)))
+
         const { data: producersData } = await supabase
           .from('producers')
           .select('id, user_id, display_name, image, slug')
-          .in('user_id', producerIds)
+          .in('user_id', allProducerIds)
+
+        // Create a map for quick lookup
+        const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+          p.user_id,
+          { display_name: p.display_name, slug: p.slug, image: p.image }
+        ]))
+
         beats = beatsData.map((b: any) => {
-          const producer = producersData?.find((p: any) => p.user_id === b.producer_id)
+          // Get all producer ids, names, and slugs for this beat
+          const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
+          const producers = ids.map((id: string) => producerMap[id]).filter(Boolean)
+          const producerNames = producers.map((p: any) => p.display_name)
+          const producerSlugs = producers.map((p: any) => p.slug)
+          const producerImages = producers.map((p: any) => p.image)
+
           return {
             id: b.id,
             slug: b.slug,
             title: b.title,
-            producer_name: producer?.display_name || 'Unknown',
+            producer_name: producerNames.join(', '),
+            producer_names: producerNames,
+            producer_slugs: producerSlugs,
+            producers: producers,
             plays: b.play_count || 0,
             image: b.cover_art_url || '/placeholder.svg',
-            producer_image: producer?.image || '/placeholder.svg',
-            producer_slug: producer?.slug,
+            producer_image: producerImages[0] || '/placeholder.svg',
+            producer_slug: producerSlugs[0] || '',
             audioUrl: b.mp3_url || '',
           }
         })
@@ -134,13 +158,15 @@ export function TopLists() {
       }
       lastClickRef.current = { id: beatId, time: now };
     } else {
-    setCurrentBeat({
+      setCurrentBeat({
         id: beatId,
-      title: beat.title,
-      artist: beat.producer_name,
-      audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
-    })
-    setIsPlaying(true)
+        title: beat.title,
+        artist: beat.producer_name,
+        audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
+        producerSlug: beat.producer_slugs[0] || '',
+        producers: beat.producers || [],
+      })
+      setIsPlaying(true)
       lastClickRef.current = { id: beatId, time: now };
     }
   }
@@ -208,20 +234,15 @@ export function TopLists() {
                     >
                       {beat.title}
                     </button>
-                    <div className="flex items-center gap-x-1 mt-1">
-                      <div className="relative w-4 h-4">
-                        <Image
-                          src={beat.producer_image}
-                          alt={beat.producer_name}
-                          className="rounded-full object-cover"
-                          fill
-                          sizes="16px"
-                          quality={75}
-                        />
-                      </div>
-                      <Link href={`/producers/${beat.producer_slug}`} className="text-sm text-gray-400 hover:text-primary transition-colors">
-                        {beat.producer_name}
-                      </Link>
+                    <div className="text-sm text-gray-400">
+                      by {beat.producers && beat.producers.map((producer, idx) => (
+                        <span key={producer.slug}>
+                          <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
+                            {producer.display_name}
+                          </Link>
+                          {idx < beat.producers.length - 1 && ', '}
+                        </span>
+                      ))}
                     </div>
                     <span className="text-sm text-gray-400 mt-1 block sm:hidden">{beat.plays.toLocaleString()} plays</span>
                   </div>

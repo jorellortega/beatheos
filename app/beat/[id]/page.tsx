@@ -77,7 +77,7 @@ export default function BeatDetailPage() {
       const ids = [beat.producer_id, ...(beat.producer_ids || []).filter((id: string) => id !== beat.producer_id)]
       if (!ids.length) return;
       const { data: producersData } = await supabase
-        .from('producers')
+          .from('producers')
         .select('user_id, display_name, profile_image_url, slug')
         .in('user_id', ids)
       setProducers(producersData || [])
@@ -281,11 +281,11 @@ export default function BeatDetailPage() {
                 <Link key={prod.user_id} href={`/producers/${prod.slug}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
                   {prod.profile_image_url && (
                     <Image src={prod.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover transition-transform duration-200" />
-                  )}
-                  <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
+              )}
+              <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
                     {prod.display_name}
-                  </span>
-                </Link>
+              </span>
+            </Link>
               ))}
             </div>
           ) : (

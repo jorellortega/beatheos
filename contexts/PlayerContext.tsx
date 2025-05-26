@@ -9,6 +9,8 @@ interface Beat {
   audioUrl: string
   image?: string
   lyrics?: string
+  producerSlug?: string
+  producers?: { display_name: string; slug: string }[]
 }
 
 interface PlayerContextType {

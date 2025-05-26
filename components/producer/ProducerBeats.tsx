@@ -8,6 +8,7 @@ import { Play, ShoppingCart, Award, Plus, Pause, Star } from 'lucide-react'
 import { SaveToPlaylistModal } from "@/components/SaveToPlaylistModal"
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { usePlayer } from '@/contexts/PlayerContext'
+import Link from 'next/link'
 
 interface Beat {
   id: string | number
@@ -21,7 +22,12 @@ interface Beat {
   price_exclusive: number
   price_buyout: number
   audioUrl: string
-  producers: any
+  producers: {
+    display_name: string
+    slug: string
+  }[]
+  producer_names: string[]
+  producer_slugs: string[]
   isTopPlayed?: boolean
   cover: string
   cover_art_url: string
@@ -47,31 +53,39 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
     const fetchBeats = async () => {
       const res = await fetch(`/api/beats?producerId=${producerId}`)
       const data = await res.json()
-      let beats = (data || []).map((beat: any) => ({
-        id: beat.id,
-        slug: beat.slug,
-        title: beat.title,
-        plays: beat.play_count ?? 0,
-        isTopBeat: false, // You can update this logic if you have a field for top beats
-        price: beat.price ?? 0,
-        price_lease: beat.price_lease,
-        price_premium_lease: beat.price_premium_lease,
-        price_exclusive: beat.price_exclusive,
-        price_buyout: beat.price_buyout,
-        audioUrl: beat.mp3_url || '',
-        producers: beat.producers,
-        cover: beat.cover_art_url || '/placeholder.svg',
-        cover_art_url: beat.cover_art_url || '/placeholder.svg',
-      }))
+      let beats = (data || []).map((beat: any) => {
+        // Get all producer names and slugs
+        const producerNames = beat.producers?.map((p: any) => p.display_name) || []
+        const producerSlugs = beat.producers?.map((p: any) => p.slug) || []
+        
+        return {
+          id: beat.id,
+          slug: beat.slug,
+          title: beat.title,
+          plays: beat.play_count ?? 0,
+          isTopBeat: false,
+          price: beat.price ?? 0,
+          price_lease: beat.price_lease,
+          price_premium_lease: beat.price_premium_lease,
+          price_exclusive: beat.price_exclusive,
+          price_buyout: beat.price_buyout,
+          audioUrl: beat.mp3_url || '',
+          producers: beat.producers,
+          producer_names: producerNames,
+          producer_slugs: producerSlugs,
+          cover: beat.cover_art_url || '/placeholder.svg',
+          cover_art_url: beat.cover_art_url || '/placeholder.svg',
+        }
+      })
       // Sort by plays descending and flag top 5
       const sorted = [...beats].sort((a: Beat, b: Beat): number => {
         return (b.plays - a.plays);
       })
-      const topIds = new Set(sorted.slice(0, 5).map(b => b.id))
-      beats = beats.map(b => ({ ...b, isTopPlayed: topIds.has(b.id) }))
+      const topIds = new Set(sorted.slice(0, 5).map((b: Beat) => b.id))
+      beats = beats.map((b: Beat) => ({ ...b, isTopPlayed: topIds.has(b.id) }))
       setBeats(beats)
       if (onBeatsFetched) onBeatsFetched(beats)
-      }
+    }
     fetchBeats()
   }, [producerId, onBeatsFetched])
 
@@ -94,11 +108,13 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
     if (isCurrent) {
       setIsPlaying(!isPlaying);
     } else {
-    setCurrentBeat({
-      id: String(beat.id),
-      title: beat.title,
-      artist: beat.producers?.display_name || 'Unknown Producer',
-      audioUrl: beat.audioUrl
+      setCurrentBeat({
+        id: String(beat.id),
+        title: beat.title,
+        artist: beat.producer_names.join(', '),
+        audioUrl: beat.audioUrl,
+        producerSlug: beat.producer_slugs[0] || '',
+        producers: beat.producers || [],
       });
       setIsPlaying(true);
     }
@@ -141,6 +157,16 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                         <Star className="w-5 h-5 text-yellow-400" fill="#facc15" stroke="#facc15" />
                       )}
                     </h3>
+                    <div className="text-sm text-gray-500">
+                      by {beat.producers && beat.producers.map((producer, idx) => (
+                        <span key={producer.slug}>
+                          <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
+                            {producer.display_name}
+                          </Link>
+                          {idx < beat.producers.length - 1 && ', '}
+                        </span>
+                      ))}
+                    </div>
                     <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
                   </div>
                   {beat.isTopBeat && (
