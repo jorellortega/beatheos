@@ -56,13 +56,13 @@ export default async function Home() {
         <div className="mt-2">&copy; 2025 All rights reserved</div>
         <div className="mt-4 flex justify-center items-center gap-2">
           <a
-            href="https://instagram.com/beat.theos"
+            href="https://instagram.com/beat.heos"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center text-primary hover:underline gap-1"
           >
             <Instagram size={20} />
-            @beat.theos
+            @beat.heos
           </a>
         </div>
       </footer>
