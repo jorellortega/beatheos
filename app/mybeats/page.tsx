@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseClient } from "@/lib/supabaseClient";
 import { Play, Pause } from "lucide-react";
 import { usePlayer } from "@/contexts/PlayerContext";
 import Link from "next/link";
@@ -23,7 +23,7 @@ export default function MyBeatsPage() {
       if (!user) return;
       setLoading(true);
       // 1. Get all purchases for the user
-      const { data: purchases, error: purchasesError } = await supabase
+      const { data: purchases, error: purchasesError } = await getSupabaseClient()
         .from("beat_purchases")
         .select("beat_id")
         .eq("user_id", user.id);
@@ -34,7 +34,7 @@ export default function MyBeatsPage() {
       }
       const beatIds = purchases.map((p: any) => p.beat_id);
       // 2. Get all beats with those IDs
-      const { data: beatsData, error: beatsError } = await supabase
+      const { data: beatsData, error: beatsError } = await getSupabaseClient()
         .from("beats")
         .select("id, title, producer_id, cover_art_url, mp3_url, slug")
         .in("id", beatIds);
@@ -45,7 +45,7 @@ export default function MyBeatsPage() {
       }
       // 3. Fetch producer display names
       const producerIds = Array.from(new Set(beatsData.map((b: any) => b.producer_id)));
-      const { data: producersData, error: producersError } = await supabase
+      const { data: producersData, error: producersError } = await getSupabaseClient()
         .from("producers")
         .select("user_id, display_name")
         .in("user_id", producerIds);
