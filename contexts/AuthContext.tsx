@@ -24,16 +24,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Fetch user info (role, subscription_tier, subscription_status)
 async function fetchUserInfo(id: string): Promise<{ role: string | null, subscription_tier?: string | null, subscription_status?: string | null }> {
-  const { data, error } = await supabase
-    .from("users")
-    .select("role, subscription_tier, subscription_status")
-    .eq("id", id)
-    .single()
+  const res = await fetch(`/api/getUser?userId=${id}`);
+  if (!res.ok) throw new Error('Failed to fetch user info');
+  const data = await res.json();
   return {
     role: data?.role ?? null,
     subscription_tier: data?.subscription_tier ?? null,
     subscription_status: data?.subscription_status ?? null,
-  }
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
