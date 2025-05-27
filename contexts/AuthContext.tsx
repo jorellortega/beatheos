@@ -47,10 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let authSubscription: { unsubscribe: () => void } | null = null;
 
     const checkSessionOnLoad = async () => {
+      console.log('[Auth] checkSessionOnLoad running');
       try {
         setError(null);
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        console.log("[Auth] Session on page load:", session);
+        console.log('[Auth] Session on page load:', session);
         if (sessionError) throw sessionError;
         if (!mounted) return;
         if (session?.user) {
@@ -63,20 +64,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             subscription_tier: userInfo.subscription_tier,
             subscription_status: userInfo.subscription_status,
           });
+          console.log('[Auth] setUser called:', session.user);
         } else {
           setUser(null);
+          console.log('[Auth] setUser called: null');
         }
       } catch (error) {
         console.error('[Auth] Error checking session on load:', error);
         if (mounted) {
           setError(error instanceof Error ? error : new Error('Failed to check session on load'));
           setUser(null);
-          await supabase.auth.signOut();
+          console.log('[Auth] setUser called: null (error)');
         }
       } finally {
         if (mounted) {
           setIsLoading(false);
           setHydrated(true);
+          console.log('[Auth] hydrated set to true');
         }
       }
     };
