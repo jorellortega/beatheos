@@ -26,7 +26,7 @@ export default function SuccessContent() {
   }, [])
 
   useEffect(() => {
-    const id = searchParams.get('session_id')
+    const id = searchParams?.get('session_id') ?? null
     setSessionId(id)
     if (id) {
       setLoading(true)
@@ -52,24 +52,12 @@ export default function SuccessContent() {
   return (
     <>
       <p className="mb-4">Thank you for your purchase. Your transaction was successful.</p>
-      {sessionId && (
-        <div className="mb-4 break-all" style={{ maxWidth: '100%' }}>
-          <span className="text-xs text-gray-400 block" style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
-            Session ID:<br />{sessionId}
-          </span>
-        </div>
-      )}
       {loading && <p>Loading your download...</p>}
       {error && (
         <div>
           <p className="text-red-500">{error}</p>
           <p>Your payment was received, but we're still processing your order. If your download link doesn't appear soon, please contact support.</p>
         </div>
-      )}
-      {debug && (
-        <pre className="text-xs text-left bg-gray-100 p-2 rounded mt-4 overflow-x-auto max-w-full" style={{ maxHeight: 200 }}>
-          {JSON.stringify({ sessionId, loading, error, beat, debug }, null, 2)}
-        </pre>
       )}
       {beat && (
         <div className="mt-4 space-y-2">

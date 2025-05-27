@@ -19,6 +19,32 @@ export async function POST(req: NextRequest) {
       .single()
     if (error || !beat) return NextResponse.json({ error: 'Beat not found' }, { status: 404 })
 
+    const userId = session.metadata?.userId || null;
+    const licenseType = session.metadata?.licenseType || null;
+    const price = session.amount_total ? session.amount_total / 100 : null;
+    const downloadUrl = beat.mp3_url || beat.wav_url || beat.stems_url || null;
+
+    // Only insert if userId is present
+    if (userId) {
+      // Prevent duplicate purchases
+      const { data: existingPurchase } = await supabase
+        .from('beat_purchases')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('beat_id', beatId)
+        .maybeSingle();
+      if (!existingPurchase) {
+        await supabase.from('beat_purchases').insert({
+          user_id: userId,
+          beat_id: beatId,
+          purchase_date: new Date().toISOString(),
+          price,
+          license_type: licenseType,
+          download_url: downloadUrl,
+        });
+      }
+    }
+
     return NextResponse.json({ beat })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
