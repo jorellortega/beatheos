@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { X } from "lucide-react"
 import { loadStripe } from '@stripe/stripe-js'
+import { useAuth } from "@/contexts/AuthContext"
 
 interface PurchaseOptionsModalProps {
   isOpen: boolean
@@ -30,6 +31,7 @@ const licenseOptions = [
 
 export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsModalProps) {
   const { toast } = useToast()
+  const { user } = useAuth();
   const [selectedLicense, setSelectedLicense] = useState('lease')
   const [price, setPrice] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -42,7 +44,7 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
   }, [beat, selectedLicense])
 
   const handlePurchase = async () => {
-    if (!beat) return
+    if (!beat || !user) return
     setLoading(true)
     try {
       const res = await fetch('/api/stripe/checkout', {
@@ -53,6 +55,7 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
           licenseType: selectedLicense,
           price,
           productName: beat.title,
+          userId: user.id,
         })
       })
       const data = await res.json()
