@@ -129,6 +129,7 @@ export function SiteWideBeatPlayer() {
   useEffect(() => {
     if (!user || !currentBeat) {
       setLyrics("");
+      setOpenSessionId(null);
       if (lyricsTextareaRef.current) {
         lyricsTextareaRef.current.style.height = 'auto';
       }
@@ -139,12 +140,13 @@ export function SiteWideBeatPlayer() {
       if (!user || !currentBeat) return;
       const { data, error } = await supabase
         .from('sessions')
-        .select('lyrics')
+        .select('id, lyrics')
         .eq('user_id', user.id)
         .contains('beat_ids', [String(currentBeat.id)])
         .single();
       if (data && data.lyrics) {
         setLyrics(data.lyrics);
+        setOpenSessionId(data.id || null);
         setTimeout(() => {
           if (lyricsTextareaRef.current) {
             lyricsTextareaRef.current.style.height = 'auto';
@@ -153,6 +155,7 @@ export function SiteWideBeatPlayer() {
         }, 0);
       } else {
         setLyrics("");
+        setOpenSessionId(null);
         if (lyricsTextareaRef.current) {
           lyricsTextareaRef.current.style.height = 'auto';
         }
