@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
     const price = session.amount_total ? session.amount_total / 100 : null;
     const downloadUrl = beat.mp3_url || beat.wav_url || beat.stems_url || null;
 
-    // Only insert if userId is present
+    let insertResult = null;
+    let insertError = null;
     if (userId) {
       // Prevent duplicate purchases
       const { data: existingPurchase } = await supabase
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
         .eq('beat_id', beatId)
         .maybeSingle();
       if (!existingPurchase) {
-        await supabase.from('beat_purchases').insert({
+        const { error } = await supabase.from('beat_purchases').insert({
           user_id: userId,
           beat_id: beatId,
           purchase_date: new Date().toISOString(),
@@ -42,10 +43,16 @@ export async function POST(req: NextRequest) {
           license_type: licenseType,
           download_url: downloadUrl,
         });
+        insertResult = 'attempted';
+        insertError = error;
+      } else {
+        insertResult = 'already_exists';
       }
+    } else {
+      insertResult = 'no_user_id';
     }
 
-    return NextResponse.json({ beat })
+    return NextResponse.json({ beat, userId, insertResult, insertError })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
