@@ -14,6 +14,7 @@ const TIER_MAPPING = {
 }
 
 export async function POST(req: Request) {
+  console.log('DEBUG: Stripe webhook POST received');
   const body = await req.text()
   const headersList = await headers()
   const signature = headersList.get("stripe-signature")
@@ -105,4 +106,9 @@ export async function POST(req: Request) {
       { status: 400 }
     )
   }
+}
+
+// Add a catch-all for unsupported methods (405)
+export default function handler() {
+  return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405 })
 } 

@@ -46,7 +46,12 @@ export default function SuccessContent() {
         </div>
       )}
       {loading && <p>Loading your download...</p>}
-      {error && <p className="text-red-500">{error}</p>}
+      {error && (
+        <div>
+          <p className="text-red-500">{error}</p>
+          <p>Your payment was received, but we're still processing your order. If your download link doesn't appear soon, please contact support.</p>
+        </div>
+      )}
       {debug && (
         <pre className="text-xs text-left bg-gray-100 p-2 rounded mt-4 overflow-x-auto max-w-full" style={{ maxHeight: 200 }}>
           {JSON.stringify({ sessionId, loading, error, beat, debug }, null, 2)}
