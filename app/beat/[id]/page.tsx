@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Loader, Download, Trash2, Save, Edit, X, ShoppingCart } from "lucide-react"
+import { Loader, Download, Trash2, Save, Edit, X, ShoppingCart, Play, Pause } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import Image from "next/image"
 import { AudioWaveform } from "@/components/AudioWaveform"
 import Link from 'next/link'
+import { usePlayer } from '@/contexts/PlayerContext'
 
 const editableFields = [
   { key: "title", label: "Title", type: "input" },
@@ -49,6 +50,7 @@ export default function BeatDetailPage() {
   const [selectedLicense, setSelectedLicense] = useState<string | null>(null)
   const { user } = useAuth();
   const [producers, setProducers] = useState<any[]>([])
+  const { setCurrentBeat, setIsPlaying, currentBeat, isPlaying } = usePlayer();
 
   useEffect(() => {
     async function fetchBeat() {
@@ -217,6 +219,23 @@ export default function BeatDetailPage() {
     }
   }
 
+  const handlePlay = () => {
+    if (!beat) return;
+    if (currentBeat?.id === beat.id) {
+      setIsPlaying(!isPlaying);
+    } else {
+      setCurrentBeat({
+        id: beat.id,
+        title: beat.title,
+        artist: producers.length > 0 ? producers[0].display_name : beat.producer_id || '',
+        audioUrl: beat.mp3_url,
+        image: beat.cover_art_url,
+        producers: producers.map((p: any) => ({ display_name: p.display_name, slug: p.slug })),
+      });
+      setIsPlaying(true);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -241,7 +260,10 @@ export default function BeatDetailPage() {
             <img
               src={beat.cover_art_url}
               alt="Cover Art"
-              className="w-64 h-64 sm:w-80 sm:h-80 object-cover rounded-lg border-4 border-primary mb-6 shadow-2xl"
+              className="w-64 h-64 sm:w-80 sm:h-80 object-cover rounded-lg border-4 border-primary mb-6 shadow-2xl cursor-pointer"
+              onClick={handlePlay}
+              aria-label="Play/Pause Beat"
+              style={{ cursor: 'pointer' }}
             />
           )}
           <CardTitle className="text-5xl font-extrabold text-primary mb-4 flex items-center gap-3">
@@ -267,6 +289,9 @@ export default function BeatDetailPage() {
             ) : (
               <span>{beat.title}</span>
             )}
+            <Button size="icon" variant="ghost" onClick={handlePlay} aria-label="Play" className="ml-2">
+              {currentBeat?.id === beat.id && isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+            </Button>
           </CardTitle>
           {/* Real waveform between beat name and display name */}
           {beat.mp3_url && (
