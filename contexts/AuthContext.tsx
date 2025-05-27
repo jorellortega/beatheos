@@ -55,7 +55,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessionError) throw sessionError;
         if (!mounted) return;
         if (session?.user) {
-          const userInfo = await fetchUserInfo(session.user.id);
+          console.log('[Auth] About to fetchUserInfo for:', session.user.id);
+          let userInfo;
+          try {
+            userInfo = await fetchUserInfo(session.user.id);
+            console.log('[Auth] fetchUserInfo result:', userInfo);
+          } catch (fetchError) {
+            console.error('[Auth] fetchUserInfo error:', fetchError);
+            setError(fetchError instanceof Error ? fetchError : new Error('Failed to fetch user info'));
+            setUser(null);
+            setIsLoading(false);
+            setHydrated(true);
+            return;
+          }
           if (!mounted) return;
           setUser({
             id: session.user.id,
