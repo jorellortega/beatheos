@@ -46,119 +46,90 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     let authSubscription: { unsubscribe: () => void } | null = null;
 
-    const initializeAuth = async () => {
-      if (!mounted) return;
-      
+    const checkSessionOnLoad = async () => {
       try {
         setError(null);
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
-        if (sessionError) {
-          throw sessionError;
-        }
-        
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        console.log("[Auth] Session on page load:", session);
+        if (sessionError) throw sessionError;
         if (!mounted) return;
-        
         if (session?.user) {
-          const userInfo = await fetchUserInfo(session.user.id)
+          localStorage.setItem('beatheos-auth-token', JSON.stringify(session));
+          const userInfo = await fetchUserInfo(session.user.id);
           if (!mounted) return;
-          
           setUser({
             id: session.user.id,
             email: session.user.email ?? null,
             role: userInfo.role,
             subscription_tier: userInfo.subscription_tier,
             subscription_status: userInfo.subscription_status,
-          })
+          });
         } else {
-          setUser(null)
+          localStorage.removeItem('beatheos-auth-token');
+          setUser(null);
         }
       } catch (error) {
-        console.error('Error initializing auth:', error)
+        console.error('[Auth] Error checking session on load:', error);
         if (mounted) {
-          setError(error instanceof Error ? error : new Error('Failed to initialize auth'))
-          setUser(null)
-          // Clear any potentially corrupted session data
-          await supabase.auth.signOut()
+          setError(error instanceof Error ? error : new Error('Failed to check session on load'));
+          setUser(null);
+          localStorage.removeItem('beatheos-auth-token');
+          await supabase.auth.signOut();
         }
       } finally {
         if (mounted) {
-          setIsLoading(false)
-          setHydrated(true)
+          setIsLoading(false);
+          setHydrated(true);
         }
       }
-    }
+    };
 
-    // Initialize auth
-    initializeAuth()
+    checkSessionOnLoad();
 
-    // Set up auth state change listener
     authSubscription = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[Auth] Auth change detected:', event, session);
       if (!mounted) return;
-      
       try {
         setError(null);
-        
-        // Handle specific auth events
-        if (event === 'SIGNED_OUT') {
-          setUser(null)
-          setIsLoading(false)
-          return
-        }
-        
-        if (event === 'TOKEN_REFRESHED') {
-          // Re-fetch user info after token refresh
-          if (session?.user) {
-            const userInfo = await fetchUserInfo(session.user.id)
+        if (session) {
+          localStorage.setItem('beatheos-auth-token', JSON.stringify(session));
+          if (session.user) {
+            const userInfo = await fetchUserInfo(session.user.id);
             if (!mounted) return;
-            
             setUser({
               id: session.user.id,
               email: session.user.email ?? null,
               role: userInfo.role,
               subscription_tier: userInfo.subscription_tier,
               subscription_status: userInfo.subscription_status,
-            })
+            });
           }
-          return
-        }
-        
-        if (session?.user) {
-          const userInfo = await fetchUserInfo(session.user.id)
-          if (!mounted) return;
-          
-          setUser({
-            id: session.user.id,
-            email: session.user.email ?? null,
-            role: userInfo.role,
-            subscription_tier: userInfo.subscription_tier,
-            subscription_status: userInfo.subscription_status,
-          })
         } else {
-          setUser(null)
+          localStorage.removeItem('beatheos-auth-token');
+          setUser(null);
         }
       } catch (error) {
-        console.error('Error handling auth state change:', error)
+        console.error('[Auth] Error handling auth state change:', error);
         if (mounted) {
-          setError(error instanceof Error ? error : new Error('Failed to handle auth state change'))
-          setUser(null)
-          // Clear any potentially corrupted session data
-          await supabase.auth.signOut()
+          setError(error instanceof Error ? error : new Error('Failed to handle auth state change'));
+          setUser(null);
+          localStorage.removeItem('beatheos-auth-token');
+          await supabase.auth.signOut();
         }
       } finally {
         if (mounted) {
-          setIsLoading(false)
+          setIsLoading(false);
         }
       }
-    }).data.subscription
+    }).data.subscription;
 
     return () => {
       mounted = false;
       if (authSubscription) {
-        authSubscription.unsubscribe()
+        authSubscription.unsubscribe();
       }
-    }
-  }, [])
+    };
+  }, []);
 
   const login = async (email: string, password: string): Promise<User> => {
     try {
