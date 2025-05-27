@@ -9,6 +9,7 @@ export default function SuccessContent() {
   const [beat, setBeat] = useState<{ mp3_url?: string; wav_url?: string; stems_url?: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [debug, setDebug] = useState<any>(null)
 
   useEffect(() => {
     const id = searchParams.get('session_id')
@@ -20,12 +21,16 @@ export default function SuccessContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: id })
       })
-        .then(res => res.json())
-        .then(data => {
+        .then(async res => {
+          const data = await res.json()
+          setDebug({ status: res.status, data })
           if (data.beat) setBeat(data.beat)
           else setError(data.error || 'Could not fetch beat info')
         })
-        .catch(() => setError('Could not fetch beat info'))
+        .catch((e) => {
+          setDebug({ error: e.message })
+          setError('Could not fetch beat info')
+        })
         .finally(() => setLoading(false))
     }
   }, [searchParams])
@@ -42,6 +47,11 @@ export default function SuccessContent() {
       )}
       {loading && <p>Loading your download...</p>}
       {error && <p className="text-red-500">{error}</p>}
+      {debug && (
+        <pre className="text-xs text-left bg-gray-100 p-2 rounded mt-4 overflow-x-auto max-w-full" style={{ maxHeight: 200 }}>
+          {JSON.stringify({ sessionId, loading, error, beat, debug }, null, 2)}
+        </pre>
+      )}
       {beat && (
         <div className="mt-4 space-y-2">
           {beat.mp3_url && (

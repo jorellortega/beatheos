@@ -971,14 +971,14 @@ export default function BusinessProducerDashboard() {
                       ) : (
                         recentSessions.map(session => (
                           <div key={session.id} className="flex items-center justify-between p-2 bg-secondary rounded-md">
-                            <div>
+                        <div>
                               <div className="font-medium">{session.name}</div>
                               <div className="text-sm text-gray-400">Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : '-'}</div>
-                            </div>
-                            <Button variant="ghost" size="sm">
-                              <Play className="h-4 w-4" />
-                            </Button>
-                          </div>
+                        </div>
+                        <Button variant="ghost" size="sm">
+                          <Play className="h-4 w-4" />
+                        </Button>
+                      </div>
                         ))
                       )}
                     </div>

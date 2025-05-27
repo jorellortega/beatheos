@@ -169,13 +169,13 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                             </span>
                           ))
                         : beat.producers && beat.producers.map((producer, idx) => (
-                            <span key={producer.slug}>
-                              <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
-                                {producer.display_name}
-                              </Link>
-                              {idx < beat.producers.length - 1 && ', '}
-                            </span>
-                          ))}
+                        <span key={producer.slug}>
+                          <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
+                            {producer.display_name}
+                          </Link>
+                          {idx < beat.producers.length - 1 && ', '}
+                        </span>
+                      ))}
                     </div>
                     <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
                   </div>

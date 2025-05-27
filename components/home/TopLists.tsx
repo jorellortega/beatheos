@@ -117,15 +117,15 @@ export function TopLists() {
         (topProducersData || [])
           .filter((p: any) => userRoleMap[p.user_id] !== 'free_artist')
           .map((p: any) => {
-            const producer = producersData?.find((prod: any) => prod.user_id === p.user_id)
-            return {
-              id: producer?.id,
-              slug: producer?.slug,
-              name: p.display_name,
-              weekly_plays: p.total_plays,
-              image: producer?.profile_image_url || '/placeholder.svg',
-            }
-          })
+          const producer = producersData?.find((prod: any) => prod.user_id === p.user_id)
+          return {
+            id: producer?.id,
+            slug: producer?.slug,
+            name: p.display_name,
+            weekly_plays: p.total_plays,
+            image: producer?.profile_image_url || '/placeholder.svg',
+          }
+        })
       )
       setRevealedProducers(0)
       setLoading(false)

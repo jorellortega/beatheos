@@ -37,6 +37,8 @@ export async function POST(req: Request) {
         const session = event.data.object as Stripe.Checkout.Session
         const userId = session.client_reference_id
         const tierId = session.metadata?.tierId
+        const beatId = session.metadata?.beatId
+        const licenseType = session.metadata?.licenseType
 
         if (!userId || !tierId) {
           throw new Error("Missing userId or tierId in session metadata")
@@ -53,6 +55,23 @@ export async function POST(req: Request) {
           .eq("id", userId)
 
         if (error) throw error
+
+        // Beat purchase logic (new)
+        if (userId && beatId && licenseType) {
+          const { error } = await supabase
+            .from("beat_purchases")
+            .insert([
+              {
+                user_id: userId,
+                beat_id: beatId,
+                purchase_date: new Date().toISOString(),
+                price: session.amount_total ? session.amount_total / 100 : null,
+                license_type: licenseType,
+                download_url: null // Set this if you have a download URL
+              }
+            ])
+          if (error) throw error
+        }
         break
       }
 

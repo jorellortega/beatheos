@@ -302,11 +302,11 @@ export default function SessionsPage() {
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-0">
                     <div>
                       {editingTitleId === session.id ? (
-                        <Input
-                          name="name"
+                          <Input
+                            name="name"
                           value={titleEditValue}
                           onChange={e => setTitleEditValue(e.target.value)}
-                          className="mb-2"
+                            className="mb-2"
                           autoFocus
                           onBlur={() => handleSaveTitle(session.id)}
                           onKeyDown={e => {
@@ -326,9 +326,9 @@ export default function SessionsPage() {
                         </CardTitle>
                       )}
                       <CardDescription>
-                        Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
-                        <br />
-                        Beats: {session.beat_ids ? session.beat_ids.length : 0}
+                            Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
+                            <br />
+                            Beats: {session.beat_ids ? session.beat_ids.length : 0}
                       </CardDescription>
                       {editingLyricsId === session.id ? (
                         <div className="flex flex-col gap-2 mt-1">
@@ -365,8 +365,8 @@ export default function SessionsPage() {
                           <span className="pl-2 flex items-center group-hover:opacity-100 transition-opacity">
                             <Edit className="h-4 w-4 text-gray-400" />
                           </span>
-                        </div>
-                      )}
+                            </div>
+                          )}
                       {/* Lyrics Modal for this session */}
                       {openLyricsModalId === session.id && (
                         <Dialog open={true} onOpenChange={handleCloseLyricsModal}>
@@ -425,7 +425,7 @@ export default function SessionsPage() {
                         <>
                           <Button size="sm" variant="destructive" onClick={() => handleDelete(session.id)} disabled={saving}>
                             <Trash2 className="h-4 w-4 mr-1" /> Delete
-                          </Button>
+                      </Button>
                           {session.lyrics && (
                             <Button size="sm" variant="secondary" onClick={() => {
                               const blob = new Blob([session.lyrics], { type: 'text/plain' });
