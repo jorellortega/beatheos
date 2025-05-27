@@ -331,7 +331,7 @@ export default function SessionsPage() {
                             Beats: {session.beat_ids ? session.beat_ids.length : 0}
                             <br />
                             {/* List beats with play button */}
-                            {beatsBySession[session.id] && beatsBySession[session.id].length > 0 && (
+                          {beatsBySession[session.id] && beatsBySession[session.id].length > 0 && (
                               <div className="flex flex-col gap-1 mt-2">
                                 {beatsBySession[session.id].map((beat: any) => (
                                   <div key={beat.id} className="flex items-center gap-2">

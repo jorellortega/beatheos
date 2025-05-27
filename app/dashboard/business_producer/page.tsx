@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -801,6 +801,8 @@ export default function BusinessProducerDashboard() {
   const [beatStats, setBeatStats] = useState<{ totalBeats: number; totalPlays: number }>({ totalBeats: 0, totalPlays: 0 });
   const [topBeats, setTopBeats] = useState<any[]>([]);
   const [recentSessions, setRecentSessions] = useState<any[]>([])
+  const [totalSales, setTotalSales] = useState(0);
+  const [totalMade, setTotalMade] = useState(0);
 
   useEffect(() => {
     if (!user || user.role !== "business_producer") {
@@ -816,19 +818,52 @@ export default function BusinessProducerDashboard() {
           setDisplayName(data?.display_name || null)
         })
 
-      // Fetch analytics stats
+      // Restore original analytics stats logic for total beats and total plays
       supabase
         .from('beats')
-        .select('id, slug, title, play_count, cover_art_url')
+        .select('id, play_count')
         .eq('producer_id', user.id)
         .then(({ data }) => {
           const totalBeats = data?.length || 0;
           const totalPlays = (data || []).reduce((sum, b) => sum + (b.play_count || 0), 0);
           setBeatStats({ totalBeats, totalPlays });
-          // Sort and get top 5
+        });
+
+      // Fetch top 5 most played beats (unchanged)
+      supabase
+        .from('beats')
+        .select('id, slug, title, play_count, cover_art_url')
+        .eq('producer_id', user.id)
+        .then(({ data }) => {
           const sorted = (data || []).sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
           setTopBeats(sorted.slice(0, 5));
         });
+
+      // Fetch total sales (beats sold by this producer) and total made (sum of price)
+      (async () => {
+        const { data: beatsData, error: beatsError } = await supabase
+          .from('beats')
+          .select('id')
+          .eq('producer_id', user.id);
+        if (beatsError || !beatsData || beatsData.length === 0) {
+          setTotalSales(0);
+          setTotalMade(0);
+        } else {
+          const beatIds = beatsData.map((b: any) => b.id);
+          if (beatIds.length === 0) {
+            setTotalSales(0);
+            setTotalMade(0);
+          } else {
+            const { data: salesData, count } = await supabase
+              .from('beat_purchases')
+              .select('id, price', { count: 'exact' })
+              .in('beat_id', beatIds);
+            setTotalSales(count || 0);
+            const total = (salesData || []).reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0);
+            setTotalMade(total);
+          }
+        }
+      })();
     }
   }, [user, router])
 
@@ -893,7 +928,7 @@ export default function BusinessProducerDashboard() {
         
         <TabsContent value="overview" className="mt-6">
           {/* Analytics Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
             <Card className="bg-black border-primary">
               <CardContent className="p-6 flex flex-col items-center justify-center">
                 <div className="text-4xl font-bold text-primary">{beatStats.totalBeats}</div>
@@ -902,10 +937,32 @@ export default function BusinessProducerDashboard() {
             </Card>
             <Card className="bg-black border-primary">
               <CardContent className="p-6 flex flex-col items-center justify-center">
-                <div className="text-4xl font-bold text-primary">{beatStats.totalPlays}</div>
+                <div className="text-4xl font-bold text-primary">{formatK(beatStats.totalPlays)}</div>
                 <div className="text-lg text-gray-300 mt-2">Total Plays</div>
               </CardContent>
             </Card>
+            <Link href="/sold" className="block">
+              <Card className="bg-black border-primary hover:border-yellow-400 transition-colors cursor-pointer">
+                <CardContent className="p-6 flex flex-col items-center justify-center">
+                  <div className="text-4xl font-bold text-primary flex items-center gap-2">
+                    <span>{totalSales}</span>
+                    <ShoppingCart className="h-7 w-7 text-yellow-400" />
+                  </div>
+                  <div className="text-lg text-gray-300 mt-2">Beats Sold</div>
+                </CardContent>
+              </Card>
+            </Link>
+            <Link href="/sold" className="block">
+              <Card className="bg-black border-primary hover:border-yellow-400 transition-colors cursor-pointer">
+                <CardContent className="p-6 flex flex-col items-center justify-center">
+                  <div className="text-4xl font-bold flex items-center gap-2 break-words text-center w-full justify-center">
+                    <span className="text-green-600 break-words text-center">{formatMoneyK(totalMade)}</span>
+                    <Receipt className="h-7 w-7 text-green-600 flex-shrink-0" />
+                  </div>
+                  <div className="text-lg text-white mt-2">Total Sales</div>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
           {/* Top 5 Beats by Plays */}
           <div className="mb-8">
@@ -1134,5 +1191,21 @@ function SimpleBeatsList({ userId }: { userId: string }) {
       ))}
     </div>
   );
+}
+
+// Utility function for k-format
+function formatMoneyK(value: number) {
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(1)}k`;
+  }
+  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Utility function for k-format (shared)
+function formatK(value: number) {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  return value.toLocaleString();
 }
 
