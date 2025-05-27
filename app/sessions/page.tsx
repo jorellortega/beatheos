@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Plus, Upload, Download, Share2, Mic, Play, Pause, Trash2, Edit } from "lucide-react"
+import { Plus, Upload, Download, Share2, Mic, Play, Pause, Trash2, Edit, Eye } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useAuth } from "@/contexts/AuthContext"
 import { supabase } from "@/lib/supabaseClient"
+import { usePlayer } from "@/contexts/PlayerContext"
+import { Rnd } from 'react-rnd'
 
 // DEBUG: Log Supabase client creation
 console.debug('[DEBUG] Creating Supabase client in app/sessions/page.tsx');
@@ -37,6 +39,14 @@ export default function SessionsPage() {
   const [beatsBySession, setBeatsBySession] = useState<{ [sessionId: string]: any[] }>({})
   const [playingBeatId, setPlayingBeatId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const { setCurrentBeat, setIsPlaying, currentBeat, isPlaying } = usePlayer();
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null)
+  const [editingLyricsId, setEditingLyricsId] = useState<string | null>(null)
+  const [titleEditValue, setTitleEditValue] = useState("")
+  const [lyricsEditValue, setLyricsEditValue] = useState("")
+  const [openLyricsModalId, setOpenLyricsModalId] = useState<string | null>(null)
+  const [modalLyricsValue, setModalLyricsValue] = useState("")
+  const [modalSaving, setModalSaving] = useState(false)
 
   // Fetch sessions from Supabase
   useEffect(() => {
@@ -151,24 +161,117 @@ export default function SessionsPage() {
   }
 
   const handlePlayPause = (beat: any) => {
-    if (playingBeatId === beat.id) {
-      audioRef.current?.pause();
-      setPlayingBeatId(null);
+    // Use the sitewide player
+    if (currentBeat && currentBeat.id === beat.id) {
+      setIsPlaying(!isPlaying);
     } else {
-      if (audioRef.current) {
-        audioRef.current.src = beat.mp3_url;
-        audioRef.current.play();
-        setPlayingBeatId(beat.id);
-      }
+      setCurrentBeat({
+        id: beat.id,
+        title: beat.title,
+        artist: beat.producer_id || '',
+        audioUrl: beat.mp3_url,
+        image: beat.cover_art_url,
+        producers: [],
+      });
+      setIsPlaying(true);
     }
   };
+
+  const handleEditTitle = (session: any) => {
+    setEditingTitleId(session.id)
+    setTitleEditValue(session.name || "")
+  }
+
+  const handleEditLyrics = (session: any) => {
+    setEditingLyricsId(session.id)
+    setLyricsEditValue(session.lyrics || "")
+  }
+
+  const handleSaveTitle = async (id: string) => {
+    if (!user) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('sessions')
+      .update({ name: titleEditValue })
+      .eq('id', id)
+    setSaving(false)
+    if (!error) {
+      toast({ title: "Session Updated", description: "Session title updated successfully." })
+      setEditingTitleId(null)
+      // Refetch sessions after save
+      const { data: newSessions } = await supabase
+        .from('sessions')
+        .select('id, name, last_modified, beat_ids, lyrics')
+        .eq('user_id', user.id)
+        .order('last_modified', { ascending: false });
+      setSessions(newSessions || [])
+    } else {
+      toast({ title: "Error", description: "Failed to update session.", variant: "destructive" })
+    }
+  }
+
+  const handleSaveLyrics = async (id: string) => {
+    if (!user) return
+    setSaving(true)
+    const { error } = await supabase
+      .from('sessions')
+      .update({ lyrics: lyricsEditValue })
+      .eq('id', id)
+    setSaving(false)
+    if (!error) {
+      toast({ title: "Session Updated", description: "Session lyrics updated successfully." })
+      setEditingLyricsId(null)
+      // Refetch sessions after save
+      const { data: newSessions } = await supabase
+        .from('sessions')
+        .select('id, name, last_modified, beat_ids, lyrics')
+        .eq('user_id', user.id)
+        .order('last_modified', { ascending: false });
+      setSessions(newSessions || [])
+    } else {
+      toast({ title: "Error", description: "Failed to update lyrics.", variant: "destructive" })
+    }
+  }
+
+  const handleOpenLyricsModal = (session: any) => {
+    setOpenLyricsModalId(session.id)
+    setModalLyricsValue(session.lyrics || "")
+  }
+
+  const handleCloseLyricsModal = () => {
+    setOpenLyricsModalId(null)
+    setModalLyricsValue("")
+  }
+
+  const handleSaveLyricsModal = async (id: string) => {
+    if (!user) return
+    setModalSaving(true)
+    const { error } = await supabase
+      .from('sessions')
+      .update({ lyrics: modalLyricsValue })
+      .eq('id', id)
+    setModalSaving(false)
+    if (!error) {
+      toast({ title: "Session Updated", description: "Session lyrics updated successfully." })
+      setOpenLyricsModalId(null)
+      // Refetch sessions after save
+      const { data: newSessions } = await supabase
+        .from('sessions')
+        .select('id, name, last_modified, beat_ids, lyrics')
+        .eq('user_id', user.id)
+        .order('last_modified', { ascending: false });
+      setSessions(newSessions || [])
+    } else {
+      toast({ title: "Error", description: "Failed to update lyrics.", variant: "destructive" })
+    }
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Recording Sessions</h1>
-          <p className="text-xl text-gray-400">Manage and collaborate on your recording sessions</p>
+          <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Sessions</h1>
+          <p className="text-xl text-gray-400">Manage and collaborate on your sessions</p>
         </div>
         <Button onClick={handleUploadSession} disabled className="opacity-50 cursor-not-allowed">
           <Upload className="h-4 w-4 mr-2" />
@@ -198,53 +301,114 @@ export default function SessionsPage() {
                 <CardHeader>
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 sm:gap-0">
                     <div>
-                      {editingId === session.id ? (
-                        <>
-                          <Input
-                            name="name"
-                            value={editForm.name}
-                            onChange={handleEditChange}
-                            className="mb-2"
-                          />
-                          <Label>Lyrics</Label>
+                      {editingTitleId === session.id ? (
+                        <Input
+                          name="name"
+                          value={titleEditValue}
+                          onChange={e => setTitleEditValue(e.target.value)}
+                          className="mb-2"
+                          autoFocus
+                          onBlur={() => handleSaveTitle(session.id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSaveTitle(session.id);
+                            if (e.key === 'Escape') setEditingTitleId(null);
+                          }}
+                        />
+                      ) : (
+                        <CardTitle
+                          className="relative group cursor-pointer"
+                          onClick={() => handleEditTitle(session)}
+                        >
+                          {session.name}
+                          <span className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pl-2 flex items-center">
+                            <Edit className="h-4 w-4 text-gray-400" />
+                          </span>
+                        </CardTitle>
+                      )}
+                      <CardDescription>
+                        Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
+                        <br />
+                        Beats: {session.beat_ids ? session.beat_ids.length : 0}
+                      </CardDescription>
+                      {editingLyricsId === session.id ? (
+                        <div className="flex flex-col gap-2 mt-1">
                           <textarea
                             name="lyrics"
-                            value={editForm.lyrics}
-                            onChange={handleEditChange}
-                            className="w-full h-24 mb-2 bg-secondary text-white rounded p-2"
+                            value={lyricsEditValue}
+                            onChange={e => setLyricsEditValue(e.target.value)}
+                            className="w-full h-24 bg-secondary text-white rounded p-2"
+                            autoFocus
+                            onBlur={() => handleSaveLyrics(session.id)}
+                            onKeyDown={e => {
+                              if (e.key === 'Escape') setEditingLyricsId(null);
+                            }}
                           />
-                        </>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleSaveLyrics(session.id)} disabled={saving}>Save</Button>
+                            <Button size="sm" variant="outline" onClick={() => setEditingLyricsId(null)} disabled={saving}>Cancel</Button>
+                          </div>
+                        </div>
                       ) : (
-                        <>
-                      <CardTitle>{session.name}</CardTitle>
-                      <CardDescription>
-                            Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
-                            <br />
-                            Beats: {session.beat_ids ? session.beat_ids.length : 0}
-                      </CardDescription>
-                          {beatsBySession[session.id] && beatsBySession[session.id].length > 0 && (
-                            <div className="mt-2">
-                              <strong>Beats:</strong>
-                              <ul className="list-disc ml-6">
-                                {beatsBySession[session.id].map(beat => (
-                                  <li key={beat.id} className="flex items-center space-x-2">
-                                    {beat.cover_art_url && (
-                                      <img src={beat.cover_art_url} alt="cover" className="w-8 h-8 rounded object-cover" />
-                                    )}
-                                    <span>{beat.title}</span>
-                                    <button
-                                      className="ml-2"
-                                      onClick={() => handlePlayPause(beat)}
-                                      aria-label={playingBeatId === beat.id ? 'Pause' : 'Play'}
-                                    >
-                                      {playingBeatId === beat.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </>
+                        <div
+                          className="flex items-center gap-2 mt-1 relative cursor-pointer"
+                          onClick={() => handleEditLyrics(session)}
+                          tabIndex={0}
+                          role="button"
+                          aria-label="Edit Lyrics"
+                        >
+                          <span className="text-sm text-gray-400 break-all">
+                            {session.lyrics ? session.lyrics.slice(0, 40) + (session.lyrics.length > 40 ? "..." : "") : "-"}
+                          </span>
+                          <span className="pl-2 flex items-center">
+                            <Eye className="h-4 w-4 text-gray-400" onClick={e => { e.stopPropagation(); handleOpenLyricsModal(session); }} />
+                          </span>
+                          <span className="pl-2 flex items-center group-hover:opacity-100 transition-opacity">
+                            <Edit className="h-4 w-4 text-gray-400" />
+                          </span>
+                        </div>
+                      )}
+                      {/* Lyrics Modal for this session */}
+                      {openLyricsModalId === session.id && (
+                        <Dialog open={true} onOpenChange={handleCloseLyricsModal}>
+                          <Rnd
+                            default={{ x: 100, y: 100, width: 500, height: 420 }}
+                            minWidth={300}
+                            minHeight={120}
+                            maxWidth={900}
+                            maxHeight={900}
+                            bounds="window"
+                            className="z-[1000]"
+                            enableResizing={{
+                              top: true,
+                              right: true,
+                              bottom: true,
+                              left: true,
+                              topRight: true,
+                              bottomRight: true,
+                              bottomLeft: true,
+                              topLeft: true,
+                            }}
+                          >
+                            <DialogContent className="max-w-lg overflow-auto">
+                              <DialogHeader>
+                                <DialogTitle>Edit Full Lyrics</DialogTitle>
+                              </DialogHeader>
+                              <textarea
+                                className="w-full bg-secondary text-white rounded p-2 mb-4 resize"
+                                value={modalLyricsValue}
+                                onChange={e => setModalLyricsValue(e.target.value)}
+                                autoFocus
+                              />
+                              <div className="flex justify-end gap-2 mt-2">
+                                <Button variant="outline" onClick={handleCloseLyricsModal}>Close</Button>
+                                <Button onClick={() => handleSaveLyricsModal(session.id)} disabled={modalSaving}>
+                                  {modalSaving ? <span className="animate-spin mr-2">⏳</span> : null}
+                                  Save
+                                </Button>
+                              </div>
+                            </DialogContent>
+                          </Rnd>
+                        </Dialog>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2 mt-2 sm:mt-0">
@@ -259,12 +423,9 @@ export default function SessionsPage() {
                         </>
                       ) : (
                         <>
-                          <Button size="sm" variant="outline" onClick={() => handleEdit(session)}>
-                            <Edit className="h-4 w-4 mr-1" /> Edit
-                      </Button>
                           <Button size="sm" variant="destructive" onClick={() => handleDelete(session.id)} disabled={saving}>
                             <Trash2 className="h-4 w-4 mr-1" /> Delete
-                      </Button>
+                          </Button>
                           {session.lyrics && (
                             <Button size="sm" variant="secondary" onClick={() => {
                               const blob = new Blob([session.lyrics], { type: 'text/plain' });
@@ -316,15 +477,6 @@ export default function SessionsPage() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-400">
-                        Lyrics: {editingId === session.id ? null : (session.lyrics ? session.lyrics.slice(0, 40) + (session.lyrics.length > 40 ? "..." : "") : "-")}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
               </Card>
             ))}
           </div>

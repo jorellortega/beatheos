@@ -31,6 +31,7 @@ interface Beat {
   isTopPlayed?: boolean
   cover: string
   cover_art_url: string
+  producer_ids?: string[]
 }
 
 interface ProducerBeatsProps {
@@ -75,6 +76,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
           producer_slugs: producerSlugs,
           cover: beat.cover_art_url || '/placeholder.svg',
           cover_art_url: beat.cover_art_url || '/placeholder.svg',
+          producer_ids: beat.producer_ids,
         }
       })
       // Sort by plays descending and flag top 5
@@ -158,14 +160,22 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                       )}
                     </h3>
                     <div className="text-sm text-gray-500">
-                      by {beat.producers && beat.producers.map((producer, idx) => (
-                        <span key={producer.slug}>
-                          <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
-                            {producer.display_name}
-                          </Link>
-                          {idx < beat.producers.length - 1 && ', '}
-                        </span>
-                      ))}
+                      by {(beat.producer_ids ?? []).length > 0 && beat.producer_names && beat.producer_names.length > 0
+                        ? beat.producer_names.map((name: string, idx: number) => (
+                            <span key={(beat.producer_ids ?? [])[idx] || idx}>
+                              <Link href={`/producers/${beat.producer_slugs[idx]}`} className="text-gray-400 hover:text-yellow-400">
+                                {name}
+                              </Link>{idx < beat.producer_names.length - 1 ? ', ' : ''}
+                            </span>
+                          ))
+                        : beat.producers && beat.producers.map((producer, idx) => (
+                            <span key={producer.slug}>
+                              <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
+                                {producer.display_name}
+                              </Link>
+                              {idx < beat.producers.length - 1 && ', '}
+                            </span>
+                          ))}
                     </div>
                     <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
                   </div>

@@ -800,6 +800,7 @@ export default function BusinessProducerDashboard() {
   const [displayName, setDisplayName] = useState<string | null>(null)
   const [beatStats, setBeatStats] = useState<{ totalBeats: number; totalPlays: number }>({ totalBeats: 0, totalPlays: 0 });
   const [topBeats, setTopBeats] = useState<any[]>([]);
+  const [recentSessions, setRecentSessions] = useState<any[]>([])
 
   useEffect(() => {
     if (!user || user.role !== "business_producer") {
@@ -830,6 +831,19 @@ export default function BusinessProducerDashboard() {
         });
     }
   }, [user, router])
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('sessions')
+      .select('id, name, last_modified')
+      .eq('user_id', user.id)
+      .order('last_modified', { ascending: false })
+      .limit(2)
+      .then(({ data }) => {
+        if (data) setRecentSessions(data);
+      });
+  }, [user]);
 
   const togglePromo = (id: number) => {
     const updatedItems = items.map(item => 
@@ -939,8 +953,8 @@ export default function BusinessProducerDashboard() {
               <Card className="hover:border-primary transition-all cursor-pointer">
                 <CardHeader>
                   <Mic className="h-8 w-8 mb-2 text-primary" />
-                  <CardTitle>Recording Sessions</CardTitle>
-                  <CardDescription>Manage your recording sessions and drafts.</CardDescription>
+                  <CardTitle>Sessions</CardTitle>
+                  <CardDescription>Manage your sessions and drafts.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
@@ -952,24 +966,21 @@ export default function BusinessProducerDashboard() {
                       </Button>
                     </div>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between p-2 bg-secondary rounded-md">
-                        <div>
-                          <div className="font-medium">Cosmic Rhythm Session</div>
-                          <div className="text-sm text-gray-400">Last modified: 2 hours ago</div>
-                        </div>
-                        <Button variant="ghost" size="sm">
-                          <Play className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="flex items-center justify-between p-2 bg-secondary rounded-md">
-                        <div>
-                          <div className="font-medium">Trap Essentials Draft</div>
-                          <div className="text-sm text-gray-400">Last modified: 1 day ago</div>
-                        </div>
-                        <Button variant="ghost" size="sm">
-                          <Play className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      {recentSessions.length === 0 ? (
+                        <div className="text-gray-400">No recent sessions</div>
+                      ) : (
+                        recentSessions.map(session => (
+                          <div key={session.id} className="flex items-center justify-between p-2 bg-secondary rounded-md">
+                            <div>
+                              <div className="font-medium">{session.name}</div>
+                              <div className="text-sm text-gray-400">Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : '-'}</div>
+                            </div>
+                            <Button variant="ghost" size="sm">
+                              <Play className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </CardContent>

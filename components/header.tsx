@@ -15,6 +15,7 @@ export default function Header() {
   const pathname = usePathname()
   const { user, logout } = useAuth()
   const [producerId, setProducerId] = useState<string | null>(null)
+  const [producerSlug, setProducerSlug] = useState<string | null>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const getDashboardPath = () => {
@@ -53,17 +54,20 @@ export default function Header() {
     async function fetchProducerId() {
       if (!user) {
         setProducerId(null)
+        setProducerSlug(null)
         return
       }
       const { data, error } = await supabase
         .from('producers')
-        .select('id')
+        .select('id, slug')
         .eq('user_id', user.id)
         .single()
-      if (data && data.id) {
+      if (data) {
         setProducerId(data.id)
+        setProducerSlug(data.slug)
       } else {
         setProducerId(null)
+        setProducerSlug(null)
       }
     }
     fetchProducerId()
@@ -119,9 +123,9 @@ export default function Header() {
           >
             Dashboard
           </Link>
-          {producerId && (
+          {producerId && producerSlug && (
             <Link
-              href={`/producers/${producerId}`}
+              href={`/producers/${producerSlug}`}
                 className="text-2xl font-semibold text-gray-300 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
@@ -176,9 +180,9 @@ export default function Header() {
                 <Button variant="outline" className="text-white hover:text-primary" asChild>
                   <Link href={getDashboardPath()}>Dashboard</Link>
                 </Button>
-                {producerId && (
+                {producerId && producerSlug && (
                   <Button variant="outline" className="text-white hover:text-primary" asChild>
-                    <Link href={`/producers/${producerId}`}>Profile</Link>
+                    <Link href={`/producers/${producerSlug}`}>Profile</Link>
                   </Button>
                 )}
                 <DropdownMenu>

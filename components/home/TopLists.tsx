@@ -107,17 +107,25 @@ export function TopLists() {
         .from('producers')
         .select('id, user_id, profile_image_url, slug')
         .in('user_id', userIds)
+      // Fetch user roles for these user_ids
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('id, role')
+        .in('id', userIds)
+      const userRoleMap = Object.fromEntries((usersData || []).map((u: any) => [u.id, u.role]))
       setTopProducers(
-        (topProducersData || []).map((p: any) => {
-          const producer = producersData?.find((prod: any) => prod.user_id === p.user_id)
-          return {
-            id: producer?.id,
-            slug: producer?.slug,
-            name: p.display_name,
-            weekly_plays: p.total_plays,
-            image: producer?.profile_image_url || '/placeholder.svg',
-          }
-        })
+        (topProducersData || [])
+          .filter((p: any) => userRoleMap[p.user_id] !== 'free_artist')
+          .map((p: any) => {
+            const producer = producersData?.find((prod: any) => prod.user_id === p.user_id)
+            return {
+              id: producer?.id,
+              slug: producer?.slug,
+              name: p.display_name,
+              weekly_plays: p.total_plays,
+              image: producer?.profile_image_url || '/placeholder.svg',
+            }
+          })
       )
       setRevealedProducers(0)
       setLoading(false)
