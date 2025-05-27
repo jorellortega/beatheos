@@ -2,6 +2,8 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabaseClient'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function SuccessContent() {
   const searchParams = useSearchParams()
@@ -10,6 +12,18 @@ export default function SuccessContent() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [debug, setDebug] = useState<any>(null)
+  const { user, error: authError } = useAuth()
+
+  // Force a session re-check after payment
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      // No-op: AuthProvider will sync context if session exists
+      if (!session) {
+        // Optionally, you could redirect or show an error here
+        // window.location.href = '/login';
+      }
+    })
+  }, [])
 
   useEffect(() => {
     const id = searchParams.get('session_id')

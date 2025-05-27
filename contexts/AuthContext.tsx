@@ -54,7 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessionError) throw sessionError;
         if (!mounted) return;
         if (session?.user) {
-          localStorage.setItem('beatheos-auth-token', JSON.stringify(session));
           const userInfo = await fetchUserInfo(session.user.id);
           if (!mounted) return;
           setUser({
@@ -65,7 +64,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             subscription_status: userInfo.subscription_status,
           });
         } else {
-          localStorage.removeItem('beatheos-auth-token');
           setUser(null);
         }
       } catch (error) {
@@ -73,7 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) {
           setError(error instanceof Error ? error : new Error('Failed to check session on load'));
           setUser(null);
-          localStorage.removeItem('beatheos-auth-token');
           await supabase.auth.signOut();
         }
       } finally {
@@ -90,9 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[Auth] Auth change detected:', event, session);
       if (!mounted) return;
       try {
-        setError(null);
         if (session) {
-          localStorage.setItem('beatheos-auth-token', JSON.stringify(session));
           if (session.user) {
             const userInfo = await fetchUserInfo(session.user.id);
             if (!mounted) return;
@@ -105,7 +100,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } else {
-          localStorage.removeItem('beatheos-auth-token');
           setUser(null);
         }
       } catch (error) {
@@ -113,7 +107,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) {
           setError(error instanceof Error ? error : new Error('Failed to handle auth state change'));
           setUser(null);
-          localStorage.removeItem('beatheos-auth-token');
           await supabase.auth.signOut();
         }
       } finally {
@@ -256,7 +249,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   error: error ? (typeof error === 'object' && error !== null && 'message' in error ? (error as Error).message : String(error)) : null,
   localStorage: typeof window !== 'undefined' ? {
     'beatheos-auth-token': localStorage.getItem('beatheos-auth-token'),
-    'supabase.auth.token': localStorage.getItem('supabase.auth.token'),
   } : {},
   cookies: typeof document !== 'undefined' ? document.cookie : ''
 }, null, 2)}
