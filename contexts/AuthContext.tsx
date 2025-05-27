@@ -272,7 +272,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={contextValue}>
+      {children}
+      {/* Global Auth Debug Panel */}
+      <div style={{ position: 'fixed', bottom: 0, right: 0, zIndex: 9999, background: 'rgba(0,0,0,0.85)', color: '#fff', fontSize: 12, padding: 10, borderRadius: 8, maxWidth: 400, maxHeight: 300, overflow: 'auto' }}>
+        <strong>Auth Debug</strong>
+        <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+{JSON.stringify({
+  user,
+  isLoading,
+  error: error ? (typeof error === 'object' && error !== null && 'message' in error ? (error as Error).message : String(error)) : null,
+  localStorage: typeof window !== 'undefined' ? {
+    'beatheos-auth-token': localStorage.getItem('beatheos-auth-token'),
+    'supabase.auth.token': localStorage.getItem('supabase.auth.token'),
+  } : {},
+  cookies: typeof document !== 'undefined' ? document.cookie : ''
+}, null, 2)}
+        </pre>
+      </div>
+    </AuthContext.Provider>
+  )
 }
 
 export const useAuth = () => {
