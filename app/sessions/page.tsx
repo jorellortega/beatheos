@@ -329,6 +329,30 @@ export default function SessionsPage() {
                             Last modified: {session.last_modified ? new Date(session.last_modified).toLocaleString() : "-"}
                             <br />
                             Beats: {session.beat_ids ? session.beat_ids.length : 0}
+                            <br />
+                            {/* List beats with play button */}
+                            {beatsBySession[session.id] && beatsBySession[session.id].length > 0 && (
+                              <div className="flex flex-col gap-1 mt-2">
+                                {beatsBySession[session.id].map((beat: any) => (
+                                  <div key={beat.id} className="flex items-center gap-2">
+                                    <span>{beat.title}</span>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => handlePlayPause(beat)}
+                                      className="h-7 w-7"
+                                      aria-label="Play"
+                                    >
+                                      {currentBeat && currentBeat.id === beat.id && isPlaying ? (
+                                        <Pause className="h-4 w-4" />
+                                      ) : (
+                                        <Play className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                       </CardDescription>
                       {editingLyricsId === session.id ? (
                         <div className="flex flex-col gap-2 mt-1">
