@@ -66,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setIsLoading(false);
             setHydrated(true);
+            console.log('[Auth] hydrated set to true (fetchUserInfo error)');
             return;
           }
           if (!mounted) return;
