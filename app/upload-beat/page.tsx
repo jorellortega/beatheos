@@ -9,11 +9,66 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { HelpCircle } from "lucide-react"
 import Link from "next/link"
+import { toast } from "@/components/ui/use-toast"
+import { supabase } from "@/lib/supabaseClient"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { LicensingOptions } from '@/components/beat-upload/LicensingOptions'
+
+interface BeatUploadForm {
+  title: string
+  description: string
+  genre: string
+  bpm: string
+  key: string
+  tags: string[]
+  mp3File: File | null
+  wavFile: File | null
+  stemsFile: File | null
+  coverArt: File | null
+  licensing: Record<string, number>
+}
+
+async function uploadFile(file: File, type: 'mp3' | 'wav' | 'stems' | 'cover'): Promise<string> {
+  const fileExt = file.name.split('.').pop()
+  const fileName = `${Math.random()}.${fileExt}`
+  const filePath = `${type}/${fileName}`
+
+  const { error: uploadError } = await supabase.storage
+    .from('beats')
+    .upload(filePath, file)
+
+  if (uploadError) {
+    throw new Error(`Error uploading ${type} file: ${uploadError.message}`)
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('beats')
+    .getPublicUrl(filePath)
+
+  return publicUrl
+}
 
 export default function UploadBeatPage() {
   const { user } = useAuth()
   const router = useRouter()
   const [isAdmin, setIsAdmin] = useState(false)
+  const [form, setForm] = useState<BeatUploadForm>({
+    title: '',
+    description: '',
+    genre: '',
+    bpm: '',
+    key: '',
+    tags: [],
+    mp3File: null,
+    wavFile: null,
+    stemsFile: null,
+    coverArt: null,
+    licensing: {}
+  })
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
 
   useEffect(() => {
     if (!user) {
@@ -23,6 +78,87 @@ export default function UploadBeatPage() {
       setIsAdmin(user.role === "admin")
     }
   }, [user, router])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+
+    setUploading(true)
+    setUploadProgress(0)
+
+    try {
+      // Upload files first
+      const mp3Url = form.mp3File ? await uploadFile(form.mp3File, 'mp3') : null
+      const wavUrl = form.wavFile ? await uploadFile(form.wavFile, 'wav') : null
+      const stemsUrl = form.stemsFile ? await uploadFile(form.stemsFile, 'stems') : null
+      const coverArtUrl = form.coverArt ? await uploadFile(form.coverArt, 'cover') : null
+
+      // Create beat record
+      const { data: beat, error: beatError } = await supabase
+        .from('beats')
+        .insert({
+          producer_id: user.id,
+          title: form.title,
+          description: form.description,
+          genre: form.genre,
+          bpm: parseInt(form.bpm),
+          key: form.key,
+          tags: form.tags,
+          mp3_url: mp3Url,
+          wav_url: wavUrl,
+          stems_url: stemsUrl,
+          cover_art_url: coverArtUrl,
+          is_draft: false
+        })
+        .select()
+        .single()
+
+      if (beatError) throw beatError
+
+      // Create beat_licenses records for each selected license
+      const licenseInserts = Object.entries(form.licensing).map(([licenseId, price]) => ({
+        beat_id: beat.id,
+        license_id: licenseId,
+        price: price
+      }))
+
+      const { error: licenseError } = await supabase
+        .from('beat_licenses')
+        .insert(licenseInserts)
+
+      if (licenseError) throw licenseError
+
+      toast({
+        title: "Success",
+        description: "Beat uploaded successfully!",
+      })
+
+      // Reset form
+      setForm({
+        title: '',
+        description: '',
+        genre: '',
+        bpm: '',
+        key: '',
+        tags: [],
+        mp3File: null,
+        wavFile: null,
+        stemsFile: null,
+        coverArt: null,
+        licensing: {}
+      })
+
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload beat",
+        variant: "destructive",
+      })
+    } finally {
+      setUploading(false)
+      setUploadProgress(0)
+    }
+  }
 
   if (!user) {
     return null // or a loading spinner

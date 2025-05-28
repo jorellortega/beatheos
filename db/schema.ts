@@ -19,6 +19,17 @@ export const profiles = mysqlTable("profiles", {
   updated_at: timestamp("updated_at").defaultNow(),
 })
 
+export const licenses = mysqlTable("licenses", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  terms: text("terms"),
+  is_exclusive: boolean("is_exclusive").default(false),
+  is_buyout: boolean("is_buyout").default(false),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+})
+
 export const beats = mysqlTable("beats", {
   id: varchar("id", { length: 255 }).primaryKey(),
   producer_id: varchar("producer_id", { length: 255 }).notNull(),
@@ -33,6 +44,19 @@ export const beats = mysqlTable("beats", {
   wav_url: varchar("wav_url", { length: 255 }),
   stems_url: varchar("stems_url", { length: 255 }),
   is_draft: boolean("is_draft").default(false),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+})
+
+export const beat_licenses = mysqlTable("beat_licenses", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  beat_id: varchar("beat_id", { length: 255 })
+    .notNull()
+    .references(() => beats.id),
+  license_id: varchar("license_id", { length: 255 })
+    .notNull()
+    .references(() => licenses.id),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 })

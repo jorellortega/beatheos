@@ -400,7 +400,16 @@ export default function BeatDetailPage() {
                       {field.key === "tags"
                         ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
                         : field.key === "licensing"
-                          ? <pre className="bg-secondary p-2 rounded text-xs inline-block m-0">{JSON.stringify(beat.licensing, null, 2)}</pre>
+                          ? (
+                              <div className="flex flex-col gap-1">
+                                {beat.licensing && Object.entries(beat.licensing).map(([type, price]) => (
+                                  <div key={type} className="flex justify-between">
+                                    <span className="capitalize">{type.replace('template-', '').replace(/-/g, ' ')}</span>
+                                    <span className="font-mono">${String(price)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )
                           : beat[field.key]}
                       <Button
                         size="icon"
@@ -419,7 +428,16 @@ export default function BeatDetailPage() {
                     {field.key === "tags"
                       ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
                       : field.key === "licensing"
-                        ? <pre className="bg-secondary p-2 rounded text-xs inline-block m-0">{JSON.stringify(beat.licensing, null, 2)}</pre>
+                        ? (
+                            <div className="flex flex-col gap-1">
+                              {beat.licensing && Object.entries(beat.licensing).map(([type, price]) => (
+                                <div key={type} className="flex justify-between">
+                                  <span className="capitalize">{type.replace('template-', '').replace(/-/g, ' ')}</span>
+                                  <span className="font-mono">${String(price)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )
                         : beat[field.key]}
                   </span>
                 )}
@@ -454,7 +472,7 @@ export default function BeatDetailPage() {
                       </>
                     ) : (
                       <>
-                        <span className="text-lg">${price ?? 0}</span>
+                        <span className="text-lg">${String(price ?? 0)}</span>
                         <Button
                           size="icon"
                           variant="ghost"
@@ -476,7 +494,7 @@ export default function BeatDetailPage() {
                   </span>
                   ) : (
                     <span className="flex-1 flex items-center gap-2 justify-end w-full">
-                      <span className="text-lg">${price ?? 0}</span>
+                      <span className="text-lg">${String(price ?? 0)}</span>
                       <Button
                         size="sm"
                         className="ml-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold rounded"

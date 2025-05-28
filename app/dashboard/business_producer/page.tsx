@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { Suspense } from "react"
 import Image from "next/image"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Mock marketplace items
 const mockItems = [
@@ -49,6 +50,12 @@ interface Beat {
   price_exclusive?: number;
   price_buyout?: number;
   producer_ids?: string[];
+  license_id?: string;
+}
+
+interface License {
+  id: string;
+  name: string;
 }
 
 interface BeatActionsProps {
@@ -97,6 +104,7 @@ function BeatActions({ beat, onEdit, onDelete, isPlaying, onPlayPause, setAudioR
 
 function MyBeatsManager({ userId }: { userId: string }) {
   const [beats, setBeats] = useState<Beat[]>([])
+  const [licenses, setLicenses] = useState<License[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | number | null>(null)
@@ -186,7 +194,13 @@ function MyBeatsManager({ userId }: { userId: string }) {
       }
     }
 
-    fetchBeats();
+    async function fetchLicenses() {
+      const { data } = await supabase.from('licenses').select('id, name').order('name')
+      setLicenses(data || [])
+    }
+
+    fetchBeats()
+    fetchLicenses()
   }, [userId]);
 
   const handleDelete = async (id: string | number) => {
@@ -357,6 +371,18 @@ function MyBeatsManager({ userId }: { userId: string }) {
     }
   };
 
+  // Add this function to handle license change
+  const handleLicenseChange = async (beatId: string | number, licenseId: string) => {
+    const newLicenseId = licenseId === 'none' ? null : licenseId;
+    const { error } = await supabase.from('beats').update({ license_id: newLicenseId }).eq('id', beatId)
+    if (!error) {
+      setBeats(beats => beats.map(b => b.id === beatId ? { ...b, license_id: newLicenseId } : b))
+      toast({ title: 'License Updated', description: 'Beat license updated.' })
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' })
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -408,6 +434,30 @@ function MyBeatsManager({ userId }: { userId: string }) {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            {/* Bulk License Assignment Dropdown */}
+            <Select
+              value=""
+              onValueChange={async (val) => {
+                const newLicenseId = val === 'none' ? null : val;
+                // Update all selected beats in DB
+                await Promise.all(selectedIds.map(async (id) => {
+                  await supabase.from('beats').update({ license_id: newLicenseId }).eq('id', id);
+                }));
+                // Update UI
+                setBeats(beats => beats.map(b => selectedIds.includes(b.id) ? { ...b, license_id: newLicenseId } : b));
+                toast({ title: 'Bulk License Updated', description: 'Selected beats updated.' });
+              }}
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Assign License to Selected" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {licenses.map(license => (
+                  <SelectItem key={license.id} value={license.id}>{license.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {showEditInput && editColumn && (
               <form className="flex items-center gap-2 ml-2" onSubmit={async e => {
                 e.preventDefault();
@@ -501,6 +551,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
                 )}
               </th>
               <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Collab</th>
+              <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">License</th>
               <th className="px-4 py-2 text-left border-r border-[#232323] last:border-r-0 bg-secondary">Actions</th>
             </tr>
           </thead>
@@ -761,6 +812,22 @@ function MyBeatsManager({ userId }: { userId: string }) {
                       ))}
                     </div>
                   )}
+                </td>
+                <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
+                  <Select
+                    value={beat.license_id || 'none'}
+                    onValueChange={val => handleLicenseChange(beat.id, val)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Assign License" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {licenses.map(license => (
+                        <SelectItem key={license.id} value={license.id}>{license.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </td>
                 <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
                   <BeatActions
@@ -1038,6 +1105,30 @@ export default function BusinessProducerDashboard() {
                       </div>
                         ))
                       )}
+                        </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            {/* Licenses Card */}
+            <Link href="/mylicenses">
+              <Card className="hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <FileText className="h-8 w-8 mb-2 text-primary" />
+                  <CardTitle>Licenses</CardTitle>
+                  <CardDescription>Manage your license templates and terms.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-400">License Management</span>
+                      <Button variant="outline" size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        New License
+                        </Button>
+                      </div>
+                    <div className="text-gray-400">
+                      Create and manage custom license templates for your beats.
                     </div>
                   </div>
                 </CardContent>
