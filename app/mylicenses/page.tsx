@@ -196,14 +196,6 @@ The License Fee for this Premium Lease is $[Amount].
 This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
 
 ---
-
-10. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 const EXCLUSIVE_TERMS = `BEAT LICENSE AGREEMENT (EXCLUSIVE LICENSE)
@@ -285,14 +277,6 @@ The License Fee for this Exclusive License is $[Amount].
 This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
 
 ---
-
-9. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 const BUYOUT_TERMS = `BEAT LICENSE AGREEMENT (BUY OUT / FULL RIGHTS LICENSE)
@@ -369,14 +353,6 @@ Licensor guarantees that the Beat is original, free of third-party samples requi
 This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
 
 ---
-
-8. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement and acknowledge the transfer of full ownership rights.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 export default function MyLicensesPage() {
