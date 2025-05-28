@@ -206,6 +206,8 @@ export default function BeatDetailPage() {
           licenseType: licenseId,
           price,
           productName: beat.title,
+          userId: user ? user.id : null,
+          guestEmail: !user ? null : null
         })
       })
       const data = await res.json()
@@ -320,13 +322,13 @@ export default function BeatDetailPage() {
             <>
               <div className="h-4" />
               {user ? (
-                <Button
-                  className="gradient-button text-black font-medium hover:text-white mb-4"
-                  onClick={() => setShowPurchaseModal(true)}
-                >
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  BUY
-                </Button>
+              <Button
+                className="gradient-button text-black font-medium hover:text-white mb-4"
+                onClick={() => setShowPurchaseModal(true)}
+              >
+                <ShoppingCart className="h-4 w-4 mr-2" />
+                BUY
+              </Button>
               ) : (
                 <Button
                   className="gradient-button text-black font-medium hover:text-white mb-4"
