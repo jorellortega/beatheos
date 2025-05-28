@@ -11,10 +11,19 @@ export async function POST(req: NextRequest) {
     const beatId = session.metadata?.beatId || session.client_reference_id
     if (!beatId) return NextResponse.json({ error: 'No beatId found' }, { status: 400 })
 
-    // Fetch beat file URLs from Supabase
+    // Fetch beat info from Supabase (include title, price, and producer display_name)
     const { data: beat, error } = await supabase
       .from('beats')
-      .select('mp3_url, wav_url, stems_url')
+      .select(`
+        id,
+        title,
+        price,
+        mp3_url,
+        wav_url,
+        stems_url,
+        producer_id,
+        producers:producer_id (display_name)
+      `)
       .eq('id', beatId)
       .single()
     if (error || !beat) return NextResponse.json({ error: 'Beat not found' }, { status: 404 })
@@ -65,7 +74,20 @@ export async function POST(req: NextRequest) {
       insertResult = 'no_identifier';
     }
 
-    return NextResponse.json({ beat, userId, insertResult, insertError })
+    // Fetch buyer/artist display_name if userId is present
+    let buyer = null;
+    if (userId) {
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('display_name, email')
+        .eq('id', userId)
+        .single();
+      if (!userError && user) {
+        buyer = user;
+      }
+    }
+
+    return NextResponse.json({ beat, userId, buyer, guestEmail, licenseType, price, insertResult, insertError })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
