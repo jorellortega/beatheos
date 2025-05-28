@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
   if (!baseUrl) {
     return NextResponse.json({ error: 'BASE_URL, SITE_URL, or NEXT_PUBLIC_URL is not set' }, { status: 500 })
   }
+  if (!beatId) {
+    return NextResponse.json({ error: 'Missing beatId' }, { status: 400 })
+  }
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],

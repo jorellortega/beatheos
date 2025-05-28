@@ -143,6 +143,21 @@ export default function SuccessContent() {
           )}
         </div>
       )}
+      <div className="mt-8 p-4 bg-black/80 text-white rounded border border-yellow-500">
+        <h4 className="font-bold text-yellow-400 mb-2">Debug Info</h4>
+        <div><b>Session ID:</b> {sessionId}</div>
+        <pre className="text-xs whitespace-pre-wrap">{JSON.stringify({
+          debug,
+          beat,
+          error,
+          user,
+          licenseText,
+          licenseType: debug?.data?.licenseType,
+          buyer: debug?.data?.buyer,
+          guestEmail: debug?.data?.guestEmail,
+          apiResponse: debug?.data,
+        }, null, 2)}</pre>
+      </div>
     </>
   )
 }
