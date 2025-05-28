@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2022-11-15' })
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-04-30.basil' as any })
 
 export async function POST(req: NextRequest) {
-  const { price, productName, beatId, licenseType, userId } = await req.json()
+  const { price, productName, beatId, licenseType, userId, guestEmail } = await req.json()
   // Use BASE_URL, SITE_URL, or NEXT_PUBLIC_URL for server-side base URL
   const baseUrl = process.env.BASE_URL || process.env.SITE_URL || process.env.NEXT_PUBLIC_URL
   if (!baseUrl) {
@@ -17,8 +17,11 @@ export async function POST(req: NextRequest) {
         {
           price_data: {
             currency: 'usd',
-            product_data: { name: productName || 'Beat Purchase' }, // fallback name
-            unit_amount: Math.round(price * 100), // price in cents
+            product_data: {
+              name: productName,
+              description: `License Type: ${licenseType}`,
+            },
+            unit_amount: Math.round(price * 100),
           },
           quantity: 1,
         },
@@ -29,8 +32,9 @@ export async function POST(req: NextRequest) {
       client_reference_id: beatId ? String(beatId) : undefined,
       metadata: {
         beatId: beatId ? String(beatId) : '',
-        licenseType: licenseType || '',
-        ...(userId ? { userId: String(userId) } : {}),
+        userId: userId || null,
+        guestEmail: guestEmail || null,
+        licenseType,
       },
     })
     return NextResponse.json({ url: session.url })
