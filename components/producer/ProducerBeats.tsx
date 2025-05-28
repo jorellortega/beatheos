@@ -10,6 +10,7 @@ import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { usePlayer } from '@/contexts/PlayerContext'
 import Link from 'next/link'
 import { useAuth } from "@/contexts/AuthContext"
+import { supabase } from "@/lib/supabaseClient"
 
 interface Beat {
   id: string | number
@@ -56,11 +57,32 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
     const fetchBeats = async () => {
       const res = await fetch(`/api/beats?producerId=${producerId}`)
       const data = await res.json()
+      // Collect all unique producer_ids (from both producer_id and producer_ids)
+      const allProducerIds = Array.from(new Set([
+        ...data.map((b: any) => b.producer_id),
+        ...data.flatMap((b: any) => b.producer_ids || [])
+      ].filter(Boolean)))
+
+      // Fetch all producer display names and slugs
+      let producerMap: Record<string, { display_name: string, slug: string }> = {}
+      if (allProducerIds.length > 0) {
+        const { data: producersData, error: producersError } = await supabase
+          .from('producers')
+          .select('user_id, display_name, slug')
+          .in('user_id', allProducerIds)
+        if (!producersError && producersData) {
+          producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+            p.user_id,
+            { display_name: p.display_name, slug: p.slug }
+          ]))
+        }
+      }
+
       let beats = (data || []).map((beat: any) => {
-        // Get all producer names and slugs
-        const producerNames = beat.producers?.map((p: any) => p.display_name) || []
-        const producerSlugs = beat.producers?.map((p: any) => p.slug) || []
-        
+        // Get all producer ids, names, and slugs for this beat
+        const ids = [beat.producer_id, ...(beat.producer_ids || []).filter((id: string) => id !== beat.producer_id)]
+        const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
+        const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
         return {
           id: beat.id,
           slug: beat.slug,
@@ -78,7 +100,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
           producer_slugs: producerSlugs,
           cover: beat.cover_art_url || '/placeholder.svg',
           cover_art_url: beat.cover_art_url || '/placeholder.svg',
-          producer_ids: beat.producer_ids,
+          producer_ids: ids,
         }
       })
       // Sort by plays descending and flag top 5
@@ -201,7 +223,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                     onClick={() => handlePurchase(beat)}
                   >
                     {user ? 'BUY' : 'BUY INSTANTLY'}
-                  </Button>
+                      </Button>
                 </div>
               </div>
             ))}
@@ -220,7 +242,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
         onClose={() => setIsPurchaseModalOpen(false)}
         beat={selectedBeat && selectedBeat.id ? {
           ...selectedBeat,
-          id: typeof selectedBeat.id === 'string' ? Number(selectedBeat.id) : selectedBeat.id
+          id: String(selectedBeat.id)
         } : null}
       />
     </>

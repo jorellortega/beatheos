@@ -224,7 +224,7 @@ export default function BeatsPage() {
   }
 
   const handlePurchase = (beat: any) => {
-    setSelectedBeat(beat)
+    setSelectedBeat(beat ? { ...beat, id: String(beat.id) } : null)
     setIsPurchaseModalOpen(true)
   }
 
@@ -513,7 +513,7 @@ export default function BeatsPage() {
       <PurchaseOptionsModal
         isOpen={isPurchaseModalOpen}
         onClose={() => setIsPurchaseModalOpen(false)}
-        beat={selectedBeat}
+        beat={selectedBeat ? { ...selectedBeat, id: String(selectedBeat.id) } : null}
       />
       </div>
     </div>

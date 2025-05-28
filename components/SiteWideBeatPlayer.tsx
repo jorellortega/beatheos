@@ -956,7 +956,7 @@ export function SiteWideBeatPlayer() {
         isOpen={isPurchaseModalOpen}
         onClose={() => setIsPurchaseModalOpen(false)}
         beat={fullCurrentBeat ? {
-          id: Number(fullCurrentBeat.id),
+          id: String(fullCurrentBeat.id),
           title: fullCurrentBeat.title,
           price: fullCurrentBeat.price || 0,
           price_lease: fullCurrentBeat.price_lease || 0,
