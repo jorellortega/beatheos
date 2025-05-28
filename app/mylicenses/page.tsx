@@ -114,14 +114,6 @@ The License Fee for this Lease is $[Amount].
 This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
 
 ---
-
-10. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 const PREMIUM_LEASE_TERMS = `BEAT LICENSE AGREEMENT (PREMIUM LEASE)
