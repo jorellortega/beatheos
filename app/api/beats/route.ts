@@ -143,7 +143,8 @@ export async function GET(request: Request) {
       .select('*')
 
     if (producerId) {
-      query = query.eq('producer_id', producerId)
+      // Fetch beats where producerId is either the main producer or a collaborator
+      query = query.or(`producer_id.eq.${producerId},producer_ids.cs.{${producerId}}`)
     }
 
     if (isDraft !== null) {
