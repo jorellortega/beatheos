@@ -17,8 +17,6 @@ export default function SuccessContent() {
   const { user, error: authError } = useAuth()
   const [licenseText, setLicenseText] = useState<string | null>(null)
   const [showFullLicense, setShowFullLicense] = useState(false)
-  const [licenses, setLicenses] = useState<any[]>([])
-  const [producerName, setProducerName] = useState<string>("")
 
   // Force a session re-check after payment
   useEffect(() => {
@@ -30,26 +28,6 @@ export default function SuccessContent() {
       }
     })
   }, [])
-
-  // Fetch licenses and producer name on mount
-  useEffect(() => {
-    async function fetchLicensesAndProducer() {
-      // Fetch all licenses
-      const { data: licensesData } = await supabase.from('licenses').select('*').order('name')
-      setLicenses(licensesData || [])
-      // Fetch producer display name if possible
-      let name = ''
-      if (beat && 'producer_id' in beat && beat.producer_id) {
-        const { data } = await supabase.from('producers').select('display_name').eq('id', beat.producer_id).single()
-        name = data?.display_name || ''
-      } else if (user) {
-        const { data } = await supabase.from('producers').select('display_name').eq('user_id', user.id).single()
-        name = data?.display_name || user.email?.split('@')[0] || ''
-      }
-      setProducerName(name)
-    }
-    fetchLicensesAndProducer()
-  }, [user, beat])
 
   useEffect(() => {
     const id = searchParams?.get('session_id') ?? null
@@ -68,13 +46,27 @@ export default function SuccessContent() {
             setBeat(data.beat)
             // Generate license text with all placeholders filled
             const buyerName = data.buyer?.display_name || (data.buyer?.email?.split('@')[0]) || user?.email?.split('@')[0] || data.guestEmail || 'Artist';
+            const producerName = data.beat.producers?.display_name || 'Producer';
             const beatTitle = data.beat.title || '[Name of Beat]';
             const purchaseDate = new Date().toLocaleDateString();
-            const licenseType = data.licenseType || data.beat.license_type;
-            const licenseTemplate = getLicenseTerms(licenseType);
-            const producer = producerName || data.beat.producers?.display_name || 'Producer';
-            const licenseWithNames = licenseTemplate
-              .replace(/\[Your Name \/ Producer Name\]/g, producer)
+            // Fetch license terms from DB by name
+            let licenseTerms = null;
+            try {
+              const { data: licenses, error: licenseError } = await supabase
+                .from('licenses')
+                .select('name, terms')
+                .eq('name', data.licenseType || data.beat.license_type)
+                .maybeSingle();
+              if (!licenseError && licenses && licenses.terms) {
+                licenseTerms = licenses.terms;
+              }
+            } catch (e) {}
+            // Fallback to static template if not found
+            if (!licenseTerms) {
+              licenseTerms = getLicenseTemplate(data.licenseType || data.beat.license_type);
+            }
+            const licenseWithNames = licenseTerms
+              .replace(/\[Your Name \/ Producer Name\]/g, producerName)
               .replace(/\[Artist's Name\]/g, buyerName)
               .replace(/\[Name of Beat\]/g, beatTitle)
               .replace(/\[Date\]/g, purchaseDate)
@@ -91,7 +83,7 @@ export default function SuccessContent() {
         })
         .finally(() => setLoading(false))
     }
-  }, [searchParams, user, producerName, licenses])
+  }, [searchParams, user])
 
   // Helper function to get the appropriate license template based on license_type
   const getLicenseTemplate = (licenseType: string | undefined) => {
@@ -107,14 +99,6 @@ export default function SuccessContent() {
       default:
         return LEASE_TERMS
     }
-  }
-
-  // Helper to get license terms from DB or fallback
-  const getLicenseTerms = (licenseType: string | undefined) => {
-    if (!licenseType) return LEASE_TERMS
-    // Try to find in DB
-    const found = licenses.find(l => l.name.toLowerCase() === licenseType.toLowerCase())
-    return found?.terms || getLicenseTemplate(licenseType)
   }
 
   // PDF download handler
