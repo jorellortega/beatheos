@@ -45,8 +45,8 @@ export default function SuccessContent() {
           if (data.beat) {
             setBeat(data.beat)
             // Generate license text with all placeholders filled
-            const buyerName = user?.email || data.guestEmail || 'Artist'
-            const producerName = data.producer?.display_name || 'Producer'
+            const buyerName = user?.email?.split('@')[0] || data.guestEmail || 'Artist'
+            const producerName = data.beat.producer?.display_name || data.producer?.display_name || 'Producer'
             const beatTitle = data.beat.title || '[Name of Beat]'
             const purchaseDate = new Date().toLocaleDateString()
             const licenseTemplate = getLicenseTemplate(data.beat.license_type)
@@ -55,6 +55,7 @@ export default function SuccessContent() {
               .replace(/\[Artist's Name\]/g, buyerName)
               .replace(/\[Name of Beat\]/g, beatTitle)
               .replace(/\[Date\]/g, purchaseDate)
+              .replace(/\[Amount\]/g, data.beat.price?.toString() || '0')
             setLicenseText(licenseWithNames)
             setError(null)
           } else {
