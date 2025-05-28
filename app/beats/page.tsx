@@ -173,6 +173,12 @@ export default function BeatsPage() {
         }
       })
 
+      // Shuffle the beats array on first load (Fisher-Yates)
+      for (let i = beats.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [beats[i], beats[j]] = [beats[j], beats[i]];
+      }
+
       setDisplayedBeats(beats)
       } catch (err) {
         console.error('Error fetching beats:', err)
