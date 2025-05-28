@@ -13,7 +13,6 @@ export default function SuccessContent() {
   const [beat, setBeat] = useState<{ mp3_url?: string; wav_url?: string; stems_url?: string; license_type?: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [debug, setDebug] = useState<any>(null)
   const { user, error: authError } = useAuth()
   const [licenseText, setLicenseText] = useState<string | null>(null)
   const [showFullLicense, setShowFullLicense] = useState(false)
@@ -41,7 +40,6 @@ export default function SuccessContent() {
       })
         .then(async res => {
           const data = await res.json()
-          setDebug({ status: res.status, data })
           if (data.beat) {
             setBeat(data.beat)
             // Generate license text with all placeholders filled
@@ -49,23 +47,8 @@ export default function SuccessContent() {
             const producerName = data.beat.producers?.display_name || 'Producer';
             const beatTitle = data.beat.title || '[Name of Beat]';
             const purchaseDate = new Date().toLocaleDateString();
-            // Fetch license terms from DB by name
-            let licenseTerms = null;
-            try {
-              const { data: licenses, error: licenseError } = await supabase
-                .from('licenses')
-                .select('name, terms')
-                .eq('name', data.licenseType || data.beat.license_type)
-                .maybeSingle();
-              if (!licenseError && licenses && licenses.terms) {
-                licenseTerms = licenses.terms;
-              }
-            } catch (e) {}
-            // Fallback to static template if not found
-            if (!licenseTerms) {
-              licenseTerms = getLicenseTemplate(data.licenseType || data.beat.license_type);
-            }
-            const licenseWithNames = licenseTerms
+            const licenseTemplate = getLicenseTemplate(data.licenseType || data.beat.license_type);
+            const licenseWithNames = licenseTemplate
               .replace(/\[Your Name \/ Producer Name\]/g, producerName)
               .replace(/\[Artist's Name\]/g, buyerName)
               .replace(/\[Name of Beat\]/g, beatTitle)
@@ -78,7 +61,6 @@ export default function SuccessContent() {
           }
         })
         .catch((e) => {
-          setDebug({ error: e.message })
           setError('Could not fetch beat info')
         })
         .finally(() => setLoading(false))
@@ -158,21 +140,6 @@ export default function SuccessContent() {
           )}
         </div>
       )}
-      <div className="mt-8 p-4 bg-black/80 text-white rounded border border-yellow-500">
-        <h4 className="font-bold text-yellow-400 mb-2">Debug Info</h4>
-        <div><b>Session ID:</b> {sessionId}</div>
-        <pre className="text-xs whitespace-pre-wrap">{JSON.stringify({
-          debug,
-          beat,
-          error,
-          user,
-          licenseText,
-          licenseType: debug?.data?.licenseType,
-          buyer: debug?.data?.buyer,
-          guestEmail: debug?.data?.guestEmail,
-          apiResponse: debug?.data,
-        }, null, 2)}</pre>
-      </div>
     </>
   )
 }
@@ -186,7 +153,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -220,7 +186,11 @@ Licensee may NOT:
 
 4. DELIVERY
 
-The Beat will be delivered in MP3 format after payment is received.
+The Beat will be delivered in the following formats:
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
+✅ Project Files (if available)
 
 ---
 
@@ -251,17 +221,9 @@ The License Fee for this Lease is $[Amount].
 
 9. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
-
-10. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 const PREMIUM_LEASE_TERMS = `BEAT LICENSE AGREEMENT (PREMIUM LEASE)
@@ -272,7 +234,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -308,9 +269,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3
-✅ WAV
-✅ Trackouts (Stems)
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
+✅ Project Files (if available)
 
 ---
 
@@ -341,17 +303,9 @@ The License Fee for this Premium Lease is $[Amount].
 
 9. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
-
-10. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 const EXCLUSIVE_TERMS = `BEAT LICENSE AGREEMENT (EXCLUSIVE LICENSE)
@@ -362,7 +316,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -398,11 +351,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3
-✅ WAV
-✅ Trackouts (Stems)
-
-Additional files (e.g., project files) available upon request.
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
+✅ Project Files (if available)
 
 ---
 
@@ -430,17 +382,9 @@ The License Fee for this Exclusive License is $[Amount].
 
 8. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
-
-9. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
 const BUYOUT_TERMS = `BEAT LICENSE AGREEMENT (BUY OUT / FULL RIGHTS LICENSE)
@@ -451,7 +395,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -482,12 +425,10 @@ Licensee may:
 3. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3
-✅ WAV
-✅ Trackouts (Stems)
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
 ✅ Project Files (if available)
-
-All original materials associated with the Beat will be transferred upon request.
 
 ---
 
@@ -514,16 +455,8 @@ Licensor guarantees that the Beat is original, free of third-party samples requi
 
 7. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
-
-8. SIGNATURES
-
-By signing below, both parties agree to the terms of this Agreement and acknowledge the transfer of full ownership rights.
-
-Licensor (Producer): _______________________
-Licensee (Artist): _______________________
-Date: _______________________
 `;
 
