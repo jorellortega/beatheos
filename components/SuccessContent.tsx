@@ -143,11 +143,6 @@ export default function SuccessContent() {
           )}
         </div>
       )}
-      {debug && (
-        <pre className="mt-4 p-2 bg-black/60 text-xs rounded border text-white overflow-auto max-h-64">
-          {JSON.stringify(debug, null, 2)}
-        </pre>
-      )}
     </>
   )
 }
