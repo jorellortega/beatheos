@@ -705,12 +705,12 @@ export function SiteWideBeatPlayer() {
               </div>
               {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
                 <div className="text-sm text-gray-400 text-center sm:text-left w-full">
-                  by {(currentBeat?.producers ?? []).filter(p => p && typeof p.slug === 'string' && typeof p.display_name === 'string').map((producer, idx, arr) => (
-                    <span key={(producer as { display_name: string; slug: string }).slug}>
-                      <Link href={`/producers/${(producer as { display_name: string; slug: string }).slug}`} className="hover:text-primary transition-colors">
-                        {(producer as { display_name: string; slug: string }).display_name}
+                  by {(currentBeat.producers ?? []).map((producer, idx, arr) => (
+                    <span key={producer.slug}>
+                      <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
+                        {producer.display_name}
                       </Link>
-                      {idx < arr.length - 1 && ', '}
+                      {idx < (arr.length - 1) ? ', ' : ''}
                     </span>
                   ))}
                 </div>
@@ -750,7 +750,7 @@ export function SiteWideBeatPlayer() {
                   onClick={() => setIsPurchaseModalOpen(true)}
                 >
                   {user ? 'BUY' : 'BUY INSTANTLY'}
-                </Button>
+              </Button>
             </div>
           </div>
           <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
