@@ -46,7 +46,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -80,7 +79,11 @@ Licensee may NOT:
 
 4. DELIVERY
 
-The Beat will be delivered in MP3 format after payment is received.
+The Beat will be delivered in the following formats:
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
+✅ Project Files (if available)
 
 ---
 
@@ -124,7 +127,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -160,9 +162,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3
-✅ WAV
-✅ Trackouts (Stems)
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
+✅ Project Files (if available)
 
 ---
 
@@ -206,7 +209,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -242,11 +244,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3
-✅ WAV
-✅ Trackouts (Stems)
-
-Additional files (e.g., project files) available upon request.
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
+✅ Project Files (if available)
 
 ---
 
@@ -287,7 +288,6 @@ Licensor (Producer): [Your Name / Producer Name]
 Licensee (Artist): [Artist's Name]
 
 Beat Title: [Name of Beat]
-Beat ID/Reference: [Optional - For internal tracking]
 
 ---
 
@@ -318,12 +318,10 @@ Licensee may:
 3. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3
-✅ WAV
-✅ Trackouts (Stems)
+✅ MP3 (always included)
+✅ WAV (if available)
+✅ Trackouts (Stems) (if available)
 ✅ Project Files (if available)
-
-All original materials associated with the Beat will be transferred upon request.
 
 ---
 
