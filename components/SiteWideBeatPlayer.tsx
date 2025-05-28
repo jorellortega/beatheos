@@ -749,8 +749,8 @@ export function SiteWideBeatPlayer() {
                   className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
                   onClick={() => setIsPurchaseModalOpen(true)}
                 >
-                  <ShoppingCart className="h-5 w-5" />
-              </Button>
+                  {user ? 'BUY' : 'BUY INSTANTLY'}
+                </Button>
             </div>
           </div>
           <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />

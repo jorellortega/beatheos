@@ -18,6 +18,7 @@ import { usePlayer } from "@/contexts/PlayerContext"
 import { Rating } from "@/components/ui/rating"
 import { supabase } from '@/lib/supabaseClient'
 import React from "react"
+import { useAuth } from "@/contexts/AuthContext"
 
 const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
   return (
@@ -80,6 +81,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
 });
 
 export default function BeatsPage() {
+  const { user } = useAuth();
   const [currentView, setCurrentView] = useState<"grid" | "list" | "compact" | "vertical">(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 640) {
       return "compact";
@@ -294,7 +296,7 @@ export default function BeatsPage() {
                 className="gradient-button text-black font-medium hover:text-white"
                 onClick={() => handlePurchase(beat)}
               >
-                BUY
+                {user ? 'BUY' : 'BUY INSTANTLY'}
               </Button>
             </div>
           </div>
@@ -355,7 +357,7 @@ export default function BeatsPage() {
               className="gradient-button text-black font-medium hover:text-white"
               onClick={() => handlePurchase(beat)}
             >
-              BUY
+              {user ? 'BUY' : 'BUY INSTANTLY'}
             </Button>
           </div>
         </div>
@@ -416,7 +418,7 @@ export default function BeatsPage() {
               className="gradient-button text-black font-medium hover:text-white"
               onClick={e => { e.stopPropagation(); handlePurchase(beat); }}
             >
-              BUY
+              {user ? 'BUY' : 'BUY INSTANTLY'}
             </Button>
           </div>
         </div>

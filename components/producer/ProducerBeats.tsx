@@ -9,6 +9,7 @@ import { SaveToPlaylistModal } from "@/components/SaveToPlaylistModal"
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { usePlayer } from '@/contexts/PlayerContext'
 import Link from 'next/link'
+import { useAuth } from "@/contexts/AuthContext"
 
 interface Beat {
   id: string | number
@@ -48,6 +49,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
   const [playingBeatId, setPlayingBeatId] = useState<string | null>(null);
   const { setCurrentBeat, setIsPlaying, isPlaying, currentBeat } = usePlayer()
+  const { user } = useAuth();
 
   useEffect(() => {
     // Fetch beats for the producer from the API
@@ -198,8 +200,8 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                     className="gradient-button text-black font-medium hover:text-white"
                     onClick={() => handlePurchase(beat)}
                   >
-                    BUY
-                      </Button>
+                    {user ? 'BUY' : 'BUY INSTANTLY'}
+                  </Button>
                 </div>
               </div>
             ))}

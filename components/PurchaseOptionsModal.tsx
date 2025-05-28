@@ -34,6 +34,7 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
   const { user } = useAuth();
   const [selectedLicense, setSelectedLicense] = useState('lease')
   const [price, setPrice] = useState(0)
+  const [guestEmail, setGuestEmail] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -44,7 +45,11 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
   }, [beat, selectedLicense])
 
   const handlePurchase = async () => {
-    if (!beat || !user) return
+    if (!beat) return
+    if (!user && !guestEmail) {
+      toast({ title: 'Error', description: 'Please enter your email to continue', variant: 'destructive' })
+      return
+    }
     setLoading(true)
     try {
       const res = await fetch('/api/stripe/checkout', {
@@ -55,7 +60,8 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
           licenseType: selectedLicense,
           price,
           productName: beat.title,
-          userId: user.id,
+          userId: user ? user.id : null,
+          guestEmail: !user ? guestEmail : null
         })
       })
       const data = await res.json()
@@ -99,6 +105,18 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
               })}
             </select>
           </div>
+          {!user && (
+            <div>
+              <label className="block mb-2 font-semibold">Guest Email</label>
+              <input
+                type="email"
+                className="w-full p-2 rounded bg-secondary text-white"
+                value={guestEmail}
+                onChange={e => setGuestEmail(e.target.value)}
+                placeholder="Enter your email"
+              />
+            </div>
+          )}
           <div className="text-xl">Price: ${price}</div>
           <Button 
             onClick={handlePurchase} 
