@@ -12,7 +12,7 @@ interface PurchaseOptionsModalProps {
   isOpen: boolean
   onClose: () => void
   beat: {
-    id: number
+    id: string | number
     title: string
     price: number
     price_lease?: number
@@ -46,23 +46,26 @@ export function PurchaseOptionsModal({ isOpen, onClose, beat }: PurchaseOptionsM
 
   const handlePurchase = async () => {
     if (!beat) return
+    console.log('[DEBUG] handlePurchase beat:', beat)
     if (!user && !guestEmail) {
       toast({ title: 'Error', description: 'Please enter your email to continue', variant: 'destructive' })
       return
     }
     setLoading(true)
     try {
+      const payload = {
+        beatId: String(beat.id),
+        licenseType: selectedLicense,
+        price,
+        productName: beat.title,
+        userId: user ? user.id : null,
+        guestEmail: !user ? guestEmail : null
+      }
+      console.log('[DEBUG] handlePurchase payload:', payload)
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          beatId: beat.id,
-          licenseType: selectedLicense,
-          price,
-          productName: beat.title,
-          userId: user ? user.id : null,
-          guestEmail: !user ? guestEmail : null
-        })
+        body: JSON.stringify(payload)
       })
       const data = await res.json()
       if (data.url) {
