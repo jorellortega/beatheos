@@ -50,7 +50,7 @@ interface Beat {
   price_exclusive?: number;
   price_buyout?: number;
   producer_ids?: string[];
-  license_id?: string;
+  license_id?: string | null;
 }
 
 interface License {
@@ -851,7 +851,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
 function TabManager({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
   const searchParams = useSearchParams();
   useEffect(() => {
-    const tab = searchParams.get('tab');
+    const tab = searchParams?.get('tab');
     if (tab) setActiveTab(tab);
   }, [searchParams, setActiveTab]);
   return null;
