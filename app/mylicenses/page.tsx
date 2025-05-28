@@ -114,7 +114,7 @@ The License Fee for this Lease is $[Amount].
 
 9. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
 `;
@@ -196,7 +196,7 @@ The License Fee for this Premium Lease is $[Amount].
 
 9. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
 `;
@@ -275,7 +275,7 @@ The License Fee for this Exclusive License is $[Amount].
 
 8. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
 `;
@@ -348,7 +348,7 @@ Licensor guarantees that the Beat is original, free of third-party samples requi
 
 7. GOVERNING LAW
 
-This Agreement shall be governed by and interpreted under the laws of [Your State/Country].
+This Agreement shall be governed by and interpreted under the laws of the United States of America and, where applicable, the laws of the country in which the Licensee resides.
 
 ---
 `;
