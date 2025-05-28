@@ -4,6 +4,8 @@ import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/contexts/AuthContext'
+import jsPDF from 'jspdf'
+import { Button } from '@/components/ui/button'
 
 export default function SuccessContent() {
   const searchParams = useSearchParams()
@@ -14,6 +16,7 @@ export default function SuccessContent() {
   const [debug, setDebug] = useState<any>(null)
   const { user, error: authError } = useAuth()
   const [licenseText, setLicenseText] = useState<string | null>(null)
+  const [showFullLicense, setShowFullLicense] = useState(false)
 
   // Force a session re-check after payment
   useEffect(() => {
@@ -39,14 +42,18 @@ export default function SuccessContent() {
         .then(async res => {
           const data = await res.json()
           setDebug({ status: res.status, data })
-          if (data.beat) {
+          if (data.beat && data.producer && user) {
             setBeat(data.beat)
-            // Generate license text with buyer's name and purchase date
-            const buyerName = user?.email || 'Artist'
+            // Generate license text with all placeholders filled
+            const buyerName = user.email || 'Artist'
+            const producerName = data.producer.display_name || 'Producer'
+            const beatTitle = data.beat.title || '[Name of Beat]'
             const purchaseDate = new Date().toLocaleDateString()
             const licenseTemplate = getLicenseTemplate(data.beat.license_type)
             const licenseWithNames = licenseTemplate
+              .replace(/\[Your Name \/ Producer Name\]/g, producerName)
               .replace(/\[Artist's Name\]/g, buyerName)
+              .replace(/\[Name of Beat\]/g, beatTitle)
               .replace(/\[Date\]/g, purchaseDate)
             setLicenseText(licenseWithNames)
           } else {
@@ -75,6 +82,16 @@ export default function SuccessContent() {
       default:
         return LEASE_TERMS
     }
+  }
+
+  // PDF download handler
+  const handleDownloadPDF = () => {
+    if (!licenseText) return
+    const doc = new jsPDF()
+    doc.setFont('courier', 'normal')
+    doc.setFontSize(10)
+    doc.text(licenseText, 10, 20, { maxWidth: 180 })
+    doc.save('license-agreement.pdf')
   }
 
   return (
@@ -107,9 +124,21 @@ export default function SuccessContent() {
         </div>
       )}
       {licenseText && (
-        <div className="mt-4 p-4 border rounded">
+        <div className="mt-4 p-4 border rounded bg-secondary/30">
           <h3 className="font-bold mb-2">License Agreement</h3>
-          <pre className="whitespace-pre-wrap text-sm">{licenseText}</pre>
+          <div className="flex items-center gap-4 mb-2">
+            <Button onClick={() => setShowFullLicense(v => !v)} variant="outline" size="sm">
+              {showFullLicense ? 'Hide' : 'View'} Full License
+            </Button>
+            <Button onClick={handleDownloadPDF} variant="secondary" size="sm">
+              Download PDF
+            </Button>
+          </div>
+          {showFullLicense ? (
+            <pre className="whitespace-pre-wrap text-xs max-h-96 overflow-auto bg-black/60 p-3 rounded border mt-2">{licenseText}</pre>
+          ) : (
+            <div className="text-xs text-muted-foreground italic">Click 'View Full License' to see the complete agreement.</div>
+          )}
         </div>
       )}
     </>

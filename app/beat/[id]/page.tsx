@@ -319,13 +319,23 @@ export default function BeatDetailPage() {
           {!user || beat.producer_id !== user.id ? (
             <>
               <div className="h-4" />
-              <Button
-                className="gradient-button text-black font-medium hover:text-white mb-4"
-                onClick={() => setShowPurchaseModal(true)}
-              >
-                <ShoppingCart className="h-4 w-4 mr-2" />
-                BUY
-              </Button>
+              {user ? (
+                <Button
+                  className="gradient-button text-black font-medium hover:text-white mb-4"
+                  onClick={() => setShowPurchaseModal(true)}
+                >
+                  <ShoppingCart className="h-4 w-4 mr-2" />
+                  BUY
+                </Button>
+              ) : (
+                <Button
+                  className="gradient-button text-black font-medium hover:text-white mb-4"
+                  onClick={() => setShowPurchaseModal(true)}
+                >
+                  <ShoppingCart className="h-4 w-4 mr-2" />
+                  BUY INSTANTLY
+                </Button>
+              )}
             </>
           ) : null}
           <CardDescription className="text-lg text-muted-foreground text-center w-full">
