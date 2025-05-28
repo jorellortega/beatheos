@@ -42,11 +42,11 @@ export default function SuccessContent() {
         .then(async res => {
           const data = await res.json()
           setDebug({ status: res.status, data })
-          if (data.beat && data.producer && user) {
+          if (data.beat) {
             setBeat(data.beat)
             // Generate license text with all placeholders filled
-            const buyerName = user.email || 'Artist'
-            const producerName = data.producer.display_name || 'Producer'
+            const buyerName = user?.email || data.guestEmail || 'Artist'
+            const producerName = data.producer?.display_name || 'Producer'
             const beatTitle = data.beat.title || '[Name of Beat]'
             const purchaseDate = new Date().toLocaleDateString()
             const licenseTemplate = getLicenseTemplate(data.beat.license_type)
@@ -56,6 +56,7 @@ export default function SuccessContent() {
               .replace(/\[Name of Beat\]/g, beatTitle)
               .replace(/\[Date\]/g, purchaseDate)
             setLicenseText(licenseWithNames)
+            setError(null)
           } else {
             setError(data.error || 'Could not fetch beat info')
           }
@@ -140,6 +141,11 @@ export default function SuccessContent() {
             <div className="text-xs text-muted-foreground italic">Click 'View Full License' to see the complete agreement.</div>
           )}
         </div>
+      )}
+      {debug && (
+        <pre className="mt-4 p-2 bg-black/60 text-xs rounded border text-white overflow-auto max-h-64">
+          {JSON.stringify(debug, null, 2)}
+        </pre>
       )}
     </>
   )
