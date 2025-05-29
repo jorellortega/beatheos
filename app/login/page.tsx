@@ -10,6 +10,26 @@ import Link from "next/link"
 import { toast } from "@/components/ui/use-toast"
 // import { Alert, AlertDescription } from "@/components/ui/alert" // Removed
 
+// Helper to get dashboard path by role
+function getDashboardPath(role: string | null | undefined) {
+  switch (role) {
+    case "free_artist":
+      return "/dashboard/artist";
+    case "pro_artist":
+      return "/dashboard/pro_artist";
+    case "free_producer":
+      return "/dashboard/free_producer";
+    case "premium_producer":
+      return "/dashboard/premium_producer";
+    case "business_producer":
+      return "/dashboard/business_producer";
+    case "admin":
+      return "/dashboard/admin";
+    default:
+      return "/dashboard";
+  }
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -25,17 +45,11 @@ export default function LoginPage() {
     try {
       const user = await login(email, password)
       if (user) {
-      toast({
-        title: "Login Successful",
+        toast({
+          title: "Login Successful",
           description: `Welcome back, ${user.email}!`,
-      })
-        if (user.role === 'ceo') {
-          router.push('/ceo')
-        } else if (user.role === 'free_artist') {
-          router.push('/dashboard/artist')
-        } else {
-          router.push(`/dashboard/${user.role}`)
-        }
+        })
+        router.push(getDashboardPath(user.role));
       }
     } catch (error) {
       console.error("Login error:", error)

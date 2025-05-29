@@ -154,13 +154,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error;
       if (!data.user) throw new Error("No user data received");
-      // Directly set user from data.user; role/subscription info not available here
+      // Fetch user info from users table
+      const { data: userInfo, error: userInfoError } = await supabase
+        .from('users')
+        .select('role, subscription_tier, subscription_status')
+        .eq('id', data.user.id)
+        .maybeSingle();
+      if (userInfoError) throw userInfoError;
       const userObj: User = {
         id: data.user.id,
         email: data.user.email ?? null,
-        role: null, // Optionally retrieve from localStorage/sessionStorage if you store it at signup/login
-        subscription_tier: null,
-        subscription_status: null,
+        role: userInfo?.role ?? null,
+        subscription_tier: userInfo?.subscription_tier ?? null,
+        subscription_status: userInfo?.subscription_status ?? null,
       };
       setUser(userObj);
       return userObj;

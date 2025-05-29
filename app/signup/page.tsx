@@ -65,6 +65,26 @@ function SignupForm() {
     }
   }
 
+  // Helper to get dashboard path by role
+  function getDashboardPath(role: string | null | undefined) {
+    switch (role) {
+      case "free_artist":
+        return "/dashboard/artist";
+      case "pro_artist":
+        return "/dashboard/pro_artist";
+      case "free_producer":
+        return "/dashboard/free_producer";
+      case "premium_producer":
+        return "/dashboard/premium_producer";
+      case "business_producer":
+        return "/dashboard/business_producer";
+      case "admin":
+        return "/dashboard/admin";
+      default:
+        return "/dashboard";
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const role = getRoleFromSubscription(subscription)
@@ -84,11 +104,7 @@ function SignupForm() {
           description: "Your account has been created. Welcome to Beatheos!",
         })
         if (isFree) {
-          if (user.role === 'free_artist') {
-            router.push('/dashboard/artist')
-          } else {
-            router.push(`/dashboard/${user.role}`)
-          }
+          router.push(getDashboardPath(user.role));
         } else {
           // Paid plan: redirect to Stripe checkout
           const res = await fetch("/api/create-checkout-session", {
