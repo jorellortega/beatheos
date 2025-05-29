@@ -526,7 +526,7 @@ export default function BeatDetailPage() {
         isOpen={showPurchaseModal} 
         onClose={() => setShowPurchaseModal(false)} 
         beat={{
-          id: beat.id,
+          id: String(beat.id),
           title: beat.title,
           price: beat.price,
           price_lease: beat.price_lease,

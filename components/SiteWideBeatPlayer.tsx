@@ -106,10 +106,16 @@ export function SiteWideBeatPlayer() {
     const audio = audioRef.current
     if (audio) {
       audio.volume = volume / 100
-      if (isPlaying) {
-        audio.play()
-      } else {
-        audio.pause()
+      try {
+        if (isPlaying) {
+          audio.play().catch((err) => {
+            if (err.name !== 'AbortError') throw err;
+          });
+        } else {
+          audio.pause(); // pause() does not throw, but wrap for safety
+        }
+      } catch (err: any) {
+        if (err.name !== 'AbortError') throw err;
       }
     }
   }, [isPlaying, volume, currentBeat])
@@ -257,6 +263,18 @@ export function SiteWideBeatPlayer() {
     }
   }, [currentBeat]);
 
+  useEffect(() => {
+    // Listen for the homepage logo shuffle trigger
+    const handler = async () => {
+      // Always re-shuffle and start playing, even if isShuffle is true or currentBeat is null
+      await toggleShuffle();
+      setPlayerMode('full');
+      setIsPlaying(true);
+    };
+    window.addEventListener('trigger-shuffle-full-player', handler);
+    return () => window.removeEventListener('trigger-shuffle-full-player', handler);
+  }, []); // Remove isShuffle from deps so handler is always fresh
+
   const togglePlay = () => setIsPlaying(!isPlaying)
 
   const handleVolumeChange = (newVolume: number[]) => {
@@ -308,8 +326,8 @@ export function SiteWideBeatPlayer() {
         })
       );
 
-      // Shuffle the beats
-      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+      // Shuffle and pick 10 beats
+      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 10);
       setShuffledBeats(shuffled);
       setCurrentBeatIndex(0);
       setCurrentBeat(shuffled[0]);
@@ -549,8 +567,12 @@ export function SiteWideBeatPlayer() {
     setIsPlaying(false)
     setPlayerMode('default')
     if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch (err: any) {
+        if (err.name !== 'AbortError') throw err;
+      }
     }
   }
 
@@ -873,9 +895,13 @@ export function SiteWideBeatPlayer() {
           onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
           onEnded={() => {
             if (isRepeat) {
-              audioRef.current?.play()
+              try {
+                audioRef.current?.play();
+              } catch (err: any) {
+                if (err.name !== 'AbortError') throw err;
+              }
             } else if (isShuffle) {
-              playNextBeat()
+              playNextBeat();
             }
           }}
         />

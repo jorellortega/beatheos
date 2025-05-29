@@ -280,7 +280,12 @@ function MyBeatsManager({ userId }: { userId: string }) {
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('beats')
           .upload(storagePath, file, { upsert: true });
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          const msg = (uploadError && typeof uploadError === 'object' && 'message' in uploadError)
+            ? (uploadError as any).message
+            : JSON.stringify(uploadError) || 'Unknown error';
+          throw new Error('Cover art upload failed: ' + msg);
+        }
         const { data: { publicUrl } } = supabase.storage
           .from('beats')
           .getPublicUrl(storagePath);
@@ -298,7 +303,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
           description: `The beat's ${fileType.toUpperCase()} file has been updated successfully.`,
         });
       } catch (error) {
-        console.error('Error uploading file:', error);
+        console.error('Error uploading file:', (error && typeof error === 'object' && 'message' in error) ? (error as any).message : String(error));
         toast({
           title: 'Error',
           description: `Failed to update ${fileType.toUpperCase()} file. Please try again.`,
@@ -592,39 +597,39 @@ function MyBeatsManager({ userId }: { userId: string }) {
                           const file = (e.target as HTMLInputElement).files?.[0];
                           if (file) {
                             try {
-                              // Upload to Supabase Storage using the same structure as beat upload
-                              const coverPath = `profiles/${userId}/${beat.title.trim()}/cover/${file.name.trim()}`;
-                              
+                              // Sanitize file name and beat title for Supabase Storage
+                              const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+                              const cleanTitle = beat.title.trim().replace(/[^a-zA-Z0-9._-]/g, "_");
+                              const coverPath = `profiles/${userId}/${cleanTitle}/cover/${cleanFileName}`;
                               const { data: uploadData, error: uploadError } = await supabase.storage
                                 .from('beats')
-                                .upload(coverPath, file);
-
-                              if (uploadError) throw uploadError;
-
+                                .upload(coverPath, file, { upsert: true });
+                              if (uploadError) {
+                                const msg = (uploadError && typeof uploadError === 'object' && 'message' in uploadError)
+                                  ? (uploadError as any).message
+                                  : JSON.stringify(uploadError) || 'Unknown error';
+                                throw new Error('Cover art upload failed: ' + msg);
+                              }
                               // Get the public URL
                               const { data: { publicUrl } } = supabase.storage
                                 .from('beats')
                                 .getPublicUrl(coverPath);
-
                               // Update the beat in the database
                               const { error: updateError } = await supabase
                                 .from('beats')
                                 .update({ cover_art_url: publicUrl })
                                 .eq('id', beat.id);
-
                               if (updateError) throw updateError;
-
                               // Update local state
                               setBeats(beats.map(b => 
                                 b.id === beat.id ? { ...b, cover_art_url: publicUrl } : b
                               ));
-
                               toast({
                                 title: "Cover Art Updated",
                                 description: "The beat's cover art has been updated successfully.",
                               });
                             } catch (error) {
-                              console.error('Error uploading cover art:', error);
+                              console.error('Error uploading cover art:', (error && typeof error === 'object' && 'message' in error) ? (error as any).message : String(error));
                               toast({
                                 title: "Error",
                                 description: "Failed to update cover art. Please try again.",

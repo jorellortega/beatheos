@@ -196,13 +196,13 @@ export function LicensingOptions({ licensing, setLicensing }: LicensingOptionsPr
               onClick={() => setExpandedLicense(isExpanded ? null : license.id)}
             >
               <div className="flex items-center px-4 py-3 gap-3">
-                <Checkbox
-                  id={license.id}
-                  checked={selectedLicenses.includes(license.id)}
-                  onCheckedChange={() => handleLicenseChange(license.id)}
+            <Checkbox
+              id={license.id}
+              checked={selectedLicenses.includes(license.id)}
+              onCheckedChange={() => handleLicenseChange(license.id)}
                   className="mt-0.5"
                   disabled
-                />
+            />
                 <div className="flex-1 flex items-center gap-2">
                   <Label htmlFor={license.id} className="text-lg font-semibold">
                     {license.name}
@@ -217,14 +217,14 @@ export function LicensingOptions({ licensing, setLicensing }: LicensingOptionsPr
               {isExpanded && (
                 <div className="px-6 pb-4 pt-0 animate-fade-in">
                   <p className="text-gray-400 mb-2">{license.description}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Input
-                      type="number"
-                      placeholder="Price"
-                      value={licensing[license.id] || ''}
-                      onChange={(e) => handlePriceChange(license.id, e.target.value)}
-                      className="w-32"
-                    />
+                <div className="flex items-center gap-2 mt-1">
+                  <Input
+                    type="number"
+                    placeholder="Price"
+                    value={licensing[license.id] || ''}
+                    onChange={(e) => handlePriceChange(license.id, e.target.value)}
+                    className="w-32"
+                  />
                   </div>
                 </div>
               )}

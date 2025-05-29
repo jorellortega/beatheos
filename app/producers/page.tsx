@@ -66,8 +66,8 @@ export default function ProducersPage() {
   const filteredProducers = displayedProducers
     .filter(producer => (beatCounts[producer.id] ?? 0) > 0)
     .filter(producer =>
-      producer.display_name?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    producer.display_name?.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   if (loading) {
     return (

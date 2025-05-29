@@ -18,6 +18,8 @@ import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
 import { FileUploader } from "./FileUploader"
 import { Music } from "lucide-react"
+import { supabase } from '@/lib/supabaseClient'
+import { useAuth } from '@/contexts/AuthContext'
 
 const formSchema = z.object({
   title: z.string().min(2, {
@@ -34,17 +36,12 @@ const formSchema = z.object({
   }),
 })
 
-// Mock function for handling file uploads
-const handleFileUpload = async (file: File, filePath: string) => {
-  console.log('Mock file upload:', { file, filePath })
-  // Return a mock public URL
-  return `https://mock-storage.com/${filePath}`
-}
-
 export function BeatUploadForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [selectedWavFile, setSelectedWavFile] = useState<File | null>(null)
+  const [coverArtFile, setCoverArtFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const { user } = useAuth();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -75,39 +72,61 @@ export function BeatUploadForm() {
       toast.error("Please select an audio file")
       return
     }
-
+    if (!user) {
+      toast.error("You must be logged in to upload beats")
+      return
+    }
     setIsUploading(true)
-
     try {
-      // Mock user ID for demonstration
-      const userId = 'mock-user-id'
-      const filePath = `${userId}/${values.title}/${selectedFile.name}`
-      
-      const publicUrl = await handleFileUpload(selectedFile, filePath)
-      
+      const userId = user.id
+      const cleanTitle = values.title.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_")
+      // Helper to sanitize file names (especially for screenshots)
+      const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_")
+      // MP3 upload
+      const mp3FileName = sanitizeFileName(selectedFile.name)
+      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3FileName}`
+      const { data: mp3Upload, error: mp3Error } = await supabase.storage.from('beats').upload(mp3Path, selectedFile, { upsert: true })
+      if (mp3Error) throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)))
+      const { data: { publicUrl: mp3Url } } = supabase.storage.from('beats').getPublicUrl(mp3Path)
+      // WAV upload
       let wavUrl = null
       if (selectedWavFile) {
-        const wavPath = `${userId}/${values.title}/${selectedWavFile.name}`
-        wavUrl = await handleFileUpload(selectedWavFile, wavPath)
+        const wavFileName = sanitizeFileName(selectedWavFile.name)
+        const wavPath = `profiles/${userId}/${cleanTitle}/${wavFileName}`
+        const { data: wavUpload, error: wavError } = await supabase.storage.from('beats').upload(wavPath, selectedWavFile, { upsert: true })
+        if (wavError) throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)))
+        const { data: { publicUrl: wUrl } } = supabase.storage.from('beats').getPublicUrl(wavPath)
+        wavUrl = wUrl
       }
-      
+      // Cover art upload
+      let coverArtUrl = null
+      if (coverArtFile) {
+        const coverFileName = sanitizeFileName(coverArtFile.name)
+        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverFileName}`
+        const { data: coverUpload, error: coverError } = await supabase.storage.from('beats').upload(coverPath, coverArtFile, { upsert: true })
+        if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)))
+        const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath)
+        coverArtUrl = cUrl
+      }
+      // Prepare beat data for backend
       const beatData = {
         ...values,
-        audioUrl: publicUrl,
-        wavUrl,
-        producerId: userId,
+        mp3_url: mp3Url,
+        mp3_path: mp3Path,
+        wav_url: wavUrl,
+        cover_art_url: coverArtUrl,
+        producer_id: userId,
       }
-      
-      // Mock API call to save beat data
-      console.log('Saving beat data:', beatData)
-      
+      // Send to backend (replace with your actual API call)
+      console.log('Uploading beat with data:', beatData)
       toast.success("Beat uploaded successfully!")
       form.reset()
       setSelectedFile(null)
       setSelectedWavFile(null)
+      setCoverArtFile(null)
     } catch (error) {
       console.error('Error uploading beat:', error)
-      toast.error("Failed to upload beat")
+      toast.error(error instanceof Error ? error.message : "Failed to upload beat")
     } finally {
       setIsUploading(false)
     }
@@ -205,6 +224,16 @@ export function BeatUploadForm() {
           <FormDescription>
             Optionally upload a high-quality .wav version of your beat.
           </FormDescription>
+        </div>
+
+        <div className="space-y-2">
+          <FileUploader
+            label="Cover Art"
+            accept="image/*"
+            file={coverArtFile}
+            onFileChange={setCoverArtFile}
+            icon={<Music className="mr-2 h-4 w-4" />}
+          />
         </div>
 
         <Button type="submit" disabled={isUploading || !selectedFile}>
