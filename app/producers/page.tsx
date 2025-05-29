@@ -127,12 +127,12 @@ export default function ProducersPage() {
           <Card key={producer.id} className="bg-black border-primary">
             <CardHeader className="relative pb-0 pt-0 px-0 flex items-center justify-center">
               <div className="relative w-full aspect-square">
-                <Image
-                  src={producer.profile_image_url || "/placeholder.svg"}
-                  alt={producer.display_name}
+              <Image
+                src={producer.profile_image_url || "/placeholder.svg"}
+                alt={producer.display_name}
                   fill
                   className="rounded-t-lg object-cover"
-                />
+              />
               </div>
               {producer.isTop10 && (
                 <Badge className="absolute top-2 left-2 bg-primary text-black">

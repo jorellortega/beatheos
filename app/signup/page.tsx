@@ -11,6 +11,16 @@ import Link from "next/link"
 import { toast } from "@/components/ui/use-toast"
 import { subscriptionOptions } from "@/components/SubscriptionDropdown"
 
+function CreatingAccount({ email }: { email: string }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-6"></div>
+      <div className="text-2xl font-bold text-primary mb-2">Creating your account…</div>
+      <div className="text-gray-400 mb-4">We're setting things up for <span className="text-white font-semibold">{email}</span>. This may take a few moments.</div>
+    </div>
+  )
+}
+
 function SignupForm() {
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
@@ -19,6 +29,8 @@ function SignupForm() {
   const [mounted, setMounted] = useState(false)
   const { signup } = useAuth()
   const router = useRouter()
+  const [creating, setCreating] = useState(false)
+  const [createdEmail, setCreatedEmail] = useState("")
 
   const freePlans = ["artist_free", "producer_free"];
 
@@ -60,8 +72,13 @@ function SignupForm() {
     const subscriptionStatus = isFree ? "active" : "pending"
 
     try {
+      setCreating(true)
+      setCreatedEmail(email)
+      if (typeof window !== 'undefined') localStorage.setItem('signup-in-progress', '1')
+      // 1. Create user in Supabase Auth and DB (this now also inserts into users table)
       const user = await signup(email, password, username, role, subscription, subscriptionStatus)
-      if (user) {
+      if (!user) throw new Error("Failed to create user")
+      if (typeof window !== 'undefined') localStorage.removeItem('signup-in-progress')
         toast({
           title: "Signup Successful",
           description: "Your account has been created. Welcome to Beatheos!",
@@ -81,12 +98,10 @@ function SignupForm() {
           })
           const { url } = await res.json()
           window.location.href = url
-        }
-      } else {
-        throw new Error("Failed to create user")
       }
     } catch (error) {
-      console.error("Signup failed:", error)
+      setCreating(false)
+      if (typeof window !== 'undefined') localStorage.removeItem('signup-in-progress')
       let errorMessage = "An unexpected error occurred during signup."
       if (error instanceof Error) {
         if (error.message.includes("Username already taken")) {
@@ -107,6 +122,7 @@ function SignupForm() {
     }
   }
 
+  if (creating) return <CreatingAccount email={createdEmail} />
   if (!mounted) return null
 
   return (

@@ -12,15 +12,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: 'Missing or invalid userId' });
   }
 
+  console.log('[getUser] Incoming userId:', userId);
   const { data, error } = await supabaseAdmin
     .from('users') // Replace 'users' with your correct table name
     .select('*')   // Or only the fields you need
     .eq('id', userId)
-    .single();
+    .maybeSingle();
+  console.log('[getUser] Supabase response:', { data, error });
 
   if (error) {
-    // Supabase returns PGRST116 for 'row not found' (PostgREST)
-    if (error.code === 'PGRST116' || error.message.toLowerCase().includes('row not found')) {
+    console.error('[getUser] Error details:', error);
+    // Treat PGRST116 and 'row not found' as 'user not found'
+    if (
+      error.code === 'PGRST116' ||
+      error.message.toLowerCase().includes('row not found')
+    ) {
       return res.status(404).json({ error: 'User not found' });
     }
     return res.status(500).json({ error: error.message });

@@ -28,20 +28,23 @@ async function fetchUserInfo(id: string): Promise<{ role: string | null, subscri
   let lastError: any = null;
   while (attempts < 5) {
     const res = await fetch(`/api/getUser?userId=${id}`);
+    console.log(`[fetchUserInfo] Attempt ${attempts + 1}: status=${res.status}`);
+    let body = null;
+    try { body = await res.clone().json(); } catch { body = await res.clone().text(); }
+    console.log(`[fetchUserInfo] Response body:`, body);
     if (res.ok) {
-      const data = await res.json();
       return {
-        role: data?.role ?? null,
-        subscription_tier: data?.subscription_tier ?? null,
-        subscription_status: data?.subscription_status ?? null,
+        role: body?.role ?? null,
+        subscription_tier: body?.subscription_tier ?? null,
+        subscription_status: body?.subscription_status ?? null,
       };
-    } else if (res.status === 404) {
+    } else if (res.status === 404 || res.status === 406) {
       // User not found, wait and retry
       await new Promise(res => setTimeout(res, 400));
       attempts++;
       continue;
     } else {
-      lastError = await res.text();
+      lastError = body;
       break;
     }
   }
@@ -58,6 +61,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     let authSubscription: { unsubscribe: () => void } | null = null;
 
+    // PAUSE hydration if signup-in-progress flag is set
+    if (typeof window !== 'undefined' && localStorage.getItem('signup-in-progress')) {
+      setIsLoading(true);
+      setHydrated(false);
+      return;
+    }
+
     const checkSessionOnLoad = async () => {
       console.log('[Auth] checkSessionOnLoad running');
       try {
@@ -67,27 +77,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessionError) throw sessionError;
         if (!mounted) return;
         if (session?.user) {
-          console.log('[Auth] fetchUserInfo starting:', session.user.id);
-          let userInfo;
-          try {
-            userInfo = await fetchUserInfo(session.user.id);
-            console.log('[Auth] fetchUserInfo done:', userInfo);
-          } catch (fetchError) {
-            console.error('[Auth] fetchUserInfo error:', fetchError);
-            setError(fetchError instanceof Error ? fetchError : new Error('Failed to fetch user info'));
-            setUser(null);
-            setIsLoading(false);
-            setHydrated(true);
-            console.log('[Auth] hydrated set to true (fetchUserInfo error)');
-            return;
-          }
-          if (!mounted) return;
+          // Directly set user from session.user; role/subscription info not available here
           setUser({
             id: session.user.id,
             email: session.user.email ?? null,
-            role: userInfo.role,
-            subscription_tier: userInfo.subscription_tier,
-            subscription_status: userInfo.subscription_status,
+            role: null, // Optionally retrieve from localStorage/sessionStorage if you store it at signup/login
+            subscription_tier: null,
+            subscription_status: null,
           });
           console.log('[Auth] setUser called:', session.user);
         } else {
@@ -118,14 +114,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (session) {
           if (session.user) {
-            const userInfo = await fetchUserInfo(session.user.id);
-            if (!mounted) return;
+            // Directly set user from session.user; role/subscription info not available here
             setUser({
               id: session.user.id,
               email: session.user.email ?? null,
-              role: userInfo.role,
-              subscription_tier: userInfo.subscription_tier,
-              subscription_status: userInfo.subscription_status,
+              role: null, // Optionally retrieve from localStorage/sessionStorage if you store it at signup/login
+              subscription_tier: null,
+              subscription_status: null,
             });
           }
         } else {
@@ -156,20 +151,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string): Promise<User> => {
     try {
       setIsLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error;
       if (!data.user) throw new Error("No user data received");
-      
-    const userInfo = await fetchUserInfo(data.user.id)
-      const userObj: User = { 
-        id: data.user.id, 
-        email: data.user.email ?? null, 
-        role: userInfo.role,
-        subscription_tier: userInfo.subscription_tier,
-        subscription_status: userInfo.subscription_status,
-      }
-    setUser(userObj)
-    return userObj
+      // Directly set user from data.user; role/subscription info not available here
+      const userObj: User = {
+        id: data.user.id,
+        email: data.user.email ?? null,
+        role: null, // Optionally retrieve from localStorage/sessionStorage if you store it at signup/login
+        subscription_tier: null,
+        subscription_status: null,
+      };
+      setUser(userObj);
+      return userObj;
     } catch (error) {
       console.error('Login error:', error);
       throw error;
@@ -211,9 +205,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       if (producerError) throw new Error(producerError.message);
 
-      // Fetch user info and set user state as before
-      const userInfo = await fetchUserInfo(data.user.id);
-      const userObj = { id: data.user.id ?? '', email: data.user.email ?? null, role: userInfo.role, subscription_tier: userInfo.subscription_tier, subscription_status: userInfo.subscription_status };
+      // Add a 1-second delay before fetching user info to avoid replication lag
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Instead of fetching user info, use the data we just inserted
+      const userObj = {
+        id: data.user.id ?? '',
+        email: data.user.email ?? null,
+        role: role,
+        subscription_tier: subscriptionTier,
+        subscription_status: subscriptionStatus
+      };
       setUser(userObj);
       return userObj;
     } catch (error) {
