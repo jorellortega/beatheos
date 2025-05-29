@@ -40,14 +40,14 @@ export default function Home() {
       <style>{`
         /* Remove any outer box glow from the container or border */
         .logo-glow {
-          filter: drop-shadow(0 0 24px #fff700cc) drop-shadow(0 0 12px #fff8);
+          filter: drop-shadow(0 0 8px #fff700cc) drop-shadow(0 0 4px #fff8);
           box-shadow: 0 0 0 0 transparent;
-          transition: filter 0.2s, box-shadow 0.2s;
+          transition: filter 0.5s ease-in-out, box-shadow 0.5s ease-in-out;
         }
         .logo-glow-pulse {
-          filter: drop-shadow(0 0 36px #fff700) drop-shadow(0 0 18px #fff) drop-shadow(0 0 8px #fff700);
+          filter: drop-shadow(0 0 12px #fff700) drop-shadow(0 0 6px #fff) drop-shadow(0 0 3px #fff700);
           box-shadow: 0 0 0 0 transparent;
-          transition: filter 0.2s, box-shadow 0.2s;
+          transition: filter 0.5s ease-in-out, box-shadow 0.5s ease-in-out;
         }
       `}</style>
       <div className="w-full flex flex-col items-center justify-center pt-2 pb-0">
