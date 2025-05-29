@@ -312,13 +312,13 @@ export default function BeatsPage() {
   )
 
   const ListView = () => (
-    <div className="space-y-4">
-      {filteredBeats.map((beat) => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+      {filteredBeats.map((beat, idx) => (
         <div
           key={beat.id}
-          className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+          className={`flex items-center justify-between p-4 bg-secondary/80 hover:bg-secondary transition rounded-lg group ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
         >
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 min-w-0">
             <a
               href={`/beat/${beat.slug}`}
               onClick={e => e.stopPropagation()}
@@ -328,43 +328,55 @@ export default function BeatsPage() {
               <Image
                 src={beat.image || "/placeholder.svg"}
                 alt={beat.title}
-                width={64}
-                height={64}
-                className="w-16 h-16 aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+                width={48}
+                height={48}
+                className="w-12 h-12 rounded object-cover border border-primary shadow"
               />
             </a>
-            <div>
-              <h3 className="font-semibold flex items-center gap-2">
-                {beat.title}
-              </h3>
-              <p className="text-xs text-gray-400 mb-1">
-                by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
+            <div className="min-w-0">
+              <div className="font-bold text-white truncate">{beat.title}</div>
+              <div className="text-xs text-gray-400 truncate">
+                {beat.genre && <span className="mr-2">{beat.genre}</span>}
+                {beat.bpm && <span>{beat.bpm} BPM</span>}
+              </div>
+              <div className="text-sm text-gray-300 truncate">
+                {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
                   ? beat.producer_names.map((name: string, idx: number) => (
                       <span key={beat.producer_ids[idx]}>
-                        <Link href={`/producers/${beat.producer_slugs[idx]}`} className="text-gray-400 hover:text-yellow-400">
+                        <Link href={`/producers/${beat.producer_slugs[idx]}`} className="hover:text-yellow-400 text-gray-300">
                           {name}
                         </Link>{idx < beat.producer_names.length - 1 ? ', ' : ''}
                       </span>
                     ))
                   : beat.producer}
-              </p>
-              <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
+              </div>
+              <div className="text-xs text-gray-400 mt-1">{beat.plays.toLocaleString()} plays</div>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
+          <div className="flex items-center justify-end gap-2 ml-4 flex-shrink-0">
+            <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)} aria-label={playingBeatId === beat.id && isPlaying ? 'Pause' : 'Play'}>
               {playingBeatId === beat.id && isPlaying ? (
-                <Pause className="h-4 w-4" />
+                <Pause className="h-5 w-5" />
               ) : (
-                <Play className="h-4 w-4" />
+                <Play className="h-5 w-5" />
               )}
             </Button>
             <Button
-              className="gradient-button text-black font-medium hover:text-white"
+              className="gradient-button text-black font-medium hover:text-white px-3 py-1"
               onClick={() => handlePurchase(beat)}
+              aria-label="Buy"
             >
-              {user ? 'BUY' : 'BUY INSTANTLY'}
+              <ShoppingCart className="h-5 w-5" />
             </Button>
+            <a
+              href={`/beat/${beat.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center text-primary hover:text-yellow-400"
+              title="View beat details"
+            >
+              <ExternalLink className="h-5 w-5" />
+            </a>
           </div>
         </div>
       ))}

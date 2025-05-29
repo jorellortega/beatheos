@@ -220,10 +220,10 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                   </Button>
                   <Button
                     className="gradient-button text-black font-medium hover:text-white"
-                    onClick={() => handlePurchase(beat)}
+                    onClick={e => { e.stopPropagation(); handlePurchase(beat); }}
                   >
                     {user ? 'BUY' : 'BUY INSTANTLY'}
-                      </Button>
+                  </Button>
                 </div>
               </div>
             ))}

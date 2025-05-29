@@ -237,16 +237,13 @@ export default function Header() {
                 Logout
               </button>
             ) : (
-              <Link
-                href="/login"
-                className={`text-lg px-2 py-1 rounded transition-colors ${pathname === "/login" ? "text-primary font-semibold" : "text-gray-300 hover:text-white"}`}
-              >
-                Login
-              </Link>
+              <Button className="gradient-button text-black font-medium hover:text-white">
+                <Link href="/login">Login</Link>
+              </Button>
             )}
             <Button variant="ghost" size="icon" className="text-white hover:text-primary" onClick={() => setIsMobileMenuOpen(true)}>
-                  <Menu size={24} />
-                </Button>
+              <Menu size={24} />
+            </Button>
           </div>
         </div>
 
