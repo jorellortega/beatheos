@@ -38,38 +38,31 @@ export default function Home() {
   return (
     <main style={{ backgroundColor: '#141414', minHeight: '100vh', padding: '2rem' }}>
       <style>{`
+        /* Remove any outer box glow from the container or border */
         .logo-glow {
-          /* Subtle, soft inner glow */
-          box-shadow: 0 0 18px 6px #fff700cc, 0 0 8px 2px #fff8;
-          filter: drop-shadow(0 0 8px #fff700cc) drop-shadow(0 0 4px #fff8);
-          transition: box-shadow 0.2s, filter 0.2s;
+          filter: drop-shadow(0 0 24px #fff700cc) drop-shadow(0 0 12px #fff8);
+          box-shadow: 0 0 0 0 transparent;
+          transition: filter 0.2s, box-shadow 0.2s;
         }
         .logo-glow-pulse {
-          /* Slightly stronger for pulse */
-          box-shadow: 0 0 32px 10px #fff700ee, 0 0 16px 4px #fff;
-          filter: drop-shadow(0 0 16px #fff700ee) drop-shadow(0 0 8px #fff);
-          transition: box-shadow 0.2s, filter 0.2s;
+          filter: drop-shadow(0 0 36px #fff700) drop-shadow(0 0 18px #fff) drop-shadow(0 0 8px #fff700);
+          box-shadow: 0 0 0 0 transparent;
+          transition: filter 0.2s, box-shadow 0.2s;
         }
       `}</style>
       <div className="w-full flex flex-col items-center justify-center pt-2 pb-0">
         {/* Logo Placeholder or Real Logo */}
-        {logoUrl ? (
+        {logoUrl && (
           <img
             src={logoUrl}
             alt="Logo"
-            className={`w-[36rem] h-[18rem] object-contain cursor-pointer ${isPlaying ? 'logo-glow' : ''} ${glow ? 'logo-glow-pulse' : ''}`}
+            className={`mx-auto select-none transition-all duration-200 ${
+              (isPlaying || glow) ? (glow ? 'logo-glow-pulse' : 'logo-glow') : ''
+            }`}
+            style={{ width: '220px', height: '220px', userSelect: 'none', pointerEvents: 'auto' }}
             onClick={handleLogoClick}
-            title="Play Shuffle!"
+            draggable={false}
           />
-        ) : (
-          <div
-            className={`w-[36rem] h-[18rem] flex items-center justify-center text-6xl font-bold text-gray-300 cursor-pointer ${isPlaying ? 'logo-glow' : ''} ${glow ? 'logo-glow-pulse' : ''}`}
-            style={{ background: 'none', border: 'none' }}
-            onClick={handleLogoClick}
-            title="Play Shuffle!"
-          >
-            LOGO
-          </div>
         )}
       </div>
       <div className="text-center mb-8 mt-0">
