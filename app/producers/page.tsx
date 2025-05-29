@@ -17,6 +17,17 @@ export default function ProducersPage() {
   const [error, setError] = useState<string | null>(null)
   const [beatCounts, setBeatCounts] = useState<{ [producerId: string]: number }>({})
 
+  const shuffleProducers = () => {
+    setDisplayedProducers(prev => {
+      const shuffled = [...prev];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    });
+  };
+
   useEffect(() => {
     async function fetchProducers() {
       try {
@@ -101,19 +112,28 @@ export default function ProducersPage() {
           />
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
         </div>
+        <Button 
+          variant="outline" 
+          className="bg-black border-primary text-white hover:bg-primary hover:text-black transition-colors"
+          onClick={shuffleProducers}
+        >
+          <Shuffle className="h-4 w-4 mr-2" />
+          Shuffle
+        </Button>
       </div>
       
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {filteredProducers.map((producer) => (
           <Card key={producer.id} className="bg-black border-primary">
-            <CardHeader className="relative pb-0 pt-0 px-0">
-              <Image
-                src={producer.profile_image_url || "/placeholder.svg"}
-                alt={producer.display_name}
-                width={300}
-                height={300}
-                className="rounded-t-lg"
-              />
+            <CardHeader className="relative pb-0 pt-0 px-0 flex items-center justify-center">
+              <div className="relative w-full aspect-square">
+                <Image
+                  src={producer.profile_image_url || "/placeholder.svg"}
+                  alt={producer.display_name}
+                  fill
+                  className="rounded-t-lg object-cover"
+                />
+              </div>
               {producer.isTop10 && (
                 <Badge className="absolute top-2 left-2 bg-primary text-black">
                   <Award className="h-4 w-4 mr-1" />

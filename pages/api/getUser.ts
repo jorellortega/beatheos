@@ -19,6 +19,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .single();
 
   if (error) {
+    // Supabase returns PGRST116 for 'row not found' (PostgREST)
+    if (error.code === 'PGRST116' || error.message.toLowerCase().includes('row not found')) {
+      return res.status(404).json({ error: 'User not found' });
+    }
     return res.status(500).json({ error: error.message });
   }
 

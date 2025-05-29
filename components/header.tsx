@@ -242,8 +242,8 @@ export default function Header() {
               </Button>
             )}
             <Button variant="ghost" size="icon" className="text-white hover:text-primary" onClick={() => setIsMobileMenuOpen(true)}>
-              <Menu size={24} />
-            </Button>
+                  <Menu size={24} />
+                </Button>
           </div>
         </div>
 

@@ -24,14 +24,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Fetch user info (role, subscription_tier, subscription_status)
 async function fetchUserInfo(id: string): Promise<{ role: string | null, subscription_tier?: string | null, subscription_status?: string | null }> {
-  const res = await fetch(`/api/getUser?userId=${id}`);
-  if (!res.ok) throw new Error('Failed to fetch user info');
-  const data = await res.json();
-  return {
-    role: data?.role ?? null,
-    subscription_tier: data?.subscription_tier ?? null,
-    subscription_status: data?.subscription_status ?? null,
-  };
+  let attempts = 0;
+  let lastError: any = null;
+  while (attempts < 5) {
+    const res = await fetch(`/api/getUser?userId=${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        role: data?.role ?? null,
+        subscription_tier: data?.subscription_tier ?? null,
+        subscription_status: data?.subscription_status ?? null,
+      };
+    } else if (res.status === 404) {
+      // User not found, wait and retry
+      await new Promise(res => setTimeout(res, 400));
+      attempts++;
+      continue;
+    } else {
+      lastError = await res.text();
+      break;
+    }
+  }
+  throw new Error(lastError || 'Failed to fetch user info');
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
