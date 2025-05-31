@@ -856,11 +856,15 @@ export function SiteWideBeatPlayer() {
                       onFocus={() => setIsLyricsFocused(true)}
                       onBlur={() => setIsLyricsFocused(false)}
                       placeholder="Type or paste lyrics here..."
-                      className={`mb-2 resize-none bg-secondary text-white overflow-hidden min-h-[80px] ${
+                      className={`mb-2 resize-none bg-secondary text-white overflow-y-auto min-h-[80px] ${
                         isLyricsFocused && window.innerWidth < 640 
                           ? 'max-h-[calc(90vh-120px)]' 
                           : 'max-h-[400px]'
                       }`}
+                      style={{
+                        touchAction: 'pan-y',
+                        WebkitOverflowScrolling: 'touch'
+                      }}
                     />
                   </div>
                 </div>
