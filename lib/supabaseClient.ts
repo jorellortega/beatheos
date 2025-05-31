@@ -18,7 +18,9 @@ if (isBrowser) {
   options.auth.storage = {
     getItem: (key: string) => {
       try {
-        return localStorage.getItem(key);
+        const value = localStorage.getItem(key);
+        console.debug(`[Supabase Storage] getItem: key=${key}, value=${value}`);
+        return value;
       } catch (error) {
         console.error('Error reading from localStorage:', error);
         return null;
@@ -27,6 +29,7 @@ if (isBrowser) {
     setItem: (key: string, value: string) => {
       try {
         localStorage.setItem(key, value);
+        console.debug(`[Supabase Storage] setItem: key=${key}, value=${value}`);
       } catch (error) {
         console.error('Error writing to localStorage:', error);
       }
@@ -34,6 +37,7 @@ if (isBrowser) {
     removeItem: (key: string) => {
       try {
         localStorage.removeItem(key);
+        console.debug(`[Supabase Storage] removeItem: key=${key}`);
       } catch (error) {
         console.error('Error removing from localStorage:', error);
       }

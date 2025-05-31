@@ -18,6 +18,7 @@ interface AuthContextType {
   logout: () => Promise<void>
   isLoading: boolean
   error: Error | null
+  hydrated: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -68,6 +69,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const fetchAndSetUser = async (sessionUser: any) => {
+      if (!sessionUser) {
+        setUser(null);
+        return;
+      }
+      // Fetch real user info from users table
+      const { data: userInfo, error: userInfoError } = await supabase
+        .from('users')
+        .select('role, subscription_tier, subscription_status')
+        .eq('id', sessionUser.id)
+        .maybeSingle();
+      setUser({
+        id: sessionUser.id,
+        email: sessionUser.email ?? null,
+        role: userInfo?.role ?? null,
+        subscription_tier: userInfo?.subscription_tier ?? null,
+        subscription_status: userInfo?.subscription_status ?? null,
+      });
+    };
+
     const checkSessionOnLoad = async () => {
       console.log('[Auth] checkSessionOnLoad running');
       try {
@@ -77,14 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessionError) throw sessionError;
         if (!mounted) return;
         if (session?.user) {
-          // Directly set user from session.user; role/subscription info not available here
-          setUser({
-            id: session.user.id,
-            email: session.user.email ?? null,
-            role: null, // Optionally retrieve from localStorage/sessionStorage if you store it at signup/login
-            subscription_tier: null,
-            subscription_status: null,
-          });
+          await fetchAndSetUser(session.user);
           console.log('[Auth] setUser called:', session.user);
         } else {
           setUser(null);
@@ -112,17 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[Auth] Auth change detected:', event, session);
       if (!mounted) return;
       try {
-        if (session) {
-          if (session.user) {
-            // Directly set user from session.user; role/subscription info not available here
-            setUser({
-              id: session.user.id,
-              email: session.user.email ?? null,
-              role: null, // Optionally retrieve from localStorage/sessionStorage if you store it at signup/login
-              subscription_tier: null,
-              subscription_status: null,
-            });
-          }
+        if (session && session.user) {
+          await fetchAndSetUser(session.user);
         } else {
           setUser(null);
         }
@@ -243,8 +248,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signup,
     logout,
     isLoading,
-    error
-  }), [user, isLoading, error]);
+    error,
+    hydrated
+  }), [user, isLoading, error, hydrated]);
 
   // Show loading state only during initial hydration
   if (!hydrated) {

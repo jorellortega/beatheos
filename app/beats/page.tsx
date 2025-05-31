@@ -326,13 +326,13 @@ export default function BeatsPage() {
               aria-label={`View details for ${beat.title}`}
             >
               <div className="w-16 h-16 flex-shrink-0">
-                <Image
-                  src={beat.image || "/placeholder.svg"}
-                  alt={beat.title}
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
                   width={64}
                   height={64}
                   className="w-full h-full aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-                />
+              />
               </div>
             </a>
             <div className="min-w-0">
@@ -401,13 +401,13 @@ export default function BeatsPage() {
               aria-label={`View details for ${beat.title}`}
             >
               <div className="w-16 h-16 flex-shrink-0">
-                <Image
-                  src={beat.image || "/placeholder.svg"}
-                  alt={beat.title}
-                  width={64}
-                  height={64}
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
+                width={64}
+                height={64}
                   className="w-full h-full aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-                />
+              />
               </div>
             </a>
             <div>

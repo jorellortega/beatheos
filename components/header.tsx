@@ -13,20 +13,21 @@ import { supabase } from '@/lib/supabaseClient'
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, hydrated } = useAuth()
   const [producerId, setProducerId] = useState<string | null>(null)
   const [producerSlug, setProducerSlug] = useState<string | null>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const getDashboardPath = () => {
     const role = user?.role?.toLowerCase();
+    if (!role) return null;
     if (role === "admin") return "/dashboard/admin";
     if (role === "business_producer" || role === "producer_business") return "/dashboard/business_producer";
     if (role === "pro_artist") return "/dashboard/pro_artist";
     if (role === "free_artist") return "/dashboard/artist";
     if (role === "free_producer") return "/dashboard/free_producer";
     if (role === "premium_producer") return "/dashboard/premium_producer";
-    return "/dashboard";
+    return null;
   }
 
   useEffect(() => {
@@ -108,13 +109,11 @@ export default function Header() {
         ))}
       {user ? (
         <>
-          <Link
-            href={getDashboardPath()}
-              className="text-2xl font-semibold text-gray-300 hover:text-white"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            Dashboard
-          </Link>
+          {user && getDashboardPath() && (
+            <Button variant="outline" className="text-white hover:text-primary" asChild>
+              <Link href={getDashboardPath() as string}>Dashboard</Link>
+            </Button>
+          )}
           {producerId && producerSlug && (
             <Link
               href={`/producers/${producerSlug}`}
@@ -155,6 +154,9 @@ export default function Header() {
     </div>
   )
 
+  // Add this early in the component to prevent rendering until hydrated
+  if (!hydrated) return null;
+
   return (
     <header className={`fixed top-0 w-full z-50 transition-all duration-500 gradient-header`}>
       <div className="container mx-auto px-4 py-4">
@@ -169,9 +171,11 @@ export default function Header() {
           <div className="hidden md:flex items-center space-x-4">
             {user ? (
               <>
-                <Button variant="outline" className="text-white hover:text-primary" asChild>
-                  <Link href={getDashboardPath()}>Dashboard</Link>
-                </Button>
+                {user && getDashboardPath() && (
+                  <Button variant="outline" className="text-white hover:text-primary" asChild>
+                    <Link href={getDashboardPath() as string}>Dashboard</Link>
+                  </Button>
+                )}
                 {producerId && producerSlug && (
                   <Button variant="outline" className="text-white hover:text-primary" asChild>
                     <Link href={`/producers/${producerSlug}`}>Profile</Link>
@@ -185,9 +189,11 @@ export default function Header() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="bg-card border-primary">
                     <DropdownMenuItem>
-                      <Link href={getDashboardPath()} className="w-full">
-                        Dashboard
-                      </Link>
+                      {getDashboardPath() ? (
+                        <Link href={getDashboardPath() as string} className="w-full">
+                          Dashboard
+                        </Link>
+                      ) : null}
                     </DropdownMenuItem>
                     <DropdownMenuItem>
                       <Link href="/settings" className="w-full">
