@@ -266,15 +266,13 @@ export default function BeatsPage() {
             tabIndex={0}
             aria-label={`View details for ${beat.title}`}
           >
-            <div className="w-16 h-16 flex-shrink-0">
-              <Image
-                src={beat.image || "/placeholder.svg"}
-                alt={beat.title}
-                width={64}
-                height={64}
-                className="w-full h-full aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-              />
-            </div>
+            <Image
+              src={beat.image || "/placeholder.svg"}
+              alt={beat.title}
+              width={300}
+              height={300}
+              className="w-full aspect-square object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+            />
           </a>
           <div className="p-4">
             <h3 className="font-semibold flex items-center gap-2">
@@ -402,15 +400,13 @@ export default function BeatsPage() {
               tabIndex={0}
               aria-label={`View details for ${beat.title}`}
             >
-              <div className="w-16 h-16 flex-shrink-0">
-                <Image
-                  src={beat.image || "/placeholder.svg"}
-                  alt={beat.title}
-                  width={64}
-                  height={64}
-                  className="w-full h-full aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-                />
-              </div>
+              <Image
+                src={beat.image || "/placeholder.svg"}
+                alt={beat.title}
+                width={300}
+                height={300}
+                className="w-full aspect-square object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+              />
             </a>
             <div>
               <h3 className="font-semibold flex items-center gap-2">
@@ -442,7 +438,8 @@ export default function BeatsPage() {
               className="gradient-button text-black font-medium hover:text-white"
               onClick={e => { e.stopPropagation(); handlePurchase(beat); }}
             >
-              {user ? 'BUY' : 'BUY INSTANTLY'}
+              <ShoppingCart className="h-5 w-5 sm:hidden" />
+              <span className="hidden sm:inline">{user ? 'BUY' : 'BUY INSTANTLY'}</span>
             </Button>
           </div>
         </div>
