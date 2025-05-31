@@ -400,13 +400,15 @@ export default function BeatsPage() {
               tabIndex={0}
               aria-label={`View details for ${beat.title}`}
             >
-              <Image
-                src={beat.image || "/placeholder.svg"}
-                alt={beat.title}
-                width={300}
-                height={300}
-                className="w-full aspect-square object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-              />
+              <div className="w-16 h-16 flex-shrink-0">
+                <Image
+                  src={beat.image || "/placeholder.svg"}
+                  alt={beat.title}
+                  width={64}
+                  height={64}
+                  className="w-full h-full aspect-square rounded object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
+                />
+              </div>
             </a>
             <div>
               <h3 className="font-semibold flex items-center gap-2">
