@@ -486,7 +486,7 @@ export default function BeatDetailPage() {
                     <>
                       {field.key === "tags"
                         ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
-                        : beat[field.key]}
+                          : beat[field.key]}
                       <Button
                         size="icon"
                         variant="ghost"
@@ -503,7 +503,7 @@ export default function BeatDetailPage() {
                   <span className="flex-1 flex items-center gap-2 justify-end w-full">
                     {field.key === "tags"
                       ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
-                      : beat[field.key]}
+                        : beat[field.key]}
                   </span>
                 )}
               </div>
