@@ -15,6 +15,31 @@ import Image from "next/image"
 import { AudioWaveform } from "@/components/AudioWaveform"
 import Link from 'next/link'
 import { usePlayer } from '@/contexts/PlayerContext'
+import { BeatRating } from '@/components/beats/BeatRating'
+
+interface Beat {
+  id: string;
+  title: string;
+  description: string;
+  genre: string;
+  bpm: number;
+  key: string;
+  cover_art_url: string;
+  mp3_url: string;
+  wav_url: string;
+  stems_url: string;
+  price_lease: number;
+  price_premium_lease: number;
+  price_exclusive: number;
+  price_buyout: number;
+  producer_id: string;
+  producer_ids?: string[];
+  created_at: string;
+  updated_at: string;
+  tags?: string[];
+  licensing?: Record<string, any>;
+  [key: string]: any; // Add index signature for dynamic field access
+}
 
 const editableFields = [
   { key: "title", label: "Title", type: "input" },
@@ -34,10 +59,20 @@ const licenseOptions = [
   { id: 'buyout', label: 'Buy Out License', priceKey: 'price_buyout' },
 ]
 
+// Helper function to get license price from columns or JSON
+function getLicensePrice(beat: any, key: string, jsonKey: string) {
+  // Prefer the column if it exists and is a number
+  if (beat && beat[key] != null && !isNaN(Number(beat[key]))) return Number(beat[key]);
+  // Fallback to JSON if present
+  if (beat && beat.licensing && beat.licensing[jsonKey] != null && !isNaN(Number(beat.licensing[jsonKey]))) return Number(beat.licensing[jsonKey]);
+  return null;
+}
+
 export default function BeatDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const params = useParams<{ id: string }>()
+  const id = params?.id;
   const router = useRouter()
-  const [beat, setBeat] = useState<any>(null)
+  const [beat, setBeat] = useState<Beat | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editingField, setEditingField] = useState<string | null>(null)
@@ -51,6 +86,15 @@ export default function BeatDetailPage() {
   const { user } = useAuth();
   const [producers, setProducers] = useState<any[]>([])
   const { setCurrentBeat, setIsPlaying, currentBeat, isPlaying } = usePlayer();
+  const [ratingData, setRatingData] = useState<{
+    userRating: number | null;
+    averageRating: number;
+    totalRatings: number;
+  }>({
+    userRating: null,
+    averageRating: 0,
+    totalRatings: 0
+  });
 
   useEffect(() => {
     async function fetchBeat() {
@@ -87,12 +131,43 @@ export default function BeatDetailPage() {
     fetchProducers()
   }, [beat])
 
+  useEffect(() => {
+    async function fetchRatingData() {
+      if (!user || !id) return;
+      
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return;
+
+        const response = await fetch(`/api/beats/${id}/rate`, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setRatingData({
+            userRating: data.userRating,
+            averageRating: data.averageRating,
+            totalRatings: data.totalRatings
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching rating data:', error);
+      }
+    }
+
+    fetchRatingData();
+  }, [id, user]);
+
   const startEdit = (field: string) => {
+    if (!beat) return;
     setEditingField(field)
     if (field === "tags") {
-      setFieldValue(Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
+      setFieldValue(Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags || ""))
     } else if (field === "licensing") {
-      setFieldValue(typeof beat.licensing === 'object' ? JSON.stringify(beat.licensing, null, 2) : String(beat.licensing))
+      setFieldValue(typeof beat.licensing === 'object' ? JSON.stringify(beat.licensing, null, 2) : String(beat.licensing || ""))
     } else {
       setFieldValue(beat[field] ?? "")
     }
@@ -204,7 +279,7 @@ export default function BeatDetailPage() {
         body: JSON.stringify({
           beatId: beat.id,
           licenseType: licenseId,
-          price,
+          price: price ?? 0,
           productName: beat.title,
           userId: user ? user.id : null,
           guestEmail: !user ? null : null
@@ -387,7 +462,7 @@ export default function BeatDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {editableFields.filter(f => ["genre","bpm","key","tags","licensing"].includes(f.key)).map(field => (
+            {editableFields.filter(f => ["genre","bpm","key","tags"].includes(f.key)).map(field => (
               <div key={field.key} className={`flex items-center justify-between p-2 rounded bg-secondary/60 hover:bg-secondary transition group ${editingField === field.key ? 'ring-2 ring-primary bg-secondary' : ''}`}> 
                 <span className="font-semibold text-gray-300 w-32">{field.label}:</span>
                 {user && beat.producer_id === user.id ? (
@@ -411,18 +486,7 @@ export default function BeatDetailPage() {
                     <>
                       {field.key === "tags"
                         ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
-                        : field.key === "licensing"
-                          ? (
-                              <div className="flex flex-col gap-1">
-                                {beat.licensing && Object.entries(beat.licensing).map(([type, price]) => (
-                                  <div key={type} className="flex justify-between">
-                                    <span className="capitalize">{type.replace('template-', '').replace(/-/g, ' ')}</span>
-                                    <span className="font-mono">${String(price)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )
-                          : beat[field.key]}
+                        : beat[field.key]}
                       <Button
                         size="icon"
                         variant="ghost"
@@ -439,18 +503,7 @@ export default function BeatDetailPage() {
                   <span className="flex-1 flex items-center gap-2 justify-end w-full">
                     {field.key === "tags"
                       ? (Array.isArray(beat.tags) ? beat.tags.join(", ") : String(beat.tags))
-                      : field.key === "licensing"
-                        ? (
-                            <div className="flex flex-col gap-1">
-                              {beat.licensing && Object.entries(beat.licensing).map(([type, price]) => (
-                                <div key={type} className="flex justify-between">
-                                  <span className="capitalize">{type.replace('template-', '').replace(/-/g, ' ')}</span>
-                                  <span className="font-mono">${String(price)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )
-                        : beat[field.key]}
+                      : beat[field.key]}
                   </span>
                 )}
               </div>
@@ -465,15 +518,20 @@ export default function BeatDetailPage() {
         <CardContent>
           <div className="grid grid-cols-1 gap-4">
             {licenseOptions.map(opt => {
-              const price = beat[opt.priceKey]
+              let jsonKey = '';
+              if (opt.id === 'lease') jsonKey = 'template-lease';
+              if (opt.id === 'premium') jsonKey = 'template-premium-lease';
+              if (opt.id === 'exclusive') jsonKey = 'template-exclusive';
+              if (opt.id === 'buyout') jsonKey = 'template-buy-out';
+              const price = getLicensePrice(beat, opt.priceKey, jsonKey);
               return (
                 <div key={opt.id} className={`flex items-center justify-between p-4 rounded-lg bg-secondary/60 hover:bg-secondary transition group ${editingPrice === opt.id ? 'ring-2 ring-primary bg-secondary' : ''}`}>
                   <span className="font-semibold text-gray-300 w-56">{opt.label}:</span>
                   {user && beat.producer_id === user.id ? (
                   <span className="flex-1 flex items-center gap-2 justify-end w-full cursor-pointer"
-                    onClick={() => editingPrice !== opt.id && startEditPrice(opt.id, price)}
+                    onClick={() => editingPrice !== opt.id && startEditPrice(opt.id, price ?? 0)}
                     tabIndex={0}
-                    onKeyDown={e => { if (e.key === 'Enter' && editingPrice !== opt.id) startEditPrice(opt.id, price) }}
+                    onKeyDown={e => { if (e.key === 'Enter' && editingPrice !== opt.id) startEditPrice(opt.id, price ?? 0) }}
                     style={{ outline: 'none' }}
                   >
                     {editingPrice === opt.id ? (
@@ -484,20 +542,20 @@ export default function BeatDetailPage() {
                       </>
                     ) : (
                       <>
-                        <span className="text-lg">${String(price ?? 0)}</span>
+                        <span className="text-lg">{price != null ? `$${price}` : 'N/A'}</span>
                         <Button
                           size="icon"
                           variant="ghost"
                           className="opacity-0 group-hover:opacity-100 transition"
                           tabIndex={-1}
-                          onClick={e => { e.stopPropagation(); startEditPrice(opt.id, price); }}
+                          onClick={e => { e.stopPropagation(); startEditPrice(opt.id, price ?? 0); }}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button
                           size="sm"
                           className="ml-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold rounded"
-                          onClick={e => { e.stopPropagation(); handlePurchase(opt.id, price); }}
+                          onClick={e => { e.stopPropagation(); handlePurchase(opt.id, price ?? 0); }}
                         >
                           Checkout
                         </Button>
@@ -506,11 +564,11 @@ export default function BeatDetailPage() {
                   </span>
                   ) : (
                     <span className="flex-1 flex items-center gap-2 justify-end w-full">
-                      <span className="text-lg">${String(price ?? 0)}</span>
+                      <span className="text-lg">{price != null ? `$${price}` : 'N/A'}</span>
                       <Button
                         size="sm"
                         className="ml-2 bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold rounded"
-                        onClick={e => { e.stopPropagation(); handlePurchase(opt.id, price); }}
+                        onClick={e => { e.stopPropagation(); handlePurchase(opt.id, price ?? 0); }}
                       >
                         Checkout
                       </Button>
@@ -525,16 +583,31 @@ export default function BeatDetailPage() {
       <PurchaseOptionsModal 
         isOpen={showPurchaseModal} 
         onClose={() => setShowPurchaseModal(false)} 
-        beat={{
+        beat={beat ? {
           id: String(beat.id),
           title: beat.title,
-          price: beat.price,
-          price_lease: beat.price_lease,
-          price_premium_lease: beat.price_premium_lease,
-          price_exclusive: beat.price_exclusive,
-          price_buyout: beat.price_buyout,
-        }}
+          price: getLicensePrice(beat, 'price_lease', 'template-lease') ?? 0,
+          price_lease: getLicensePrice(beat, 'price_lease', 'template-lease') ?? 0,
+          price_premium_lease: getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease') ?? 0,
+          price_exclusive: getLicensePrice(beat, 'price_exclusive', 'template-exclusive') ?? 0,
+          price_buyout: getLicensePrice(beat, 'price_buyout', 'template-buy-out') ?? 0,
+        } : null}
       />
+      <Card className="max-w-2xl w-full bg-black border-primary shadow-lg p-6 mt-8">
+        <CardHeader>
+          <CardTitle className="text-2xl font-bold text-primary">Beat Rating</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center">
+            <BeatRating
+              beatId={beat.id}
+              initialUserRating={ratingData.userRating}
+              initialAverageRating={ratingData.averageRating}
+              initialTotalRatings={ratingData.totalRatings}
+            />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 } 

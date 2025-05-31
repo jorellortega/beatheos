@@ -19,22 +19,14 @@ export default function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const getDashboardPath = () => {
-    switch (user?.role) {
-      case "admin":
-        return "/dashboard/admin"
-      case "business_producer":
-        return "/dashboard/business_producer"
-      case "pro_artist":
-        return "/dashboard/pro_artist"
-      case "free_artist":
-        return "/dashboard/artist"
-      case "free_producer":
-        return "/dashboard/free_producer"
-      case "premium_producer":
-        return "/dashboard/premium_producer"
-      default:
-        return "/dashboard"
-    }
+    const role = user?.role?.toLowerCase();
+    if (role === "admin") return "/dashboard/admin";
+    if (role === "business_producer" || role === "producer_business") return "/dashboard/business_producer";
+    if (role === "pro_artist") return "/dashboard/pro_artist";
+    if (role === "free_artist") return "/dashboard/artist";
+    if (role === "free_producer") return "/dashboard/free_producer";
+    if (role === "premium_producer") return "/dashboard/premium_producer";
+    return "/dashboard";
   }
 
   useEffect(() => {
