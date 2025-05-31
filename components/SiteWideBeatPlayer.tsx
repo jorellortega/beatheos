@@ -842,30 +842,41 @@ export function SiteWideBeatPlayer() {
                         );
                       })()}
                     </div>
-                    <Textarea
-                      ref={lyricsTextareaRef}
-                      value={lyrics}
-                      onChange={e => {
-                        setLyrics(e.target.value);
-                        // Auto-resize logic
-                        if (lyricsTextareaRef.current) {
-                          lyricsTextareaRef.current.style.height = 'auto';
-                          lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
-                        }
-                      }}
-                      onFocus={() => setIsLyricsFocused(true)}
-                      onBlur={() => setIsLyricsFocused(false)}
-                      placeholder="Type or paste lyrics here..."
-                      className={`mb-2 resize-none bg-secondary text-white overflow-y-auto min-h-[80px] ${
-                        isLyricsFocused && window.innerWidth < 640 
-                          ? 'max-h-[calc(90vh-120px)]' 
-                          : 'max-h-[400px]'
-                      }`}
-                      style={{
-                        touchAction: 'pan-y',
-                        WebkitOverflowScrolling: 'touch'
-                      }}
-                    />
+                    <div className="relative">
+                      <Textarea
+                        ref={lyricsTextareaRef}
+                        value={lyrics}
+                        onChange={e => {
+                          setLyrics(e.target.value);
+                          // Auto-resize logic
+                          if (lyricsTextareaRef.current) {
+                            lyricsTextareaRef.current.style.height = 'auto';
+                            lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
+                          }
+                        }}
+                        onFocus={() => setIsLyricsFocused(true)}
+                        onBlur={() => setIsLyricsFocused(false)}
+                        placeholder="Type or paste lyrics here..."
+                        className={`mb-2 resize-none bg-secondary text-white overflow-y-auto min-h-[80px] ${
+                          isLyricsFocused && window.innerWidth < 640 
+                            ? 'max-h-[calc(90vh-120px)]' 
+                            : 'max-h-[400px]'
+                        }`}
+                        style={{
+                          touchAction: 'pan-y',
+                          WebkitOverflowScrolling: 'touch'
+                        }}
+                      />
+                      {isLyricsFocused && window.innerWidth < 640 && (
+                        <button
+                          onClick={() => setIsLyricsFocused(false)}
+                          className="absolute bottom-4 right-4 w-12 h-12 rounded-full bg-black/35 hover:bg-black/50 transition-colors flex items-center justify-center"
+                          aria-label="Return to normal view"
+                        >
+                          <Minimize className="h-6 w-6 text-white" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {/* Center session buttons, keep round buttons at bottom right */}
