@@ -48,6 +48,7 @@ interface Beat {
   lyrics?: string
   producerSlug?: string
   producers: { display_name: string; slug: string }[]
+  slug?: string
 }
 
 interface Playlist {
@@ -69,6 +70,7 @@ export function SiteWideBeatPlayer() {
   const [shuffledBeats, setShuffledBeats] = useState<any[]>([])
   const [currentBeatIndex, setCurrentBeatIndex] = useState(0)
   const [playerMode, setPlayerMode] = useState<'default' | 'full'>('default')
+  const [isLyricsFocused, setIsLyricsFocused] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
   const { user } = useAuth()
   const [session, setSession] = useState<{ lyrics: string; recordedAudio: Blob | null }>({
@@ -203,7 +205,7 @@ export function SiteWideBeatPlayer() {
       (async () => {
         const { data: beats, error } = await supabase
           .from('beats')
-          .select('id, title, producer_id, mp3_url, cover_art_url')
+          .select('id, title, producer_id, mp3_url, cover_art_url, slug')
           .eq('is_draft', false)
           .order('created_at', { ascending: false })
           .limit(100)
@@ -223,6 +225,7 @@ export function SiteWideBeatPlayer() {
                 image: beat.cover_art_url,
                 producerSlug: producer?.slug || '',
                 producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+                slug: beat.slug || beat.id.toString(),
               }
             })
           )
@@ -296,7 +299,7 @@ export function SiteWideBeatPlayer() {
       // Fetch all beats from Supabase
       const { data: beats, error } = await supabase
         .from('beats')
-        .select('id, title, producer_id, mp3_url, cover_art_url');
+        .select('id, title, producer_id, mp3_url, cover_art_url, slug');
       
       if (error) {
         toast({
@@ -322,6 +325,7 @@ export function SiteWideBeatPlayer() {
             coverImage: beat.cover_art_url,
             producerSlug: producer?.slug || '',
             producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+            slug: beat.slug || beat.id.toString(),
           };
         })
       );
@@ -330,7 +334,10 @@ export function SiteWideBeatPlayer() {
       const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 10);
       setShuffledBeats(shuffled);
       setCurrentBeatIndex(0);
-      setCurrentBeat(shuffled[0]);
+      setCurrentBeat({
+        ...shuffled[0],
+        slug: shuffled[0].slug || shuffled[0].id.toString(),
+      });
       setIsShuffle(true);
       setIsPlaying(true);
     } else {
@@ -344,12 +351,18 @@ export function SiteWideBeatPlayer() {
     if (isShuffle && shuffledBeats.length > 0) {
       const nextIndex = (currentBeatIndex + 1) % shuffledBeats.length
       setCurrentBeatIndex(nextIndex)
-      setCurrentBeat(shuffledBeats[nextIndex])
+      setCurrentBeat({
+        ...shuffledBeats[nextIndex],
+        slug: shuffledBeats[nextIndex].slug || shuffledBeats[nextIndex].id.toString(),
+      })
       setIsPlaying(true)
     } else if (!isShuffle && allBeats.length > 0) {
       const nextIndex = (currentBeatIndex + 1) % allBeats.length
       setCurrentBeatIndex(nextIndex)
-      setCurrentBeat(allBeats[nextIndex])
+      setCurrentBeat({
+        ...allBeats[nextIndex],
+        slug: allBeats[nextIndex].slug || allBeats[nextIndex].id.toString(),
+      })
       setIsPlaying(true)
     }
   }
@@ -358,12 +371,18 @@ export function SiteWideBeatPlayer() {
     if (isShuffle && shuffledBeats.length > 0) {
       const prevIndex = (currentBeatIndex - 1 + shuffledBeats.length) % shuffledBeats.length
       setCurrentBeatIndex(prevIndex)
-      setCurrentBeat(shuffledBeats[prevIndex])
+      setCurrentBeat({
+        ...shuffledBeats[prevIndex],
+        slug: shuffledBeats[prevIndex].slug || shuffledBeats[prevIndex].id.toString(),
+      })
       setIsPlaying(true)
     } else if (!isShuffle && allBeats.length > 0) {
       const prevIndex = (currentBeatIndex - 1 + allBeats.length) % allBeats.length
       setCurrentBeatIndex(prevIndex)
-      setCurrentBeat(allBeats[prevIndex])
+      setCurrentBeat({
+        ...allBeats[prevIndex],
+        slug: allBeats[prevIndex].slug || allBeats[prevIndex].id.toString(),
+      })
       setIsPlaying(true)
     }
   }
@@ -483,7 +502,7 @@ export function SiteWideBeatPlayer() {
       // Fetch the full beat details
       const { data: beat, error: beatError } = await supabase
         .from('beats')
-        .select('id, title, producer_id, mp3_url, cover_art_url')
+        .select('id, title, producer_id, mp3_url, cover_art_url, slug')
         .eq('id', data.beat_ids)
         .single();
 
@@ -504,6 +523,7 @@ export function SiteWideBeatPlayer() {
           audioUrl: beat.mp3_url,
           image: beat.cover_art_url,
           producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+          slug: beat.slug || beat.id.toString(),
         });
         setLyrics(data.lyrics || "");
       setOpenSessionId(sessionId);
@@ -614,6 +634,7 @@ export function SiteWideBeatPlayer() {
       image: beat.image || beat.cover_art_url,
       producerSlug: beat.producerSlug || beat.slug || '',
       producers: beat.producers || [],
+      slug: beat.slug || beat.id.toString(),
     })
     setFullCurrentBeat(beat)
   }
@@ -685,120 +706,124 @@ export function SiteWideBeatPlayer() {
                 className="h-10 w-10"
               >
                 <X className="h-5 w-5" />
-            </Button>
-          </div>
+              </Button>
+            </div>
           ) : (
             <>
-          <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
-            <Link href={currentBeat ? `/beat/${currentBeat.id}` : '#'}>
-            <Image
-              src={currentBeat?.image || "/placeholder.svg"}
-              alt={currentBeat?.title || "cover"}
-              width={100}
-              height={100}
-                className="rounded-md mb-2 sm:mb-0 sm:mr-4 mt-12 sm:mt-0 cursor-pointer hover:opacity-80 transition"
-            />
-            </Link>
-            <div className="flex-grow flex flex-col items-center sm:items-start w-full">
-              <div className="flex flex-row items-center w-full">
-              <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
-                {/* Modern waveform visualizer only on desktop */}
-                <div className="hidden md:block ml-4 flex-shrink-0" style={{ minWidth: 180, maxWidth: 300 }}>
-                  <div style={{ width: '100%', minWidth: 180, maxWidth: 300 }}>
-                    {currentBeat?.audioUrl && (
-                      <WavesurferPlayer
-                        height={48}
-                        waveColor="#888"
-                        progressColor="#FFD700"
-                        url={currentBeat.audioUrl}
-                        barWidth={2}
-                        barRadius={2}
-                        cursorColor="#FFD700"
-                        interact={false}
-                        onAudioprocess={(ws: any) => {
-                          if (audioRef.current && audioRef.current.duration) {
-                            setProgress((audioRef.current.currentTime / audioRef.current.duration) * 100);
-                          }
-                        }}
+              {(!isLyricsFocused || window.innerWidth >= 640) && (
+                <>
+                  <div className="flex flex-col sm:flex-row items-center mb-4 gap-4 w-full">
+                    <Link href={currentBeat ? `/beat/${currentBeat.slug || currentBeat.id}` : '#'}>
+                      <Image
+                        src={currentBeat?.image || "/placeholder.svg"}
+                        alt={currentBeat?.title || "cover"}
+                        width={100}
+                        height={100}
+                        className="rounded-md mb-2 sm:mb-0 sm:mr-4 mt-12 sm:mt-0 cursor-pointer hover:opacity-80 transition"
                       />
-                    )}
+                    </Link>
+                    <div className="flex-grow flex flex-col items-center sm:items-start w-full">
+                      <div className="flex flex-row items-center w-full">
+                        <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+                        {/* Modern waveform visualizer only on desktop */}
+                        <div className="hidden md:block ml-4 flex-shrink-0" style={{ minWidth: 180, maxWidth: 300 }}>
+                          <div style={{ width: '100%', minWidth: 180, maxWidth: 300 }}>
+                            {currentBeat?.audioUrl && (
+                              <WavesurferPlayer
+                                height={48}
+                                waveColor="#888"
+                                progressColor="#FFD700"
+                                url={currentBeat.audioUrl}
+                                barWidth={2}
+                                barRadius={2}
+                                cursorColor="#FFD700"
+                                interact={false}
+                                onAudioprocess={(ws: any) => {
+                                  if (audioRef.current && audioRef.current.duration) {
+                                    setProgress((audioRef.current.currentTime / audioRef.current.duration) * 100);
+                                  }
+                                }}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
+                        <div className="text-sm text-gray-400 text-center sm:text-left w-full">
+                          by {(currentBeat.producers ?? []).map((producer, idx, arr) => (
+                            <span key={producer.slug}>
+                              <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
+                                {producer.display_name}
+                              </Link>
+                              {idx < (arr.length - 1) ? ', ' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-400 text-center sm:text-left w-full">
+                          {currentBeat?.artist || ''}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-              {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
-                <div className="text-sm text-gray-400 text-center sm:text-left w-full">
-                  by {(currentBeat.producers ?? []).map((producer, idx, arr) => (
-                    <span key={producer.slug}>
-                      <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
-                        {producer.display_name}
-                      </Link>
-                      {idx < (arr.length - 1) ? ', ' : ''}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-gray-400 text-center sm:text-left w-full">
-                  {currentBeat?.artist || ''}
-                </div>
+                  <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
+                    <div className="flex items-center justify-center gap-2">
+                      <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
+                        <Rewind className="h-6 w-6" />
+                      </Button>
+                      <Button
+                        size="lg"
+                        variant="secondary"
+                        onClick={togglePlay}
+                      >
+                        {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+                      </Button>
+                      <Button size="lg" variant="secondary" onClick={playNextBeat}>
+                        <SkipForward className="h-6 w-6" />
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      <Button size="lg" variant="secondary" onClick={toggleRepeat}>
+                        <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
+                      </Button>
+                      <Button size="lg" variant="secondary" onClick={toggleShuffle}>
+                        <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+                      </Button>
+                      <Button
+                        size="lg"
+                        className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
+                        onClick={() => setIsPurchaseModalOpen(true)}
+                      >
+                        {user ? 'BUY' : 'BUY INSTANTLY'}
+                      </Button>
+                    </div>
+                  </div>
+                  <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
+                </>
               )}
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row justify-center items-center mb-4 gap-2 sm:gap-4 w-full">
-            <div className="flex items-center justify-center gap-2">
-            <Button size="lg" variant="secondary" onClick={playPreviousBeat}>
-                <Rewind className="h-6 w-6" />
-              </Button>
-              <Button
-                size="lg"
-                variant="secondary"
-                onClick={togglePlay}
-              >
-                {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
-              </Button>
-            <Button size="lg" variant="secondary" onClick={playNextBeat}>
-                <SkipForward className="h-6 w-6" />
-              </Button>
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <Button size="lg" variant="secondary" onClick={toggleRepeat}>
-                <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
-              </Button>
-            <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-              <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-            </Button>
-                <Button
-                  size="lg"
-                  className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
-                  onClick={() => setIsPurchaseModalOpen(true)}
-                >
-                  {user ? 'BUY' : 'BUY INSTANTLY'}
-              </Button>
-            </div>
-          </div>
-          <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
-            <div className="flex-grow overflow-hidden">
-              <div className="flex flex-col h-full">
-                <div className="mb-4"></div>
-                <div className="flex-grow mb-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-semibold">Lyrics</h4>
-                    {openSessionId && (() => {
-                      const session = savedSessions.find(s => s.id === openSessionId);
-                      if (!editingSessionName) {
-                        return (
-                          <span
-                            className="text-xs text-gray-400 font-normal truncate max-w-[200px] cursor-pointer hover:underline flex items-center gap-1"
-                            title={session ? session.name : ''}
-                            onClick={() => {
-                              setEditingSessionNameValue(session ? session.name : "");
-                              setEditingSessionName(true);
-                            }}
-                          >
-                            {session ? session.name : ''}
-                            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" className="inline ml-1 text-gray-400" xmlns="http://www.w3.org/2000/svg"><path d="M14.7 2.29a1 1 0 0 1 1.42 0l1.59 1.59a1 1 0 0 1 0 1.42l-9.3 9.3a1 1 0 0 1-.45.26l-3.59 1a1 1 0 0 1-1.23-1.23l1-3.59a1 1 0 0 1 .26-.45l9.3-9.3ZM15.41 4 14 2.59 4.29 12.3l-.7 2.52 2.52-.7L15.41 4Z" fill="currentColor"/></svg>
-                          </span>
-                        );
-                      } else {
+              <div className="flex-grow overflow-hidden">
+                <div className="flex flex-col h-full">
+                  <div className="mb-4"></div>
+                  <div className="flex-grow mb-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-semibold">Lyrics</h4>
+                      {openSessionId && (() => {
+                        const session = savedSessions.find(s => s.id === openSessionId);
+                        if (!editingSessionName) {
+                          return (
+                            <span
+                              className="text-xs text-gray-400 font-normal truncate max-w-[200px] cursor-pointer hover:underline flex items-center gap-1"
+                              title={session ? session.name : ''}
+                              onClick={() => {
+                                setEditingSessionNameValue(session ? session.name : "");
+                                setEditingSessionName(true);
+                              }}
+                            >
+                              {session ? session.name : ''}
+                              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" className="inline ml-1 text-gray-400" xmlns="http://www.w3.org/2000/svg"><path d="M14.7 2.29a1 1 0 0 1 1.42 0l1.59 1.59a1 1 0 0 1 0 1.42l-9.3 9.3a1 1 0 0 1-.45.26l-3.59 1a1 1 0 0 1-1.23-1.23l1-3.59a1 1 0 0 1 .26-.45l9.3-9.3ZM15.41 4 14 2.59 4.29 12.3l-.7 2.52 2.52-.7L15.41 4Z" fill="currentColor"/></svg>
+                            </span>
+                          );
+                        }
                         return (
                           <input
                             className="text-xs text-white bg-secondary border border-gray-500 rounded px-1 max-w-[200px] outline-none"
@@ -815,76 +840,77 @@ export function SiteWideBeatPlayer() {
                             }}
                           />
                         );
-                      }
-                    })()}
-                  </div>
-                  <Textarea
-                    ref={lyricsTextareaRef}
-                    value={lyrics}
-                    onChange={e => {
-                      setLyrics(e.target.value);
-                      // Auto-resize logic
-                      if (lyricsTextareaRef.current) {
-                        lyricsTextareaRef.current.style.height = 'auto';
-                        lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
-                      }
-                    }}
-                    placeholder="Type or paste lyrics here..."
-                    className="mb-2 resize-none bg-secondary text-white overflow-hidden min-h-[80px] max-h-[400px]"
-                  />
-                </div>
-              </div>
-              {/* Center session buttons, keep round buttons at bottom right */}
-              {playerMode === 'full' && (
-                <>
-                  <div className="absolute bottom-3 left-4 right-4 sm:left-0 sm:right-0 z-10 flex justify-start sm:justify-center items-center gap-2 w-full">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <span className="inline-flex">
-                          <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
-                            Open Session
-                          </Button>
-                        </span>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {savedSessions.length > 0 ? (
-                          savedSessions.map((session) => (
-                            <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
-                              {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
-                            </DropdownMenuItem>
-                          ))
-                        ) : (
-                          <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
-                      {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
-                      {openSessionId ? 'Update' : 'Save Session'}
-                    </Button>
-                  </div>
-                  <div className="absolute bottom-3 right-4 z-20 flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setIsExpanded(false);
-                        setPlayerMode(playerMode === 'full' ? 'default' : 'full');
+                      })()}
+                    </div>
+                    <Textarea
+                      ref={lyricsTextareaRef}
+                      value={lyrics}
+                      onChange={e => {
+                        setLyrics(e.target.value);
+                        // Auto-resize logic
+                        if (lyricsTextareaRef.current) {
+                          lyricsTextareaRef.current.style.height = 'auto';
+                          lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
+                        }
                       }}
-                      className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-                      aria-label={playerMode === 'full' ? 'Minimize player' : 'Expand player'}
-                    >
-                      {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
-                    </button>
-                    <button
-                      onClick={handleClose}
-                      className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-                      aria-label="Close player"
-                    >
-                      <X className="h-5 w-5 text-white" />
-                    </button>
+                      onFocus={() => setIsLyricsFocused(true)}
+                      onBlur={() => setIsLyricsFocused(false)}
+                      placeholder="Type or paste lyrics here..."
+                      className="mb-2 resize-none bg-secondary text-white overflow-hidden min-h-[80px] max-h-[400px]"
+                    />
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+                {/* Center session buttons, keep round buttons at bottom right */}
+                {playerMode === 'full' && (
+                  <>
+                    <div className="absolute bottom-3 left-4 right-4 sm:left-0 sm:right-0 z-10 flex justify-start sm:justify-center items-center gap-2 w-full">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <span className="inline-flex">
+                            <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
+                              Open Session
+                            </Button>
+                          </span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          {savedSessions.length > 0 ? (
+                            savedSessions.map((session) => (
+                              <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
+                                {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
+                              </DropdownMenuItem>
+                            ))
+                          ) : (
+                            <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
+                        {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
+                        {openSessionId ? 'Update' : 'Save Session'}
+                      </Button>
+                    </div>
+                    <div className="absolute bottom-3 right-4 z-20 flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setIsExpanded(false);
+                          setPlayerMode(playerMode === 'full' ? 'default' : 'full');
+                        }}
+                        className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+                        aria-label={playerMode === 'full' ? 'Minimize player' : 'Expand player'}
+                      >
+                        {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
+                      </button>
+                      <button
+                        onClick={handleClose}
+                        className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
+                        aria-label="Close player"
+                      >
+                        <X className="h-5 w-5 text-white" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
         </CardContent>
