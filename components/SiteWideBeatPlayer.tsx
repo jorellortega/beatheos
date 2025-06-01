@@ -97,6 +97,8 @@ export function SiteWideBeatPlayer() {
   const [openSessionId, setOpenSessionId] = useState<string | null>(null)
   const [editingSessionName, setEditingSessionName] = useState(false)
   const [editingSessionNameValue, setEditingSessionNameValue] = useState("")
+  const [nextShuffledBeats, setNextShuffledBeats] = useState<any[]>([])
+  const [preloadTimeout, setPreloadTimeout] = useState<NodeJS.Timeout | null>(null)
 
   const pathname = usePathname()
 
@@ -331,8 +333,8 @@ export function SiteWideBeatPlayer() {
         })
       );
 
-      // Shuffle and pick 10 beats
-      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 10);
+      // Shuffle and pick 3 beats
+      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 3);
       setShuffledBeats(shuffled);
       setCurrentBeatIndex(0);
       setCurrentBeat({
@@ -348,25 +350,124 @@ export function SiteWideBeatPlayer() {
     }
   };
 
-  const playNextBeat = () => {
-    if (isShuffle && shuffledBeats.length > 0) {
-      const nextIndex = (currentBeatIndex + 1) % shuffledBeats.length
-      setCurrentBeatIndex(nextIndex)
-      setCurrentBeat({
-        ...shuffledBeats[nextIndex],
-        slug: shuffledBeats[nextIndex].slug || shuffledBeats[nextIndex].id.toString(),
+  // Preload the next set of 3 shuffled beats
+  const preloadNextShuffledBeats = async () => {
+    const { data: beats, error } = await supabase
+      .from('beats')
+      .select('id, title, producer_id, mp3_url, cover_art_url, slug');
+    if (error) return;
+    const beatsWithProducers = await Promise.all(
+      beats.map(async (beat) => {
+        const { data: producer } = await supabase
+          .from('producers')
+          .select('display_name, slug')
+          .eq('user_id', beat.producer_id)
+          .single();
+        return {
+          ...beat,
+          artist: producer?.display_name || beat.producer_id,
+          audioUrl: beat.mp3_url,
+          coverImage: beat.cover_art_url,
+          producerSlug: producer?.slug || '',
+          producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+          slug: beat.slug || beat.id.toString(),
+        };
       })
-      setIsPlaying(true)
-    } else if (!isShuffle && allBeats.length > 0) {
-      const nextIndex = (currentBeatIndex + 1) % allBeats.length
-      setCurrentBeatIndex(nextIndex)
+    );
+    const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 3);
+    setNextShuffledBeats(shuffled);
+  };
+
+  // When a new set of shuffledBeats is set, schedule preloading of the next set
+  useEffect(() => {
+    if (isShuffle && shuffledBeats.length > 0 && currentBeatIndex === 0) {
+      if (preloadTimeout) clearTimeout(preloadTimeout);
+      const timeout = setTimeout(() => {
+        preloadNextShuffledBeats();
+      }, 5000);
+      setPreloadTimeout(timeout);
+    }
+    return () => {
+      if (preloadTimeout) clearTimeout(preloadTimeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shuffledBeats, isShuffle]);
+
+  const playNextBeat = async () => {
+    if (isShuffle) {
+      if (shuffledBeats.length > 0 && currentBeatIndex < shuffledBeats.length - 1) {
+        // Play next in current shuffled set
+        const nextIndex = currentBeatIndex + 1;
+        setCurrentBeatIndex(nextIndex);
+        setCurrentBeat({
+          ...shuffledBeats[nextIndex],
+          slug: shuffledBeats[nextIndex].slug || shuffledBeats[nextIndex].id.toString(),
+        });
+        setIsPlaying(true);
+      } else {
+        // Use preloaded set if available
+        if (nextShuffledBeats.length === 3) {
+          setShuffledBeats(nextShuffledBeats);
+          setCurrentBeatIndex(0);
+          setCurrentBeat({
+            ...nextShuffledBeats[0],
+            slug: nextShuffledBeats[0].slug || nextShuffledBeats[0].id.toString(),
+          });
+          setIsPlaying(true);
+          setNextShuffledBeats([]); // Clear for next round
+          preloadNextShuffledBeats(); // Preload the next set again
+        } else {
+          // fallback: fetch as before
+          const { data: beats, error } = await supabase
+            .from('beats')
+            .select('id, title, producer_id, mp3_url, cover_art_url, slug');
+          if (error) {
+            toast({
+              title: "Error",
+              description: "Failed to fetch beats for shuffle mode.",
+              variant: "destructive",
+            });
+            return;
+          }
+          const beatsWithProducers = await Promise.all(
+            beats.map(async (beat) => {
+              const { data: producer } = await supabase
+                .from('producers')
+                .select('display_name, slug')
+                .eq('user_id', beat.producer_id)
+                .single();
+              return {
+                ...beat,
+                artist: producer?.display_name || beat.producer_id,
+                audioUrl: beat.mp3_url,
+                coverImage: beat.cover_art_url,
+                producerSlug: producer?.slug || '',
+                producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+                slug: beat.slug || beat.id.toString(),
+              };
+            })
+          );
+          const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 3);
+          setShuffledBeats(shuffled);
+          setCurrentBeatIndex(0);
+          setCurrentBeat({
+            ...shuffled[0],
+            slug: shuffled[0].slug || shuffled[0].id.toString(),
+          });
+          setIsPlaying(true);
+          preloadNextShuffledBeats(); // Preload the next set again
+        }
+      }
+    } else if (allBeats.length > 0) {
+      const nextIndex = (currentBeatIndex + 1) % allBeats.length;
+      setCurrentBeatIndex(nextIndex);
       setCurrentBeat({
         ...allBeats[nextIndex],
         slug: allBeats[nextIndex].slug || allBeats[nextIndex].id.toString(),
-      })
-      setIsPlaying(true)
+      });
+      setIsPlaying(true);
     }
-  }
+  };
 
   const playPreviousBeat = () => {
     if (isShuffle && shuffledBeats.length > 0) {
