@@ -21,6 +21,7 @@ import {
   DoorClosedIcon as CloseIcon,
   Shuffle,
   ShoppingCart,
+  ArrowUpFromLine,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "@/components/ui/use-toast"
@@ -873,7 +874,7 @@ export function SiteWideBeatPlayer() {
                           className="absolute bottom-4 right-4 w-12 h-12 rounded-full bg-black/35 hover:bg-black/50 transition-colors flex items-center justify-center"
                           aria-label="Return to normal view"
                         >
-                          <Minimize className="h-6 w-6 text-white" />
+                          <ArrowUpFromLine className="h-6 w-6 text-white" />
                         </button>
                       )}
                     </div>

@@ -141,6 +141,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
         audioUrl: beat.audioUrl,
         producerSlug: beat.producer_slugs[0] || '',
         producers: beat.producers || [],
+        slug: beat.slug || String(beat.id),
       });
       setIsPlaying(true);
     }

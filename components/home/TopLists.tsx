@@ -173,6 +173,7 @@ export function TopLists() {
         audioUrl: beat.audioUrl || '/placeholder-audio.mp3',
         producerSlug: beat.producer_slugs[0] || '',
         producers: beat.producers || [],
+        slug: beat.slug || beatId,
       })
       setIsPlaying(true)
       lastClickRef.current = { id: beatId, time: now };

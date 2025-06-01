@@ -11,6 +11,7 @@ interface Beat {
   lyrics?: string
   producerSlug?: string
   producers?: { display_name: string; slug: string }[]
+  slug?: string
 }
 
 interface PlayerContextType {

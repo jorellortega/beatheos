@@ -74,19 +74,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         return;
       }
-      // Fetch real user info from users table
-      const { data: userInfo, error: userInfoError } = await supabase
-        .from('users')
-        .select('role, subscription_tier, subscription_status')
-        .eq('id', sessionUser.id)
-        .maybeSingle();
-      setUser({
-        id: sessionUser.id,
-        email: sessionUser.email ?? null,
-        role: userInfo?.role ?? null,
-        subscription_tier: userInfo?.subscription_tier ?? null,
-        subscription_status: userInfo?.subscription_status ?? null,
-      });
+      try {
+        const res = await fetch(`/api/getUser?userId=${sessionUser.id}`);
+        if (!res.ok) throw new Error('Failed to fetch user info');
+        const userInfo = await res.json();
+        setUser({
+          id: sessionUser.id,
+          email: sessionUser.email ?? null,
+          role: userInfo?.role ?? null,
+          subscription_tier: userInfo?.subscription_tier ?? null,
+          subscription_status: userInfo?.subscription_status ?? null,
+        });
+      } catch (error) {
+        setUser(null);
+        setError(error instanceof Error ? error : new Error('Failed to fetch user info'));
+      }
     };
 
     const checkSessionOnLoad = async () => {
@@ -159,13 +161,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error;
       if (!data.user) throw new Error("No user data received");
-      // Fetch user info from users table
-      const { data: userInfo, error: userInfoError } = await supabase
-        .from('users')
-        .select('role, subscription_tier, subscription_status')
-        .eq('id', data.user.id)
-        .maybeSingle();
-      if (userInfoError) throw userInfoError;
+      // Fetch user info from backend API
+      const res = await fetch(`/api/getUser?userId=${data.user.id}`);
+      if (!res.ok) throw new Error('Failed to fetch user info');
+      const userInfo = await res.json();
       const userObj: User = {
         id: data.user.id,
         email: data.user.email ?? null,

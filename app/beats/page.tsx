@@ -242,6 +242,7 @@ export default function BeatsPage() {
       audioUrl: beat.audioUrl,
       producerSlug: beat.producer_slugs[0] || '',
       producers: beat.producers || [],
+      slug: beat.slug || beat.id.toString(),
     });
       setIsPlaying(true); // Play
       setPlayingBeatId(beat.id);

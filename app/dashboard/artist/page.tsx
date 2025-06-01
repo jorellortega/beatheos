@@ -698,7 +698,7 @@ export default function FreeArtistDashboard() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Free Artist Dashboard</h1>
+      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Artist Dashboard</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
@@ -707,7 +707,7 @@ export default function FreeArtistDashboard() {
           </CardHeader>
           <CardContent>
             <Link href="/beats">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+              <Button className="w-full bg-black text-white border border-white font-medium transition-all duration-200 hover:gradient-button hover:text-black hover:border-0">
                 Browse Beats
               </Button>
             </Link>
@@ -720,25 +720,33 @@ export default function FreeArtistDashboard() {
           </CardHeader>
           <CardContent>
             <Link href="/mybeats">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+              <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
                 My Beats
               </Button>
             </Link>
           </CardContent>
         </Card>
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle>Sessions</CardTitle>
-            <CardDescription>Manage and upload your recording sessions, or collaborate with others.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/sessions">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                Go to Sessions
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <Link href="/sessions" className="block group">
+          <Card className="bg-card border-primary hover:border-primary transition-all cursor-pointer group-hover:border-yellow-400">
+            <CardHeader>
+              <Mic className="h-8 w-8 mb-2 text-primary" />
+              <CardTitle>Sessions</CardTitle>
+              <CardDescription>Manage and upload your recording sessions, or collaborate with others.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Recent Sessions</span>
+                  <Button variant="outline" size="sm" className="bg-black text-white border border-white font-medium transition-all duration-200 hover:gradient-button hover:text-black hover:border-0">
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Session
+                  </Button>
+                </div>
+                <div className="text-gray-400">No recent sessions</div>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
         <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
             <CardTitle>Profile & Settings</CardTitle>
@@ -746,7 +754,7 @@ export default function FreeArtistDashboard() {
           </CardHeader>
           <CardContent>
             <Link href="/settings">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+              <Button className="w-full bg-black text-white border border-white font-medium transition-all duration-200 hover:gradient-button hover:text-black hover:border-0">
                 Profile & Settings
               </Button>
             </Link>
@@ -759,7 +767,7 @@ export default function FreeArtistDashboard() {
           </CardHeader>
           <CardContent>
             <Link href="/contact">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+              <Button className="w-full bg-black text-white border border-white font-medium transition-all duration-200 hover:gradient-button hover:text-black hover:border-0">
                 Support & Help
               </Button>
             </Link>
