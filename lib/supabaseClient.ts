@@ -10,7 +10,6 @@ const options: any = {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storageKey: 'beatheos-auth-token',
   }
 };
 
