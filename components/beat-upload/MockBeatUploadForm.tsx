@@ -82,6 +82,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [batchEditingTitles, setBatchEditingTitles] = useState<{ [id: string]: string }>({});
   const [pairedBeat, setPairedBeat] = useState<any | null>(null);
   const [publishStatus, setPublishStatus] = useState<{ [fileId: string]: 'pending' | 'success' | 'error' }>({});
+  const [expandedLicensingId, setExpandedLicensingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchDrafts() {
@@ -150,8 +151,14 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     }
   }, [setMp3File, setWavFile, setStemsFile, setCoverArt, setAudioFiles, setActiveTab]);
 
-  // Always add to files list for Files tab
+  // Update the filesTabOnDrop function to initialize licensing
   const filesTabOnDrop = useCallback((acceptedFiles: File[]) => {
+    const defaultLicensing = {
+      'template-lease': 20.00,
+      'template-premium-lease': 100.00,
+      'template-exclusive': 300.00,
+      'template-buy-out': 1000.00
+    };
     setAudioFiles(prev => [
       ...prev,
       ...acceptedFiles.map(file => ({
@@ -161,6 +168,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         wavFile: file.name.toLowerCase().endsWith('.wav') ? file : null,
         stemsFile: file.name.toLowerCase().endsWith('.zip') ? file : null,
         coverArt: file.type.startsWith('image/') ? file : null,
+        licensing: { ...defaultLicensing }, // Initialize with default licensing
         createdAt: new Date(),
         updatedAt: new Date()
       }))
@@ -488,7 +496,7 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     toast({ title: "DEBUG", description: `handleApplyCoverToSelected fired. coverArt: ${coverArtDebug}, selected: ${selectedFileIds.length}` });
   };
 
-  // Batch publish selected files in Files tab
+  // Update the handleBatchPublish function to properly handle licensing
   const handleBatchPublish = async () => {
     if (!user || selectedFileIds.length === 0) return;
     setIsUploading(true);
@@ -505,29 +513,40 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         formData.append('bpm', '');
         formData.append('key', '');
         formData.append('tags', JSON.stringify([]));
-        formData.append('licensing', JSON.stringify({}));
+        // Get licensing info from the file object
+        const licensingInfo = fileObj.licensing || {};
+        formData.append('licensing', JSON.stringify(licensingInfo));
         formData.append('isDraft', 'false');
         formData.append('mp3File', fileObj.file);
         if (fileObj.coverArt) formData.append('coverArt', fileObj.coverArt);
         if (fileObj.wavFile) formData.append('wavFile', fileObj.wavFile);
         if (fileObj.stemsFile) formData.append('stemsFile', fileObj.stemsFile);
+
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw new Error('You must be logged in to upload beats');
+
         const response = await fetch('/api/beats', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${session.access_token}` },
           body: formData,
         });
+
         if (!response.ok) {
           const error = await response.json();
           setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
           throw new Error(error.error || 'Failed to upload beat');
         }
+
         setPublishStatus(prev => ({ ...prev, [fileId]: 'success' }));
         toast({ title: 'Beat Uploaded', description: `${fileObj.title} uploaded successfully!` });
       } catch (error) {
+        console.error('Error uploading beat:', error);
         setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
-        toast({ title: 'Upload Error', description: error instanceof Error ? error.message : 'An error occurred during upload', variant: 'destructive' });
+        toast({ 
+          title: 'Upload Error', 
+          description: error instanceof Error ? error.message : 'An error occurred during upload', 
+          variant: 'destructive' 
+        });
       }
     }
     setIsUploading(false);
@@ -536,6 +555,27 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       setActiveTab('mybeats');
     }, 1200);
   };
+
+  // Ensure every file always has all default license keys in its licensing object
+  useEffect(() => {
+    const defaultLicensing = {
+      'template-lease': 20.00,
+      'template-premium-lease': 100.00,
+      'template-exclusive': 300.00,
+      'template-buy-out': 1000.00
+    };
+    let changed = false;
+    const updatedFiles = audioFiles.map(file => {
+      const newLicensing = { ...defaultLicensing, ...(file.licensing || {}) };
+      // Only update if something is missing
+      if (Object.keys(defaultLicensing).some(key => !(key in (file.licensing || {})))) {
+        changed = true;
+        return { ...file, licensing: newLicensing };
+      }
+      return file;
+    });
+    if (changed) setAudioFiles(updatedFiles);
+  }, [audioFiles]);
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -844,8 +884,21 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
             )}
           </div>
         </div>
-        {selectedFileIds.length > 0 && (
+        {audioFiles.length > 0 && (
           <div className="flex gap-2 mb-2">
+            <Button 
+              onClick={(e) => {
+                e.stopPropagation();
+                if (selectedFileIds.length < audioFiles.length) {
+                  setSelectedFileIds(audioFiles.map(f => f.id));
+                } else {
+                  setSelectedFileIds([]);
+                }
+              }}
+              variant="secondary"
+            >
+              {selectedFileIds.length < audioFiles.length ? 'Select All' : 'Deselect All'}
+            </Button>
             <Button 
               onClick={(e) => {
                 e.stopPropagation();
@@ -1056,6 +1109,35 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
                       </span>
                     )}
                   </div>
+                  {(
+                    file.file?.type === 'audio/mpeg' ||
+                    file.wavFile ||
+                    file.stemsFile
+                  ) && (
+                    <div className="mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mb-2"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setExpandedLicensingId(expandedLicensingId === file.id ? null : file.id);
+                        }}
+                      >
+                        {expandedLicensingId === file.id ? 'Hide Licensing' : 'Set Licensing'}
+                      </Button>
+                      {expandedLicensingId === file.id && (
+                        <LicensingOptions
+                          licensing={file.licensing || {}}
+                          setLicensing={newLicensing =>
+                            setAudioFiles(prev =>
+                              prev.map(f => f.id === file.id ? { ...f, licensing: newLicensing } : f)
+                            )
+                          }
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center space-x-2">

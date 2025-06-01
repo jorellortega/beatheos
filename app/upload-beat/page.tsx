@@ -195,40 +195,6 @@ export default function UploadBeatPage() {
           </CardContent>
         </Card>
       )}
-
-      <div className="mt-8">
-        <h2 className="text-xl font-bold text-primary mb-4">Licensing Options</h2>
-        <ul className="space-y-4">
-          <li className="flex items-center justify-between">
-            <div>
-              <h3 className="font-bold">Lease License</h3>
-              <p className="text-sm text-gray-400">Non-exclusive license for limited commercial use</p>
-            </div>
-            <Button variant="outline" className="ml-4">Upload Custom License</Button>
-          </li>
-          <li className="flex items-center justify-between">
-            <div>
-              <h3 className="font-bold">Premium Lease License</h3>
-              <p className="text-sm text-gray-400">Non-exclusive license for broader commercial use</p>
-            </div>
-            <Button variant="outline" className="ml-4">Upload Custom License</Button>
-          </li>
-          <li className="flex items-center justify-between">
-            <div>
-              <h3 className="font-bold">Exclusive License</h3>
-              <p className="text-sm text-gray-400">Exclusive rights—once purchased, the beat is removed from the marketplace</p>
-            </div>
-            <Button variant="outline" className="ml-4">Upload Custom License</Button>
-          </li>
-          <li className="flex items-center justify-between">
-            <div>
-              <h3 className="font-bold">Buy Out License</h3>
-              <p className="text-sm text-gray-400">Full ownership transfer—buyer gains complete ownership, including resale rights</p>
-            </div>
-            <Button variant="outline" className="ml-4">Upload Custom License</Button>
-          </li>
-        </ul>
-      </div>
     </div>
   )
 }

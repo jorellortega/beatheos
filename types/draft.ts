@@ -20,6 +20,7 @@ export interface AudioFile {
   wavFile: File | null
   stemsFile: File | null
   coverArt: File | null
+  licensing?: Record<string, number>
   createdAt: Date
   updatedAt: Date
 }
