@@ -330,7 +330,7 @@ export default function BeatsPage() {
             />
           </a>
           <div className="p-4">
-            <h3 className="font-semibold flex items-center gap-2">
+            <h3 className="font-semibold w-full text-center whitespace-normal">
               {beat.title}
             </h3>
             <p className="text-xs text-gray-400 mb-1">
@@ -398,7 +398,7 @@ export default function BeatsPage() {
               </div>
             </a>
             <div className="min-w-0 flex-1">
-              <div className="font-bold text-white text-center w-full">{beat.title}</div>
+              <div className="font-bold text-white w-full text-center whitespace-normal">{beat.title}</div>
               <div className="text-xs text-gray-400 truncate">
                 {beat.genre && <span className="mr-2">{beat.genre}</span>}
                 {beat.bpm && <span>{beat.bpm} BPM</span>}
@@ -480,7 +480,7 @@ export default function BeatsPage() {
               </div>
             </a>
             <div>
-              <h3 className="font-semibold flex items-center gap-2">
+              <h3 className="font-semibold w-full text-center whitespace-normal">
                 {beat.title}
               </h3>
               <p className="text-xs text-gray-400 mb-1">
