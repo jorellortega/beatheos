@@ -22,6 +22,8 @@ import {
   Shuffle,
   ShoppingCart,
   ArrowUpFromLine,
+  SkipBack,
+  Minimize2,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "@/components/ui/use-toast"
@@ -103,6 +105,7 @@ export function SiteWideBeatPlayer() {
   const [ratingData, setRatingData] = useState({ averageRating: 0, totalRatings: 0 })
   const [dragging, setDragging] = useState(false)
   const [lyricsExpanded, setLyricsExpanded] = useState(false)
+  const [ratingsMap, setRatingsMap] = useState<Record<string, { averageRating: number, totalRatings: number }>>({});
 
   const pathname = usePathname()
 
@@ -849,12 +852,6 @@ export function SiteWideBeatPlayer() {
                     <div className="flex-grow flex flex-col items-center sm:items-start w-full">
                       <div className="flex flex-row items-center w-full">
                         <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
-                        {/* Move BeatRating to the right, where the waveform was */}
-                        {playerMode === 'full' && currentBeat?.id && (
-                          <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center">
-                            <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} />
-                          </div>
-                        )}
                       </div>
                       {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
                         <div className="text-sm text-gray-400 text-center sm:text-left w-full">
@@ -928,12 +925,6 @@ export function SiteWideBeatPlayer() {
                   <div className="flex-grow mb-2">
                     <div className="flex items-center gap-2 mb-1 w-full justify-between">
                       <h4 className="font-semibold">Lyrics</h4>
-                      {/* Desktop-only Production button on the right side of Lyrics */}
-                      {playerMode === 'full' && (
-                        <Button variant="secondary" className="hidden sm:inline-flex ml-auto" onClick={() => setLyricsExpanded(v => !v)}>
-                          {lyricsExpanded ? 'Collapse' : 'Production'}
-                        </Button>
-                      )}
                     </div>
                     <div className="relative">
                       <Textarea
@@ -961,68 +952,80 @@ export function SiteWideBeatPlayer() {
                           WebkitOverflowScrolling: 'touch',
                         }}
                       />
-                      {isLyricsFocused && window.innerWidth < 640 && (
-                        <button
-                          onClick={() => setIsLyricsFocused(false)}
-                          className="absolute bottom-4 right-4 w-12 h-12 rounded-full bg-black/35 hover:bg-black/50 transition-colors flex items-center justify-center"
-                          aria-label="Return to normal view"
-                        >
-                          <ArrowUpFromLine className="h-6 w-6 text-white" />
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
-                {/* Center session buttons, keep round buttons at bottom right */}
-                {playerMode === 'full' && (
-                  <>
-                    <div className="absolute bottom-3 left-4 right-4 sm:left-0 sm:right-0 z-10 flex justify-start sm:justify-center items-center gap-2 w-full">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <span className="inline-flex">
-                            <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
-                              Open Session
-                            </Button>
-                          </span>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          {savedSessions.length > 0 ? (
-                            savedSessions.map((session) => (
-                              <DropdownMenuItem key={session.id} onClick={() => openSession(session.id)}>
-                                {session.name} - {session.last_modified ? new Date(session.last_modified).toLocaleString() : ''}
-                              </DropdownMenuItem>
-                            ))
-                          ) : (
-                            <DropdownMenuItem disabled>No saved sessions</DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
-                        {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
-                        {openSessionId ? 'Update' : 'Save Session'}
-                      </Button>
+                {/* Full mode layout */}
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-4 flex-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-white hover:text-primary"
+                      onClick={playPreviousBeat}
+                    >
+                      <SkipBack className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-white hover:text-primary"
+                      onClick={togglePlay}
+                    >
+                      {isPlaying ? (
+                        <Pause className="h-5 w-5" />
+                      ) : (
+                        <Play className="h-5 w-5" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-white hover:text-primary"
+                      onClick={playNextBeat}
+                    >
+                      <SkipForward className="h-5 w-5" />
+                    </Button>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-white truncate">
+                        {currentBeat?.title || 'No beat selected'}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {currentBeat?.producers?.[0]?.display_name || 'Unknown producer'}
+                      </div>
                     </div>
-                    <div className="absolute bottom-3 right-4 z-20 flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setIsExpanded(false);
-                          setPlayerMode(playerMode === 'full' ? 'default' : 'full');
-                        }}
-                        className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-                        aria-label={playerMode === 'full' ? 'Minimize player' : 'Expand player'}
-                      >
-                        {playerMode === 'full' ? <Minimize className="h-5 w-5 text-white" /> : <Expand className="h-5 w-5 text-white" />}
-                      </button>
-                      <button
-                        onClick={handleClose}
-                        className="bg-black/70 hover:bg-black/90 rounded-full p-2 shadow-lg"
-                        aria-label="Close player"
-                      >
-                        <X className="h-5 w-5 text-white" />
-                      </button>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Volume2 className="h-4 w-4 text-gray-400" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={volume}
+                        onChange={(e) => setVolume(parseFloat(e.target.value))}
+                        className="w-24 accent-primary"
+                      />
                     </div>
-                  </>
-                )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-white hover:text-primary"
+                      onClick={() => setPlayerMode('default')}
+                    >
+                      <Minimize2 className="h-5 w-5" />
+                    </Button>
+                  </div>
+                </div>
+                {/* BeatRating moved outside the flex container, positioned on the right side */}
+                <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                  <BeatRating
+                    beatId={currentBeat?.id || ''}
+                    initialAverageRating={ratingsMap[currentBeat?.id || '']?.averageRating || 0}
+                    initialTotalRatings={ratingsMap[currentBeat?.id || '']?.totalRatings || 0}
+                  />
+                </div>
               </div>
             </>
           )}
