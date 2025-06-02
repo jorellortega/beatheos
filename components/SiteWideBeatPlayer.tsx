@@ -104,6 +104,8 @@ export function SiteWideBeatPlayer() {
   const [ratingData, setRatingData] = useState({ averageRating: 0, totalRatings: 0 })
   const [dragging, setDragging] = useState(false)
   const [lyricsExpanded, setLyricsExpanded] = useState(false)
+  const [hoveredRating, setHoveredRating] = useState<number | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
 
   const pathname = usePathname()
 
@@ -779,6 +781,40 @@ export function SiteWideBeatPlayer() {
     fetchRatingData();
   }, [currentBeat?.id]);
 
+  const handleRatingClick = async (rating: number) => {
+    if (!currentBeat?.id) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/beats/${currentBeat.id}/rate`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ rating })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRatingData({
+          averageRating: data.averageRating || 0,
+          totalRatings: data.totalRatings || 0
+        });
+        toast({
+          title: "Rating Saved",
+          description: "Your rating has been saved successfully.",
+        });
+      }
+    } catch (error) {
+      console.error('Error saving rating:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save rating. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
@@ -929,19 +965,27 @@ export function SiteWideBeatPlayer() {
                   <div className="flex-grow mb-2">
                     <div className="flex items-center gap-2 mb-1 w-full justify-between">
                       <div className="flex items-center gap-2 w-full justify-center sm:justify-start">
-                        <h4 className="font-semibold hidden sm:block">Lyrics</h4>
+                        <h4 className="font-semibold">Lyrics</h4>
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="flex items-center justify-center sm:hidden opacity-25">
                             <div className="flex items-center space-x-1">
                               {[1, 2, 3, 4, 5].map((rating) => (
-                                <Star
+                                <button
                                   key={rating}
-                                  className={`h-6 w-6 ${
-                                    rating <= ratingData.averageRating
-                                      ? 'text-yellow-400 fill-yellow-400'
-                                      : 'text-gray-400'
-                                  }`}
-                                />
+                                  onClick={() => handleRatingClick(rating)}
+                                  onMouseEnter={() => setHoveredRating(rating)}
+                                  onMouseLeave={() => setHoveredRating(null)}
+                                  disabled={isLoading}
+                                  className="focus:outline-none"
+                                >
+                                  <Star
+                                    className={`h-6 w-6 ${
+                                      rating <= (hoveredRating || ratingData.averageRating)
+                                        ? 'text-yellow-400 fill-yellow-400'
+                                        : 'text-gray-400'
+                                    }`}
+                                  />
+                                </button>
                               ))}
                             </div>
                           </div>
