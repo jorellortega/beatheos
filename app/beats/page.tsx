@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -104,8 +104,7 @@ export default function BeatsPage() {
   const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false)
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
   const [displayedBeats, setDisplayedBeats] = useState<any[]>([])
-  const [playingBeatId, setPlayingBeatId] = useState<string | null>(null)
-  const { setCurrentBeat, setIsPlaying, isPlaying } = usePlayer()
+  const { setCurrentBeat, setIsPlaying, isPlaying, currentBeat } = usePlayer()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1);
@@ -113,36 +112,74 @@ export default function BeatsPage() {
   const [totalBeats, setTotalBeats] = useState(0);
   const [ratingsMap, setRatingsMap] = useState<Record<string, { averageRating: number, totalRatings: number }>>({});
   const [sortOption, setSortOption] = useState<'recent' | 'rating' | 'plays'>('recent');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Restore beats and scroll position from sessionStorage
+  useEffect(() => {
+    const storedBeats = sessionStorage.getItem('beatsList');
+    const storedScroll = sessionStorage.getItem('beatsScroll');
+    if (storedBeats) {
+      setDisplayedBeats(JSON.parse(storedBeats));
+      setLoading(false);
+      setTimeout(() => {
+        if (storedScroll) {
+          window.scrollTo(0, parseInt(storedScroll, 10));
+        }
+      }, 0);
+      return;
+    }
+    // If not in sessionStorage, fetch as normal
+    fetchBeats();
+  }, []);
+
+  // Save beats and scroll position to sessionStorage on change/unload
+  useEffect(() => {
+    if (displayedBeats.length > 0) {
+      sessionStorage.setItem('beatsList', JSON.stringify(displayedBeats));
+    }
+  }, [displayedBeats]);
 
   useEffect(() => {
-    async function fetchBeats() {
-      try {
+    const saveScroll = () => {
+      sessionStorage.setItem('beatsScroll', String(window.scrollY));
+    };
+    window.addEventListener('beforeunload', saveScroll);
+    window.addEventListener('pagehide', saveScroll);
+    return () => {
+      window.removeEventListener('beforeunload', saveScroll);
+      window.removeEventListener('pagehide', saveScroll);
+    };
+  }, []);
+
+  // Only fetchBeats if not restoring from sessionStorage
+  async function fetchBeats() {
+    try {
       setLoading(true)
-        setError(null)
-        // Get total count for pagination
-        const { count } = await supabase
-          .from('beats')
-          .select('*', { count: 'exact', head: true })
-          .eq('is_draft', false)
-        setTotalBeats(count || 0)
-        // Fetch only the beats for the current page
-        const from = (currentPage - 1) * beatsPerPage;
-        const to = from + beatsPerPage - 1;
-        let query = supabase
+      setError(null)
+      // Get total count for pagination
+      const { count } = await supabase
         .from('beats')
-        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .select('*', { count: 'exact', head: true })
         .eq('is_draft', false)
-        // Apply sort
-        if (sortOption === 'recent') {
-          query = query.order('created_at', { ascending: false })
-        } else if (sortOption === 'rating') {
-          query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
-        } else if (sortOption === 'plays') {
-          query = query.order('play_count', { ascending: false }).order('created_at', { ascending: false })
-        }
-        query = query.range(from, to)
-        const { data: beatsData, error: beatsError } = await query
-        if (beatsError) throw beatsError
+      setTotalBeats(count || 0)
+      // Fetch only the beats for the current page
+      const from = (currentPage - 1) * beatsPerPage;
+      const to = from + beatsPerPage - 1;
+      let query = supabase
+      .from('beats')
+      .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+      .eq('is_draft', false)
+      // Apply sort
+      if (sortOption === 'recent') {
+        query = query.order('created_at', { ascending: false })
+      } else if (sortOption === 'rating') {
+        query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
+      } else if (sortOption === 'plays') {
+        query = query.order('play_count', { ascending: false }).order('created_at', { ascending: false })
+      }
+      query = query.range(from, to)
+      const { data: beatsData, error: beatsError } = await query
+      if (beatsError) throw beatsError
 
       if (!beatsData || beatsData.length === 0) {
         setDisplayedBeats([])
@@ -204,16 +241,15 @@ export default function BeatsPage() {
       }
 
       setDisplayedBeats(beats)
-      } catch (err) {
-        console.error('Error fetching beats:', err)
-        setError('Failed to load beats. Please try again.')
-        setDisplayedBeats([])
-      } finally {
+      sessionStorage.setItem('beatsList', JSON.stringify(beats));
+    } catch (err) {
+      console.error('Error fetching beats:', err)
+      setError('Failed to load beats. Please try again.')
+      setDisplayedBeats([])
+    } finally {
       setLoading(false)
-      }
     }
-    fetchBeats()
-  }, [currentPage, sortOption])
+  }
 
   // Fetch ratings for all beats after displayedBeats is set
   useEffect(() => {
@@ -281,9 +317,9 @@ export default function BeatsPage() {
 
   const handlePlayPause = (beat: any) => {
     if (currentView === "vertical") return;
-    if (playingBeatId === beat.id && isPlaying) {
+    if (currentBeat?.id === beat.id && isPlaying) {
       setIsPlaying(false); // Pause
-    } else if (playingBeatId === beat.id && !isPlaying) {
+    } else if (currentBeat?.id === beat.id && !isPlaying) {
       setIsPlaying(true); // Resume
     } else {
     setCurrentBeat({
@@ -296,7 +332,6 @@ export default function BeatsPage() {
       slug: beat.slug || beat.id.toString(),
     });
       setIsPlaying(true); // Play
-      setPlayingBeatId(beat.id);
     }
   }
 
@@ -313,27 +348,48 @@ export default function BeatsPage() {
       {filteredBeats.map((beat) => (
         <div
           key={beat.id}
-          className={`flex flex-col bg-secondary rounded-lg overflow-hidden transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+          className={`flex flex-col bg-secondary rounded-lg overflow-hidden transition-all duration-200 ${currentBeat?.id === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
         >
-          <a
-            href={`/beat/${beat.slug}`}
-            onClick={e => e.stopPropagation()}
-            tabIndex={0}
-            aria-label={`View details for ${beat.title}`}
-          >
-            <Image
-              src={beat.image || "/placeholder.svg"}
-              alt={beat.title}
-              width={300}
-              height={300}
-              className="w-full aspect-square object-cover border border-primary shadow cursor-pointer hover:opacity-80 transition"
-            />
-          </a>
-          <div className="p-4">
+          <div className="relative w-full aspect-square">
+            {currentBeat?.id === beat.id && isPlaying ? (
+              <Link href={`/beat/${beat.slug}`}
+                className="block w-full h-full"
+                aria-label={`View details for ${beat.title}`}
+                tabIndex={0}
+              >
+                <Image
+                  src={beat.image || "/placeholder.svg"}
+                  alt={beat.title}
+                  width={300}
+                  height={300}
+                  className="w-full aspect-square object-cover border border-primary shadow transition-opacity duration-200 opacity-100"
+                />
+              </Link>
+            ) : (
+              <>
+                <Image
+                  src={beat.image || "/placeholder.svg"}
+                  alt={beat.title}
+                  width={300}
+                  height={300}
+                  className="w-full aspect-square object-cover border border-primary shadow transition-opacity duration-200 opacity-80"
+                />
+                <button
+                  className="absolute inset-0 flex items-center justify-center bg-black/40 hover:bg-black/60 transition focus:outline-none"
+                  onClick={() => handlePlayPause(beat)}
+                  aria-label={currentBeat?.id === beat.id && isPlaying ? 'Pause' : 'Play'}
+                  style={{ zIndex: 2 }}
+                >
+                  <Play className="h-10 w-10 text-white" />
+                </button>
+              </>
+            )}
+          </div>
+          <div className="p-4 relative">
             <h3 className="font-semibold w-full text-center whitespace-normal">
               {beat.title}
             </h3>
-            <p className="text-xs text-gray-400 mb-1">
+            <p className="text-xs text-gray-400 mb-1 text-center w-full">
               by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
                 ? beat.producer_names.map((name: string, idx: number) => (
                     <span key={beat.producer_ids[idx]}>
@@ -354,7 +410,7 @@ export default function BeatsPage() {
             <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             <div className="flex items-center justify-between mt-4">
               <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
-                {playingBeatId === beat.id && isPlaying ? (
+                {currentBeat?.id === beat.id && isPlaying ? (
                   <Pause className="h-4 w-4" />
                 ) : (
                   <Play className="h-4 w-4" />
@@ -366,6 +422,14 @@ export default function BeatsPage() {
               >
                 {user ? 'BUY' : 'BUY INSTANTLY'}
               </Button>
+              <Link
+                href={`/beat/${beat.slug}`}
+                className="ml-2 inline-flex items-center justify-center text-primary hover:text-yellow-400"
+                title="View beat details"
+                aria-label="View beat details"
+              >
+                <ExternalLink className="h-5 w-5" />
+              </Link>
             </div>
           </div>
         </div>
@@ -378,7 +442,7 @@ export default function BeatsPage() {
       {filteredBeats.map((beat, idx) => (
         <div
           key={beat.id}
-          className={`flex items-center justify-between p-4 bg-secondary/80 hover:bg-secondary transition rounded-lg group ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+          className={`flex items-center justify-between p-4 bg-secondary/80 hover:bg-secondary transition rounded-lg group ${currentBeat?.id === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
         >
           <div className="flex items-center space-x-4 min-w-0">
             <a
@@ -425,8 +489,8 @@ export default function BeatsPage() {
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 ml-4 flex-shrink-0">
-            <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)} aria-label={playingBeatId === beat.id && isPlaying ? 'Pause' : 'Play'}>
-              {playingBeatId === beat.id && isPlaying ? (
+            <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)} aria-label={currentBeat?.id === beat.id && isPlaying ? 'Pause' : 'Play'}>
+              {currentBeat?.id === beat.id && isPlaying ? (
                 <Pause className="h-5 w-5" />
               ) : (
                 <Play className="h-5 w-5" />
@@ -459,7 +523,7 @@ export default function BeatsPage() {
       {filteredBeats.map((beat) => (
         <div
           key={beat.id}
-          className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${playingBeatId === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
+          className={`flex items-center justify-between p-4 bg-secondary rounded-lg transition-all duration-200 ${currentBeat?.id === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
           onClick={() => handlePlayPause(beat)}
         >
           <div className="flex items-center space-x-4">
@@ -483,7 +547,7 @@ export default function BeatsPage() {
               <h3 className="font-semibold w-full text-center whitespace-normal">
                 {beat.title}
               </h3>
-              <p className="text-xs text-gray-400 mb-1">
+              <p className="text-xs text-gray-400 mb-1 text-center w-full">
                 by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
                   ? beat.producer_names.map((name: string, idx: number) => (
                       <span key={beat.producer_ids[idx]}>
@@ -507,7 +571,7 @@ export default function BeatsPage() {
           </div>
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="icon" onClick={e => { e.stopPropagation(); handlePlayPause(beat); }}>
-              {playingBeatId === beat.id && isPlaying ? (
+              {currentBeat?.id === beat.id && isPlaying ? (
                 <Pause className="h-4 w-4" />
               ) : (
                 <Play className="h-4 w-4" />
