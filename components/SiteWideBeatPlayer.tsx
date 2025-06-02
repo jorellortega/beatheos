@@ -964,8 +964,8 @@ export function SiteWideBeatPlayer() {
                   <div className="mb-4"></div>
                   <div className="flex-grow mb-2">
                     <div className="flex items-center gap-2 mb-1 w-full justify-between">
-                      <div className="flex items-center gap-2 w-full justify-start">
-                        <h4 className="font-semibold">Lyrics</h4>
+                      <h4 className="font-semibold">Lyrics</h4>
+                      <div className="flex items-center gap-2">
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="flex items-center justify-center sm:hidden opacity-25">
                             <div className="flex items-center space-x-1">
@@ -990,13 +990,13 @@ export function SiteWideBeatPlayer() {
                             </div>
                           </div>
                         )}
+                        {/* Desktop-only Production button */}
+                        {playerMode === 'full' && (
+                          <Button variant="secondary" className="hidden sm:inline-flex" onClick={() => setLyricsExpanded(v => !v)}>
+                            {lyricsExpanded ? 'Collapse' : 'Production'}
+                          </Button>
+                        )}
                       </div>
-                      {/* Desktop-only Production button on the right side of Lyrics */}
-                      {playerMode === 'full' && (
-                        <Button variant="secondary" className="hidden sm:inline-flex ml-auto" onClick={() => setLyricsExpanded(v => !v)}>
-                          {lyricsExpanded ? 'Collapse' : 'Production'}
-                        </Button>
-                      )}
                     </div>
                     <div className="relative">
                       <Textarea
