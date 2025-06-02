@@ -41,6 +41,7 @@
     "@stripe/react-stripe-js": "^3.7.0",
     "@stripe/stripe-js": "^7.3.0",
     "@supabase/supabase-js": "^2.49.4",
+    "@types/pg": "^8.15.4",
     "@wavesurfer/react": "^1.0.11",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
@@ -52,6 +53,7 @@
     "framer-motion": "latest",
     "input-otp": "1.4.1",
     "jose": "^6.0.11",
+    "jspdf": "^2.5.1",
     "lucide-react": "^0.454.0",
     "next": "15.2.4",
     "next-themes": "latest",
@@ -71,8 +73,7 @@
     "tone": "^15.0.4",
     "vaul": "^0.9.6",
     "wavesurfer.js": "^7.9.5",
-    "zod": "^3.24.1",
-    "jspdf": "^2.5.1"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22",
