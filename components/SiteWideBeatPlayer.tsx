@@ -293,11 +293,15 @@ export function SiteWideBeatPlayer() {
   useEffect(() => {
     // Listen for the homepage logo shuffle trigger
     const handler = async () => {
+      console.log('[DEBUG] Received trigger-shuffle-full-player event');
       setShuffleMode('high_ratings');
       // Always re-shuffle and start playing, even if isShuffle is true or currentBeat is null
+      console.log('[DEBUG] Calling toggleShuffle()');
       await toggleShuffle();
+      console.log('[DEBUG] toggleShuffle() complete, setting player mode to full and playing');
       setPlayerMode('full');
       setIsPlaying(true);
+      console.log('[DEBUG] Player should now be playing in full mode');
     };
     window.addEventListener('trigger-shuffle-full-player', handler);
     return () => window.removeEventListener('trigger-shuffle-full-player', handler);

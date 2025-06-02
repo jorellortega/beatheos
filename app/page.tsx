@@ -28,11 +28,13 @@ export default function Home() {
 
   // This will be used to trigger shuffle and expand the player
   const handleLogoClick = () => {
+    console.log('[DEBUG] Logo clicked');
     // Dispatch a custom event for the SiteWideBeatPlayer to listen to
-    window.dispatchEvent(new CustomEvent('trigger-shuffle-full-player'))
-    setShuffleTrigger(x => x + 1) // for local state if needed
-    setGlow(true)
-    setTimeout(() => setGlow(false), 600)
+    window.dispatchEvent(new CustomEvent('trigger-shuffle-full-player'));
+    console.log('[DEBUG] Dispatched trigger-shuffle-full-player event');
+    setShuffleTrigger(x => x + 1); // for local state if needed
+    setGlow(true);
+    setTimeout(() => setGlow(false), 600);
   }
 
   return (
