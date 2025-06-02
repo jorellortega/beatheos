@@ -549,14 +549,6 @@ export default function BeatsPage() {
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -629,10 +621,20 @@ export default function BeatsPage() {
       )}
 
       {/* View content */}
-      {currentView === "grid" && <GridView />}
-      {currentView === "list" && <ListView />}
-      {currentView === "compact" && <CompactView />}
-      {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+      <div className="min-h-[300px] w-full flex items-center justify-center">
+        {loading ? (
+          <div className="flex items-center justify-center w-full h-full min-h-[300px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+          </div>
+        ) : (
+          <>
+            {currentView === "grid" && <GridView />}
+            {currentView === "list" && <ListView />}
+            {currentView === "compact" && <CompactView />}
+            {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+          </>
+        )}
+      </div>
       <Pagination />
 
       {/* Modals */}
