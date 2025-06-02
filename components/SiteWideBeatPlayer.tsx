@@ -39,6 +39,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { supabase } from '@/lib/supabaseClient'
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import WavesurferPlayer from "@wavesurfer/react"
+import { BeatRating } from '@/components/beats/BeatRating'
 
 interface Beat {
   id: string
@@ -99,6 +100,9 @@ export function SiteWideBeatPlayer() {
   const [editingSessionNameValue, setEditingSessionNameValue] = useState("")
   const [nextShuffledBeats, setNextShuffledBeats] = useState<any[]>([])
   const [preloadTimeout, setPreloadTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [ratingData, setRatingData] = useState({ averageRating: 0, totalRatings: 0 })
+  const [dragging, setDragging] = useState(false)
+  const [lyricsExpanded, setLyricsExpanded] = useState(false)
 
   const pathname = usePathname()
 
@@ -288,10 +292,9 @@ export function SiteWideBeatPlayer() {
   }
 
   const handleSeek = (newProgress: number[]) => {
-    const newProgressValue = newProgress[0]
-    setProgress(newProgressValue)
-    if (audioRef.current) {
-      audioRef.current.currentTime = (newProgressValue / 100) * audioRef.current.duration
+    setProgress(newProgress[0]);
+    if (audioRef.current && audioRef.current.duration) {
+      audioRef.current.currentTime = (newProgress[0] / 100) * audioRef.current.duration;
     }
   }
 
@@ -756,6 +759,25 @@ export function SiteWideBeatPlayer() {
     setEditingSessionName(false);
   };
 
+  useEffect(() => {
+    async function fetchRatingData() {
+      if (!currentBeat?.id) return;
+      try {
+        const response = await fetch(`/api/beats/${currentBeat.id}/rate`);
+        if (response.ok) {
+          const data = await response.json();
+          setRatingData({
+            averageRating: data.averageRating || 0,
+            totalRatings: data.totalRatings || 0
+          });
+        }
+      } catch (error) {
+        // Optionally handle error
+      }
+    }
+    fetchRatingData();
+  }, [currentBeat?.id]);
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
@@ -827,28 +849,12 @@ export function SiteWideBeatPlayer() {
                     <div className="flex-grow flex flex-col items-center sm:items-start w-full">
                       <div className="flex flex-row items-center w-full">
                         <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
-                        {/* Modern waveform visualizer only on desktop */}
-                        <div className="hidden md:block ml-4 flex-shrink-0" style={{ minWidth: 180, maxWidth: 300 }}>
-                          <div style={{ width: '100%', minWidth: 180, maxWidth: 300 }}>
-                            {currentBeat?.audioUrl && (
-                              <WavesurferPlayer
-                                height={48}
-                                waveColor="#888"
-                                progressColor="#FFD700"
-                                url={currentBeat.audioUrl}
-                                barWidth={2}
-                                barRadius={2}
-                                cursorColor="#FFD700"
-                                interact={false}
-                                onAudioprocess={(ws: any) => {
-                                  if (audioRef.current && audioRef.current.duration) {
-                                    setProgress((audioRef.current.currentTime / audioRef.current.duration) * 100);
-                                  }
-                                }}
-                              />
-                            )}
+                        {/* Move BeatRating to the right, where the waveform was */}
+                        {playerMode === 'full' && currentBeat?.id && (
+                          <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center">
+                            <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} />
                           </div>
-                        </div>
+                        )}
                       </div>
                       {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
                         <div className="text-sm text-gray-400 text-center sm:text-left w-full">
@@ -900,49 +906,34 @@ export function SiteWideBeatPlayer() {
                       </Button>
                     </div>
                   </div>
-                  <Slider className="mb-4" value={[progress]} max={100} step={0.1} onValueChange={handleSeek} />
+                  <Slider
+                    className="mb-4"
+                    value={[progress]}
+                    max={100}
+                    step={0.1}
+                    onValueChange={val => {
+                      setDragging(true);
+                      setProgress(val[0]);
+                    }}
+                    onValueCommit={val => {
+                      setDragging(false);
+                      handleSeek(val);
+                    }}
+                  />
                 </>
               )}
               <div className="flex-grow overflow-hidden">
                 <div className="flex flex-col h-full">
                   <div className="mb-4"></div>
                   <div className="flex-grow mb-2">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 w-full justify-between">
                       <h4 className="font-semibold">Lyrics</h4>
-                      {openSessionId && (() => {
-                        const session = savedSessions.find(s => s.id === openSessionId);
-                        if (!editingSessionName) {
-                          return (
-                            <span
-                              className="text-xs text-gray-400 font-normal truncate max-w-[200px] cursor-pointer hover:underline flex items-center gap-1"
-                              title={session ? session.name : ''}
-                              onClick={() => {
-                                setEditingSessionNameValue(session ? session.name : "");
-                                setEditingSessionName(true);
-                              }}
-                            >
-                              {session ? session.name : ''}
-                              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" className="inline ml-1 text-gray-400" xmlns="http://www.w3.org/2000/svg"><path d="M14.7 2.29a1 1 0 0 1 1.42 0l1.59 1.59a1 1 0 0 1 0 1.42l-9.3 9.3a1 1 0 0 1-.45.26l-3.59 1a1 1 0 0 1-1.23-1.23l1-3.59a1 1 0 0 1 .26-.45l9.3-9.3ZM15.41 4 14 2.59 4.29 12.3l-.7 2.52 2.52-.7L15.41 4Z" fill="currentColor"/></svg>
-                            </span>
-                          );
-                        }
-                        return (
-                          <input
-                            className="text-xs text-white bg-secondary border border-gray-500 rounded px-1 max-w-[200px] outline-none"
-                            value={editingSessionNameValue}
-                            autoFocus
-                            onChange={e => setEditingSessionNameValue(e.target.value)}
-                            onBlur={handleSessionNameEdit}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                handleSessionNameEdit();
-                              } else if (e.key === 'Escape') {
-                                setEditingSessionName(false);
-                              }
-                            }}
-                          />
-                        );
-                      })()}
+                      {/* Desktop-only Production button on the right side of Lyrics */}
+                      {playerMode === 'full' && (
+                        <Button variant="secondary" className="hidden sm:inline-flex ml-auto" onClick={() => setLyricsExpanded(v => !v)}>
+                          {lyricsExpanded ? 'Collapse' : 'Production'}
+                        </Button>
+                      )}
                     </div>
                     <div className="relative">
                       <Textarea
@@ -950,7 +941,6 @@ export function SiteWideBeatPlayer() {
                         value={lyrics}
                         onChange={e => {
                           setLyrics(e.target.value);
-                          // Auto-resize logic
                           if (lyricsTextareaRef.current) {
                             lyricsTextareaRef.current.style.height = 'auto';
                             lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
@@ -959,14 +949,16 @@ export function SiteWideBeatPlayer() {
                         onFocus={() => setIsLyricsFocused(true)}
                         onBlur={() => setIsLyricsFocused(false)}
                         placeholder="Type or paste lyrics here..."
-                        className={`mb-2 resize-none bg-secondary text-white overflow-y-auto min-h-[80px] ${
-                          isLyricsFocused && window.innerWidth < 640 
-                            ? 'max-h-[calc(90vh-120px)]' 
-                            : 'max-h-[400px]'
+                        className={`mb-2 resize-none bg-secondary text-white overflow-y-auto min-h-[80px] transition-all duration-300 ${
+                          isLyricsFocused && window.innerWidth < 640
+                            ? 'max-h-[calc(90vh-120px)]'
+                            : lyricsExpanded
+                              ? 'max-h-[80vh] min-h-[400px] text-xl'
+                              : 'max-h-[400px]'
                         }`}
                         style={{
                           touchAction: 'pan-y',
-                          WebkitOverflowScrolling: 'touch'
+                          WebkitOverflowScrolling: 'touch',
                         }}
                       />
                       {isLyricsFocused && window.innerWidth < 640 && (
@@ -1039,7 +1031,11 @@ export function SiteWideBeatPlayer() {
         <audio
           ref={audioRef}
           src={currentBeat.audioUrl}
-          onTimeUpdate={(e) => setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+          onTimeUpdate={(e) => {
+            if (!dragging && e.currentTarget.duration) {
+              setProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100);
+            }
+          }}
           onEnded={() => {
             if (isRepeat) {
               try {

@@ -15,7 +15,7 @@ import { SaveToPlaylistModal } from "@/components/SaveToPlaylistModal"
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import { VerticalSlideView } from "@/components/beats/VerticalSlideView"
 import { usePlayer } from "@/contexts/PlayerContext"
-import { Rating } from "@/components/ui/rating"
+import { BeatRating } from '@/components/beats/BeatRating'
 import { supabase } from '@/lib/supabaseClient'
 import React from "react"
 import { useAuth } from "@/contexts/AuthContext"
@@ -52,7 +52,11 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
           <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
           <p className="text-xs text-gray-400 mb-1">by {beat.producer_names && beat.producer_names.length > 0 ? beat.producer_names.join(', ') : beat.producer}</p>
           <div className="flex items-center mb-2">
-            <Rating value={beat.rating || 0} onChange={(newRating) => {}} />
+            <BeatRating
+              beatId={beat.id}
+              initialAverageRating={beat.averageRating || 0}
+              initialTotalRatings={beat.totalRatings || 0}
+            />
           </div>
           <div className="flex justify-between items-center mb-2">
             <Badge
@@ -104,93 +108,140 @@ export default function BeatsPage() {
   const { setCurrentBeat, setIsPlaying, isPlaying } = usePlayer()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1);
+  const beatsPerPage = 30;
+  const [totalBeats, setTotalBeats] = useState(0);
+  const [ratingsMap, setRatingsMap] = useState<Record<string, { averageRating: number, totalRatings: number }>>({});
+  const [sortOption, setSortOption] = useState<'recent' | 'rating' | 'plays'>('recent');
 
   useEffect(() => {
     async function fetchBeats() {
       try {
-      setLoading(true)
+        setLoading(true)
         setError(null)
-        
-      const { data: beatsData, error: beatsError } = await supabase
-        .from('beats')
-        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
-        .eq('is_draft', false)
-        .order('created_at', { ascending: false })
-        .limit(100)
-
+        // Get total count for pagination
+        const { count } = await supabase
+          .from('beats')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_draft', false)
+        setTotalBeats(count || 0)
+        // Fetch only the beats for the current page
+        const from = (currentPage - 1) * beatsPerPage;
+        const to = from + beatsPerPage - 1;
+        let query = supabase
+          .from('beats')
+          .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+          .eq('is_draft', false)
+        // Apply sort
+        if (sortOption === 'recent') {
+          query = query.order('created_at', { ascending: false })
+        } else if (sortOption === 'rating') {
+          query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
+        } else if (sortOption === 'plays') {
+          query = query.order('play_count', { ascending: false }).order('created_at', { ascending: false })
+        }
+        query = query.range(from, to)
+        const { data: beatsData, error: beatsError } = await query
         if (beatsError) throw beatsError
 
-      if (!beatsData || beatsData.length === 0) {
-        setDisplayedBeats([])
-        return
-      }
-
-      // Collect all unique producer_ids (from both producer_id and producer_ids)
-      const allProducerIds = Array.from(new Set([
-        ...beatsData.map((b: any) => b.producer_id),
-        ...beatsData.flatMap((b: any) => b.producer_ids || [])
-      ].filter(Boolean)))
-
-      const { data: producersData, error: producersError } = await supabase
-        .from('producers')
-        .select('user_id, display_name, image, slug')
-        .in('user_id', allProducerIds)
-
-      if (producersError) throw producersError
-
-      // Map user_id to display_name and slug
-      const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
-        p.user_id,
-        { display_name: p.display_name, slug: p.slug }
-      ]))
-
-      const beats = beatsData.map((b: any) => {
-        // Get all producer ids, names, and slugs for this beat
-        const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
-        const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
-        const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
-        return {
-          id: b.id,
-          slug: b.slug,
-          title: b.title || '',
-          producer: producerNames.join(', '),
-          producer_ids: ids,
-          producer_names: producerNames,
-          producer_slugs: producerSlugs,
-          image: b.cover_art_url || '/placeholder.svg',
-          plays: b.play_count || 0,
-          bpm: b.bpm || '',
-          genre: b.genre || '',
-          mood: b.mood || '',
-          audioUrl: b.mp3_url || '',
-          price: b.price || 0,
-          rating: b.rating ?? 0,
-          producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
-          price_lease: b.price_lease,
-          price_premium_lease: b.price_premium_lease,
-          price_exclusive: b.price_exclusive,
-          price_buyout: b.price_buyout,
+        if (!beatsData || beatsData.length === 0) {
+          setDisplayedBeats([])
+          return
         }
-      })
 
-      // Shuffle the beats array on first load (Fisher-Yates)
-      for (let i = beats.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [beats[i], beats[j]] = [beats[j], beats[i]];
-      }
+        // Collect all unique producer_ids (from both producer_id and producer_ids)
+        const allProducerIds = Array.from(new Set([
+          ...beatsData.map((b: any) => b.producer_id),
+          ...beatsData.flatMap((b: any) => b.producer_ids || [])
+        ].filter(Boolean)))
 
-      setDisplayedBeats(beats)
+        const { data: producersData, error: producersError } = await supabase
+          .from('producers')
+          .select('user_id, display_name, image, slug')
+          .in('user_id', allProducerIds)
+
+        if (producersError) throw producersError
+
+        // Map user_id to display_name and slug
+        const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+          p.user_id,
+          { display_name: p.display_name, slug: p.slug }
+        ]))
+
+        const beats = beatsData.map((b: any) => {
+          // Get all producer ids, names, and slugs for this beat
+          const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
+          const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
+          const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
+          return {
+            id: b.id,
+            slug: b.slug,
+            title: b.title || '',
+            producer: producerNames.join(', '),
+            producer_ids: ids,
+            producer_names: producerNames,
+            producer_slugs: producerSlugs,
+            image: b.cover_art_url || '/placeholder.svg',
+            plays: b.play_count || 0,
+            bpm: b.bpm || '',
+            genre: b.genre || '',
+            mood: b.mood || '',
+            audioUrl: b.mp3_url || '',
+            price: b.price || 0,
+            rating: b.rating ?? 0,
+            producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
+            price_lease: b.price_lease,
+            price_premium_lease: b.price_premium_lease,
+            price_exclusive: b.price_exclusive,
+            price_buyout: b.price_buyout,
+          }
+        })
+
+        // Shuffle the beats array on first load (Fisher-Yates)
+        for (let i = beats.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [beats[i], beats[j]] = [beats[j], beats[i]];
+        }
+
+        setDisplayedBeats(beats)
       } catch (err) {
         console.error('Error fetching beats:', err)
         setError('Failed to load beats. Please try again.')
         setDisplayedBeats([])
       } finally {
-      setLoading(false)
+        setLoading(false)
       }
     }
-
     fetchBeats()
-  }, [])
+  }, [currentPage, sortOption])
+
+  // Fetch ratings for all beats after displayedBeats is set
+  useEffect(() => {
+    async function fetchAllRatings() {
+      if (!displayedBeats.length) return;
+      const ratings: Record<string, { averageRating: number, totalRatings: number }> = {};
+      await Promise.all(
+        displayedBeats.map(async (beat) => {
+          try {
+            const res = await fetch(`/api/beats/${beat.id}/rate`);
+            if (res.ok) {
+              const data = await res.json();
+              ratings[beat.id] = {
+                averageRating: data.averageRating || 0,
+                totalRatings: data.totalRatings || 0
+              };
+            } else {
+              ratings[beat.id] = { averageRating: 0, totalRatings: 0 };
+            }
+          } catch (e) {
+            ratings[beat.id] = { averageRating: 0, totalRatings: 0 };
+          }
+        })
+      );
+      setRatingsMap(ratings);
+    }
+    fetchAllRatings();
+  }, [displayedBeats]);
 
   useEffect(() => {
     // On mount, if mobile, set to compact view
@@ -254,6 +305,9 @@ export default function BeatsPage() {
     console.log(`Rating for beat ${beatId} changed to ${newRating}`)
   }
 
+  // Update totalPages calculation
+  const totalPages = Math.ceil(totalBeats / beatsPerPage);
+
   const GridView = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {filteredBeats.map((beat) => (
@@ -290,6 +344,13 @@ export default function BeatsPage() {
                   ))
                 : beat.producer}
             </p>
+            <div className="mb-2">
+              <BeatRating
+                beatId={beat.id}
+                initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
+                initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+              />
+            </div>
             <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             <div className="flex items-center justify-between mt-4">
               <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
@@ -352,6 +413,13 @@ export default function BeatsPage() {
                       </span>
                     ))
                   : beat.producer}
+              </div>
+              <div className="mb-2">
+                <BeatRating
+                  beatId={beat.id}
+                  initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
+                  initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+                />
               </div>
               <div className="text-xs text-gray-400 mt-1">{beat.plays.toLocaleString()} plays</div>
             </div>
@@ -426,6 +494,13 @@ export default function BeatsPage() {
                     ))
                   : beat.producer}
               </p>
+              <div className="mb-2">
+                <BeatRating
+                  beatId={beat.id}
+                  initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
+                  initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+                />
+              </div>
               <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
             </div>
           </div>
@@ -449,6 +524,29 @@ export default function BeatsPage() {
       ))}
     </div>
   )
+
+  // Pagination controls
+  const Pagination = () => (
+    <div className="flex justify-center items-center gap-4 mt-8">
+      <Button
+        variant="outline"
+        disabled={currentPage === 1}
+        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+      >
+        Previous
+      </Button>
+      <span className="text-lg font-semibold text-primary">
+        Page {currentPage} of {totalPages}
+      </span>
+      <Button
+        variant="outline"
+        disabled={currentPage === totalPages}
+        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+      >
+        Next
+      </Button>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -492,6 +590,19 @@ export default function BeatsPage() {
           <Shuffle className="h-4 w-4 mr-2" />
           Shuffle
         </Button>
+        {/* Sort/Filter Dropdown */}
+        <div className="w-full sm:w-auto">
+          <Select value={sortOption} onValueChange={v => setSortOption(v as any)}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="recent">Most Recent</SelectItem>
+              <SelectItem value="rating">Highest Rated</SelectItem>
+              <SelectItem value="plays">Most Plays</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Advanced filters */}
@@ -521,6 +632,7 @@ export default function BeatsPage() {
       {currentView === "list" && <ListView />}
       {currentView === "compact" && <CompactView />}
       {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+      <Pagination />
 
       {/* Modals */}
       <SaveToPlaylistModal

@@ -133,33 +133,27 @@ export default function BeatDetailPage() {
 
   useEffect(() => {
     async function fetchRatingData() {
-      if (!user || !id) return;
-      
+      if (!beat?.id) return;
+      console.log('[DEBUG] Fetching rating for beat id:', beat.id);
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) return;
-
-        const response = await fetch(`/api/beats/${id}/rate`, {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        });
-
+        const response = await fetch(`/api/beats/${beat.id}/rate`);
         if (response.ok) {
           const data = await response.json();
+          console.log('[DEBUG] Rating API response:', data);
           setRatingData({
-            userRating: data.userRating,
+            userRating: null,
             averageRating: data.averageRating,
             totalRatings: data.totalRatings
           });
+        } else {
+          console.log('[DEBUG] Rating API error:', response.status, await response.text());
         }
       } catch (error) {
-        console.error('Error fetching rating data:', error);
+        console.error('[DEBUG] Error fetching rating data:', error);
       }
     }
-
     fetchRatingData();
-  }, [id, user]);
+  }, [beat?.id]);
 
   const startEdit = (field: string) => {
     if (!beat) return;
@@ -599,12 +593,13 @@ export default function BeatDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center">
-            <BeatRating
-              beatId={beat.id}
-              initialUserRating={ratingData.userRating}
-              initialAverageRating={ratingData.averageRating}
-              initialTotalRatings={ratingData.totalRatings}
-            />
+            {beat && beat.id && (
+              <BeatRating
+                beatId={beat.id}
+                initialAverageRating={ratingData.averageRating}
+                initialTotalRatings={ratingData.totalRatings}
+              />
+            )}
           </div>
         </CardContent>
       </Card>

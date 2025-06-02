@@ -8,54 +8,42 @@ import { toast } from 'sonner'
 
 interface BeatRatingProps {
   beatId: string
-  initialUserRating?: number | null
   initialAverageRating?: number
   initialTotalRatings?: number
 }
 
 export function BeatRating({
   beatId,
-  initialUserRating = null,
   initialAverageRating = 0,
   initialTotalRatings = 0
 }: BeatRatingProps) {
-  const { user } = useAuth()
-  const [userRating, setUserRating] = useState<number | null>(initialUserRating)
   const [averageRating, setAverageRating] = useState(initialAverageRating)
   const [totalRatings, setTotalRatings] = useState(initialTotalRatings)
   const [hoveredRating, setHoveredRating] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleRatingClick = async (rating: number) => {
-    if (!user) {
-      toast.error('Please log in to rate beats')
-      return
-    }
+  // Sync state with props when they change
+  useEffect(() => {
+    setAverageRating(initialAverageRating);
+    setTotalRatings(initialTotalRatings);
+  }, [initialAverageRating, initialTotalRatings]);
 
+  const handleRatingClick = async (rating: number) => {
     setIsLoading(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        toast.error('Please log in to rate beats')
-        return
-      }
-
       const response = await fetch(`/api/beats/${beatId}/rate`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ rating })
       })
-
       if (!response.ok) {
         throw new Error('Failed to save rating')
       }
-
       const data = await response.json()
-      setUserRating(rating)
       setAverageRating(data.averageRating)
+      setTotalRatings(data.totalRatings)
       toast.success('Rating saved successfully')
     } catch (error) {
       console.error('Error saving rating:', error)
@@ -65,7 +53,7 @@ export function BeatRating({
     }
   }
 
-  const displayRating = hoveredRating || userRating || averageRating
+  const displayRating = hoveredRating || averageRating
 
   return (
     <div className="flex flex-col items-center space-y-2">
