@@ -22,6 +22,7 @@ import {
   Shuffle,
   ShoppingCart,
   ArrowUpFromLine,
+  Star,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "@/components/ui/use-toast"
@@ -851,7 +852,7 @@ export function SiteWideBeatPlayer() {
                         <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
                         {/* Move BeatRating to the right, where the waveform was */}
                         {playerMode === 'full' && currentBeat?.id && (
-                          <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center">
+                          <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center hidden sm:flex">
                             <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} />
                           </div>
                         )}
@@ -931,7 +932,18 @@ export function SiteWideBeatPlayer() {
                         <h4 className="font-semibold hidden sm:block">Lyrics</h4>
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="flex items-center justify-center sm:hidden opacity-25">
-                            <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} />
+                            <div className="flex items-center space-x-1">
+                              {[1, 2, 3, 4, 5].map((rating) => (
+                                <Star
+                                  key={rating}
+                                  className={`h-6 w-6 ${
+                                    rating <= ratingData.averageRating
+                                      ? 'text-yellow-400 fill-yellow-400'
+                                      : 'text-gray-400'
+                                  }`}
+                                />
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
