@@ -594,11 +594,11 @@ export default function BeatDetailPage() {
         <CardContent>
           <div className="flex flex-col items-center">
             {beat && beat.id && (
-              <BeatRating
-                beatId={beat.id}
-                initialAverageRating={ratingData.averageRating}
-                initialTotalRatings={ratingData.totalRatings}
-              />
+            <BeatRating
+              beatId={beat.id}
+              initialAverageRating={ratingData.averageRating}
+              initialTotalRatings={ratingData.totalRatings}
+            />
             )}
           </div>
         </CardContent>

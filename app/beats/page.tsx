@@ -117,7 +117,7 @@ export default function BeatsPage() {
   useEffect(() => {
     async function fetchBeats() {
       try {
-        setLoading(true)
+      setLoading(true)
         setError(null)
         // Get total count for pagination
         const { count } = await supabase
@@ -129,9 +129,9 @@ export default function BeatsPage() {
         const from = (currentPage - 1) * beatsPerPage;
         const to = from + beatsPerPage - 1;
         let query = supabase
-          .from('beats')
-          .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
-          .eq('is_draft', false)
+        .from('beats')
+        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .eq('is_draft', false)
         // Apply sort
         if (sortOption === 'recent') {
           query = query.order('created_at', { ascending: false })
@@ -144,72 +144,72 @@ export default function BeatsPage() {
         const { data: beatsData, error: beatsError } = await query
         if (beatsError) throw beatsError
 
-        if (!beatsData || beatsData.length === 0) {
-          setDisplayedBeats([])
-          return
+      if (!beatsData || beatsData.length === 0) {
+        setDisplayedBeats([])
+        return
+      }
+
+      // Collect all unique producer_ids (from both producer_id and producer_ids)
+      const allProducerIds = Array.from(new Set([
+        ...beatsData.map((b: any) => b.producer_id),
+        ...beatsData.flatMap((b: any) => b.producer_ids || [])
+      ].filter(Boolean)))
+
+      const { data: producersData, error: producersError } = await supabase
+        .from('producers')
+        .select('user_id, display_name, image, slug')
+        .in('user_id', allProducerIds)
+
+      if (producersError) throw producersError
+
+      // Map user_id to display_name and slug
+      const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+        p.user_id,
+        { display_name: p.display_name, slug: p.slug }
+      ]))
+
+      const beats = beatsData.map((b: any) => {
+        // Get all producer ids, names, and slugs for this beat
+        const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
+        const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
+        const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
+        return {
+          id: b.id,
+          slug: b.slug,
+          title: b.title || '',
+          producer: producerNames.join(', '),
+          producer_ids: ids,
+          producer_names: producerNames,
+          producer_slugs: producerSlugs,
+          image: b.cover_art_url || '/placeholder.svg',
+          plays: b.play_count || 0,
+          bpm: b.bpm || '',
+          genre: b.genre || '',
+          mood: b.mood || '',
+          audioUrl: b.mp3_url || '',
+          price: b.price || 0,
+          rating: b.rating ?? 0,
+          producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
+          price_lease: b.price_lease,
+          price_premium_lease: b.price_premium_lease,
+          price_exclusive: b.price_exclusive,
+          price_buyout: b.price_buyout,
         }
+      })
 
-        // Collect all unique producer_ids (from both producer_id and producer_ids)
-        const allProducerIds = Array.from(new Set([
-          ...beatsData.map((b: any) => b.producer_id),
-          ...beatsData.flatMap((b: any) => b.producer_ids || [])
-        ].filter(Boolean)))
+      // Shuffle the beats array on first load (Fisher-Yates)
+      for (let i = beats.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [beats[i], beats[j]] = [beats[j], beats[i]];
+      }
 
-        const { data: producersData, error: producersError } = await supabase
-          .from('producers')
-          .select('user_id, display_name, image, slug')
-          .in('user_id', allProducerIds)
-
-        if (producersError) throw producersError
-
-        // Map user_id to display_name and slug
-        const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
-          p.user_id,
-          { display_name: p.display_name, slug: p.slug }
-        ]))
-
-        const beats = beatsData.map((b: any) => {
-          // Get all producer ids, names, and slugs for this beat
-          const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
-          const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
-          const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
-          return {
-            id: b.id,
-            slug: b.slug,
-            title: b.title || '',
-            producer: producerNames.join(', '),
-            producer_ids: ids,
-            producer_names: producerNames,
-            producer_slugs: producerSlugs,
-            image: b.cover_art_url || '/placeholder.svg',
-            plays: b.play_count || 0,
-            bpm: b.bpm || '',
-            genre: b.genre || '',
-            mood: b.mood || '',
-            audioUrl: b.mp3_url || '',
-            price: b.price || 0,
-            rating: b.rating ?? 0,
-            producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
-            price_lease: b.price_lease,
-            price_premium_lease: b.price_premium_lease,
-            price_exclusive: b.price_exclusive,
-            price_buyout: b.price_buyout,
-          }
-        })
-
-        // Shuffle the beats array on first load (Fisher-Yates)
-        for (let i = beats.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [beats[i], beats[j]] = [beats[j], beats[i]];
-        }
-
-        setDisplayedBeats(beats)
+      setDisplayedBeats(beats)
       } catch (err) {
         console.error('Error fetching beats:', err)
         setError('Failed to load beats. Please try again.')
         setDisplayedBeats([])
       } finally {
-        setLoading(false)
+      setLoading(false)
       }
     }
     fetchBeats()
