@@ -10,12 +10,14 @@ interface BeatRatingProps {
   beatId: string
   initialAverageRating?: number
   initialTotalRatings?: number
+  compact?: boolean
 }
 
 export function BeatRating({
   beatId,
   initialAverageRating = 0,
-  initialTotalRatings = 0
+  initialTotalRatings = 0,
+  compact = false
 }: BeatRatingProps) {
   const [averageRating, setAverageRating] = useState(initialAverageRating)
   const [totalRatings, setTotalRatings] = useState(initialTotalRatings)
@@ -57,26 +59,28 @@ export function BeatRating({
 
   return (
     <div className="flex flex-col items-center space-y-2">
-      <div className="flex items-center space-x-1">
-        {[1, 2, 3, 4, 5].map((rating) => (
-          <button
-            key={rating}
-            onClick={() => handleRatingClick(rating)}
-            onMouseEnter={() => setHoveredRating(rating)}
-            onMouseLeave={() => setHoveredRating(null)}
-            disabled={isLoading}
-            className="focus:outline-none"
-          >
-            <Star
-              className={`h-6 w-6 transition-colors ${
-                rating <= displayRating
-                  ? 'text-yellow-400 fill-yellow-400'
-                  : 'text-gray-400'
-              }`}
-            />
-          </button>
-        ))}
-      </div>
+      {!compact && (
+        <div className="flex items-center space-x-1">
+          {[1, 2, 3, 4, 5].map((rating) => (
+            <button
+              key={rating}
+              onClick={() => handleRatingClick(rating)}
+              onMouseEnter={() => setHoveredRating(rating)}
+              onMouseLeave={() => setHoveredRating(null)}
+              disabled={isLoading}
+              className="focus:outline-none"
+            >
+              <Star
+                className={`h-6 w-6 transition-colors ${
+                  rating <= displayRating
+                    ? 'text-yellow-400 fill-yellow-400'
+                    : 'text-gray-400'
+                }`}
+              />
+            </button>
+          ))}
+        </div>
+      )}
       <div className="text-sm text-gray-400">
         {totalRatings > 0 ? (
           <>

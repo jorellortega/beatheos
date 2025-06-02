@@ -499,6 +499,7 @@ export default function BeatsPage() {
                   beatId={beat.id}
                   initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
                   initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+                  compact={true}
                 />
               </div>
               <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
