@@ -39,8 +39,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
       console.error('Error saving rating:', error)
       return NextResponse.json({ error: 'Failed to save rating' }, { status: 500 })
     }
-    // Get average rating for the beat
-    const { data: avgRating, error: avgError } = await supabase
+    // Get all ratings for the beat
+    const { data: allRatings, error: avgError } = await supabase
       .from('beat_ratings')
       .select('rating')
       .eq('beat_id', beatId)
@@ -48,12 +48,20 @@ export async function POST(request: Request, { params }: { params: { id: string 
       console.error('Error calculating average rating:', avgError)
       return NextResponse.json({ error: 'Failed to calculate average rating' }, { status: 500 })
     }
-    const averageRating = avgRating.reduce((acc, curr) => acc + curr.rating, 0) / avgRating.length
+    const totalRatings = allRatings.length;
+    const averageRating = totalRatings > 0
+      ? allRatings.reduce((acc, curr) => acc + curr.rating, 0) / totalRatings
+      : 0;
+    // Update the beats table
+    await supabase
+      .from('beats')
+      .update({ average_rating: averageRating, total_ratings: totalRatings })
+      .eq('id', beatId);
     return NextResponse.json({
       message: 'Rating saved successfully',
       rating: data[0],
       averageRating: averageRating,
-      totalRatings: avgRating.length
+      totalRatings: totalRatings
     })
   } catch (error) {
     console.error('Error in rate endpoint:', error)

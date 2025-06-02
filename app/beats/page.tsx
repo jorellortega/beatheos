@@ -152,34 +152,34 @@ export default function BeatsPage() {
   }, []);
 
   // Only fetchBeats if not restoring from sessionStorage
-  async function fetchBeats() {
-    try {
+    async function fetchBeats() {
+      try {
       setLoading(true)
-      setError(null)
-      // Get total count for pagination
-      const { count } = await supabase
+        setError(null)
+        // Get total count for pagination
+        const { count } = await supabase
+          .from('beats')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_draft', false)
+        setTotalBeats(count || 0)
+        // Fetch only the beats for the current page
+        const from = (currentPage - 1) * beatsPerPage;
+        const to = from + beatsPerPage - 1;
+        let query = supabase
         .from('beats')
-        .select('*', { count: 'exact', head: true })
+        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
         .eq('is_draft', false)
-      setTotalBeats(count || 0)
-      // Fetch only the beats for the current page
-      const from = (currentPage - 1) * beatsPerPage;
-      const to = from + beatsPerPage - 1;
-      let query = supabase
-      .from('beats')
-      .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
-      .eq('is_draft', false)
-      // Apply sort
-      if (sortOption === 'recent') {
-        query = query.order('created_at', { ascending: false })
-      } else if (sortOption === 'rating') {
-        query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
-      } else if (sortOption === 'plays') {
-        query = query.order('play_count', { ascending: false }).order('created_at', { ascending: false })
-      }
-      query = query.range(from, to)
-      const { data: beatsData, error: beatsError } = await query
-      if (beatsError) throw beatsError
+        // Apply sort
+        if (sortOption === 'recent') {
+          query = query.order('created_at', { ascending: false })
+        } else if (sortOption === 'rating') {
+          query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
+        } else if (sortOption === 'plays') {
+          query = query.order('play_count', { ascending: false }).order('created_at', { ascending: false })
+        }
+        query = query.range(from, to)
+        const { data: beatsData, error: beatsError } = await query
+        if (beatsError) throw beatsError
 
       if (!beatsData || beatsData.length === 0) {
         setDisplayedBeats([])
@@ -242,14 +242,14 @@ export default function BeatsPage() {
 
       setDisplayedBeats(beats)
       sessionStorage.setItem('beatsList', JSON.stringify(beats));
-    } catch (err) {
-      console.error('Error fetching beats:', err)
-      setError('Failed to load beats. Please try again.')
-      setDisplayedBeats([])
-    } finally {
+      } catch (err) {
+        console.error('Error fetching beats:', err)
+        setError('Failed to load beats. Please try again.')
+        setDisplayedBeats([])
+      } finally {
       setLoading(false)
+      }
     }
-  }
 
   // Fetch ratings for all beats after displayedBeats is set
   useEffect(() => {
@@ -355,13 +355,13 @@ export default function BeatsPage() {
               <Link href={`/beat/${beat.slug}`}
                 className="block w-full h-full"
                 aria-label={`View details for ${beat.title}`}
-                tabIndex={0}
-              >
-                <Image
-                  src={beat.image || "/placeholder.svg"}
-                  alt={beat.title}
-                  width={300}
-                  height={300}
+            tabIndex={0}
+          >
+            <Image
+              src={beat.image || "/placeholder.svg"}
+              alt={beat.title}
+              width={300}
+              height={300}
                   className="w-full aspect-square object-cover border border-primary shadow transition-opacity duration-200 opacity-100"
                 />
               </Link>
@@ -692,10 +692,10 @@ export default function BeatsPage() {
           </div>
         ) : (
           <>
-            {currentView === "grid" && <GridView />}
-            {currentView === "list" && <ListView />}
-            {currentView === "compact" && <CompactView />}
-            {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
+      {currentView === "grid" && <GridView />}
+      {currentView === "list" && <ListView />}
+      {currentView === "compact" && <CompactView />}
+      {currentView === "vertical" && <VerticalSlideView beats={filteredBeats} onClose={() => setCurrentView("grid")} disableGlobalPlayer />}
           </>
         )}
       </div>

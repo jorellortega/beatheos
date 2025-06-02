@@ -23,6 +23,8 @@ import {
   ShoppingCart,
   ArrowUpFromLine,
   Star,
+  Check,
+  Loader,
 } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { toast } from "@/components/ui/use-toast"
@@ -41,6 +43,12 @@ import { supabase } from '@/lib/supabaseClient'
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
 import WavesurferPlayer from "@wavesurfer/react"
 import { BeatRating } from '@/components/beats/BeatRating'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface Beat {
   id: string
@@ -106,6 +114,12 @@ export function SiteWideBeatPlayer() {
   const [lyricsExpanded, setLyricsExpanded] = useState(false)
   const [hoveredRating, setHoveredRating] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [shuffleMode, setShuffleMode] = useState<'all' | 'high_ratings' | 'recent'>(() => {
+    // Try to get the saved mode from sessionStorage
+    const savedMode = sessionStorage.getItem('shuffleMode');
+    return (savedMode as 'all' | 'high_ratings' | 'recent') || 'all';
+  });
+  const [shuffleLoading, setShuffleLoading] = useState(false);
 
   const pathname = usePathname()
 
@@ -279,6 +293,7 @@ export function SiteWideBeatPlayer() {
   useEffect(() => {
     // Listen for the homepage logo shuffle trigger
     const handler = async () => {
+      setShuffleMode('high_ratings');
       // Always re-shuffle and start playing, even if isShuffle is true or currentBeat is null
       await toggleShuffle();
       setPlayerMode('full');
@@ -305,17 +320,20 @@ export function SiteWideBeatPlayer() {
 
   const toggleShuffle = async () => {
     if (!isShuffle) {
-      // Fetch all beats from Supabase
-      const { data: beats, error } = await supabase
+      setShuffleLoading(true);
+      let query = supabase
         .from('beats')
-        .select('id, title, producer_id, mp3_url, cover_art_url, slug');
-      
+        .select('id, title, producer_id, mp3_url, cover_art_url, slug, created_at')
+        .eq('is_draft', false);
+
+      const { data: beats, error } = await query;
       if (error) {
         toast({
           title: "Error",
           description: "Failed to fetch beats for shuffle mode.",
           variant: "destructive",
         });
+        setShuffleLoading(false);
         return;
       }
 
@@ -339,16 +357,61 @@ export function SiteWideBeatPlayer() {
         })
       );
 
-      // Shuffle and pick 3 beats
-      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 3);
+      // Get all ratings in a single query
+      const { data: allRatings } = await supabase
+        .from('beat_ratings')
+        .select('beat_id, rating');
+
+      // Calculate average ratings for each beat
+      const beatRatings = new Map();
+      if (allRatings) {
+        allRatings.forEach(rating => {
+          if (!beatRatings.has(rating.beat_id)) {
+            beatRatings.set(rating.beat_id, []);
+          }
+          beatRatings.get(rating.beat_id).push(rating.rating);
+        });
+      }
+
+      // Filter beats based on their average rating
+      const filteredBeats = beatsWithProducers.filter(beat => {
+        const ratings = beatRatings.get(beat.id);
+        if (!ratings || ratings.length === 0) return false;
+        const avgRating = ratings.reduce((acc: number, curr: number) => acc + curr, 0) / ratings.length;
+        return avgRating >= 3;
+      });
+
+      if (filteredBeats.length === 0) {
+        toast({
+          title: "No High-Rated Beats",
+          description: "No beats found with ratings of 3 or higher.",
+          variant: "destructive",
+        });
+        setShuffleLoading(false);
+        return;
+      }
+
+      // Shuffle the entire set
+      const shuffled = [...filteredBeats].sort(() => Math.random() - 0.5);
       setShuffledBeats(shuffled);
       setCurrentBeatIndex(0);
       setCurrentBeat({
-        ...shuffled[0],
+        id: shuffled[0].id,
+        title: shuffled[0].title,
+        artist: shuffled[0].artist,
+        audioUrl: shuffled[0].audioUrl,
+        image: shuffled[0].coverImage,
+        producerSlug: shuffled[0].producerSlug,
+        producers: shuffled[0].producers || [],
         slug: shuffled[0].slug || shuffled[0].id.toString(),
       });
       setIsShuffle(true);
       setIsPlaying(true);
+      setShuffleLoading(false);
+      toast({
+        title: "Shuffle Mode Active",
+        description: `Playing in ${shuffleMode === 'all' ? 'Play All' : shuffleMode === 'high_ratings' ? 'High Ratings' : 'Most Recent'} mode`,
+      });
     } else {
       setIsShuffle(false);
       setShuffledBeats([]);
@@ -360,8 +423,10 @@ export function SiteWideBeatPlayer() {
   const preloadNextShuffledBeats = async () => {
     const { data: beats, error } = await supabase
       .from('beats')
-      .select('id, title, producer_id, mp3_url, cover_art_url, slug');
+      .select('id, title, producer_id, mp3_url, cover_art_url, slug, average_rating, created_at')
+      .eq('is_draft', false);
     if (error) return;
+
     const beatsWithProducers = await Promise.all(
       beats.map(async (beat) => {
         const { data: producer } = await supabase
@@ -380,7 +445,16 @@ export function SiteWideBeatPlayer() {
         };
       })
     );
-    const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 3);
+
+    // Filter and sort beats based on shuffle mode
+    let filteredBeats = [...beatsWithProducers];
+    if (shuffleMode === 'high_ratings') {
+      filteredBeats = filteredBeats.filter(beat => beat.average_rating >= 3 || beat.average_rating === null);
+    } else if (shuffleMode === 'recent') {
+      filteredBeats.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+
+    const shuffled = [...filteredBeats].sort(() => Math.random() - 0.5);
     setNextShuffledBeats(shuffled);
   };
 
@@ -411,58 +485,92 @@ export function SiteWideBeatPlayer() {
         });
         setIsPlaying(true);
       } else {
-        // Use preloaded set if available
-        if (nextShuffledBeats.length === 3) {
-          setShuffledBeats(nextShuffledBeats);
-          setCurrentBeatIndex(0);
-          setCurrentBeat({
-            ...nextShuffledBeats[0],
-            slug: nextShuffledBeats[0].slug || nextShuffledBeats[0].id.toString(),
+        // At the end: reshuffle and start again
+        setShuffleLoading(true);
+        let query = supabase
+          .from('beats')
+          .select('id, title, producer_id, mp3_url, cover_art_url, slug, created_at')
+          .eq('is_draft', false);
+
+        const { data: beats, error } = await query;
+        if (error) {
+          toast({
+            title: "Error",
+            description: "Failed to fetch beats for shuffle mode.",
+            variant: "destructive",
           });
-          setIsPlaying(true);
-          setNextShuffledBeats([]); // Clear for next round
-          preloadNextShuffledBeats(); // Preload the next set again
-        } else {
-          // fallback: fetch as before
-          const { data: beats, error } = await supabase
-            .from('beats')
-            .select('id, title, producer_id, mp3_url, cover_art_url, slug');
-          if (error) {
-            toast({
-              title: "Error",
-              description: "Failed to fetch beats for shuffle mode.",
-              variant: "destructive",
-            });
-            return;
-          }
-          const beatsWithProducers = await Promise.all(
-            beats.map(async (beat) => {
-              const { data: producer } = await supabase
-                .from('producers')
-                .select('display_name, slug')
-                .eq('user_id', beat.producer_id)
-                .single();
-              return {
-                ...beat,
-                artist: producer?.display_name || beat.producer_id,
-                audioUrl: beat.mp3_url,
-                coverImage: beat.cover_art_url,
-                producerSlug: producer?.slug || '',
-                producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
-                slug: beat.slug || beat.id.toString(),
-              };
-            })
-          );
-          const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5).slice(0, 3);
-          setShuffledBeats(shuffled);
-          setCurrentBeatIndex(0);
-          setCurrentBeat({
-            ...shuffled[0],
-            slug: shuffled[0].slug || shuffled[0].id.toString(),
-          });
-          setIsPlaying(true);
-          preloadNextShuffledBeats(); // Preload the next set again
+          setShuffleLoading(false);
+          return;
         }
+
+        const beatsWithProducers = await Promise.all(
+          beats.map(async (beat) => {
+            const { data: producer } = await supabase
+              .from('producers')
+              .select('display_name, slug')
+              .eq('user_id', beat.producer_id)
+              .single();
+            return {
+              ...beat,
+              artist: producer?.display_name || beat.producer_id,
+              audioUrl: beat.mp3_url,
+              coverImage: beat.cover_art_url,
+              producerSlug: producer?.slug || '',
+              producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+              slug: beat.slug || beat.id.toString(),
+            };
+          })
+        );
+
+        // Get all ratings in a single query
+        const { data: allRatings } = await supabase
+          .from('beat_ratings')
+          .select('beat_id, rating');
+
+        // Calculate average ratings for each beat
+        const beatRatings = new Map();
+        if (allRatings) {
+          allRatings.forEach(rating => {
+            if (!beatRatings.has(rating.beat_id)) {
+              beatRatings.set(rating.beat_id, []);
+            }
+            beatRatings.get(rating.beat_id).push(rating.rating);
+          });
+        }
+
+        // Filter beats based on their average rating
+        const filteredBeats = beatsWithProducers.filter(beat => {
+          const ratings = beatRatings.get(beat.id);
+          if (!ratings || ratings.length === 0) return false;
+          const avgRating = ratings.reduce((acc: number, curr: number) => acc + curr, 0) / ratings.length;
+          return avgRating >= 3;
+        });
+
+        if (filteredBeats.length === 0) {
+          toast({
+            title: "No High-Rated Beats",
+            description: "No beats found with ratings of 3 or higher.",
+            variant: "destructive",
+          });
+          setShuffleLoading(false);
+          return;
+        }
+
+        const reshuffled = [...filteredBeats].sort(() => Math.random() - 0.5);
+        setShuffledBeats(reshuffled);
+        setCurrentBeatIndex(0);
+        setCurrentBeat({
+          id: reshuffled[0].id,
+          title: reshuffled[0].title,
+          artist: reshuffled[0].artist,
+          audioUrl: reshuffled[0].audioUrl,
+          image: reshuffled[0].coverImage,
+          producerSlug: reshuffled[0].producerSlug,
+          producers: reshuffled[0].producers || [],
+          slug: reshuffled[0].slug || reshuffled[0].id.toString(),
+        });
+        setIsPlaying(true);
+        setShuffleLoading(false);
       }
     } else if (allBeats.length > 0) {
       const nextIndex = (currentBeatIndex + 1) % allBeats.length;
@@ -815,6 +923,11 @@ export function SiteWideBeatPlayer() {
     }
   };
 
+  // Save shuffle mode to sessionStorage when it changes
+  useEffect(() => {
+    sessionStorage.setItem('shuffleMode', shuffleMode);
+  }, [shuffleMode]);
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
@@ -931,9 +1044,67 @@ export function SiteWideBeatPlayer() {
                       <Button size="lg" variant="secondary" onClick={toggleRepeat}>
                         <Repeat className={`h-6 w-6 ${isRepeat ? "text-primary" : ""}`} />
                       </Button>
-                      <Button size="lg" variant="secondary" onClick={toggleShuffle}>
-                        <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
-                      </Button>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="lg" variant="secondary" className="relative">
+                                  <Shuffle className={`h-6 w-6 ${isShuffle ? "text-primary" : ""}`} />
+                                  {isShuffle && (
+                                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full" />
+                                  )}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem 
+                                  onClick={() => {
+                                    setShuffleMode('all');
+                                    if (isShuffle) {
+                                      setIsShuffle(false);
+                                    }
+                                    setTimeout(() => toggleShuffle(), 0);
+                                  }}
+                                  className="flex items-center justify-between"
+                                >
+                                  <span>Play All</span>
+                                  {shuffleMode === 'all' && <Check className="h-4 w-4" />}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => {
+                                    setShuffleMode('high_ratings');
+                                    if (isShuffle) {
+                                      setIsShuffle(false);
+                                    }
+                                    setTimeout(() => toggleShuffle(), 0);
+                                  }}
+                                  className="flex items-center justify-between"
+                                >
+                                  <span>High Ratings (3-5)</span>
+                                  {shuffleMode === 'high_ratings' && <Check className="h-4 w-4" />}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => {
+                                    setShuffleMode('recent');
+                                    if (isShuffle) {
+                                      setIsShuffle(false);
+                                    }
+                                    setTimeout(() => toggleShuffle(), 0);
+                                  }}
+                                  className="flex items-center justify-between"
+                                >
+                                  <span>Most Recent</span>
+                                  {shuffleMode === 'recent' && <Check className="h-4 w-4" />}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Current Mode: {shuffleMode === 'all' ? 'Play All' : shuffleMode === 'high_ratings' ? 'High Ratings' : 'Most Recent'}</p>
+                            {isShuffle && <p className="text-xs text-muted-foreground">Shuffle Active</p>}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                       <Button
                         size="lg"
                         className="bg-[#FFD700] hover:bg-[#FFE55C] text-black font-semibold flex items-center justify-center"
@@ -1234,6 +1405,12 @@ export function SiteWideBeatPlayer() {
           </div>
         </DialogContent>
       </Dialog>
+      {shuffleLoading && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+          <Loader className="h-12 w-12 animate-spin text-primary" />
+          <span className="ml-4 text-white text-lg">Loading high ratings...</span>
+        </div>
+      )}
     </div>
   )
 }
