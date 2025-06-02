@@ -325,9 +325,10 @@ export function SiteWideBeatPlayer() {
   const toggleShuffle = async () => {
     if (!isShuffle) {
       setShuffleLoading(true);
+      // Fetch beats and producer info in a single query using a join
       let query = supabase
         .from('beats')
-        .select('id, title, producer_id, mp3_url, cover_art_url, slug, created_at')
+        .select('id, title, mp3_url, cover_art_url, slug, created_at, producer_id, producers:producer_id(display_name, slug)')
         .eq('is_draft', false);
 
       const { data: beats, error } = await query;
@@ -341,25 +342,19 @@ export function SiteWideBeatPlayer() {
         return;
       }
 
-      // Get producer display names and slugs
-      const beatsWithProducers = await Promise.all(
-        beats.map(async (beat) => {
-          const { data: producer } = await supabase
-            .from('producers')
-            .select('display_name, slug')
-            .eq('user_id', beat.producer_id)
-            .single();
-          return {
-            ...beat,
-            artist: producer?.display_name || beat.producer_id,
-            audioUrl: beat.mp3_url,
-            coverImage: beat.cover_art_url,
-            producerSlug: producer?.slug || '',
-            producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
-            slug: beat.slug || beat.id.toString(),
-          };
-        })
-      );
+      // Map beats to include producer info from the join
+      const beatsWithProducers = (beats || []).map((beat) => {
+        const producer = Array.isArray(beat.producers) ? beat.producers[0] : beat.producers;
+        return {
+          ...beat,
+          artist: producer?.display_name || beat.producer_id,
+          audioUrl: beat.mp3_url,
+          coverImage: beat.cover_art_url,
+          producerSlug: producer?.slug || '',
+          producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+          slug: beat.slug || beat.id.toString(),
+        };
+      });
 
       // Get all ratings in a single query
       const { data: allRatings } = await supabase
