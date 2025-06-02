@@ -964,7 +964,7 @@ export function SiteWideBeatPlayer() {
                   <div className="mb-4"></div>
                   <div className="flex-grow mb-2">
                     <div className="flex items-center gap-2 mb-1 w-full justify-between">
-                      <div className="flex items-center gap-2 w-full justify-center sm:justify-start">
+                      <div className="flex items-center gap-2 w-full justify-start">
                         <h4 className="font-semibold">Lyrics</h4>
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="flex items-center justify-center sm:hidden opacity-25">
