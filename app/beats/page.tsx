@@ -66,8 +66,8 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
           <div className="flex items-center mb-2">
             <BeatRating
               beatId={beat.id}
-              initialAverageRating={beat.averageRating || 0}
-              initialTotalRatings={beat.totalRatings || 0}
+              initialAverageRating={beat.average_rating || 0}
+              initialTotalRatings={beat.total_ratings || 0}
             />
           </div>
           <div className="flex justify-between items-center mb-2">
@@ -137,7 +137,7 @@ export default function BeatsPage() {
   useEffect(() => {
     const storedBeats = sessionStorage.getItem('beatsList');
     const storedScroll = sessionStorage.getItem('beatsScroll');
-    if (storedBeats) {
+    if (sortOption === 'recent' && currentPage === 1 && storedBeats) {
       setDisplayedBeats(JSON.parse(storedBeats));
       setLoading(false);
       setTimeout(() => {
@@ -145,11 +145,10 @@ export default function BeatsPage() {
           window.scrollTo(0, parseInt(storedScroll, 10));
         }
       }, 0);
-      return;
+    } else {
+      fetchBeats();
     }
-    // If not in sessionStorage, fetch as normal
-    fetchBeats();
-  }, []);
+  }, [sortOption, currentPage]);
 
   // Save beats and scroll position to sessionStorage on change/unload
   useEffect(() => {
@@ -186,13 +185,13 @@ export default function BeatsPage() {
         const to = from + beatsPerPage - 1;
         let query = supabase
         .from('beats')
-        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, average_rating, total_ratings, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
         .eq('is_draft', false)
         // Apply sort
         if (sortOption === 'recent') {
           query = query.order('created_at', { ascending: false })
         } else if (sortOption === 'rating') {
-          query = query.order('rating', { ascending: false }).order('created_at', { ascending: false })
+          query = query.gte('average_rating', 3).gt('total_ratings', 0).order('average_rating', { ascending: false }).order('created_at', { ascending: false })
         } else if (sortOption === 'plays') {
           query = query.order('play_count', { ascending: false }).order('created_at', { ascending: false })
         }
@@ -250,6 +249,8 @@ export default function BeatsPage() {
           price_premium_lease: b.price_premium_lease,
           price_exclusive: b.price_exclusive,
           price_buyout: b.price_buyout,
+          average_rating: b.average_rating || 0,
+          total_ratings: b.total_ratings || 0,
         }
       })
 
@@ -454,8 +455,8 @@ export default function BeatsPage() {
             <div className="mb-2">
               <BeatRating
                 beatId={beat.id}
-                initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
-                initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+                initialAverageRating={beat.average_rating || 0}
+                initialTotalRatings={beat.total_ratings || 0}
               />
             </div>
             <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
@@ -532,8 +533,8 @@ export default function BeatsPage() {
               <div className="mb-2">
                 <BeatRating
                   beatId={beat.id}
-                  initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
-                  initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+                  initialAverageRating={beat.average_rating || 0}
+                  initialTotalRatings={beat.total_ratings || 0}
                 />
               </div>
               <div className="text-xs text-gray-400 mt-1">{beat.plays.toLocaleString()} plays</div>
@@ -612,8 +613,8 @@ export default function BeatsPage() {
               <div className="mb-2">
                 <BeatRating
                   beatId={beat.id}
-                  initialAverageRating={ratingsMap[beat.id]?.averageRating || 0}
-                  initialTotalRatings={ratingsMap[beat.id]?.totalRatings || 0}
+                  initialAverageRating={beat.average_rating || 0}
+                  initialTotalRatings={beat.total_ratings || 0}
                   compact={true}
                 />
               </div>
@@ -705,10 +706,10 @@ export default function BeatsPage() {
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="recent">Most Recent</SelectItem>
+              <SelectItem value="recent">Newest</SelectItem>
               <SelectItem value="rating">Highest Rated</SelectItem>
               <SelectItem value="plays">Most Plays</SelectItem>
-              <SelectItem value="playall">Play All</SelectItem>
+              <SelectItem value="playall">View All</SelectItem>
             </SelectContent>
           </Select>
         </div>
