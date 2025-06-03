@@ -32,6 +32,9 @@ function getLicensePrice(beat: any, key: string, jsonKey: string) {
 const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
   // Get the lease price using the helper function
   const leasePrice = getLicensePrice(beat, 'price_lease', 'template-lease');
+  const premiumLeasePrice = getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease');
+  const exclusivePrice = getLicensePrice(beat, 'price_exclusive', 'template-exclusive');
+  const buyoutPrice = getLicensePrice(beat, 'price_buyout', 'template-buy-out');
   
   return (
     <Card key={beat.id} className="bg-black border-primary flex flex-col">
@@ -90,9 +93,10 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
               ...beat,
               price: leasePrice ?? 0,
               price_lease: leasePrice ?? 0,
-              price_premium_lease: getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease') ?? 0,
-              price_exclusive: getLicensePrice(beat, 'price_exclusive', 'template-exclusive') ?? 0,
-              price_buyout: getLicensePrice(beat, 'price_buyout', 'template-buy-out') ?? 0,
+              price_premium_lease: premiumLeasePrice ?? 0,
+              price_exclusive: exclusivePrice ?? 0,
+              price_buyout: buyoutPrice ?? 0,
+              licensing: beat.licensing
             })}
           >
             BUY
@@ -228,6 +232,7 @@ export default function BeatsPage() {
         const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
         const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean)
         const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean)
+        // Always extract prices from both columns and licensing JSON
         return {
           id: b.id,
           slug: b.slug,
@@ -245,10 +250,11 @@ export default function BeatsPage() {
           price: b.price || 0,
           rating: b.rating ?? 0,
           producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
-          price_lease: b.price_lease,
-          price_premium_lease: b.price_premium_lease,
-          price_exclusive: b.price_exclusive,
-          price_buyout: b.price_buyout,
+          price_lease: getLicensePrice(b, 'price_lease', 'template-lease'),
+          price_premium_lease: getLicensePrice(b, 'price_premium_lease', 'template-premium-lease'),
+          price_exclusive: getLicensePrice(b, 'price_exclusive', 'template-exclusive'),
+          price_buyout: getLicensePrice(b, 'price_buyout', 'template-buy-out'),
+          licensing: b.licensing,
           average_rating: b.average_rating || 0,
           total_ratings: b.total_ratings || 0,
         }
@@ -331,7 +337,21 @@ export default function BeatsPage() {
   }
 
   const handlePurchase = (beat: any) => {
-    setSelectedBeat(beat ? { ...beat, id: String(beat.id) } : null)
+    const leasePrice = getLicensePrice(beat, 'price_lease', 'template-lease');
+    const premiumLeasePrice = getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease');
+    const exclusivePrice = getLicensePrice(beat, 'price_exclusive', 'template-exclusive');
+    const buyoutPrice = getLicensePrice(beat, 'price_buyout', 'template-buy-out');
+
+    setSelectedBeat(beat ? {
+      ...beat,
+      id: String(beat.id),
+      price: leasePrice ?? 0,
+      price_lease: leasePrice ?? 0,
+      price_premium_lease: premiumLeasePrice ?? 0,
+      price_exclusive: exclusivePrice ?? 0,
+      price_buyout: buyoutPrice ?? 0,
+      licensing: beat.licensing
+    } : null)
     setIsPurchaseModalOpen(true)
   }
 
