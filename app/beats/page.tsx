@@ -20,7 +20,19 @@ import { supabase } from '@/lib/supabaseClient'
 import React from "react"
 import { useAuth } from "@/contexts/AuthContext"
 
+// Helper function to get license price from columns or JSON
+function getLicensePrice(beat: any, key: string, jsonKey: string) {
+  // Prefer the column if it exists and is a number
+  if (beat && beat[key] != null && !isNaN(Number(beat[key]))) return Number(beat[key]);
+  // Fallback to JSON if present
+  if (beat && beat.licensing && beat.licensing[jsonKey] != null && !isNaN(Number(beat.licensing[jsonKey]))) return Number(beat.licensing[jsonKey]);
+  return null;
+}
+
 const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
+  // Get the lease price using the helper function
+  const leasePrice = getLicensePrice(beat, 'price_lease', 'template-lease');
+  
   return (
     <Card key={beat.id} className="bg-black border-primary flex flex-col">
       <CardHeader className="relative pb-0 pt-0 px-0">
@@ -74,7 +86,14 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
           </Button>
           <Button
             className="gradient-button text-black font-medium hover:text-white"
-            onClick={() => onPurchase(beat)}
+            onClick={() => onPurchase({
+              ...beat,
+              price: leasePrice ?? 0,
+              price_lease: leasePrice ?? 0,
+              price_premium_lease: getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease') ?? 0,
+              price_exclusive: getLicensePrice(beat, 'price_exclusive', 'template-exclusive') ?? 0,
+              price_buyout: getLicensePrice(beat, 'price_buyout', 'template-buy-out') ?? 0,
+            })}
           >
             BUY
           </Button>
@@ -111,7 +130,7 @@ export default function BeatsPage() {
   const beatsPerPage = 30;
   const [totalBeats, setTotalBeats] = useState(0);
   const [ratingsMap, setRatingsMap] = useState<Record<string, { averageRating: number, totalRatings: number }>>({});
-  const [sortOption, setSortOption] = useState<'recent' | 'rating' | 'plays'>('recent');
+  const [sortOption, setSortOption] = useState<'recent' | 'rating' | 'plays' | 'playall'>('recent');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Restore beats and scroll position from sessionStorage
@@ -342,6 +361,38 @@ export default function BeatsPage() {
 
   // Update totalPages calculation
   const totalPages = Math.ceil(totalBeats / beatsPerPage);
+
+  // Play all beats in order
+  const playAllBeats = () => {
+    if (displayedBeats.length === 0) return;
+    let idx = 0;
+    const playNext = () => {
+      const beat = displayedBeats[idx];
+      setCurrentBeat({
+        id: beat.id.toString(),
+        title: beat.title,
+        artist: beat.producer_names.join(', '),
+        audioUrl: beat.audioUrl,
+        producerSlug: beat.producer_slugs[0] || '',
+        producers: beat.producers || [],
+        slug: beat.slug || beat.id.toString(),
+      });
+      setIsPlaying(true);
+      idx++;
+    };
+    playNext();
+    // Listen for when the current beat ends
+    const audio = document.querySelector('audio');
+    if (audio) {
+      audio.onended = () => {
+        if (idx < displayedBeats.length) {
+          playNext();
+        } else {
+          audio.onended = null;
+        }
+      };
+    }
+  };
 
   const GridView = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -657,6 +708,7 @@ export default function BeatsPage() {
               <SelectItem value="recent">Most Recent</SelectItem>
               <SelectItem value="rating">Highest Rated</SelectItem>
               <SelectItem value="plays">Most Plays</SelectItem>
+              <SelectItem value="playall">Play All</SelectItem>
             </SelectContent>
           </Select>
         </div>

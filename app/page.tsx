@@ -14,7 +14,7 @@ export default function Home() {
   // This state is used to trigger shuffle mode in the SiteWideBeatPlayer
   const [shuffleTrigger, setShuffleTrigger] = useState(0)
   const [glow, setGlow] = useState(false)
-  const { isPlaying } = usePlayer();
+  const { isPlaying, setPreloadedBeats } = usePlayer();
   // Optionally, you can use context or a global event bus for more complex comms
 
   useEffect(() => {
@@ -24,11 +24,56 @@ export default function Home() {
       setLogoUrl(data[0].image_url)
     }
     fetchLogo()
-  }, [])
+
+    // Preload beats data for instant player start
+    async function preloadBeats() {
+      // 1. Fetch beats (no join)
+      const { data: beats, error } = await supabase
+        .from('beats')
+        .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
+        .eq('is_draft', false)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error || !beats) return;
+      // 2. Collect all unique producer_ids
+      const producerIds = Array.from(new Set(beats.map((b) => b.producer_id).filter(Boolean)));
+      // 3. Fetch producers
+      let producerMap: Record<string, any> = {};
+      if (producerIds.length > 0) {
+        const { data: producers, error: prodError } = await supabase
+          .from('producers')
+          .select('user_id, display_name, slug')
+          .in('user_id', producerIds);
+        if (!prodError && producers) {
+          producerMap = Object.fromEntries(producers.map((p) => [p.user_id, { display_name: p.display_name, slug: p.slug }]));
+        }
+      }
+      // 4. Merge producer info into beats
+      const beatsWithProducers = beats.map((beat) => {
+        const producer = producerMap[beat.producer_id] || {};
+        return {
+          id: beat.id,
+          title: beat.title,
+          audioUrl: beat.mp3_url,
+          image: beat.cover_art_url,
+          slug: beat.slug || beat.id.toString(),
+          artist: producer.display_name || '',
+          producerSlug: producer.slug || '',
+          producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+          averageRating: beat.average_rating ?? 0,
+          totalRatings: beat.total_ratings ?? 0,
+        };
+      });
+      setPreloadedBeats(beatsWithProducers);
+    }
+    preloadBeats();
+  }, [setPreloadedBeats]);
 
   // This will be used to trigger shuffle and expand the player
   const handleLogoClick = () => {
     console.log('[DEBUG] Logo clicked');
+    // Set high ratings as default shuffle mode
+    sessionStorage.setItem('shuffleMode', 'high_ratings');
     // Dispatch a custom event for the SiteWideBeatPlayer to listen to
     window.dispatchEvent(new CustomEvent('trigger-shuffle-full-player'));
     console.log('[DEBUG] Dispatched trigger-shuffle-full-player event');

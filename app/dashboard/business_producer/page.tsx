@@ -134,6 +134,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
   const [collabResults, setCollabResults] = useState<{ [beatId: string]: any[] }>({});
   const [collabLoading, setCollabLoading] = useState<{ [beatId: string]: boolean }>({});
   const [collabError, setCollabError] = useState<{ [beatId: string]: string | null }>({});
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     async function fetchBeats() {
@@ -388,6 +389,16 @@ function MyBeatsManager({ userId }: { userId: string }) {
     }
   }
 
+  // Filtered beats based on search
+  const filteredBeats = beats.filter(beat => {
+    const searchLower = search.toLowerCase();
+    return (
+      beat.title.toLowerCase().includes(searchLower) ||
+      (beat.genre && beat.genre.toLowerCase().includes(searchLower)) ||
+      (Array.isArray(beat.tags) && beat.tags.some(tag => tag.toLowerCase().includes(searchLower)))
+    );
+  });
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -414,10 +425,19 @@ function MyBeatsManager({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center mb-4">
-        <h2 className="text-2xl font-bold mr-4">My Uploaded Beats</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center mb-4 gap-2">
+        <div className="flex items-center mb-2 sm:mb-0">
+          <h2 className="text-2xl font-bold mr-4">My Uploaded Beats</h2>
+        </div>
+        <Input
+          type="text"
+          placeholder="Search beats..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="max-w-xs bg-secondary text-white border border-primary focus:border-yellow-400"
+        />
         {selectedIds.length > 0 && (
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center ml-auto">
             <Button size="sm" variant="destructive" onClick={() => {
               if (!confirm('Delete selected beats?')) return;
               selectedIds.forEach(id => handleDelete(id));
@@ -561,7 +581,7 @@ function MyBeatsManager({ userId }: { userId: string }) {
             </tr>
           </thead>
           <tbody>
-            {beats.map(beat => (
+            {filteredBeats.map(beat => (
               <tr key={beat.id} className="border-t border-gray-700 bg-[#141414]">
                 <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
                   <input

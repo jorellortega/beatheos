@@ -220,8 +220,29 @@ export async function PATCH(request: Request) {
 
   const body = await request.json()
 
+  // Map price columns to licensing keys
+  const priceToLicenseKey = {
+    price_lease: 'template-lease',
+    price_premium_lease: 'template-premium-lease',
+    price_exclusive: 'template-exclusive',
+    price_buyout: 'template-buy-out',
+  }
+
+  // If a price column is being updated, also update the licensing JSONB
+  let updateBody = { ...body }
+  const priceKeys = Object.keys(priceToLicenseKey) as (keyof typeof priceToLicenseKey)[];
+  const priceKeyUpdated = priceKeys.find((key) => key in body)
+  if (priceKeyUpdated) {
+    // Fetch current licensing JSONB
+    const { data: beat, error: fetchError } = await supabase.from('beats').select('licensing').eq('id', id).single()
+    let licensing = beat?.licensing || {}
+    // Update the relevant key
+    licensing = { ...licensing, [priceToLicenseKey[priceKeyUpdated]]: body[priceKeyUpdated] }
+    updateBody.licensing = licensing
+  }
+
   const { data, error } = await supabase.from('beats')
-    .update(body)
+    .update(updateBody)
     .eq('id', id)
     .select()
     .single()

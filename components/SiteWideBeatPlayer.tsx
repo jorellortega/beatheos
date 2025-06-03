@@ -60,6 +60,8 @@ interface Beat {
   producerSlug?: string
   producers: { display_name: string; slug: string }[]
   slug?: string
+  averageRating?: number
+  totalRatings?: number
 }
 
 interface Playlist {
@@ -69,7 +71,7 @@ interface Playlist {
 }
 
 export function SiteWideBeatPlayer() {
-  const { currentBeat, setCurrentBeat, isPlaying, setIsPlaying } = usePlayer()
+  const { currentBeat, setCurrentBeat, isPlaying, setIsPlaying, preloadedBeats } = usePlayer()
   const [volume, setVolume] = useState(80)
   const [progress, setProgress] = useState(0)
   const [isExpanded, setIsExpanded] = useState(false)
@@ -108,7 +110,6 @@ export function SiteWideBeatPlayer() {
   const [editingSessionName, setEditingSessionName] = useState(false)
   const [editingSessionNameValue, setEditingSessionNameValue] = useState("")
   const [nextShuffledBeats, setNextShuffledBeats] = useState<any[]>([])
-  const [preloadTimeout, setPreloadTimeout] = useState<NodeJS.Timeout | null>(null)
   const [ratingData, setRatingData] = useState({ averageRating: 0, totalRatings: 0 })
   const [dragging, setDragging] = useState(false)
   const [lyricsExpanded, setLyricsExpanded] = useState(false)
@@ -294,18 +295,108 @@ export function SiteWideBeatPlayer() {
     // Listen for the homepage logo shuffle trigger
     const handler = async () => {
       console.log('[DEBUG] Received trigger-shuffle-full-player event');
-      setShuffleMode('high_ratings');
-      // Always re-shuffle and start playing, even if isShuffle is true or currentBeat is null
-      console.log('[DEBUG] Calling toggleShuffle()');
-      await toggleShuffle();
-      console.log('[DEBUG] toggleShuffle() complete, setting player mode to full and playing');
-      setPlayerMode('full');
-      setIsPlaying(true);
-      console.log('[DEBUG] Player should now be playing in full mode');
+      try {
+        // Fetch ALL beats with high ratings directly from the database
+        const { data: beats, error } = await supabase
+          .from('beats')
+          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
+          .eq('is_draft', false)
+          .gte('average_rating', 3);
+
+        if (error) throw error;
+        console.log('[DEBUG] Found high-rated beats:', beats?.length);
+
+        // Get all producer info in one query
+        const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
+        const { data: producers } = await supabase
+          .from('producers')
+          .select('user_id, display_name, slug')
+          .in('user_id', producerIds);
+
+        const producerMap = Object.fromEntries(
+          (producers || []).map(p => [p.user_id, { display_name: p.display_name, slug: p.slug }])
+        );
+
+        // Combine beat and producer data
+        const beatsWithProducers = beats.map(beat => {
+          const producer = producerMap[beat.producer_id] || {};
+          return {
+            id: beat.id,
+            title: beat.title,
+            audioUrl: beat.mp3_url,
+            image: beat.cover_art_url,
+            slug: beat.slug || beat.id.toString(),
+            artist: producer.display_name || '',
+            producerSlug: producer.slug || '',
+            producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+            averageRating: beat.average_rating ?? 0,
+            totalRatings: beat.total_ratings ?? 0,
+          };
+        });
+
+        console.log('[DEBUG] Processed beats with producers:', beatsWithProducers.length);
+
+        if (beatsWithProducers.length === 0) {
+          console.log('[DEBUG] No high-rated beats found');
+          toast({
+            title: "No High-Rated Beats",
+            description: "No beats found with ratings of 3 or higher.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Shuffle all high-rated beats
+        const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+        console.log('[DEBUG] Shuffled beats count:', shuffled.length);
+        
+        // Pick a random starting beat
+        const randomStartIndex = Math.floor(Math.random() * shuffled.length);
+        console.log('[DEBUG] Starting at random index:', randomStartIndex);
+        
+        // Reorder the array to start with the random beat
+        const reorderedBeats = [
+          shuffled[randomStartIndex],
+          ...shuffled.slice(0, randomStartIndex),
+          ...shuffled.slice(randomStartIndex + 1)
+        ];
+        
+        // Set up the shuffle
+        setShuffledBeats(reorderedBeats);
+        setCurrentBeatIndex(0);
+        setCurrentBeat({
+          ...reorderedBeats[0],
+          slug: reorderedBeats[0].slug || reorderedBeats[0].id.toString(),
+        });
+        setIsShuffle(true);
+        setIsPlaying(true);
+        setPlayerMode('full');
+        
+        // Start playing
+        setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.play().catch((err) => {
+              console.error('[DEBUG] Audio play error:', err);
+            });
+          }
+        }, 0);
+        
+        toast({
+          title: "High-Rated Shuffle Active",
+          description: `Playing ${shuffled.length} high-rated beats (3-5)`,
+        });
+      } catch (error) {
+        console.error('[DEBUG] Error in shuffle setup:', error);
+        toast({
+          title: "Error",
+          description: "Failed to start high-rated shuffle.",
+          variant: "destructive",
+        });
+      }
     };
     window.addEventListener('trigger-shuffle-full-player', handler);
     return () => window.removeEventListener('trigger-shuffle-full-player', handler);
-  }, []); // Remove isShuffle from deps so handler is always fresh
+  }, [setCurrentBeat, setIsPlaying]);
 
   const togglePlay = () => setIsPlaying(!isPlaying)
 
@@ -325,227 +416,45 @@ export function SiteWideBeatPlayer() {
   const toggleShuffle = async () => {
     if (!isShuffle) {
       setShuffleLoading(true);
-      // Fetch beats and producer info in a single query using a join
-      let query = supabase
-        .from('beats')
-        .select('id, title, mp3_url, cover_art_url, slug, created_at, producer_id, producers:producer_id(display_name, slug)')
-        .eq('is_draft', false);
-
-      const { data: beats, error } = await query;
-      if (error) {
-        toast({
-          title: "Error",
-          description: "Failed to fetch beats for shuffle mode.",
-          variant: "destructive",
-        });
-        setShuffleLoading(false);
-        return;
-      }
-
-      // Map beats to include producer info from the join
-      const beatsWithProducers = (beats || []).map((beat) => {
-        const producer = Array.isArray(beat.producers) ? beat.producers[0] : beat.producers;
-        return {
-          ...beat,
-          artist: producer?.display_name || beat.producer_id,
-          audioUrl: beat.mp3_url,
-          coverImage: beat.cover_art_url,
-          producerSlug: producer?.slug || '',
-          producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
-          slug: beat.slug || beat.id.toString(),
-        };
-      });
-
-      // Get all ratings in a single query
-      const { data: allRatings } = await supabase
-        .from('beat_ratings')
-        .select('beat_id, rating');
-
-      // Calculate average ratings for each beat
-      const beatRatings = new Map();
-      if (allRatings) {
-        allRatings.forEach(rating => {
-          if (!beatRatings.has(rating.beat_id)) {
-            beatRatings.set(rating.beat_id, []);
-          }
-          beatRatings.get(rating.beat_id).push(rating.rating);
-        });
-      }
-
-      // Filter beats based on their average rating
-      const filteredBeats = beatsWithProducers.filter(beat => {
-        const ratings = beatRatings.get(beat.id);
-        if (!ratings || ratings.length === 0) return false;
-        const avgRating = ratings.reduce((acc: number, curr: number) => acc + curr, 0) / ratings.length;
-        return avgRating >= 3;
-      });
-
-      if (filteredBeats.length === 0) {
-        toast({
-          title: "No High-Rated Beats",
-          description: "No beats found with ratings of 3 or higher.",
-          variant: "destructive",
-        });
-        setShuffleLoading(false);
-        return;
-      }
-
-      // Shuffle the entire set
-      const shuffled = [...filteredBeats].sort(() => Math.random() - 0.5);
-      setShuffledBeats(shuffled);
-      setCurrentBeatIndex(0);
-      setCurrentBeat({
-        id: shuffled[0].id,
-        title: shuffled[0].title,
-        artist: shuffled[0].artist,
-        audioUrl: shuffled[0].audioUrl,
-        image: shuffled[0].coverImage,
-        producerSlug: shuffled[0].producerSlug,
-        producers: shuffled[0].producers || [],
-        slug: shuffled[0].slug || shuffled[0].id.toString(),
-      });
-      setIsShuffle(true);
-      setIsPlaying(true);
-      setShuffleLoading(false);
-      toast({
-        title: "Shuffle Mode Active",
-        description: `Playing in ${shuffleMode === 'all' ? 'Play All' : shuffleMode === 'high_ratings' ? 'High Ratings' : 'Most Recent'} mode`,
-      });
-    } else {
-      setIsShuffle(false);
-      setShuffledBeats([]);
-      setCurrentBeatIndex(0);
-    }
-  };
-
-  // Preload the next set of 3 shuffled beats
-  const preloadNextShuffledBeats = async () => {
-    const { data: beats, error } = await supabase
-      .from('beats')
-      .select('id, title, producer_id, mp3_url, cover_art_url, slug, average_rating, created_at')
-      .eq('is_draft', false);
-    if (error) return;
-
-    const beatsWithProducers = await Promise.all(
-      beats.map(async (beat) => {
-        const { data: producer } = await supabase
-          .from('producers')
-          .select('display_name, slug')
-          .eq('user_id', beat.producer_id)
-          .single();
-        return {
-          ...beat,
-          artist: producer?.display_name || beat.producer_id,
-          audioUrl: beat.mp3_url,
-          coverImage: beat.cover_art_url,
-          producerSlug: producer?.slug || '',
-          producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
-          slug: beat.slug || beat.id.toString(),
-        };
-      })
-    );
-
-    // Filter and sort beats based on shuffle mode
-    let filteredBeats = [...beatsWithProducers];
-    if (shuffleMode === 'high_ratings') {
-      filteredBeats = filteredBeats.filter(beat => beat.average_rating >= 3 || beat.average_rating === null);
-    } else if (shuffleMode === 'recent') {
-      filteredBeats.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    }
-
-    const shuffled = [...filteredBeats].sort(() => Math.random() - 0.5);
-    setNextShuffledBeats(shuffled);
-  };
-
-  // When a new set of shuffledBeats is set, schedule preloading of the next set
-  useEffect(() => {
-    if (isShuffle && shuffledBeats.length > 0 && currentBeatIndex === 0) {
-      if (preloadTimeout) clearTimeout(preloadTimeout);
-      const timeout = setTimeout(() => {
-        preloadNextShuffledBeats();
-      }, 5000);
-      setPreloadTimeout(timeout);
-    }
-    return () => {
-      if (preloadTimeout) clearTimeout(preloadTimeout);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shuffledBeats, isShuffle]);
-
-  const playNextBeat = async () => {
-    if (isShuffle) {
-      if (shuffledBeats.length > 0 && currentBeatIndex < shuffledBeats.length - 1) {
-        // Play next in current shuffled set
-        const nextIndex = currentBeatIndex + 1;
-        setCurrentBeatIndex(nextIndex);
-        setCurrentBeat({
-          ...shuffledBeats[nextIndex],
-          slug: shuffledBeats[nextIndex].slug || shuffledBeats[nextIndex].id.toString(),
-        });
-        setIsPlaying(true);
-      } else {
-        // At the end: reshuffle and start again
-        setShuffleLoading(true);
-        let query = supabase
+      try {
+        // Fetch ALL beats with high ratings directly from the database
+        const { data: beats, error } = await supabase
           .from('beats')
-          .select('id, title, producer_id, mp3_url, cover_art_url, slug, created_at')
-          .eq('is_draft', false);
+          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
+          .eq('is_draft', false)
+          .gte('average_rating', 3);
 
-        const { data: beats, error } = await query;
-        if (error) {
-          toast({
-            title: "Error",
-            description: "Failed to fetch beats for shuffle mode.",
-            variant: "destructive",
-          });
-          setShuffleLoading(false);
-          return;
-        }
+        if (error) throw error;
 
-        const beatsWithProducers = await Promise.all(
-          beats.map(async (beat) => {
-            const { data: producer } = await supabase
-              .from('producers')
-              .select('display_name, slug')
-              .eq('user_id', beat.producer_id)
-              .single();
-            return {
-              ...beat,
-              artist: producer?.display_name || beat.producer_id,
-              audioUrl: beat.mp3_url,
-              coverImage: beat.cover_art_url,
-              producerSlug: producer?.slug || '',
-              producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
-              slug: beat.slug || beat.id.toString(),
-            };
-          })
+        // Get all producer info in one query
+        const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
+        const { data: producers } = await supabase
+          .from('producers')
+          .select('user_id, display_name, slug')
+          .in('user_id', producerIds);
+
+        const producerMap = Object.fromEntries(
+          (producers || []).map(p => [p.user_id, { display_name: p.display_name, slug: p.slug }])
         );
 
-        // Get all ratings in a single query
-        const { data: allRatings } = await supabase
-          .from('beat_ratings')
-          .select('beat_id, rating');
-
-        // Calculate average ratings for each beat
-        const beatRatings = new Map();
-        if (allRatings) {
-          allRatings.forEach(rating => {
-            if (!beatRatings.has(rating.beat_id)) {
-              beatRatings.set(rating.beat_id, []);
-            }
-            beatRatings.get(rating.beat_id).push(rating.rating);
-          });
-        }
-
-        // Filter beats based on their average rating
-        const filteredBeats = beatsWithProducers.filter(beat => {
-          const ratings = beatRatings.get(beat.id);
-          if (!ratings || ratings.length === 0) return false;
-          const avgRating = ratings.reduce((acc: number, curr: number) => acc + curr, 0) / ratings.length;
-          return avgRating >= 3;
+        // Combine beat and producer data
+        const beatsWithProducers = beats.map(beat => {
+          const producer = producerMap[beat.producer_id] || {};
+          return {
+            id: beat.id,
+            title: beat.title,
+            audioUrl: beat.mp3_url,
+            image: beat.cover_art_url,
+            slug: beat.slug || beat.id.toString(),
+            artist: producer.display_name || '',
+            producerSlug: producer.slug || '',
+            producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+            averageRating: beat.average_rating ?? 0,
+            totalRatings: beat.total_ratings ?? 0,
+          };
         });
 
-        if (filteredBeats.length === 0) {
+        if (beatsWithProducers.length === 0) {
           toast({
             title: "No High-Rated Beats",
             description: "No beats found with ratings of 3 or higher.",
@@ -555,21 +464,55 @@ export function SiteWideBeatPlayer() {
           return;
         }
 
-        const reshuffled = [...filteredBeats].sort(() => Math.random() - 0.5);
-        setShuffledBeats(reshuffled);
+        // Shuffle all high-rated beats
+        const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+        setShuffledBeats(shuffled);
         setCurrentBeatIndex(0);
         setCurrentBeat({
-          id: reshuffled[0].id,
-          title: reshuffled[0].title,
-          artist: reshuffled[0].artist,
-          audioUrl: reshuffled[0].audioUrl,
-          image: reshuffled[0].coverImage,
-          producerSlug: reshuffled[0].producerSlug,
-          producers: reshuffled[0].producers || [],
-          slug: reshuffled[0].slug || reshuffled[0].id.toString(),
+          ...shuffled[0],
+          slug: shuffled[0].slug || shuffled[0].id.toString(),
         });
+        setIsShuffle(true);
         setIsPlaying(true);
         setShuffleLoading(false);
+        toast({
+          title: "Shuffle Mode Active",
+          description: `Playing ${shuffled.length} high-rated beats (3-5)`,
+        });
+      } catch (error) {
+        console.error('Error fetching high-rated beats:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load high-rated beats.",
+          variant: "destructive",
+        });
+        setShuffleLoading(false);
+      }
+    } else {
+      setIsShuffle(false);
+      setShuffledBeats([]);
+      setCurrentBeatIndex(0);
+    }
+  };
+
+  const playNextBeat = async () => {
+    if (isShuffle) {
+      if (shuffledBeats.length > 0) {
+        // Calculate next index, wrapping around to 0 if we reach the end
+        const nextIndex = (currentBeatIndex + 1) % shuffledBeats.length;
+        setCurrentBeatIndex(nextIndex);
+        setCurrentBeat({
+          ...shuffledBeats[nextIndex],
+          slug: shuffledBeats[nextIndex].slug || shuffledBeats[nextIndex].id.toString(),
+        });
+        setIsPlaying(true);
+        
+        // Only reshuffle when we've played through all beats
+        if (nextIndex === 0) {
+          console.log('[DEBUG] Reached end of shuffled beats, reshuffling...');
+          const reshuffled = [...shuffledBeats].sort(() => Math.random() - 0.5);
+          setShuffledBeats(reshuffled);
+        }
       }
     } else if (allBeats.length > 0) {
       const nextIndex = (currentBeatIndex + 1) % allBeats.length;

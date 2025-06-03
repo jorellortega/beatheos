@@ -12,6 +12,8 @@ interface Beat {
   producerSlug?: string
   producers?: { display_name: string; slug: string }[]
   slug?: string
+  averageRating?: number
+  totalRatings?: number
 }
 
 interface PlayerContextType {
@@ -19,6 +21,8 @@ interface PlayerContextType {
   setCurrentBeat: (beat: Beat | null) => void
   isPlaying: boolean
   setIsPlaying: (playing: boolean) => void
+  preloadedBeats: Beat[]
+  setPreloadedBeats: (beats: Beat[]) => void
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined)
@@ -26,9 +30,10 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined)
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentBeat, setCurrentBeat] = useState<Beat | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [preloadedBeats, setPreloadedBeats] = useState<Beat[]>([])
 
   return (
-    <PlayerContext.Provider value={{ currentBeat, setCurrentBeat, isPlaying, setIsPlaying }}>
+    <PlayerContext.Provider value={{ currentBeat, setCurrentBeat, isPlaying, setIsPlaying, preloadedBeats, setPreloadedBeats }}>
       {children}
     </PlayerContext.Provider>
   )
