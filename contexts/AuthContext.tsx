@@ -41,14 +41,17 @@ async function fetchUserInfo(id: string): Promise<{ role: string | null, subscri
       };
     } else if (res.status === 404 || res.status === 406) {
       // User not found, wait and retry
+      console.debug(`[fetchUserInfo] User not found (status ${res.status}), retrying...`);
       await new Promise(res => setTimeout(res, 400));
       attempts++;
       continue;
     } else {
       lastError = body;
+      console.error(`[fetchUserInfo] Non-retryable error:`, body);
       break;
     }
   }
+  console.error(`[fetchUserInfo] Final error after ${attempts} attempts:`, lastError);
   throw new Error(lastError || 'Failed to fetch user info');
 }
 
@@ -263,6 +266,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Show error state if there's an error
   if (error) {
+    // Automatically retry after 1.5 seconds
+    useEffect(() => {
+      console.debug('[AuthProvider] Error detected, will auto-retry in 1.5s:', error);
+      const timeout = setTimeout(() => {
+        console.debug('[AuthProvider] Auto-retrying (reloading page) due to error:', error);
+        window.location.reload();
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }, [error]);
+    // Log error details for debugging
+    console.error('[AuthProvider] Rendering error UI:', error);
     return (
       <div className="min-h-screen flex items-center justify-center bg-black text-white">
         <div className="text-red-500">
