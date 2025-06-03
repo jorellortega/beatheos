@@ -296,6 +296,8 @@ export function SiteWideBeatPlayer() {
     const handler = async () => {
       console.log('[DEBUG] Received trigger-shuffle-full-player event');
       try {
+        // Set shuffle mode to high_ratings so dropdown reflects correct state
+        setShuffleMode('high_ratings');
         // Fetch ALL beats with high ratings directly from the database
         const { data: beats, error } = await supabase
           .from('beats')
@@ -413,85 +415,83 @@ export function SiteWideBeatPlayer() {
 
   const toggleRepeat = () => setIsRepeat(!isRepeat)
 
-  const toggleShuffle = async () => {
-    if (!isShuffle) {
-      setShuffleLoading(true);
-      try {
-        // Fetch ALL beats with high ratings directly from the database
-        const { data: beats, error } = await supabase
-          .from('beats')
-          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
-          .eq('is_draft', false)
-          .gte('average_rating', 3);
-
-        if (error) throw error;
-
-        // Get all producer info in one query
-        const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
-        const { data: producers } = await supabase
-          .from('producers')
-          .select('user_id, display_name, slug')
-          .in('user_id', producerIds);
-
-        const producerMap = Object.fromEntries(
-          (producers || []).map(p => [p.user_id, { display_name: p.display_name, slug: p.slug }])
-        );
-
-        // Combine beat and producer data
-        const beatsWithProducers = beats.map(beat => {
-          const producer = producerMap[beat.producer_id] || {};
-          return {
-            id: beat.id,
-            title: beat.title,
-            audioUrl: beat.mp3_url,
-            image: beat.cover_art_url,
-            slug: beat.slug || beat.id.toString(),
-            artist: producer.display_name || '',
-            producerSlug: producer.slug || '',
-            producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
-            averageRating: beat.average_rating ?? 0,
-            totalRatings: beat.total_ratings ?? 0,
-          };
-        });
-
-        if (beatsWithProducers.length === 0) {
-          toast({
-            title: "No High-Rated Beats",
-            description: "No beats found with ratings of 3 or higher.",
-            variant: "destructive",
-          });
-          setShuffleLoading(false);
-          return;
-        }
-
-        // Shuffle all high-rated beats
-        const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
-        setShuffledBeats(shuffled);
-        setCurrentBeatIndex(0);
-        setCurrentBeat({
-          ...shuffled[0],
-          slug: shuffled[0].slug || shuffled[0].id.toString(),
-        });
-        setIsShuffle(true);
-        setIsPlaying(true);
-        setShuffleLoading(false);
-        toast({
-          title: "Shuffle Mode Active",
-          description: `Playing ${shuffled.length} high-rated beats (3-5)`,
-        });
-      } catch (error) {
-        console.error('Error fetching high-rated beats:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load high-rated beats.",
-          variant: "destructive",
-        });
-        setShuffleLoading(false);
-      }
-    } else {
+  const toggleShuffle = async (mode: 'all' | 'high_ratings' | 'recent') => {
+    setShuffleMode(mode);
+    if (mode === 'all') {
       setIsShuffle(false);
       setShuffledBeats([]);
       setCurrentBeatIndex(0);
+      // Optionally reset to play all beats here
+      return;
+    }
+    setIsShuffle(true);
+    setShuffleLoading(true);
+    try {
+      let beatsQuery = supabase
+        .from('beats')
+        .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
+        .eq('is_draft', false);
+      if (mode === 'high_ratings') {
+        beatsQuery = beatsQuery.gte('average_rating', 3);
+      } else if (mode === 'recent') {
+        // You can add additional filters for recent if needed
+        beatsQuery = beatsQuery.order('created_at', { ascending: false });
+      }
+      const { data: beats, error } = await beatsQuery;
+      if (error) throw error;
+      const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
+      const { data: producers } = await supabase
+        .from('producers')
+        .select('user_id, display_name, slug')
+        .in('user_id', producerIds);
+      const producerMap = Object.fromEntries(
+        (producers || []).map(p => [p.user_id, { display_name: p.display_name, slug: p.slug }])
+      );
+      const beatsWithProducers = beats.map(beat => {
+        const producer = producerMap[beat.producer_id] || {};
+        return {
+          id: beat.id,
+          title: beat.title,
+          audioUrl: beat.mp3_url,
+          image: beat.cover_art_url,
+          slug: beat.slug || beat.id.toString(),
+          artist: producer.display_name || '',
+          producerSlug: producer.slug || '',
+          producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+          averageRating: beat.average_rating ?? 0,
+          totalRatings: beat.total_ratings ?? 0,
+        };
+      });
+      if (beatsWithProducers.length === 0) {
+        toast({
+          title: mode === 'high_ratings' ? 'No High-Rated Beats' : 'No Beats Found',
+          description: mode === 'high_ratings' ? 'No beats found with ratings of 3 or higher.' : 'No beats found.',
+          variant: 'destructive',
+        });
+        setShuffleLoading(false);
+        return;
+      }
+      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+      setShuffledBeats(shuffled);
+      setCurrentBeatIndex(0);
+      setCurrentBeat({
+        ...shuffled[0],
+        slug: shuffled[0].slug || shuffled[0].id.toString(),
+      });
+      setIsPlaying(true);
+      setShuffleLoading(false);
+      toast({
+        title: mode === 'high_ratings' ? 'High-Rated Shuffle Active' : 'Shuffle Mode Active',
+        description: `Playing ${shuffled.length} beats${mode === 'high_ratings' ? ' (3-5)' : ''}`,
+      });
+    } catch (error) {
+      console.error('Error fetching beats:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load beats.',
+        variant: 'destructive',
+      });
+      setShuffleLoading(false);
     }
   };
 
@@ -511,7 +511,7 @@ export function SiteWideBeatPlayer() {
         if (nextIndex === 0) {
           console.log('[DEBUG] Reached end of shuffled beats, reshuffling...');
           const reshuffled = [...shuffledBeats].sort(() => Math.random() - 0.5);
-          setShuffledBeats(reshuffled);
+        setShuffledBeats(reshuffled);
         }
       }
     } else if (allBeats.length > 0) {
@@ -1000,39 +1000,21 @@ export function SiteWideBeatPlayer() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent>
                                 <DropdownMenuItem 
-                                  onClick={() => {
-                                    setShuffleMode('all');
-                                    if (isShuffle) {
-                                      setIsShuffle(false);
-                                    }
-                                    setTimeout(() => toggleShuffle(), 0);
-                                  }}
+                                  onClick={() => toggleShuffle('all')}
                                   className="flex items-center justify-between"
                                 >
                                   <span>Play All</span>
                                   {shuffleMode === 'all' && <Check className="h-4 w-4" />}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem 
-                                  onClick={() => {
-                                    setShuffleMode('high_ratings');
-                                    if (isShuffle) {
-                                      setIsShuffle(false);
-                                    }
-                                    setTimeout(() => toggleShuffle(), 0);
-                                  }}
+                                  onClick={() => toggleShuffle('high_ratings')}
                                   className="flex items-center justify-between"
                                 >
                                   <span>High Ratings (3-5)</span>
                                   {shuffleMode === 'high_ratings' && <Check className="h-4 w-4" />}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem 
-                                  onClick={() => {
-                                    setShuffleMode('recent');
-                                    if (isShuffle) {
-                                      setIsShuffle(false);
-                                    }
-                                    setTimeout(() => toggleShuffle(), 0);
-                                  }}
+                                  onClick={() => toggleShuffle('recent')}
                                   className="flex items-center justify-between"
                                 >
                                   <span>Most Recent</span>
