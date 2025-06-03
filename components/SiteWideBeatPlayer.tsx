@@ -62,6 +62,7 @@ interface Beat {
   slug?: string
   averageRating?: number
   totalRatings?: number
+  play_count?: number
 }
 
 interface Playlist {
@@ -121,6 +122,10 @@ export function SiteWideBeatPlayer() {
     return (savedMode as 'all' | 'high_ratings' | 'recent') || 'all';
   });
   const [shuffleLoading, setShuffleLoading] = useState(false);
+  const [editingPlayCount, setEditingPlayCount] = useState(false)
+  const [editPlayCountValue, setEditPlayCountValue] = useState('')
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editTitleValue, setEditTitleValue] = useState('')
 
   const pathname = usePathname()
 
@@ -230,7 +235,7 @@ export function SiteWideBeatPlayer() {
       (async () => {
         const { data: beats, error } = await supabase
           .from('beats')
-          .select('id, title, producer_id, mp3_url, cover_art_url, slug')
+          .select('id, title, producer_id, mp3_url, cover_art_url, slug, play_count')
           .eq('is_draft', false)
           .order('created_at', { ascending: false })
           .limit(100)
@@ -251,6 +256,7 @@ export function SiteWideBeatPlayer() {
                 producerSlug: producer?.slug || '',
                 producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
                 slug: beat.slug || beat.id.toString(),
+                play_count: beat.play_count ?? 0,
               }
             })
           )
@@ -272,7 +278,7 @@ export function SiteWideBeatPlayer() {
       // Fetch complete beat data from the database
       supabase
         .from('beats')
-        .select('id, title, price, price_lease, price_premium_lease, price_exclusive, price_buyout')
+        .select('id, title, price, price_lease, price_premium_lease, price_exclusive, price_buyout, play_count')
         .eq('id', currentBeat.id)
         .single()
         .then(({ data, error }) => {
@@ -285,6 +291,7 @@ export function SiteWideBeatPlayer() {
               price_premium_lease: data.price_premium_lease || 0,
               price_exclusive: data.price_exclusive || 0,
               price_buyout: data.price_buyout || 0,
+              play_count: data.play_count ?? 0,
             });
           }
         });
@@ -301,7 +308,7 @@ export function SiteWideBeatPlayer() {
         // Fetch ALL beats with high ratings directly from the database
         const { data: beats, error } = await supabase
           .from('beats')
-          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
+          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count')
           .eq('is_draft', false)
           .gte('average_rating', 3);
 
@@ -333,6 +340,7 @@ export function SiteWideBeatPlayer() {
             producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
             averageRating: beat.average_rating ?? 0,
             totalRatings: beat.total_ratings ?? 0,
+            play_count: beat.play_count ?? 0,
           };
         });
 
@@ -418,10 +426,71 @@ export function SiteWideBeatPlayer() {
   const toggleShuffle = async (mode: 'all' | 'high_ratings' | 'recent') => {
     setShuffleMode(mode);
     if (mode === 'all') {
-      setIsShuffle(false);
-      setShuffledBeats([]);
-      setCurrentBeatIndex(0);
-      // Optionally reset to play all beats here
+      setIsShuffle(true);
+      setShuffleLoading(true);
+      try {
+        const { data: beats, error } = await supabase
+          .from('beats')
+          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count')
+          .eq('is_draft', false)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
+        const { data: producers } = await supabase
+          .from('producers')
+          .select('user_id, display_name, slug')
+          .in('user_id', producerIds);
+        const producerMap = Object.fromEntries(
+          (producers || []).map(p => [p.user_id, { display_name: p.display_name, slug: p.slug }])
+        );
+        const beatsWithProducers = beats.map(beat => {
+          const producer = producerMap[beat.producer_id] || {};
+          return {
+            id: beat.id,
+            title: beat.title,
+            audioUrl: beat.mp3_url,
+            image: beat.cover_art_url,
+            slug: beat.slug || beat.id.toString(),
+            artist: producer.display_name || '',
+            producerSlug: producer.slug || '',
+            producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
+            averageRating: beat.average_rating ?? 0,
+            totalRatings: beat.total_ratings ?? 0,
+            play_count: beat.play_count ?? 0,
+          };
+        });
+        if (beatsWithProducers.length === 0) {
+          toast({
+            title: 'No Beats Found',
+            description: 'No beats found.',
+            variant: 'destructive',
+          });
+          setShuffleLoading(false);
+          return;
+        }
+        const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+        setShuffledBeats(shuffled);
+        setCurrentBeatIndex(0);
+        setCurrentBeat({
+          ...shuffled[0],
+          slug: shuffled[0].slug || shuffled[0].id.toString(),
+        });
+        setIsPlaying(true);
+        setShuffleLoading(false);
+        toast({
+          title: 'Shuffle Mode Active',
+          description: `Playing ${shuffled.length} beats in random order`,
+        });
+      } catch (error) {
+        console.error('Error fetching beats:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load beats.',
+          variant: 'destructive',
+        });
+        setShuffleLoading(false);
+      }
       return;
     }
     setIsShuffle(true);
@@ -429,7 +498,7 @@ export function SiteWideBeatPlayer() {
     try {
       let beatsQuery = supabase
         .from('beats')
-        .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings')
+        .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count')
         .eq('is_draft', false);
       if (mode === 'high_ratings') {
         beatsQuery = beatsQuery.gte('average_rating', 3);
@@ -460,6 +529,7 @@ export function SiteWideBeatPlayer() {
           producers: producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
           averageRating: beat.average_rating ?? 0,
           totalRatings: beat.total_ratings ?? 0,
+          play_count: beat.play_count ?? 0,
         };
       });
       if (beatsWithProducers.length === 0) {
@@ -793,7 +863,8 @@ export function SiteWideBeatPlayer() {
       producerSlug: beat.producerSlug || beat.slug || '',
       producers: beat.producers || [],
       slug: beat.slug || beat.id.toString(),
-    })
+      play_count: Number(beat.play_count) || 0,
+    } as Beat)
     setFullCurrentBeat(beat)
   }
 
@@ -870,6 +941,62 @@ export function SiteWideBeatPlayer() {
     sessionStorage.setItem('shuffleMode', shuffleMode);
   }, [shuffleMode]);
 
+  const handlePlayCountUpdate = async (newCount: number) => {
+    if (!currentBeat?.id) return;
+    try {
+      const { error } = await supabase
+        .from('beats')
+        .update({ play_count: newCount })
+        .eq('id', currentBeat.id)
+      
+      if (!error) {
+        setCurrentBeat(prev => prev ? { ...prev, play_count: newCount } : null)
+        toast({
+          title: "Play Count Updated",
+          description: "The play count has been updated successfully.",
+        })
+      } else {
+        throw error
+      }
+    } catch (error) {
+      console.error('Error updating play count:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update play count. Please try again.",
+        variant: "destructive",
+      })
+    }
+    setEditingPlayCount(false)
+  }
+
+  const handleTitleUpdate = async (newTitle: string) => {
+    if (!currentBeat?.id || !newTitle.trim()) return;
+    try {
+      const { error } = await supabase
+        .from('beats')
+        .update({ title: newTitle.trim() })
+        .eq('id', currentBeat.id)
+      
+      if (!error) {
+        setCurrentBeat(prev => prev ? { ...prev, title: newTitle.trim() } : null)
+        toast({
+          title: "Title Updated",
+          description: "The beat title has been updated successfully.",
+        })
+      } else {
+        throw error
+      }
+    } catch (error) {
+      console.error('Error updating title:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update title. Please try again.",
+        variant: "destructive",
+      })
+    }
+    setEditingTitle(false)
+  }
+
   return (
     <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
       <Card
@@ -940,11 +1067,75 @@ export function SiteWideBeatPlayer() {
                     </Link>
                     <div className="flex-grow flex flex-col items-center sm:items-start w-full">
                       <div className="flex flex-row items-center w-full">
-                        <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+                        {user?.role === 'ceo' ? (
+                          editingTitle ? (
+                            <Input
+                              value={editTitleValue}
+                              onChange={(e) => setEditTitleValue(e.target.value)}
+                              onBlur={() => handleTitleUpdate(editTitleValue)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleTitleUpdate(editTitleValue)
+                                } else if (e.key === 'Escape') {
+                                  setEditingTitle(false)
+                                }
+                              }}
+                              className="w-full text-center sm:text-left"
+                              autoFocus
+                            />
+                          ) : (
+                            <h3 
+                              className="font-semibold text-center sm:text-left w-full cursor-pointer hover:text-gray-300 transition-colors"
+                              onClick={() => {
+                                setEditTitleValue(currentBeat?.title || '')
+                                setEditingTitle(true)
+                              }}
+                            >
+                              {currentBeat?.title || ""}
+                            </h3>
+                          )
+                        ) : (
+                          <h3 className="font-semibold text-center sm:text-left w-full">{currentBeat?.title || ""}</h3>
+                        )}
                         {/* Move BeatRating to the right, where the waveform was */}
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center hidden sm:flex">
                             <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} />
+                            {typeof currentBeat?.play_count === 'number' && (
+                              user?.role === 'ceo' ? (
+                                editingPlayCount ? (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <Input
+                                      type="number"
+                                      value={editPlayCountValue}
+                                      onChange={(e) => setEditPlayCountValue(e.target.value)}
+                                      onBlur={() => handlePlayCountUpdate(Number(editPlayCountValue))}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          handlePlayCountUpdate(Number(editPlayCountValue))
+                                        } else if (e.key === 'Escape') {
+                                          setEditingPlayCount(false)
+                                        }
+                                      }}
+                                      className="w-20 h-6 text-xs"
+                                      autoFocus
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setEditPlayCountValue(currentBeat.play_count.toString())
+                                      setEditingPlayCount(true)
+                                    }}
+                                    className="text-xs text-gray-400 mt-1 hover:text-gray-300 transition-colors"
+                                  >
+                                    {currentBeat.play_count} plays
+                                  </button>
+                                )
+                              ) : (
+                                <span className="text-xs text-gray-400 mt-1">{currentBeat.play_count} plays</span>
+                              )
+                            )}
                           </div>
                         )}
                       </div>
