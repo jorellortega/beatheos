@@ -27,32 +27,52 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 async function fetchUserInfo(id: string): Promise<{ role: string | null, subscription_tier?: string | null, subscription_status?: string | null }> {
   let attempts = 0;
   let lastError: any = null;
-  while (attempts < 5) {
-    const res = await fetch(`/api/getUser?userId=${id}`);
-    console.log(`[fetchUserInfo] Attempt ${attempts + 1}: status=${res.status}`);
-    let body = null;
-    try { body = await res.clone().json(); } catch { body = await res.clone().text(); }
-    console.log(`[fetchUserInfo] Response body:`, body);
-    if (res.ok) {
-      return {
-        role: body?.role ?? null,
-        subscription_tier: body?.subscription_tier ?? null,
-        subscription_status: body?.subscription_status ?? null,
-      };
-    } else if (res.status === 404 || res.status === 406) {
-      // User not found, wait and retry
-      console.debug(`[fetchUserInfo] User not found (status ${res.status}), retrying...`);
-      await new Promise(res => setTimeout(res, 400));
+  const maxAttempts = 8; // Increased from 5 to 8
+  const baseDelay = 500; // Increased from 400 to 500ms
+
+  while (attempts < maxAttempts) {
+    try {
+      const res = await fetch(`/api/getUser?userId=${id}`);
+      console.log(`[fetchUserInfo] Attempt ${attempts + 1}/${maxAttempts}: status=${res.status}`);
+      
+      let body = null;
+      try { 
+        body = await res.clone().json(); 
+      } catch { 
+        body = await res.clone().text(); 
+      }
+      
+      console.log(`[fetchUserInfo] Response body:`, body);
+      
+      if (res.ok) {
+        return {
+          role: body?.role ?? null,
+          subscription_tier: body?.subscription_tier ?? null,
+          subscription_status: body?.subscription_status ?? null,
+        };
+      } else if (res.status === 404 || res.status === 406) {
+        // User not found, wait and retry with exponential backoff
+        const delay = baseDelay * Math.pow(1.5, attempts);
+        console.debug(`[fetchUserInfo] User not found (status ${res.status}), retrying in ${delay}ms...`);
+        await new Promise(res => setTimeout(res, delay));
+        attempts++;
+        continue;
+      } else {
+        lastError = body;
+        console.error(`[fetchUserInfo] Non-retryable error:`, body);
+        break;
+      }
+    } catch (error) {
+      lastError = error;
+      console.error(`[fetchUserInfo] Request failed:`, error);
+      const delay = baseDelay * Math.pow(1.5, attempts);
+      await new Promise(res => setTimeout(res, delay));
       attempts++;
-      continue;
-    } else {
-      lastError = body;
-      console.error(`[fetchUserInfo] Non-retryable error:`, body);
-      break;
     }
   }
+  
   console.error(`[fetchUserInfo] Final error after ${attempts} attempts:`, lastError);
-  throw new Error(lastError || 'Failed to fetch user info');
+  throw new Error(lastError?.message || 'Failed to fetch user info');
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -227,40 +247,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (email: string, password: string, username: string, role: string, subscriptionTier?: string, subscriptionStatus?: string): Promise<User> => {
     setIsLoading(true);
     try {
-      // 1. Create user in Supabase Auth
-      const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { username } } });
+      // Create user in Supabase Auth with all necessary metadata
+      const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password, 
+        options: { 
+          data: { 
+            username,
+            role,
+            subscription_tier: subscriptionTier,
+            subscription_status: subscriptionStatus
+          } 
+        } 
+      });
+      
       if (error || !data.user) throw new Error(error?.message || "Signup failed");
 
-      // 2. Insert into users table
-      const { error: userError } = await supabase
-        .from("users")
-        .insert({
-          id: data.user.id,
-          email,
-          username,
-          role,
-          subscription_tier: subscriptionTier,
-          subscription_status: subscriptionStatus,
-          created_at: new Date().toISOString(),
-          display_name: username
-        });
-      if (userError) throw new Error(userError.message);
-
-      // 3. Insert into producers table (for ALL users)
-      const { error: producerError } = await supabase
-        .from("producers")
-        .insert({
-          user_id: data.user.id,
-          display_name: username,
-          created_at: new Date().toISOString(),
-          slug: username.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-        });
-      if (producerError) throw new Error(producerError.message);
-
-      // Add a 1-second delay before fetching user info to avoid replication lag
+      // Add a small delay to allow the trigger to complete
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Instead of fetching user info, use the data we just inserted
+      // Use the data from auth metadata
       const userObj = {
         id: data.user.id ?? '',
         email: data.user.email ?? null,
