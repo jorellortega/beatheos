@@ -61,6 +61,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
+  // On mount, print last error from localStorage if present
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const lastAuthError = localStorage.getItem('last-auth-error');
+      if (lastAuthError) {
+        try {
+          const parsed = JSON.parse(lastAuthError);
+          console.warn('[AuthProvider] Last auth error from previous session:', parsed);
+        } catch {}
+      }
+    }
+  }, []);
+
+  // Save error/debug info to localStorage for post-reload inspection
+  useEffect(() => {
+    if (error && typeof window !== 'undefined') {
+      const debugInfo = {
+        errorMessage: error.message,
+        errorStack: error.stack,
+        user: user ? { id: user.id, email: user.email, role: user.role } : null,
+        timestamp: new Date().toISOString(),
+        location: window.location.href,
+      };
+      localStorage.setItem('last-auth-error', JSON.stringify(debugInfo));
+    }
+  }, [error, user]);
+
+  // Automatically retry after 1.5 seconds if error
+  useEffect(() => {
+    if (error) {
+      console.debug('[AuthProvider] Error detected, will auto-retry in 1.5s:', error);
+      const timeout = setTimeout(() => {
+        console.debug('[AuthProvider] Auto-retrying (reloading page) due to error:', error);
+        window.location.reload();
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [error]);
+
   useEffect(() => {
     let mounted = true;
     let authSubscription: { unsubscribe: () => void } | null = null;
@@ -266,15 +305,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Show error state if there's an error
   if (error) {
-    // Automatically retry after 1.5 seconds
-    useEffect(() => {
-      console.debug('[AuthProvider] Error detected, will auto-retry in 1.5s:', error);
-      const timeout = setTimeout(() => {
-        console.debug('[AuthProvider] Auto-retrying (reloading page) due to error:', error);
-        window.location.reload();
-      }, 1500);
-      return () => clearTimeout(timeout);
-    }, [error]);
     // Log error details for debugging
     console.error('[AuthProvider] Rendering error UI:', error);
     return (
