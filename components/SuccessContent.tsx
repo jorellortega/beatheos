@@ -187,10 +187,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3 (always included)
-✅ WAV (if available)
-✅ Trackouts (Stems) (if available)
-✅ Project Files (if available)
+* MP3 (always included)
+* WAV (if available)
+* Trackouts (Stems) (if available)
+* Project Files (if available)
 
 ---
 
@@ -269,10 +269,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3 (always included)
-✅ WAV (if available)
-✅ Trackouts (Stems) (if available)
-✅ Project Files (if available)
+* MP3 (always included)
+* WAV (if available)
+* Trackouts (Stems) (if available)
+* Project Files (if available)
 
 ---
 
@@ -351,10 +351,10 @@ Licensee may NOT:
 4. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3 (always included)
-✅ WAV (if available)
-✅ Trackouts (Stems) (if available)
-✅ Project Files (if available)
+* MP3 (always included)
+* WAV (if available)
+* Trackouts (Stems) (if available)
+* Project Files (if available)
 
 ---
 
@@ -425,10 +425,10 @@ Licensee may:
 3. DELIVERY
 
 The Beat will be delivered in the following formats:
-✅ MP3 (always included)
-✅ WAV (if available)
-✅ Trackouts (Stems) (if available)
-✅ Project Files (if available)
+* MP3 (always included)
+* WAV (if available)
+* Trackouts (Stems) (if available)
+* Project Files (if available)
 
 ---
 
