@@ -115,7 +115,7 @@ export function TopLists() {
       const userRoleMap = Object.fromEntries((usersData || []).map((u: any) => [u.id, u.role]))
       setTopProducers(
         (topProducersData || [])
-          .filter((p: any) => userRoleMap[p.user_id] !== 'free_artist')
+          .filter((p: any) => userRoleMap[p.user_id] !== 'free_artist' && userRoleMap[p.user_id] !== 'ceo')
           .map((p: any) => {
           const producer = producersData?.find((prod: any) => prod.user_id === p.user_id)
           return {
