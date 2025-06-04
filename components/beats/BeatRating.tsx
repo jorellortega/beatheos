@@ -11,13 +11,15 @@ interface BeatRatingProps {
   initialAverageRating?: number
   initialTotalRatings?: number
   compact?: boolean
+  small?: boolean
 }
 
 export function BeatRating({
   beatId,
   initialAverageRating = 0,
   initialTotalRatings = 0,
-  compact = false
+  compact = false,
+  small = false
 }: BeatRatingProps) {
   const [averageRating, setAverageRating] = useState(initialAverageRating)
   const [totalRatings, setTotalRatings] = useState(initialTotalRatings)
@@ -83,7 +85,7 @@ export function BeatRating({
           </button>
         ))}
       </div>
-      <div className="text-sm text-gray-400">
+      <div className={`${small ? 'text-xs' : 'text-sm'} text-gray-400`}>
         {totalRatings > 0 ? (
           <>
             {averageRating.toFixed(1)} average rating ({totalRatings} {totalRatings === 1 ? 'rating' : 'ratings'})

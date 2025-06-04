@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Image from "next/image"
 import Link from "next/link"
-import { Play, ShoppingCart, Search, Shuffle, Plus, Pause, ExternalLink } from "lucide-react"
+import { Play, ShoppingCart, Search, Shuffle, Plus, Pause, ExternalLink, Edit } from "lucide-react"
 import { ViewSelector } from "@/components/beats/ViewSelector"
 import { SaveToPlaylistModal } from "@/components/SaveToPlaylistModal"
 import { PurchaseOptionsModal } from "@/components/PurchaseOptionsModal"
@@ -29,82 +29,74 @@ function getLicensePrice(beat: any, key: string, jsonKey: string) {
   return null;
 }
 
+// Memoized BeatCard for performance
 const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
-  // Get the lease price using the helper function
   const leasePrice = getLicensePrice(beat, 'price_lease', 'template-lease');
   const premiumLeasePrice = getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease');
   const exclusivePrice = getLicensePrice(beat, 'price_exclusive', 'template-exclusive');
   const buyoutPrice = getLicensePrice(beat, 'price_buyout', 'template-buy-out');
-  
+  const isThisPlaying = isPlaying;
   return (
-    <Card key={beat.id} className="bg-black border-primary flex flex-col">
-      <CardHeader className="relative pb-0 pt-0 px-0">
-        <div className="relative w-full aspect-square">
-          <Image
-            src={beat.image || "/placeholder.svg"}
-            alt={beat.title}
-            fill
-            className="rounded-t-lg object-cover cursor-pointer"
-            onClick={() => onPlayPause(beat)}
-          />
-        </div>
-        <div className="absolute top-2 right-2">
-        <Button
-          size="icon"
-            className="rounded-full gradient-button"
+    <div className={`flex flex-col bg-secondary rounded-lg overflow-hidden transition-all duration-200 ${isThisPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}> 
+      <div className="relative w-full aspect-square">
+        <Image
+          src={beat.image || "/placeholder.svg"}
+          alt={beat.title}
+          width={300}
+          height={300}
+          className="w-full aspect-square object-cover border border-primary shadow"
+          draggable={false}
+        />
+        <Link
+          href={`/beat/${beat.slug}`}
+          className="absolute inset-0 z-10"
+          aria-label={`View details for ${beat.title}`}
+          tabIndex={isThisPlaying ? 0 : -1}
+          style={{
+            opacity: isThisPlaying ? 1 : 0,
+            pointerEvents: isThisPlaying ? 'auto' : 'none',
+            transition: 'opacity 0.2s',
+            background: 'transparent',
+          }}
+        />
+        <button
+          className="absolute inset-0 flex items-center justify-center bg-black/40 hover:bg-black/60 transition focus:outline-none z-20"
           onClick={() => onPlayPause(beat)}
+          aria-label="Play"
+          type="button"
+          style={{
+            opacity: isThisPlaying ? 0 : 1,
+            pointerEvents: isThisPlaying ? 'none' : 'auto',
+            transition: 'opacity 0.2s',
+          }}
         >
-          {isPlaying ? (
-            <Pause className="h-4 w-4 text-black" />
-          ) : (
-            <Play className="h-4 w-4 text-black" />
-          )}
-        </Button>
+          <Play className="h-10 w-10 text-white" />
+        </button>
+      </div>
+      <div className="p-4 relative">
+        <h3 className="font-semibold w-full text-center whitespace-normal flex items-center justify-center gap-2">{beat.title}</h3>
+        <p className="text-xs text-gray-400 mb-1 text-center w-full">by {beat.producer_names && beat.producer_names.length > 0 ? beat.producer_names.join(', ') : beat.producer}</p>
+        <div className="mb-2">
+          <BeatRating beatId={beat.id} initialAverageRating={beat.average_rating || 0} initialTotalRatings={beat.total_ratings || 0} />
         </div>
-      </CardHeader>
-      <CardContent className="pt-4 flex-grow flex flex-col justify-between">
-        <div>
-          <CardTitle className="text-sm mb-1">{beat.title}</CardTitle>
-          <p className="text-xs text-gray-400 mb-1">by {beat.producer_names && beat.producer_names.length > 0 ? beat.producer_names.join(', ') : beat.producer}</p>
-          <div className="flex items-center mb-2">
-            <BeatRating
-              beatId={beat.id}
-              initialAverageRating={beat.average_rating || 0}
-              initialTotalRatings={beat.total_ratings || 0}
-            />
-          </div>
-          <div className="flex justify-between items-center mb-2">
-            <Badge
-              variant="secondary"
-              className="text-[10px] px-2 py-0.5 w-auto flex items-center justify-center text-center"
-            >
-              <span className="inline-block">{beat.bpm} BPM</span>
-            </Badge>
-            <span className="text-xs text-gray-400">{beat.plays} plays</span>
-          </div>
-        </div>
-        <div className="flex justify-between items-center mt-2">
-          <Button variant="outline" size="icon" onClick={() => {}}>
-            <Plus className="h-4 w-4" />
+        <p className="text-sm text-gray-500 flex items-center justify-center gap-2">{beat.plays.toLocaleString()} plays</p>
+        <div className="flex items-center justify-between mt-4">
+          <Button variant="outline" size="icon" onClick={() => onPlayPause(beat)}>
+            {isThisPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </Button>
-          <Button
-            className="gradient-button text-black font-medium hover:text-white"
-            onClick={() => onPurchase({
-              ...beat,
-              price: leasePrice ?? 0,
-              price_lease: leasePrice ?? 0,
-              price_premium_lease: premiumLeasePrice ?? 0,
-              price_exclusive: exclusivePrice ?? 0,
-              price_buyout: buyoutPrice ?? 0,
-              licensing: beat.licensing
-            })}
-          >
+          <Button className="gradient-button text-black font-medium hover:text-white" onClick={() => onPurchase({ ...beat, price: leasePrice ?? 0, price_lease: leasePrice ?? 0, price_premium_lease: premiumLeasePrice ?? 0, price_exclusive: exclusivePrice ?? 0, price_buyout: buyoutPrice ?? 0, licensing: beat.licensing })}>
             BUY
           </Button>
+          <Link href={`/beat/${beat.slug}`} className="ml-2 inline-flex items-center justify-center text-primary hover:text-yellow-400" title="View beat details" aria-label="View beat details">
+            <ExternalLink className="h-5 w-5" />
+          </Link>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
+}, (prevProps, nextProps) => {
+  // Only re-render if beat or isPlaying changes
+  return prevProps.beat === nextProps.beat && prevProps.isPlaying === nextProps.isPlaying;
 });
 
 export default function BeatsPage() {
@@ -136,6 +128,9 @@ export default function BeatsPage() {
   const [ratingsMap, setRatingsMap] = useState<Record<string, { averageRating: number, totalRatings: number }>>({});
   const [sortOption, setSortOption] = useState<'recent' | 'rating' | 'plays' | 'playall'>('recent');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [editingBeatId, setEditingBeatId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<'title' | 'play_count' | null>(null);
+  const [editValue, setEditValue] = useState<string>("");
 
   // Restore beats and scroll position from sessionStorage
   useEffect(() => {
@@ -312,6 +307,84 @@ export default function BeatsPage() {
     }
   }, []);
 
+  // Search the entire beats table when searchQuery is not empty
+  useEffect(() => {
+    async function searchBeats() {
+      if (!searchQuery) {
+        fetchBeats();
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        // Search in title, genre, mood, and fetch producer_ids for later mapping
+        const { data: beatsData, error: beatsError } = await supabase
+          .from('beats')
+          .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, mp3_url, genre, bpm, mood, price, average_rating, total_ratings, rating, created_at, description, key, tags, licensing, is_draft, updated_at, mp3_path, wav_path, stems_path, cover_art_path, wav_url, stems_url, price_lease, price_premium_lease, price_exclusive, price_buyout')
+          .eq('is_draft', false)
+          .or(`title.ilike.%${searchQuery}%,genre.ilike.%${searchQuery}%,mood.ilike.%${searchQuery}%`);
+        if (beatsError) throw beatsError;
+        if (!beatsData || beatsData.length === 0) {
+          setDisplayedBeats([]);
+          setLoading(false);
+          return;
+        }
+        // Collect all unique producer_ids
+        const allProducerIds = Array.from(new Set([
+          ...beatsData.map((b: any) => b.producer_id),
+          ...beatsData.flatMap((b: any) => b.producer_ids || [])
+        ].filter(Boolean)));
+        const { data: producersData, error: producersError } = await supabase
+          .from('producers')
+          .select('user_id, display_name, image, slug')
+          .in('user_id', allProducerIds);
+        if (producersError) throw producersError;
+        const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+          p.user_id,
+          { display_name: p.display_name, slug: p.slug }
+        ]));
+        const beats = beatsData.map((b: any) => {
+          const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)];
+          const producerNames = ids.map((id: string) => producerMap[id]?.display_name || 'Unknown').filter(Boolean);
+          const producerSlugs = ids.map((id: string) => producerMap[id]?.slug || '').filter(Boolean);
+          return {
+            id: b.id,
+            slug: b.slug,
+            title: b.title || '',
+            producer: producerNames.join(', '),
+            producer_ids: ids,
+            producer_names: producerNames,
+            producer_slugs: producerSlugs,
+            image: b.cover_art_url || '/placeholder.svg',
+            plays: b.play_count || 0,
+            bpm: b.bpm || '',
+            genre: b.genre || '',
+            mood: b.mood || '',
+            audioUrl: b.mp3_url || '',
+            price: b.price || 0,
+            rating: b.rating ?? 0,
+            producer_image: producersData?.find((p: any) => p.user_id === b.producer_id)?.image || '/placeholder.svg',
+            price_lease: getLicensePrice(b, 'price_lease', 'template-lease'),
+            price_premium_lease: getLicensePrice(b, 'price_premium_lease', 'template-premium-lease'),
+            price_exclusive: getLicensePrice(b, 'price_exclusive', 'template-exclusive'),
+            price_buyout: getLicensePrice(b, 'price_buyout', 'template-buy-out'),
+            licensing: b.licensing,
+            average_rating: b.average_rating || 0,
+            total_ratings: b.total_ratings || 0,
+          };
+        });
+        setDisplayedBeats(beats);
+      } catch (err) {
+        setError('Failed to search beats. Please try again.');
+        setDisplayedBeats([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    searchBeats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
   const filteredBeats = useMemo(() => {
     return displayedBeats.filter(
       (beat) =>
@@ -415,96 +488,47 @@ export default function BeatsPage() {
     }
   };
 
+  // Save edit to Supabase
+  async function saveEdit(beatId: string, field: 'title' | 'play_count', value: string) {
+    if (!beatId || !value.trim()) return;
+    const updateObj: any = {};
+    updateObj[field] = field === 'play_count' ? Number(value) : value.trim();
+    const { error } = await supabase.from('beats').update(updateObj).eq('id', beatId);
+    if (!error) {
+      setDisplayedBeats(beats => beats.map(b => b.id === beatId ? { ...b, [field]: field === 'play_count' ? Number(value) : value.trim() } : b));
+    }
+    setEditingBeatId(null);
+    setEditingField(null);
+    setEditValue("");
+  }
+
+  // Handle input events
+  function handleEditInput(e: React.ChangeEvent<HTMLInputElement>) {
+    setEditValue(e.target.value);
+  }
+  function handleEditKeyDown(e: React.KeyboardEvent<HTMLInputElement>, beatId: string, field: 'title' | 'play_count') {
+    if (e.key === 'Enter') {
+      saveEdit(beatId, field, editValue);
+    } else if (e.key === 'Escape') {
+      setEditingBeatId(null);
+      setEditingField(null);
+      setEditValue("");
+    }
+  }
+  function handleEditBlur(beatId: string, field: 'title' | 'play_count') {
+    saveEdit(beatId, field, editValue);
+  }
+
   const GridView = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       {filteredBeats.map((beat) => (
-        <div
+        <BeatCard
           key={beat.id}
-          className={`flex flex-col bg-secondary rounded-lg overflow-hidden transition-all duration-200 ${currentBeat?.id === beat.id && isPlaying ? 'border-2 border-primary bg-primary/10 shadow-lg' : ''}`}
-        >
-          <div className="relative w-full aspect-square">
-            {currentBeat?.id === beat.id && isPlaying ? (
-              <Link href={`/beat/${beat.slug}`}
-                className="block w-full h-full"
-                aria-label={`View details for ${beat.title}`}
-            tabIndex={0}
-          >
-            <Image
-              src={beat.image || "/placeholder.svg"}
-              alt={beat.title}
-              width={300}
-              height={300}
-                  className="w-full aspect-square object-cover border border-primary shadow transition-opacity duration-200 opacity-100"
-                />
-              </Link>
-            ) : (
-              <>
-                <Image
-                  src={beat.image || "/placeholder.svg"}
-                  alt={beat.title}
-                  width={300}
-                  height={300}
-                  className="w-full aspect-square object-cover border border-primary shadow transition-opacity duration-200 opacity-80"
-                />
-                <button
-                  className="absolute inset-0 flex items-center justify-center bg-black/40 hover:bg-black/60 transition focus:outline-none"
-                  onClick={() => handlePlayPause(beat)}
-                  aria-label={currentBeat?.id === beat.id && isPlaying ? 'Pause' : 'Play'}
-                  style={{ zIndex: 2 }}
-                >
-                  <Play className="h-10 w-10 text-white" />
-                </button>
-              </>
-            )}
-          </div>
-          <div className="p-4 relative">
-            <h3 className="font-semibold w-full text-center whitespace-normal">
-              {beat.title}
-            </h3>
-            <p className="text-xs text-gray-400 mb-1 text-center w-full">
-              by {beat.producer_ids && beat.producer_names && beat.producer_names.length > 0
-                ? beat.producer_names.map((name: string, idx: number) => (
-                    <span key={beat.producer_ids[idx]}>
-                      <Link href={`/producers/${beat.producer_slugs[idx]}`} className="text-gray-400 hover:text-yellow-400">
-                        {name}
-                      </Link>{idx < beat.producer_names.length - 1 ? ', ' : ''}
-                    </span>
-                  ))
-                : beat.producer}
-            </p>
-            <div className="mb-2">
-              <BeatRating
-                beatId={beat.id}
-                initialAverageRating={beat.average_rating || 0}
-                initialTotalRatings={beat.total_ratings || 0}
-              />
-            </div>
-            <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
-            <div className="flex items-center justify-between mt-4">
-              <Button variant="outline" size="icon" onClick={() => handlePlayPause(beat)}>
-                {currentBeat?.id === beat.id && isPlaying ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                className="gradient-button text-black font-medium hover:text-white"
-                onClick={() => handlePurchase(beat)}
-              >
-                {user ? 'BUY' : 'BUY INSTANTLY'}
-              </Button>
-              <Link
-                href={`/beat/${beat.slug}`}
-                className="ml-2 inline-flex items-center justify-center text-primary hover:text-yellow-400"
-                title="View beat details"
-                aria-label="View beat details"
-              >
-                <ExternalLink className="h-5 w-5" />
-              </Link>
-            </div>
-          </div>
-        </div>
+          beat={beat}
+          isPlaying={currentBeat?.id === beat.id && isPlaying}
+          onPlayPause={handlePlayPause}
+          onPurchase={handlePurchase}
+        />
       ))}
     </div>
   )

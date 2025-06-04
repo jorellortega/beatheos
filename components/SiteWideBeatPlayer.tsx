@@ -950,7 +950,9 @@ export function SiteWideBeatPlayer() {
         .eq('id', currentBeat.id)
       
       if (!error) {
-        setCurrentBeat(prev => prev ? { ...prev, play_count: newCount } : null)
+        if (currentBeat) {
+          setCurrentBeat({ ...currentBeat, play_count: newCount });
+        }
         toast({
           title: "Play Count Updated",
           description: "The play count has been updated successfully.",
@@ -978,7 +980,9 @@ export function SiteWideBeatPlayer() {
         .eq('id', currentBeat.id)
       
       if (!error) {
-        setCurrentBeat(prev => prev ? { ...prev, title: newTitle.trim() } : null)
+        if (currentBeat) {
+          setCurrentBeat({ ...currentBeat, title: newTitle.trim() });
+        }
         toast({
           title: "Title Updated",
           description: "The beat title has been updated successfully.",
@@ -1100,8 +1104,8 @@ export function SiteWideBeatPlayer() {
                         {/* Move BeatRating to the right, where the waveform was */}
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center hidden sm:flex">
-                            <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} />
-                            {typeof currentBeat?.play_count === 'number' && (
+                            <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} small={true} />
+                            {currentBeat && typeof currentBeat.play_count === 'number' && (
                               user?.role === 'ceo' ? (
                                 editingPlayCount ? (
                                   <div className="flex items-center gap-1 mt-1">
@@ -1124,7 +1128,7 @@ export function SiteWideBeatPlayer() {
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      setEditPlayCountValue(currentBeat.play_count.toString())
+                                      setEditPlayCountValue(currentBeat.play_count?.toString() || "0")
                                       setEditingPlayCount(true)
                                     }}
                                     className="text-xs text-gray-400 mt-1 hover:text-gray-300 transition-colors"
