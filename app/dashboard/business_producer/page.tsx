@@ -277,7 +277,10 @@ function MyBeatsManager({ userId }: { userId: string }) {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       try {
-        let storagePath = `profiles/${userId}/${beat.title.trim()}/${fileType}/${file.name.trim()}`;
+        const ext = file.name.split('.').pop();
+        const base = file.name.replace(/\.[^/.]+$/, '');
+        const uniqueFileName = `${base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+        let storagePath = `profiles/${userId}/${beat.title.trim()}/${fileType}/${uniqueFileName}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('beats')
           .upload(storagePath, file, { upsert: true });
@@ -620,7 +623,10 @@ function MyBeatsManager({ userId }: { userId: string }) {
                               // Sanitize file name and beat title for Supabase Storage
                               const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
                               const cleanTitle = beat.title.trim().replace(/[^a-zA-Z0-9._-]/g, "_");
-                              const coverPath = `profiles/${userId}/${cleanTitle}/cover/${cleanFileName}`;
+                              const coverExt = file.name.split('.').pop();
+                              const coverBase = file.name.replace(/\.[^/.]+$/, '');
+                              const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+                              const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverUnique}`;
                               const { data: uploadData, error: uploadError } = await supabase.storage
                                 .from('beats')
                                 .upload(coverPath, file, { upsert: true });
@@ -895,6 +901,9 @@ export default function BusinessProducerDashboard() {
   const [recentSessions, setRecentSessions] = useState<any[]>([])
   const [totalSales, setTotalSales] = useState(0);
   const [totalMade, setTotalMade] = useState(0);
+  const [vaultKey, setVaultKey] = useState<string>("");
+  const [vaultKeyLoading, setVaultKeyLoading] = useState(false);
+  const [vaultKeyEdit, setVaultKeyEdit] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== "business_producer") {
@@ -971,6 +980,33 @@ export default function BusinessProducerDashboard() {
         if (data) setRecentSessions(data);
       });
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('producers')
+      .select('vault_key')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        setVaultKey(data?.vault_key || "");
+      });
+  }, [user]);
+
+  const handleVaultKeySave = async () => {
+    setVaultKeyLoading(true);
+    const { error } = await supabase
+      .from('producers')
+      .update({ vault_key: vaultKey })
+      .eq('user_id', user.id);
+    setVaultKeyLoading(false);
+    setVaultKeyEdit(false);
+    if (!error) {
+      toast({ title: 'Vault Key Updated', description: 'Your vault key has been updated.' });
+    } else {
+      toast({ title: 'Error', description: 'Failed to update vault key.', variant: 'destructive' });
+    }
+  };
 
   const togglePromo = (id: number) => {
     const updatedItems = items.map(item => 
@@ -1083,6 +1119,47 @@ export default function BusinessProducerDashboard() {
               )}
             </div>
           </div>
+          {/* Vault Key Card at the bottom */}
+          {user && (
+            <div className="mb-8">
+              <Card className="bg-black border-primary max-w-md mx-auto">
+                <CardHeader>
+                  <CardTitle>Vault Key</CardTitle>
+                  <CardDescription>
+                    This key is required for fans to access your Beat Vault. Keep it secret, but you can change it anytime.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {vaultKeyEdit ? (
+                    <div className="flex flex-col gap-4">
+                      <Input
+                        type="text"
+                        value={vaultKey}
+                        onChange={e => setVaultKey(e.target.value)}
+                        placeholder="Enter new vault key"
+                        disabled={vaultKeyLoading}
+                      />
+                      <div className="flex gap-2">
+                        <Button onClick={handleVaultKeySave}>
+                          Save
+                        </Button>
+                        <Button variant="outline" onClick={() => setVaultKeyEdit(false)} disabled={vaultKeyLoading}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <Input type="text" value={vaultKey} readOnly className="w-48" />
+                      <Button variant="outline" onClick={() => setVaultKeyEdit(true)}>
+                        Edit
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Quick Upload Card */}
             <Card className="bg-black border-primary hover:border-primary transition-all">

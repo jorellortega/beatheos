@@ -32,7 +32,9 @@ interface BeatUploadForm {
 
 async function uploadFile(file: File, type: 'mp3' | 'wav' | 'stems' | 'cover'): Promise<string> {
   const fileExt = file.name.split('.').pop()
-  const fileName = `${Math.random()}.${fileExt}`
+  const fileBase = file.name.replace(/\.[^/.]+$/, '')
+  const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9)
+  const fileName = `${fileBase}_${uniqueSuffix}.${fileExt}`
   const filePath = `${type}/${fileName}`
 
   const { error: uploadError } = await supabase.storage

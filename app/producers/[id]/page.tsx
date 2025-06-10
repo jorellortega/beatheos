@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { EditProfileDialog } from "@/components/EditProfileDialog"
 import { ProfilePictureUpload } from "@/components/ProfilePictureUpload"
 import { useToast } from "@/components/ui/use-toast"
+import { useRouter } from 'next/navigation'
 
 interface Producer {
   id: string
@@ -46,7 +47,9 @@ interface Producer {
 }
 
 export default function ProducerProfilePage() {
-  const { id } = useParams()
+  const params = useParams()
+  if (!params) return null
+  const id = params.id as string
   const { user } = useAuth()
   const [producer, setProducer] = useState<Producer | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -58,6 +61,7 @@ export default function ProducerProfilePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+  const router = useRouter()
 
   // DEBUG: Log when the Supabase client is created
   console.debug('[DEBUG] Creating Supabase client in ProducerProfilePage');
@@ -162,6 +166,16 @@ export default function ProducerProfilePage() {
               <div>
                 <span className="font-bold">{producer.genre}</span>
               </div>
+            </div>
+            <div className="flex justify-center md:justify-start space-x-4 mb-4">
+              <Button
+                variant="outline"
+                onClick={() => router.push(`/producers/${producer.id}/beatvault`)}
+                className="flex items-center"
+              >
+                <Music className="w-4 h-4 mr-2" />
+                Beat Vault
+              </Button>
             </div>
             {isOwnProfile && (
               null

@@ -41,7 +41,10 @@ export async function POST(request: Request) {
     }
 
     // Upload files to Supabase Storage
-    const mp3Path = `profiles/${user.id}/${slug}/${mp3File.name.trim()}`
+    const mp3Ext = mp3File.name.split('.').pop();
+    const mp3Base = mp3File.name.replace(/\.[^/.]+$/, '');
+    const mp3Unique = `${mp3Base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${mp3Ext}`;
+    const mp3Path = `profiles/${user.id}/${slug}/${mp3Unique}`;
     const { data: mp3Data, error: mp3Error } = await supabase.storage
       .from('beats')
       .upload(mp3Path, mp3File)
@@ -55,7 +58,10 @@ export async function POST(request: Request) {
 
     let wavUrl = null
     if (wavFile) {
-      const wavPath = `profiles/${user.id}/${slug}/wav/${wavFile.name.trim()}`
+      const wavExt = wavFile.name.split('.').pop();
+      const wavBase = wavFile.name.replace(/\.[^/.]+$/, '');
+      const wavUnique = `${wavBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${wavExt}`;
+      const wavPath = `profiles/${user.id}/${slug}/wav/${wavUnique}`;
       const { data: wavData, error: wavError } = await supabase.storage
         .from('beats')
         .upload(wavPath, wavFile)
@@ -67,7 +73,10 @@ export async function POST(request: Request) {
 
     let stemsUrl = null
     if (stemsFile) {
-      const stemsPath = `profiles/${user.id}/${slug}/stems/${stemsFile.name.trim()}`
+      const stemsExt = stemsFile.name.split('.').pop();
+      const stemsBase = stemsFile.name.replace(/\.[^/.]+$/, '');
+      const stemsUnique = `${stemsBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${stemsExt}`;
+      const stemsPath = `profiles/${user.id}/${slug}/stems/${stemsUnique}`;
       const { data: stemsData, error: stemsError } = await supabase.storage
         .from('beats')
         .upload(stemsPath, stemsFile)
@@ -79,7 +88,10 @@ export async function POST(request: Request) {
 
     let coverArtUrl = null
     if (coverArt) {
-      const coverPath = `profiles/${user.id}/${slug}/cover/${coverArt.name.trim()}`
+      const coverExt = coverArt.name.split('.').pop();
+      const coverBase = coverArt.name.replace(/\.[^/.]+$/, '');
+      const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+      const coverPath = `profiles/${user.id}/${slug}/cover/${coverUnique}`;
       const { data: coverData, error: coverError } = await supabase.storage
         .from('beats')
         .upload(coverPath, coverArt)

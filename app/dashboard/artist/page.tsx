@@ -255,7 +255,10 @@ function MyBeatsManager({ userId }: { userId: string }) {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       try {
-        let storagePath = `profiles/${userId}/${beat.title.trim()}/${fileType}/${file.name.trim()}`;
+        const ext = file.name.split('.').pop();
+        const base = file.name.replace(/\.[^/.]+$/, '');
+        const uniqueFileName = `${base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+        let storagePath = `profiles/${userId}/${beat.title.trim()}/${fileType}/${uniqueFileName}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('beats')
           .upload(storagePath, file, { upsert: true });
@@ -471,8 +474,10 @@ function MyBeatsManager({ userId }: { userId: string }) {
                           const file = (e.target as HTMLInputElement).files?.[0];
                           if (file) {
                             try {
-                              // Upload to Supabase Storage using the same structure as beat upload
-                              const coverPath = `profiles/${userId}/${beat.title.trim()}/cover/${file.name.trim()}`;
+                              const coverExt = file.name.split('.').pop();
+                              const coverBase = file.name.replace(/\.[^/.]+$/, '');
+                              const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+                              const coverPath = `profiles/${userId}/${beat.title.trim()}/cover/${coverUnique}`;
                               
                               const { data: uploadData, error: uploadError } = await supabase.storage
                                 .from('beats')

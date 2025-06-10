@@ -1,0 +1,2 @@
+ALTER TABLE beats
+ADD COLUMN beatvault BOOLEAN DEFAULT false; 

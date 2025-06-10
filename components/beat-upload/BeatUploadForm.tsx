@@ -83,16 +83,20 @@ export function BeatUploadForm() {
       // Helper to sanitize file names (especially for screenshots)
       const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_")
       // MP3 upload
-      const mp3FileName = sanitizeFileName(selectedFile.name)
-      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3FileName}`
+      const mp3Ext = selectedFile.name.split('.').pop();
+      const mp3Base = selectedFile.name.replace(/\.[^/.]+$/, '');
+      const mp3Unique = `${mp3Base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${mp3Ext}`;
+      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3Unique}`;
       const { data: mp3Upload, error: mp3Error } = await supabase.storage.from('beats').upload(mp3Path, selectedFile, { upsert: true })
       if (mp3Error) throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)))
       const { data: { publicUrl: mp3Url } } = supabase.storage.from('beats').getPublicUrl(mp3Path)
       // WAV upload
       let wavUrl = null
       if (selectedWavFile) {
-        const wavFileName = sanitizeFileName(selectedWavFile.name)
-        const wavPath = `profiles/${userId}/${cleanTitle}/${wavFileName}`
+        const wavExt = selectedWavFile.name.split('.').pop();
+        const wavBase = selectedWavFile.name.replace(/\.[^/.]+$/, '');
+        const wavUnique = `${wavBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${wavExt}`;
+        const wavPath = `profiles/${userId}/${cleanTitle}/${wavUnique}`;
         const { data: wavUpload, error: wavError } = await supabase.storage.from('beats').upload(wavPath, selectedWavFile, { upsert: true })
         if (wavError) throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)))
         const { data: { publicUrl: wUrl } } = supabase.storage.from('beats').getPublicUrl(wavPath)
@@ -101,8 +105,10 @@ export function BeatUploadForm() {
       // Cover art upload
       let coverArtUrl = null
       if (coverArtFile) {
-        const coverFileName = sanitizeFileName(coverArtFile.name)
-        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverFileName}`
+        const coverExt = coverArtFile.name.split('.').pop();
+        const coverBase = coverArtFile.name.replace(/\.[^/.]+$/, '');
+        const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverUnique}`;
         const { data: coverUpload, error: coverError } = await supabase.storage.from('beats').upload(coverPath, coverArtFile, { upsert: true })
         if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)))
         const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath)

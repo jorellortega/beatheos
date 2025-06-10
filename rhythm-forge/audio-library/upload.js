@@ -25,12 +25,18 @@ function readMetadata(beatPath) {
 async function uploadFile(filePath, storagePath) {
   try {
     const fileBuffer = fs.readFileSync(filePath);
+    // Append unique suffix to file name
+    const ext = path.extname(storagePath);
+    const base = path.basename(storagePath, ext);
+    const dir = path.dirname(storagePath);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const uniqueFileName = `${base}_${uniqueSuffix}${ext}`;
+    const uniqueStoragePath = path.join(dir, uniqueFileName);
     const { data, error } = await supabase.storage
       .from('beats')
-      .upload(storagePath, fileBuffer);
-    
+      .upload(uniqueStoragePath, fileBuffer);
     if (error) throw error;
-    return data;
+    return { data, uniqueStoragePath };
   } catch (error) {
     console.error(`Error uploading ${filePath}:`, error.message);
     return null;
@@ -54,11 +60,10 @@ async function processBeatFolder(beatFolder) {
   // Upload MP3 file
   const mp3Path = path.join(beatFolder, 'mp3', `${beatName}.mp3`);
   if (fs.existsSync(mp3Path)) {
-    const storagePath = `${metadata.producer_id}/${beatName}/mp3/${beatName}.mp3`;
-    const uploadResult = await uploadFile(mp3Path, storagePath);
-    if (uploadResult) {
-      metadata.mp3_path = storagePath;
-      metadata.mp3_url = supabase.storage.from('beats').getPublicUrl(storagePath).data.publicUrl;
+    const { data, uniqueStoragePath } = await uploadFile(mp3Path, `${metadata.producer_id}/${beatName}/mp3/${beatName}.mp3`);
+    if (data) {
+      metadata.mp3_path = uniqueStoragePath;
+      metadata.mp3_url = supabase.storage.from('beats').getPublicUrl(uniqueStoragePath).data.publicUrl;
     }
   } else {
     console.log(`No MP3 file found for ${beatName}`);
@@ -67,11 +72,10 @@ async function processBeatFolder(beatFolder) {
   // Upload WAV file
   const wavPath = path.join(beatFolder, 'wav', `${beatName}.wav`);
   if (fs.existsSync(wavPath)) {
-    const storagePath = `${metadata.producer_id}/${beatName}/wav/${beatName}.wav`;
-    const uploadResult = await uploadFile(wavPath, storagePath);
-    if (uploadResult) {
-      metadata.wav_path = storagePath;
-      metadata.wav_url = supabase.storage.from('beats').getPublicUrl(storagePath).data.publicUrl;
+    const { data, uniqueStoragePath } = await uploadFile(wavPath, `${metadata.producer_id}/${beatName}/wav/${beatName}.wav`);
+    if (data) {
+      metadata.wav_path = uniqueStoragePath;
+      metadata.wav_url = supabase.storage.from('beats').getPublicUrl(uniqueStoragePath).data.publicUrl;
     }
   } else {
     console.log(`No WAV file found for ${beatName}`);
@@ -80,11 +84,10 @@ async function processBeatFolder(beatFolder) {
   // Upload stems
   const stemsPath = path.join(beatFolder, 'stems', `${beatName}.zip`);
   if (fs.existsSync(stemsPath)) {
-    const storagePath = `${metadata.producer_id}/${beatName}/stems/${beatName}.zip`;
-    const uploadResult = await uploadFile(stemsPath, storagePath);
-    if (uploadResult) {
-      metadata.stems_path = storagePath;
-      metadata.stems_url = supabase.storage.from('beats').getPublicUrl(storagePath).data.publicUrl;
+    const { data, uniqueStoragePath } = await uploadFile(stemsPath, `${metadata.producer_id}/${beatName}/stems/${beatName}.zip`);
+    if (data) {
+      metadata.stems_path = uniqueStoragePath;
+      metadata.stems_url = supabase.storage.from('beats').getPublicUrl(uniqueStoragePath).data.publicUrl;
     }
   } else {
     console.log(`No stems file found for ${beatName}`);
@@ -93,11 +96,10 @@ async function processBeatFolder(beatFolder) {
   // Upload cover art
   const coverPath = path.join(beatFolder, 'cover', `${beatName}.jpg`);
   if (fs.existsSync(coverPath)) {
-    const storagePath = `${metadata.producer_id}/${beatName}/cover/${beatName}.jpg`;
-    const uploadResult = await uploadFile(coverPath, storagePath);
-    if (uploadResult) {
-      metadata.cover_art_path = storagePath;
-      metadata.cover_art_url = supabase.storage.from('beats').getPublicUrl(storagePath).data.publicUrl;
+    const { data, uniqueStoragePath } = await uploadFile(coverPath, `${metadata.producer_id}/${beatName}/cover/${beatName}.jpg`);
+    if (data) {
+      metadata.cover_art_path = uniqueStoragePath;
+      metadata.cover_art_url = supabase.storage.from('beats').getPublicUrl(uniqueStoragePath).data.publicUrl;
     }
   } else {
     console.log(`No cover art found for ${beatName}`);

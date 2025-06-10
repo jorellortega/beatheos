@@ -54,10 +54,14 @@ export default function UploadPage() {
       setIsUploading(true);
       console.log('Starting upload process'); // Debug log
 
+      const ext = file.name.split('.').pop();
+      const base = file.name.replace(/\.[^/.]+$/, '');
+      const uniqueFileName = `${base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+      const uploadPath = `profiles/${user.id}/beats/${uniqueFileName}`;
       // Upload file to Supabase Storage
       const { data: fileData, error: fileError } = await supabase.storage
         .from('beats')
-        .upload(`profiles/${user.id}/beats/${file.name}`, file);
+        .upload(uploadPath, file);
 
       if (fileError) {
         console.error('File upload error:', fileError); // Debug log
@@ -69,7 +73,7 @@ export default function UploadPage() {
       // Get the public URL of the uploaded file
       const { data: { publicUrl } } = supabase.storage
         .from('beats')
-        .getPublicUrl(`profiles/${user.id}/beats/${file.name}`);
+        .getPublicUrl(uploadPath);
 
       // Save beat details to the beats table
       const { data: beatData, error: beatError } = await supabase

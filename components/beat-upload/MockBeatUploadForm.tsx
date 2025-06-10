@@ -198,8 +198,10 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsUploading(true);
+    console.log('[DEBUG] Starting beat upload process');
 
     if (!mp3File) {
+      console.log('[DEBUG] Upload failed: No MP3 file selected');
       toast({
         title: "Missing Required File",
         description: "Please upload an MP3 file for your beat",
@@ -210,50 +212,105 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     }
 
     try {
-      if (!user) throw new Error('You must be logged in to upload beats');
+      if (!user) {
+        console.log('[DEBUG] Upload failed: No user logged in');
+        throw new Error('You must be logged in to upload beats');
+      }
       const userId = user.id;
+      console.log('[DEBUG] User ID:', userId);
+      
       const cleanTitle = title.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
+      console.log('[DEBUG] Cleaned title:', cleanTitle);
+      
       const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
 
       // MP3 upload
-      const mp3FileName = sanitizeFileName(mp3File.name);
-      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3FileName}`;
+      console.log('[DEBUG] Starting MP3 upload');
+      const mp3Ext = mp3File.name.split('.').pop();
+      const mp3Base = mp3File.name.replace(/\.[^/.]+$/, '');
+      const mp3Unique = `${mp3Base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${mp3Ext}`;
+      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3Unique}`;
+      console.log('[DEBUG] MP3 upload path:', mp3Path);
+      
       const { data: mp3Upload, error: mp3Error } = await supabase.storage.from('beats').upload(mp3Path, mp3File, { upsert: true });
-      if (mp3Error) throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)));
+      if (mp3Error) {
+        console.error('[DEBUG] MP3 upload error:', mp3Error);
+        throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)));
+      }
+      console.log('[DEBUG] MP3 upload successful');
+      
       const { data: { publicUrl: mp3Url } } = supabase.storage.from('beats').getPublicUrl(mp3Path);
+      console.log('[DEBUG] MP3 public URL:', mp3Url);
 
       // WAV upload
       let wavUrl = null;
       if (wavFile) {
-        const wavFileName = sanitizeFileName(wavFile.name);
-        const wavPath = `profiles/${userId}/${cleanTitle}/${wavFileName}`;
+        console.log('[DEBUG] Starting WAV upload');
+        const wavExt = wavFile.name.split('.').pop();
+        const wavBase = wavFile.name.replace(/\.[^/.]+$/, '');
+        const wavUnique = `${wavBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${wavExt}`;
+        const wavPath = `profiles/${userId}/${cleanTitle}/${wavUnique}`;
+        console.log('[DEBUG] WAV upload path:', wavPath);
+        
         const { data: wavUpload, error: wavError } = await supabase.storage.from('beats').upload(wavPath, wavFile, { upsert: true });
-        if (wavError) throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)));
+        if (wavError) {
+          console.error('[DEBUG] WAV upload error:', wavError);
+          throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)));
+        }
+        console.log('[DEBUG] WAV upload successful');
+        
         const { data: { publicUrl: wUrl } } = supabase.storage.from('beats').getPublicUrl(wavPath);
         wavUrl = wUrl;
+        console.log('[DEBUG] WAV public URL:', wavUrl);
       }
+
       // Stems upload
       let stemsUrl = null;
       if (stemsFile) {
-        const stemsFileName = sanitizeFileName(stemsFile.name);
-        const stemsPath = `profiles/${userId}/${cleanTitle}/stems/${stemsFileName}`;
+        console.log('[DEBUG] Starting stems upload');
+        const stemsExt = stemsFile.name.split('.').pop();
+        const stemsBase = stemsFile.name.replace(/\.[^/.]+$/, '');
+        const stemsUnique = `${stemsBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${stemsExt}`;
+        const stemsPath = `profiles/${userId}/${cleanTitle}/stems/${stemsUnique}`;
+        console.log('[DEBUG] Stems upload path:', stemsPath);
+        
         const { data: stemsUpload, error: stemsError } = await supabase.storage.from('beats').upload(stemsPath, stemsFile, { upsert: true });
-        if (stemsError) throw new Error('Stems upload failed: ' + (stemsError.message || JSON.stringify(stemsError)));
+        if (stemsError) {
+          console.error('[DEBUG] Stems upload error:', stemsError);
+          throw new Error('Stems upload failed: ' + (stemsError.message || JSON.stringify(stemsError)));
+        }
+        console.log('[DEBUG] Stems upload successful');
+        
         const { data: { publicUrl: sUrl } } = supabase.storage.from('beats').getPublicUrl(stemsPath);
         stemsUrl = sUrl;
+        console.log('[DEBUG] Stems public URL:', stemsUrl);
       }
+
       // Cover art upload
       let coverArtUrl = null;
       if (coverArt) {
-        const coverFileName = sanitizeFileName(coverArt.name);
-        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverFileName}`;
+        console.log('[DEBUG] Starting cover art upload');
+        const coverExt = coverArt.name.split('.').pop();
+        const coverBase = coverArt.name.replace(/\.[^/.]+$/, '');
+        const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverUnique}`;
+        console.log('[DEBUG] Cover art upload path:', coverPath);
+        
         const { data: coverUpload, error: coverError } = await supabase.storage.from('beats').upload(coverPath, coverArt, { upsert: true });
-        if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)));
+        if (coverError) {
+          console.error('[DEBUG] Cover art upload error:', coverError);
+          throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)));
+        }
+        console.log('[DEBUG] Cover art upload successful');
+        
         const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath);
         coverArtUrl = cUrl;
+        console.log('[DEBUG] Cover art public URL:', coverArtUrl);
       }
+
       // Insert beat metadata into database
-      const { data: beat, error: dbError } = await supabase.from('beats').insert({
+      console.log('[DEBUG] Starting database insert');
+      const beatData = {
         producer_id: userId,
         title,
         description,
@@ -267,12 +324,22 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         stems_url: stemsUrl,
         cover_art_url: coverArtUrl,
         is_draft: isDraft,
-      }).select().single();
-      if (dbError) throw dbError;
+      };
+      console.log('[DEBUG] Beat data to insert:', beatData);
+      
+      const { data: beat, error: dbError } = await supabase.from('beats').insert(beatData).select().single();
+      if (dbError) {
+        console.error('[DEBUG] Database insert error:', dbError);
+        throw dbError;
+      }
+      console.log('[DEBUG] Database insert successful:', beat);
+
       toast({
         title: isDraft ? "Draft Saved" : "Beat Uploaded",
         description: isDraft ? "Your beat draft has been saved successfully." : "Your beat has been successfully uploaded and is now live.",
       });
+      console.log('[DEBUG] Upload process completed successfully');
+      
       router.push('/dashboard/business_producer?tab=mybeats');
       // Reset form after submission
       setTitle("");
