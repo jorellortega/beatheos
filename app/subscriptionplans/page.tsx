@@ -7,11 +7,10 @@ import Link from "next/link"
 
 const tiers = [
   {
-    name: "Free Artist",
+    name: "Artist Account",
     id: "artist_free",
     role: "free_artist",
     price: "0",
-    description: "Perfect for getting started",
     features: [
       "Community access",
       "Basic profile customization",
@@ -22,6 +21,7 @@ const tiers = [
     buttonText: "Get Started",
     buttonVariant: "outline",
     popular: false,
+    subtext: "free to sign up",
   },
   {
     name: "Premium Producer",
@@ -112,10 +112,11 @@ export default function SubscriptionPlansPage() {
                 <CardHeader>
                   <CardTitle className="text-2xl font-bold text-primary">{tier.name}</CardTitle>
                   <div className="mt-4">
-                    <span className="text-4xl font-bold">${tier.price}</span>
-                    <span className="text-gray-400">/month</span>
+                    {tier.name === "Artist Account" ? null : (
+                      <span className="text-4xl font-bold">${tier.price}</span>
+                    )}
+                    <div className="text-gray-400 text-base font-medium mb-2">{tier.subtext}</div>
                   </div>
-                  <CardDescription className="mt-2">{tier.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-3">

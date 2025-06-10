@@ -196,95 +196,108 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    console.log('handleSubmit called');
-    e.preventDefault()
-    setIsUploading(true)
+    e.preventDefault();
+    setIsUploading(true);
 
     if (!mp3File) {
       toast({
         title: "Missing Required File",
         description: "Please upload an MP3 file for your beat",
         variant: "destructive",
-      })
-      setIsUploading(false)
-      return
+      });
+      setIsUploading(false);
+      return;
     }
 
     try {
-      const formData = new FormData()
-      formData.append('title', title)
-      formData.append('description', description)
-      formData.append('genre', genre || '')
-      formData.append('bpm', bpm)
-      formData.append('key', key)
-      formData.append('tags', JSON.stringify(tags))
-      formData.append('licensing', JSON.stringify(licensing))
-      formData.append('isDraft', isDraft.toString())
-      formData.append('mp3File', mp3File)
-      if (wavFile) formData.append('wavFile', wavFile)
-      if (stemsFile) formData.append('stemsFile', stemsFile)
-      if (coverArt) formData.append('coverArt', coverArt)
+      if (!user) throw new Error('You must be logged in to upload beats');
+      const userId = user.id;
+      const cleanTitle = title.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
+      const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
 
-      // Get the session from Supabase
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session) {
-        throw new Error('You must be logged in to upload beats')
+      // MP3 upload
+      const mp3FileName = sanitizeFileName(mp3File.name);
+      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3FileName}`;
+      const { data: mp3Upload, error: mp3Error } = await supabase.storage.from('beats').upload(mp3Path, mp3File, { upsert: true });
+      if (mp3Error) throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)));
+      const { data: { publicUrl: mp3Url } } = supabase.storage.from('beats').getPublicUrl(mp3Path);
+
+      // WAV upload
+      let wavUrl = null;
+      if (wavFile) {
+        const wavFileName = sanitizeFileName(wavFile.name);
+        const wavPath = `profiles/${userId}/${cleanTitle}/${wavFileName}`;
+        const { data: wavUpload, error: wavError } = await supabase.storage.from('beats').upload(wavPath, wavFile, { upsert: true });
+        if (wavError) throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)));
+        const { data: { publicUrl: wUrl } } = supabase.storage.from('beats').getPublicUrl(wavPath);
+        wavUrl = wUrl;
       }
-
-      const response = await fetch('/api/beats', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to upload beat')
+      // Stems upload
+      let stemsUrl = null;
+      if (stemsFile) {
+        const stemsFileName = sanitizeFileName(stemsFile.name);
+        const stemsPath = `profiles/${userId}/${cleanTitle}/stems/${stemsFileName}`;
+        const { data: stemsUpload, error: stemsError } = await supabase.storage.from('beats').upload(stemsPath, stemsFile, { upsert: true });
+        if (stemsError) throw new Error('Stems upload failed: ' + (stemsError.message || JSON.stringify(stemsError)));
+        const { data: { publicUrl: sUrl } } = supabase.storage.from('beats').getPublicUrl(stemsPath);
+        stemsUrl = sUrl;
       }
-
-      const beat = await response.json()
-
-      if (isDraft) {
-        toast({
-          title: "Draft Saved",
-          description: "Your beat draft has been saved successfully.",
-        })
-        router.push('/dashboard/business_producer?tab=mybeats')
-      } else {
-        toast({
-          title: "Beat Uploaded",
-          description: "Your beat has been successfully uploaded and is now live.",
-        })
-        router.push('/dashboard/business_producer?tab=mybeats')
+      // Cover art upload
+      let coverArtUrl = null;
+      if (coverArt) {
+        const coverFileName = sanitizeFileName(coverArt.name);
+        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverFileName}`;
+        const { data: coverUpload, error: coverError } = await supabase.storage.from('beats').upload(coverPath, coverArt, { upsert: true });
+        if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)));
+        const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath);
+        coverArtUrl = cUrl;
       }
-
+      // Insert beat metadata into database
+      const { data: beat, error: dbError } = await supabase.from('beats').insert({
+        producer_id: userId,
+        title,
+        description,
+        genre,
+        bpm,
+        key,
+        tags,
+        licensing,
+        mp3_url: mp3Url,
+        wav_url: wavUrl,
+        stems_url: stemsUrl,
+        cover_art_url: coverArtUrl,
+        is_draft: isDraft,
+      }).select().single();
+      if (dbError) throw dbError;
+      toast({
+        title: isDraft ? "Draft Saved" : "Beat Uploaded",
+        description: isDraft ? "Your beat draft has been saved successfully." : "Your beat has been successfully uploaded and is now live.",
+      });
+      router.push('/dashboard/business_producer?tab=mybeats');
       // Reset form after submission
-      setTitle("")
-      setDescription("")
-      setTags([])
-      setBpm("")
-      setKey("")
-      setGenre("")
-      setCustomGenre(null)
-      setMp3File(null)
-      setWavFile(null)
-      setStemsFile(null)
-      setCoverArt(null)
-      setLicensing({})
-      setIsDraft(false)
+      setTitle("");
+      setDescription("");
+      setTags([]);
+      setBpm("");
+      setKey("");
+      setGenre("");
+      setCustomGenre(null);
+      setMp3File(null);
+      setWavFile(null);
+      setStemsFile(null);
+      setCoverArt(null);
+      setLicensing({});
+      setIsDraft(false);
     } catch (error) {
-      console.error("Error uploading beat:", error)
+      console.error("Error uploading beat:", error);
       toast({
         title: "Upload Error",
         description: error instanceof Error ? error.message : "An error occurred during the upload process. Please try again.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsUploading(false)
-      setUploadProgress(0)
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   }
 

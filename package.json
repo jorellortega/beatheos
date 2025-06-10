@@ -63,6 +63,7 @@
     "react-dom": "^19",
     "react-dropzone": "latest",
     "react-hook-form": "^7.54.1",
+    "react-intersection-observer": "^9.16.0",
     "react-resizable-panels": "^2.1.7",
     "react-rnd": "^10.5.2",
     "recharts": "2.15.0",
