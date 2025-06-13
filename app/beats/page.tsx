@@ -19,6 +19,7 @@ import { BeatRating } from '@/components/beats/BeatRating'
 import { supabase } from '@/lib/supabaseClient'
 import React from "react"
 import { useAuth } from "@/contexts/AuthContext"
+import { QuickAddToPlaylistButton } from "@/components/QuickAddToPlaylistButton"
 
 // Helper function to get license price from columns or JSON
 function getLicensePrice(beat: any, key: string, jsonKey: string) {
@@ -84,6 +85,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
           <Button variant="outline" size="icon" onClick={() => onPlayPause(beat)}>
             {isThisPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </Button>
+          <QuickAddToPlaylistButton beatId={beat.id} beatTitle={beat.title} />
           <Button className="gradient-button text-black font-medium hover:text-white" onClick={() => onPurchase({ ...beat, price: leasePrice ?? 0, price_lease: leasePrice ?? 0, price_premium_lease: premiumLeasePrice ?? 0, price_exclusive: exclusivePrice ?? 0, price_buyout: buyoutPrice ?? 0, licensing: beat.licensing })}>
             BUY
           </Button>
@@ -592,6 +594,7 @@ export default function BeatsPage() {
                 <Play className="h-5 w-5" />
               )}
             </Button>
+            <QuickAddToPlaylistButton beatId={beat.id} beatTitle={beat.title} />
             <Button
               className="gradient-button text-black font-medium hover:text-white px-3 py-1"
               onClick={() => handlePurchase(beat)}
@@ -673,6 +676,7 @@ export default function BeatsPage() {
                 <Play className="h-4 w-4" />
               )}
             </Button>
+            <QuickAddToPlaylistButton beatId={beat.id} beatTitle={beat.title} />
             <Button
               className="gradient-button text-black font-medium hover:text-white"
               onClick={e => { e.stopPropagation(); handlePurchase(beat); }}

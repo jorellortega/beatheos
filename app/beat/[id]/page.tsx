@@ -16,6 +16,8 @@ import { AudioWaveform } from "@/components/AudioWaveform"
 import Link from 'next/link'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { BeatRating } from '@/components/beats/BeatRating'
+import { AddToPlaylistButton as CreatePlaylistButton } from "@/components/AddToPlaylistButton"
+import { QuickAddToPlaylistButton } from "@/components/QuickAddToPlaylistButton"
 
 interface Beat {
   id: string;
@@ -377,36 +379,49 @@ export default function BeatDetailPage() {
                 <Link key={prod.user_id} href={`/producers/${prod.slug}`} className="group flex items-center gap-2 transition-transform duration-200 hover:scale-105 focus:scale-105">
                   {prod.profile_image_url && (
                     <Image src={prod.profile_image_url} alt="Producer Avatar" width={40} height={40} className="rounded-full object-cover transition-transform duration-200" />
-              )}
-              <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
+                  )}
+                  <span className="text-lg font-semibold text-gray-300 transition-transform duration-200">
                     {prod.display_name}
-              </span>
-            </Link>
+                  </span>
+                </Link>
               ))}
             </div>
           ) : (
             <span className="text-lg font-semibold text-gray-300">NO PRODUCER FOUND</span>
           )}
-          {!user || beat.producer_id !== user.id ? (
-            <>
-              <div className="h-4" />
-              {user ? (
+          <div className="h-4" />
+          
+          {/* Add playlist and purchase buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center w-full">
+            {user && (
+              <>
+                <QuickAddToPlaylistButton beatId={beat.id} beatTitle={beat.title} />
+                <CreatePlaylistButton beatId={beat.id} beatTitle={beat.title} mode="create" />
+              </>
+            )}
+            {user ? (
               <Button
-                className="gradient-button text-black font-medium hover:text-white mb-4"
+                className="gradient-button text-black font-medium hover:text-white"
                 onClick={() => setShowPurchaseModal(true)}
               >
                 <ShoppingCart className="h-4 w-4 mr-2" />
                 BUY
               </Button>
-              ) : (
-                <Button
-                  className="gradient-button text-black font-medium hover:text-white mb-4"
-                  onClick={() => setShowPurchaseModal(true)}
-                >
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  BUY INSTANTLY
-                </Button>
-              )}
+            ) : (
+              <Button
+                className="gradient-button text-black font-medium hover:text-white"
+                onClick={() => setShowPurchaseModal(true)}
+              >
+                <ShoppingCart className="h-4 w-4 mr-2" />
+                BUY INSTANTLY
+              </Button>
+            )}
+          </div>
+
+          {/* Remove the old purchase button section */}
+          {!user || beat.producer_id !== user.id ? (
+            <>
+              <div className="h-4" />
             </>
           ) : null}
           <CardDescription className="text-lg text-muted-foreground text-center w-full">

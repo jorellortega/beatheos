@@ -61,3 +61,28 @@ export const beat_licenses = mysqlTable("beat_licenses", {
   updated_at: timestamp("updated_at").defaultNow(),
 })
 
+export const playlists = mysqlTable("playlists", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  user_id: varchar("user_id", { length: 255 })
+    .notNull()
+    .references(() => users.id),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  cover_image_url: varchar("cover_image_url", { length: 255 }),
+  is_public: boolean("is_public").default(false),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+})
+
+export const playlist_beats = mysqlTable("playlist_beats", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  playlist_id: varchar("playlist_id", { length: 255 })
+    .notNull()
+    .references(() => playlists.id),
+  beat_id: varchar("beat_id", { length: 255 })
+    .notNull()
+    .references(() => beats.id),
+  position: int("position").notNull(),
+  added_at: timestamp("added_at").defaultNow(),
+})
+

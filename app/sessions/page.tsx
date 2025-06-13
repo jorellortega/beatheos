@@ -34,7 +34,20 @@ export default function SessionsPage() {
   const [activeTab, setActiveTab] = useState("my-sessions")
   const [sessions, setSessions] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<{ name: string; lyrics: string }>({ name: "", lyrics: "" })
+  const [editForm, setEditForm] = useState<{
+    name: string;
+    verse_lyrics: string[];
+    hook_lyrics: string;
+    others_lyrics: string;
+    lyrics: string;
+    activeVerse?: number;
+  }>({
+    name: "",
+    verse_lyrics: ["", "", ""],
+    hook_lyrics: "",
+    others_lyrics: "",
+    lyrics: ""
+  })
   const [saving, setSaving] = useState(false)
   const [beatsBySession, setBeatsBySession] = useState<{ [sessionId: string]: any[] }>({})
   const [playingBeatId, setPlayingBeatId] = useState<string | null>(null)
@@ -53,7 +66,7 @@ export default function SessionsPage() {
     if (!user) return
     supabase
       .from('sessions')
-      .select('id, name, last_modified, beat_ids, lyrics')
+      .select('id, name, last_modified, beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
       .eq('user_id', user.id)
       .order('last_modified', { ascending: false })
       .then(({ data, error }) => {
@@ -88,7 +101,13 @@ export default function SessionsPage() {
 
   const handleEdit = (session: any) => {
     setEditingId(session.id)
-    setEditForm({ name: session.name || "", lyrics: session.lyrics || "" })
+    setEditForm({
+      name: session.name || "",
+      verse_lyrics: session.verse_lyrics || ["", "", ""],
+      hook_lyrics: session.hook_lyrics || "",
+      others_lyrics: session.others_lyrics || "",
+      lyrics: session.lyrics || ""
+    })
   }
 
   const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -101,7 +120,13 @@ export default function SessionsPage() {
     setSaving(true)
     const { error } = await supabase
       .from('sessions')
-      .update({ name: editForm.name, lyrics: editForm.lyrics })
+      .update({
+        name: editForm.name,
+        verse_lyrics: editForm.verse_lyrics,
+        hook_lyrics: editForm.hook_lyrics,
+        others_lyrics: editForm.others_lyrics,
+        lyrics: editForm.lyrics
+      })
       .eq('id', id)
     setSaving(false)
     if (!error) {
@@ -110,7 +135,7 @@ export default function SessionsPage() {
       // Refetch sessions after save
       const { data: newSessions } = await supabase
         .from('sessions')
-        .select('id, name, last_modified, beat_ids, lyrics')
+        .select('id, name, last_modified, beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
         .eq('user_id', user.id)
         .order('last_modified', { ascending: false });
       setSessions(newSessions || [])
@@ -135,7 +160,7 @@ export default function SessionsPage() {
       // Refetch sessions to ensure UI is up to date
       const { data: newSessions } = await supabase
         .from('sessions')
-        .select('id, name, last_modified, beat_ids, lyrics')
+        .select('id, name, last_modified, beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
         .eq('user_id', user.id)
         .order('last_modified', { ascending: false });
       setSessions(newSessions || [])
@@ -201,7 +226,7 @@ export default function SessionsPage() {
       // Refetch sessions after save
       const { data: newSessions } = await supabase
         .from('sessions')
-        .select('id, name, last_modified, beat_ids, lyrics')
+        .select('id, name, last_modified, beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
         .eq('user_id', user.id)
         .order('last_modified', { ascending: false });
       setSessions(newSessions || [])
@@ -224,7 +249,7 @@ export default function SessionsPage() {
       // Refetch sessions after save
       const { data: newSessions } = await supabase
         .from('sessions')
-        .select('id, name, last_modified, beat_ids, lyrics')
+        .select('id, name, last_modified, beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
         .eq('user_id', user.id)
         .order('last_modified', { ascending: false });
       setSessions(newSessions || [])
@@ -257,7 +282,7 @@ export default function SessionsPage() {
       // Refetch sessions after save
       const { data: newSessions } = await supabase
         .from('sessions')
-        .select('id, name, last_modified, beat_ids, lyrics')
+        .select('id, name, last_modified, beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
         .eq('user_id', user.id)
         .order('last_modified', { ascending: false });
       setSessions(newSessions || [])
@@ -395,10 +420,10 @@ export default function SessionsPage() {
                       {openLyricsModalId === session.id && (
                         <Dialog open={true} onOpenChange={handleCloseLyricsModal}>
                           <Rnd
-                            default={{ x: 100, y: 100, width: 500, height: 420 }}
-                            minWidth={300}
-                            minHeight={120}
-                            maxWidth={900}
+                            default={{ x: 100, y: 100, width: 600, height: 520 }}
+                            minWidth={350}
+                            minHeight={200}
+                            maxWidth={1100}
                             maxHeight={900}
                             bounds="window"
                             className="z-[1000]"
@@ -413,16 +438,56 @@ export default function SessionsPage() {
                               topLeft: true,
                             }}
                           >
-                            <DialogContent className="max-w-lg overflow-auto">
+                            <DialogContent className="max-w-2xl overflow-auto">
                               <DialogHeader>
-                                <DialogTitle>Edit Full Lyrics</DialogTitle>
+                                <DialogTitle>Edit Lyrics (Split View)</DialogTitle>
                               </DialogHeader>
+                              <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  <div className="flex flex-col">
+                                    <h4 className="font-semibold mb-2">Verse</h4>
+                                    <div className="flex gap-2 mb-2">
+                                      {[0, 1, 2].map(idx => (
+                                        <button
+                                          key={idx}
+                                          className={`px-3 py-1 rounded ${editForm.verse_lyrics && editForm.verse_lyrics[idx] !== undefined && editForm.verse_lyrics[idx] !== '' ? 'bg-primary text-black font-bold' : 'bg-gray-700 text-white'}`}
+                                          onClick={() => setEditForm(f => ({ ...f, activeVerse: idx }))}
+                                        >
+                                          {`V${idx + 1}`}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <textarea
+                                      value={editForm.verse_lyrics[editForm.activeVerse || 0] || ""}
+                                      onChange={e => {
+                                        const newVerses = [...editForm.verse_lyrics];
+                                        newVerses[editForm.activeVerse || 0] = e.target.value;
+                                        setEditForm(f => ({ ...f, verse_lyrics: newVerses }));
+                                      }}
+                                      className="w-full min-h-[100px] bg-secondary text-white rounded p-2 mb-2 resize"
+                                      placeholder={`Verse ${((editForm.activeVerse || 0) + 1)}`}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <h4 className="font-semibold mb-2">Hook</h4>
+                                    <textarea
+                                      value={editForm.hook_lyrics}
+                                      onChange={e => setEditForm(f => ({ ...f, hook_lyrics: e.target.value }))}
+                                      className="w-full min-h-[100px] bg-secondary text-white rounded p-2 mb-2 resize"
+                                      placeholder="Hook"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <h4 className="font-semibold mb-2">Others</h4>
                               <textarea
-                                className="w-full bg-secondary text-white rounded p-2 mb-4 resize"
-                                value={modalLyricsValue}
-                                onChange={e => setModalLyricsValue(e.target.value)}
-                                autoFocus
-                              />
+                                      value={editForm.others_lyrics}
+                                      onChange={e => setEditForm(f => ({ ...f, others_lyrics: e.target.value }))}
+                                      className="w-full min-h-[100px] bg-secondary text-white rounded p-2 mb-2 resize"
+                                      placeholder="Others"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
                               <div className="flex justify-end gap-2 mt-2">
                                 <Button variant="outline" onClick={handleCloseLyricsModal}>Close</Button>
                                 <Button onClick={() => handleSaveLyricsModal(session.id)} disabled={modalSaving}>

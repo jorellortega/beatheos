@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Music2 } from "lucide-react"
 
 export default function ProArtistDashboardPage() {
   const { user } = useAuth()
@@ -27,6 +28,21 @@ export default function ProArtistDashboardPage() {
           <p className="text-xl text-gray-400">Welcome back, {user?.email?.split('@')[0]}</p>
         </div>
       </div>
+
+      <Link href="/playlist/edit" className="block mb-8">
+        <Card className="hover:border-primary transition-all cursor-pointer">
+          <CardHeader>
+            <CardTitle>My Playlists</CardTitle>
+            <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Music2 className="h-8 w-8 text-primary" />
+              <span className="font-semibold text-lg">Go to Playlists</span>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card className="bg-card border-primary hover:border-primary transition-all">

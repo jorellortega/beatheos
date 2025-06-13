@@ -904,6 +904,7 @@ export default function BusinessProducerDashboard() {
   const [vaultKey, setVaultKey] = useState<string>("");
   const [vaultKeyLoading, setVaultKeyLoading] = useState(false);
   const [vaultKeyEdit, setVaultKeyEdit] = useState(false);
+  const [playlistId, setPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user || user.role !== "business_producer") {
@@ -991,6 +992,29 @@ export default function BusinessProducerDashboard() {
       .then(({ data }) => {
         setVaultKey(data?.vault_key || "");
       });
+  }, [user]);
+
+  useEffect(() => {
+    async function fetchOrCreatePlaylist() {
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('playlists')
+        .select('id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+      if (data && data.id) {
+        setPlaylistId(data.id);
+      } else {
+        const { data: newPlaylist, error: createError } = await supabase
+          .from('playlists')
+          .insert([{ user_id: user.id, name: 'My Playlist' }])
+          .select('id')
+          .single();
+        if (newPlaylist && newPlaylist.id) setPlaylistId(newPlaylist.id);
+      }
+    }
+    fetchOrCreatePlaylist();
   }, [user]);
 
   const handleVaultKeySave = async () => {
@@ -1237,6 +1261,22 @@ export default function BusinessProducerDashboard() {
               </Card>
             </Link>
           </div>
+          {playlistId && (
+            <Link href="/playlist/edit" className="block mb-8">
+              <Card className="hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <CardTitle>My Playlists</CardTitle>
+                  <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2">
+                    <Music2 className="h-8 w-8 text-primary" />
+                    <span className="font-semibold text-lg">Go to Playlists</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          )}
         </TabsContent>
         
         <TabsContent value="mybeats" className="mt-6">

@@ -692,6 +692,7 @@ function TabManager({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
 export default function FreeArtistDashboard() {
   const { user } = useAuth()
   const router = useRouter()
+  const [playlistId, setPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user || user.role !== "free_artist") {
@@ -699,12 +700,53 @@ export default function FreeArtistDashboard() {
     }
   }, [user, router])
 
+  useEffect(() => {
+    async function fetchOrCreatePlaylist() {
+      if (!user) return;
+      // Try to fetch the user's first playlist
+      const { data, error } = await supabase
+        .from('playlists')
+        .select('id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+      if (data && data.id) {
+        setPlaylistId(data.id);
+      } else {
+        // Create a new playlist if none exists
+        const { data: newPlaylist, error: createError } = await supabase
+          .from('playlists')
+          .insert([{ user_id: user.id, name: 'My Playlist' }])
+          .select('id')
+          .single();
+        if (newPlaylist && newPlaylist.id) setPlaylistId(newPlaylist.id);
+      }
+    }
+    fetchOrCreatePlaylist();
+  }, [user]);
+
   if (!user) return null
 
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Artist Dashboard</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+        {playlistId && (
+          <Link href="/playlist/edit" className="block mb-8">
+            <Card className="hover:border-primary transition-all cursor-pointer">
+              <CardHeader>
+                <CardTitle>My Playlists</CardTitle>
+                <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <Music2 className="h-8 w-8 text-primary" />
+                  <span className="font-semibold text-lg">Go to Playlists</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
         <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
             <CardTitle>Browse Beats</CardTitle>

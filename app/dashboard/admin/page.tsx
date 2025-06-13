@@ -1,22 +1,47 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Users, Music, BarChart, Settings } from "lucide-react"
+import { Users, Music, BarChart, Settings, Music2 } from "lucide-react"
 import Link from "next/link"
+import { supabase } from '@/lib/supabaseClient'
 
 export default function AdminDashboard() {
   const { user } = useAuth()
   const router = useRouter()
+  const [playlistId, setPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user || user.role !== "admin") {
       router.push("/login")
     }
   }, [user, router])
+
+  useEffect(() => {
+    async function fetchOrCreatePlaylist() {
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('playlists')
+        .select('id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+      if (data && data.id) {
+        setPlaylistId(data.id);
+      } else {
+        const { data: newPlaylist, error: createError } = await supabase
+          .from('playlists')
+          .insert([{ user_id: user.id, name: 'My Playlist' }])
+          .select('id')
+          .single();
+        if (newPlaylist && newPlaylist.id) setPlaylistId(newPlaylist.id);
+      }
+    }
+    fetchOrCreatePlaylist();
+  }, [user]);
 
   if (!user) return null
 
@@ -78,6 +103,22 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
         </div>
+        {playlistId && (
+          <Link href="/playlist/edit" className="block mb-8">
+            <Card className="hover:border-primary transition-all cursor-pointer">
+              <CardHeader>
+                <CardTitle>My Playlists</CardTitle>
+                <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <Music2 className="h-8 w-8 text-primary" />
+                  <span className="font-semibold text-lg">Go to Playlists</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
       </div>
     </div>
   )

@@ -11,6 +11,7 @@ import { usePlayer } from '@/contexts/PlayerContext'
 import Link from 'next/link'
 import { useAuth } from "@/contexts/AuthContext"
 import { supabase } from "@/lib/supabaseClient"
+import { QuickAddToPlaylistButton } from "@/components/QuickAddToPlaylistButton"
 
 interface Beat {
   id: string | number
@@ -225,6 +226,7 @@ export function ProducerBeats({ producerId, searchQuery, isOwnProfile, onBeatsFe
                   >
                     {user ? 'BUY' : 'BUY INSTANTLY'}
                   </Button>
+                  <QuickAddToPlaylistButton beatId={String(beat.id)} beatTitle={beat.title} />
                 </div>
               </div>
             ))}

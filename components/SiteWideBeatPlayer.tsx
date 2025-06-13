@@ -49,6 +49,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { QuickAddToPlaylistButton } from "@/components/QuickAddToPlaylistButton"
 
 interface Beat {
   id: string
@@ -77,6 +78,10 @@ export function SiteWideBeatPlayer() {
   const [progress, setProgress] = useState(0)
   const [isExpanded, setIsExpanded] = useState(false)
   const [lyrics, setLyrics] = useState("")
+  const [verseLyrics, setVerseLyrics] = useState<string[]>([""])
+  const [activeVerse, setActiveVerse] = useState(0)
+  const [hookLyrics, setHookLyrics] = useState("")
+  const [othersLyrics, setOthersLyrics] = useState("")
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [newPlaylistName, setNewPlaylistName] = useState("")
   const [isRepeat, setIsRepeat] = useState(false)
@@ -126,6 +131,9 @@ export function SiteWideBeatPlayer() {
   const [editPlayCountValue, setEditPlayCountValue] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
+  const [showPlaylistShuffleModal, setShowPlaylistShuffleModal] = useState(false)
+  const [userPlaylists, setUserPlaylists] = useState<any[]>([])
+  const [lyricsView, setLyricsView] = useState<'verse' | 'hook' | 'others'>('verse')
 
   const pathname = usePathname()
 
@@ -167,6 +175,9 @@ export function SiteWideBeatPlayer() {
   useEffect(() => {
     if (!user || !currentBeat) {
       setLyrics("");
+      setVerseLyrics([""]);
+      setHookLyrics("");
+      setOthersLyrics("");
       setOpenSessionId(null);
       if (lyricsTextareaRef.current) {
         lyricsTextareaRef.current.style.height = 'auto';
@@ -178,12 +189,16 @@ export function SiteWideBeatPlayer() {
       if (!user || !currentBeat) return;
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, lyrics')
+        .select('id, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
         .eq('user_id', user.id)
         .contains('beat_ids', [String(currentBeat.id)])
         .single();
-      if (data && data.lyrics) {
-        setLyrics(data.lyrics);
+      if (data) {
+        setLyrics(data.lyrics || "");
+        // Split verse_lyrics by double newlines or fallback to empty
+        setVerseLyrics((data.verse_lyrics || "").split(/\n{2,}/).filter(Boolean).length ? (data.verse_lyrics || "").split(/\n{2,}/) : [""]);
+        setHookLyrics(data.hook_lyrics || "");
+        setOthersLyrics(data.others_lyrics || "");
         setOpenSessionId(data.id || null);
         setTimeout(() => {
           if (lyricsTextareaRef.current) {
@@ -193,6 +208,9 @@ export function SiteWideBeatPlayer() {
         }, 0);
       } else {
         setLyrics("");
+        setVerseLyrics([""]);
+        setHookLyrics("");
+        setOthersLyrics("");
         setOpenSessionId(null);
         if (lyricsTextareaRef.current) {
           lyricsTextareaRef.current.style.height = 'auto';
@@ -629,6 +647,9 @@ export function SiteWideBeatPlayer() {
           name: sessionName || `${currentBeat.title} Session`,
           beat_ids: [String(currentBeat.id)],
           lyrics,
+          verse_lyrics: verseLyrics.join('\n\n'),
+          hook_lyrics: hookLyrics,
+          others_lyrics: othersLyrics,
           last_modified: new Date().toISOString(),
         };
         const { error: updateError } = await supabase
@@ -649,6 +670,9 @@ export function SiteWideBeatPlayer() {
           name: sessionName || `${currentBeat.title} Session`,
           beat_ids: [String(currentBeat.id)],
           lyrics,
+          verse_lyrics: verseLyrics.join('\n\n'),
+          hook_lyrics: hookLyrics,
+          others_lyrics: othersLyrics,
           last_modified: new Date().toISOString(),
         };
         if (existingSession) {
@@ -711,7 +735,7 @@ export function SiteWideBeatPlayer() {
     try {
     const { data, error } = await supabase
       .from('sessions')
-      .select('beat_ids, lyrics')
+      .select('beat_ids, lyrics, verse_lyrics, hook_lyrics, others_lyrics')
       .eq('id', sessionId)
         .eq('user_id', user.id)
       .single();
@@ -747,13 +771,16 @@ export function SiteWideBeatPlayer() {
         setCurrentBeat({
           id: beat.id,
           title: beat.title,
-        artist: producer?.display_name || beat.producer_id,
+          artist: producer?.display_name || beat.producer_id,
           audioUrl: beat.mp3_url,
           image: beat.cover_art_url,
           producers: producer && producer.slug ? [{ display_name: producer.display_name, slug: producer.slug }] : [],
           slug: beat.slug || beat.id.toString(),
         });
         setLyrics(data.lyrics || "");
+        setVerseLyrics(data.verse_lyrics ? data.verse_lyrics.split(/\n{2,}/) : [""]);
+        setHookLyrics(data.hook_lyrics || "");
+        setOthersLyrics(data.others_lyrics || "");
       setOpenSessionId(sessionId);
         toast({
         title: "Session Loaded",
@@ -863,7 +890,6 @@ export function SiteWideBeatPlayer() {
       producerSlug: beat.producerSlug || beat.slug || '',
       producers: beat.producers || [],
       slug: beat.slug || beat.id.toString(),
-      play_count: Number(beat.play_count) || 0,
     } as Beat)
     setFullCurrentBeat(beat)
   }
@@ -946,12 +972,12 @@ export function SiteWideBeatPlayer() {
     try {
       const { error } = await supabase
         .from('beats')
-        .update({ play_count: newCount })
+        .update({ play_count: undefined })
         .eq('id', currentBeat.id)
       
       if (!error) {
         if (currentBeat) {
-          setCurrentBeat({ ...currentBeat, play_count: newCount });
+          setCurrentBeat({ ...currentBeat });
         }
         toast({
           title: "Play Count Updated",
@@ -1001,17 +1027,96 @@ export function SiteWideBeatPlayer() {
     setEditingTitle(false)
   }
 
+  const fetchUserPlaylists = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!user?.id || !accessToken) return;
+      const response = await fetch("/api/playlists", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) throw new Error("Failed to fetch playlists");
+      const playlists = await response.json();
+      setUserPlaylists(playlists);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to load playlists", variant: "destructive" });
+    }
+  };
+
+  const handlePlaylistShuffle = async () => {
+    await fetchUserPlaylists();
+    setShowPlaylistShuffleModal(true);
+  };
+
+  const handleSelectPlaylistToShuffle = async (playlist: any) => {
+    setShowPlaylistShuffleModal(false);
+    // Fetch beats for the playlist
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      const response = await fetch(`/api/playlists/${playlist.id}` , {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) throw new Error("Failed to fetch playlist beats");
+      const playlistData = await response.json();
+      const beats = playlistData.beats || [];
+      if (!beats.length) {
+        toast({ title: "No Beats", description: "This playlist is empty." });
+        return;
+      }
+      // Shuffle beats
+      const mappedBeats = beats.map(mapBeatForPlayer);
+      const shuffled = [...mappedBeats].sort(() => Math.random() - 0.5);
+      setShuffledBeats(shuffled);
+      setCurrentBeatIndex(0);
+      setCurrentBeat(shuffled[0]);
+      setIsShuffle(true);
+      setPlayerMode('full');
+      setIsPlaying(true);
+      toast({ title: "Playlist Shuffle", description: `Shuffling ${beats.length} beats from ${playlist.name}` });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to load playlist beats", variant: "destructive" });
+    }
+  };
+
+  const mapBeatForPlayer = (beat: any) => ({
+    ...beat,
+    audioUrl: beat.mp3_url,
+    artist: beat.producer_display_name || beat.artist || beat.producer_id || '',
+    producerSlug: beat.producer_slug || '',
+    image: beat.cover_art_url,
+  });
+
+  useEffect(() => {
+    if (verseLyrics.length !== 3) {
+      setVerseLyrics([
+        verseLyrics[0] || "",
+        verseLyrics[1] || "",
+        verseLyrics[2] || ""
+      ]);
+    }
+    // eslint-disable-next-line
+  }, [verseLyrics]);
+
   return (
-    <div className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`} style={{willChange: 'opacity, transform'}}>
+    <div
+      className={`fixed bottom-0 left-0 w-full z-50 transition-all duration-300 ${currentBeat ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`}
+      style={{ willChange: 'opacity, transform' }}
+    >
       <Card
         className={`transition-all duration-300 ${
           playerMode === 'full'
-            ? 'max-w-[680px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4 max-h-[90vh] overflow-y-auto'
+            ? lyricsExpanded
+              ? 'max-w-[1000px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4 max-h-[95vh] overflow-y-auto'
+              : 'max-w-[680px] w-full mx-auto left-1/2 -translate-x-1/2 fixed bottom-4 max-h-[90vh] overflow-y-auto'
             : 'w-auto h-16 fixed bottom-4 right-4'
         }`}
         style={{ marginTop: playerMode === 'full' ? undefined : '0' }}
       >
-        <CardContent className={`p-2 pt-0 flex flex-col ${playerMode === 'full' ? "pb-16" : ""}`} style={playerMode === 'full' ? { maxHeight: '80vh', overflowY: 'auto' } : {}}>
+        <CardContent
+          className={`p-2 pt-0 flex flex-col ${playerMode === 'full' ? 'pb-16' : ''}`}
+          style={playerMode === 'full' ? (lyricsExpanded ? { maxHeight: '90vh', overflowY: 'auto' } : { maxHeight: '80vh', overflowY: 'auto' }) : {}}
+        >
           {playerMode === 'full' && (
           <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
             <Button
@@ -1105,7 +1210,7 @@ export function SiteWideBeatPlayer() {
                         {playerMode === 'full' && currentBeat?.id && (
                           <div className="ml-4 flex-shrink-0 flex flex-col items-center justify-center hidden sm:flex">
                             <BeatRating key={currentBeat.id} beatId={currentBeat.id} initialAverageRating={ratingData.averageRating} initialTotalRatings={ratingData.totalRatings} small={true} />
-                            {currentBeat && typeof currentBeat.play_count === 'number' && (
+                            {currentBeat && typeof (currentBeat as any).play_count === 'number' && (
                               user?.role === 'ceo' ? (
                                 editingPlayCount ? (
                                   <div className="flex items-center gap-1 mt-1">
@@ -1128,35 +1233,41 @@ export function SiteWideBeatPlayer() {
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      setEditPlayCountValue(currentBeat.play_count?.toString() || "0")
+                                      setEditPlayCountValue((currentBeat as any).play_count?.toString() || "0")
                                       setEditingPlayCount(true)
                                     }}
                                     className="text-xs text-gray-400 mt-1 hover:text-gray-300 transition-colors"
                                   >
-                                    {currentBeat.play_count} plays
+                                    {(currentBeat as any).play_count ?? 0} plays
                                   </button>
                                 )
                               ) : (
-                                <span className="text-xs text-gray-400 mt-1">{currentBeat.play_count} plays</span>
+                                <span className="text-xs text-gray-400 mt-1">{(currentBeat as any).play_count ?? 0} plays</span>
                               )
                             )}
                           </div>
                         )}
                       </div>
-                      {currentBeat?.producers && (currentBeat?.producers ?? []).length > 0 ? (
+                      {currentBeat && currentBeat.producers && currentBeat.producers.length > 0 ? (
                         <div className="text-sm text-gray-400 text-center sm:text-left w-full">
-                          by {(currentBeat.producers ?? []).map((producer, idx, arr) => (
+                          by {currentBeat.producers.map((producer, idx, arr) => (
                             <span key={producer.slug}>
                               <Link href={`/producers/${producer.slug}`} className="hover:text-primary transition-colors">
                                 {producer.display_name}
                               </Link>
-                              {idx < (arr.length - 1) ? ', ' : ''}
+                              {idx < arr.length - 1 ? ', ' : ''}
                             </span>
                           ))}
                         </div>
+                      ) : currentBeat && currentBeat.producerSlug ? (
+                        <div className="text-sm text-gray-400 text-center sm:text-left w-full">
+                          by <Link href={`/producers/${currentBeat.producerSlug}`} className="hover:text-yellow-400 text-gray-300">
+                            {currentBeat.artist}
+                          </Link>
+                        </div>
                       ) : (
                         <div className="text-sm text-gray-400 text-center sm:text-left w-full">
-                          {currentBeat?.artist || ''}
+                          by <span>{currentBeat?.artist || ''}</span>
                         </div>
                       )}
                     </div>
@@ -1176,6 +1287,9 @@ export function SiteWideBeatPlayer() {
                       <Button size="lg" variant="secondary" onClick={playNextBeat}>
                         <SkipForward className="h-6 w-6" />
                       </Button>
+                      {currentBeat?.id && currentBeat?.title && (
+                        <QuickAddToPlaylistButton beatId={currentBeat.id} beatTitle={currentBeat.title} />
+                      )}
                     </div>
                     <div className="flex items-center justify-center gap-2">
                       <Button size="lg" variant="secondary" onClick={toggleRepeat}>
@@ -1214,6 +1328,12 @@ export function SiteWideBeatPlayer() {
                                 >
                                   <span>Most Recent</span>
                                   {shuffleMode === 'recent' && <Check className="h-4 w-4" />}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={handlePlaylistShuffle}
+                                  className="flex items-center justify-between"
+                                >
+                                  <span>Playlist</span>
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -1289,11 +1409,85 @@ export function SiteWideBeatPlayer() {
                       </div>
                     </div>
                     <div className="relative">
+                      {lyricsExpanded ? (
+                        <div className="flex flex-col gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col">
+                              <h4 className="font-semibold mb-2">Verse</h4>
+                              <div className="flex gap-2 mb-2">
+                                {[0, 1, 2].map(idx => (
+                                  <button
+                                    key={idx}
+                                    className={`px-3 py-1 rounded ${activeVerse === idx ? 'bg-primary text-black font-bold' : 'bg-gray-700 text-white'}`}
+                                    onClick={() => setActiveVerse(idx)}
+                                  >
+                                    {`V${idx + 1}`}
+                                  </button>
+                                ))}
+                              </div>
+                              <Textarea
+                                value={verseLyrics[activeVerse] || ""}
+                                onChange={e => {
+                                  const newVerses = [...verseLyrics];
+                                  newVerses[activeVerse] = e.target.value;
+                                  setVerseLyrics(newVerses);
+                                  setLyrics(`${newVerses.join('\n\n')}\n\n${hookLyrics}\n\n${othersLyrics}`);
+                                }}
+                                placeholder={`Type or paste verse ${activeVerse + 1} lyrics here...`}
+                                className="flex-1 resize-none bg-secondary text-white overflow-y-auto min-h-[300px] md:min-h-[350px] text-base md:text-lg"
+                                style={{
+                                  touchAction: 'pan-y',
+                                  WebkitOverflowScrolling: 'touch',
+                                }}
+                              />
+                            </div>
+                            <div className="flex flex-col">
+                              <h4 className="font-semibold mb-2">Hook</h4>
+                              <Textarea
+                                value={hookLyrics}
+                                onChange={e => {
+                                  const newValue = e.target.value;
+                                  setHookLyrics(newValue);
+                                  setLyrics(`${verseLyrics.join('\n\n')}\n\n${newValue}\n\n${othersLyrics}`);
+                                }}
+                                placeholder="Type or paste hook lyrics here..."
+                                className="flex-1 resize-none bg-secondary text-white overflow-y-auto min-h-[300px] md:min-h-[350px] text-base md:text-lg"
+                                style={{
+                                  touchAction: 'pan-y',
+                                  WebkitOverflowScrolling: 'touch',
+                                }}
+                              />
+                            </div>
+                            <div className="flex flex-col">
+                              <h4 className="font-semibold mb-2">Others</h4>
+                              <Textarea
+                                value={othersLyrics}
+                                onChange={e => {
+                                  const newValue = e.target.value;
+                                  setOthersLyrics(newValue);
+                                  setLyrics(`${verseLyrics.join('\n\n')}\n\n${hookLyrics}\n\n${newValue}`);
+                                }}
+                                placeholder="Type or paste other lyrics here..."
+                                className="flex-1 resize-none bg-secondary text-white overflow-y-auto min-h-[300px] md:min-h-[350px] text-base md:text-lg"
+                                style={{
+                                  touchAction: 'pan-y',
+                                  WebkitOverflowScrolling: 'touch',
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
                       <Textarea
                         ref={lyricsTextareaRef}
                         value={lyrics}
                         onChange={e => {
                           setLyrics(e.target.value);
+                            // Split the lyrics into sections based on double newlines
+                            const sections = e.target.value.split(/\n{2,}/);
+                            setVerseLyrics((sections[0] || "").split(/\n{2,}/).filter(Boolean).length ? (sections[0] || "").split(/\n{2,}/) : [""]);
+                            setHookLyrics(sections[1] || "");
+                            setOthersLyrics(sections[2] || "");
                           if (lyricsTextareaRef.current) {
                             lyricsTextareaRef.current.style.height = 'auto';
                             lyricsTextareaRef.current.style.height = lyricsTextareaRef.current.scrollHeight + 'px';
@@ -1314,6 +1508,7 @@ export function SiteWideBeatPlayer() {
                           WebkitOverflowScrolling: 'touch',
                         }}
                       />
+                      )}
                       {isLyricsFocused && window.innerWidth < 640 && (
                         <button
                           onClick={() => setIsLyricsFocused(false)}
@@ -1524,6 +1719,75 @@ export function SiteWideBeatPlayer() {
           </div>
         </DialogContent>
       </Dialog>
+      {showPlaylistShuffleModal && (
+        <Dialog open={showPlaylistShuffleModal} onOpenChange={setShowPlaylistShuffleModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Select Playlist to Shuffle</DialogTitle>
+            </DialogHeader>
+            <div className="mb-2">
+              <Button
+                className="w-full mb-2"
+                variant="secondary"
+                onClick={async () => {
+                  setShowPlaylistShuffleModal(false);
+                  // Combine all beats from all playlists, remove duplicates
+                  const allBeatIds = Array.from(new Set(userPlaylists.flatMap((pl: any) => (pl.playlist_beats || []).map((pb: any) => pb.beat_id))));
+                  if (!allBeatIds.length) {
+                    toast({ title: "No Beats", description: "You have no beats in any playlist." });
+                    return;
+                  }
+                  // Fetch all beats
+                  const { data: beatsData, error: beatsError } = await supabase
+                    .from("beats")
+                    .select("id, title, mp3_url, cover_art_url, slug, producer_id, genre, bpm, key, price, play_count, average_rating, total_ratings")
+                    .in("id", allBeatIds);
+                  if (beatsError) {
+                    toast({ title: "Error", description: "Failed to load beats.", variant: "destructive" });
+                    return;
+                  }
+                  // Shuffle
+                  const allMappedBeats = beatsData.map(mapBeatForPlayer);
+                  const shuffled = [...allMappedBeats].sort(() => Math.random() - 0.5);
+                  setShuffledBeats(shuffled);
+                  setCurrentBeatIndex(0);
+                  setCurrentBeat(shuffled[0]);
+                  setIsShuffle(true);
+                  setPlayerMode('full');
+                  setIsPlaying(true);
+                  toast({ title: "Playlist Shuffle", description: `Shuffling ${shuffled.length} beats from all playlists` });
+                }}
+              >
+                Play All
+              </Button>
+            </div>
+            <ScrollArea className="h-[200px]">
+              {userPlaylists.length > 0 ? (
+                <div className="space-y-2">
+                  {userPlaylists.map((playlist) => (
+                    <div
+                      key={playlist.id}
+                      className="flex items-center justify-between p-2 rounded-lg bg-secondary hover:bg-secondary/80 cursor-pointer transition"
+                      onClick={() => handleSelectPlaylistToShuffle(playlist)}
+                    >
+                      <div>
+                        <p className="font-medium text-sm">{playlist.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {playlist.beat_count} beats
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground py-8 text-sm">
+                  No playlists found. Create one first!
+                </div>
+              )}
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+      )}
       {shuffleLoading && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
           <Loader className="h-12 w-12 animate-spin text-primary" />
