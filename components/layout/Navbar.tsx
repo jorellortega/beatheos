@@ -14,7 +14,7 @@ export default function Navbar() {
     <nav className="bg-black text-white p-4">
       <div className="container flex items-center space-x-8">
         <Link href="/" className="text-3xl font-bold text-[#FFD700]">
-          BEATHEOS
+          BEATHEOS ��🇽
         </Link>
         <Link href="/" className="text-lg text-white hover:text-[#FFD700]">
           Home
