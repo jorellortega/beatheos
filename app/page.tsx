@@ -130,6 +130,19 @@ export default function Home() {
       <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
         <TopLists />
       </div>
+      <div className="w-full flex justify-center mt-16 mb-8">
+        <Link href="/feed" className="block w-full max-w-xl">
+          <div className="rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-200 shadow-lg p-6 flex flex-col items-center justify-center hover:scale-105 transition-transform cursor-pointer border-2 border-yellow-400">
+            <h2 className="text-2xl font-bold text-black mb-2 flex items-center gap-2">
+              <span role="img" aria-label="community">🌐</span> Join the Community Feed
+            </h2>
+            <p className="text-black text-base mb-3">See what others are posting, share your own updates, and connect with fellow creators!</p>
+            <Button className="bg-black text-yellow-400 font-semibold px-8 py-2 rounded-full text-lg hover:bg-yellow-500 hover:text-black transition-all mt-2">
+              Visit the Feed
+            </Button>
+          </div>
+        </Link>
+      </div>
       <footer className="mt-12 text-center text-sm text-gray-500">
         Developed by JOR Powered by{" "}
         <a

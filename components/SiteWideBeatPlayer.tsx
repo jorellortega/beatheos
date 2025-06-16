@@ -443,17 +443,21 @@ export function SiteWideBeatPlayer() {
 
   const toggleShuffle = async (mode: 'all' | 'high_ratings' | 'recent') => {
     setShuffleMode(mode);
+    // Clear previous state to avoid playing old beats
+    setShuffledBeats([]);
+    setAllBeats([]);
     if (mode === 'all') {
       setIsShuffle(true);
       setShuffleLoading(true);
       try {
         const { data: beats, error } = await supabase
           .from('beats')
-          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count')
+          .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count, created_at')
           .eq('is_draft', false)
           .order('created_at', { ascending: false });
-
         if (error) throw error;
+        // Debug log
+        console.log('[DEBUG] ALL beats:', beats.map(b => ({ id: b.id, created_at: b.created_at })));
         const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
         const { data: producers } = await supabase
           .from('producers')
@@ -516,16 +520,23 @@ export function SiteWideBeatPlayer() {
     try {
       let beatsQuery = supabase
         .from('beats')
-        .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count')
+        .select('id, title, mp3_url, cover_art_url, slug, producer_id, average_rating, total_ratings, play_count, created_at')
         .eq('is_draft', false);
       if (mode === 'high_ratings') {
         beatsQuery = beatsQuery.gte('average_rating', 3);
       } else if (mode === 'recent') {
-        // You can add additional filters for recent if needed
+        // Only include beats from the last 25 days
+        const now = new Date();
+        const twentyFiveDaysAgo = new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000);
+        beatsQuery = beatsQuery.gte('created_at', twentyFiveDaysAgo.toISOString());
         beatsQuery = beatsQuery.order('created_at', { ascending: false });
       }
       const { data: beats, error } = await beatsQuery;
       if (error) throw error;
+      // Debug log
+      if (mode === 'recent') {
+        console.log('[DEBUG] RECENT beats:', beats.map(b => ({ id: b.id, created_at: b.created_at })));
+      }
       const producerIds = Array.from(new Set(beats.map(b => b.producer_id).filter(Boolean)));
       const { data: producers } = await supabase
         .from('producers')

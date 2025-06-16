@@ -94,24 +94,36 @@ const formatDuration = (seconds: number) => {
 // Add AdSense component
 function AdSenseAd() {
   const adRef = useRef(null);
+  const [adLoaded, setAdLoaded] = useState(false);
+
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).adsbygoogle && adRef.current) {
       try {
+        console.log('Initializing AdSense ad...');
         (window as any).adsbygoogle.push({});
-      } catch (e) {}
+        setAdLoaded(true);
+      } catch (e) {
+        console.error('Error loading AdSense ad:', e);
+      }
     }
   }, []);
+
   return (
-    <div className="flex justify-center my-6">
+    <div className="flex justify-center my-6 min-h-[100px] bg-black/20 rounded-lg">
       <ins
         className="adsbygoogle"
-        style={{ display: 'block' }}
+        style={{ display: 'block', minHeight: '100px', width: '100%' }}
         data-ad-client="ca-pub-5771281829620343"
         data-ad-slot="3252632061"
         data-ad-format="auto"
         data-full-width-responsive="true"
         ref={adRef}
       ></ins>
+      {!adLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+          Loading advertisement...
+        </div>
+      )}
     </div>
   );
 }
@@ -160,22 +172,11 @@ export default function FeedPage() {
   useEffect(() => {
     async function fetchPosts() {
       setLoadingPosts(true);
-      // Example: adjust select as needed for your schema
       const { data, error } = await supabase
         .from('posts')
-        .select(`
-          id,
-          content,
-          audio_url,
-          image_url,
-          video_url,
-          beat_id,
-          created_at,
-          user:users!posts_user_id_fkey(id, display_name, avatar_url, role),
-          beat:beats(id, title, cover_art_url, mp3_url, price_lease, price_premium_lease, price_exclusive, price_buyout, producer_id, genre, bpm, key, duration, play_count, likes, purchases, license_type)
-        `)
+        .select('id, content')
         .order('created_at', { ascending: false })
-        .limit(30);
+        .limit(10);
       if (error) {
         setLoadingPosts(false);
         toast({ title: 'Error', description: 'Failed to load feed.' });
@@ -185,48 +186,28 @@ export default function FeedPage() {
       const mapped = (data || []).map((p: any) => ({
         id: p.id,
         user: {
-          id: p.user?.id || '',
-          name: p.user?.display_name || 'Unknown',
-          role: p.user?.role || '',
-          avatar: p.user?.avatar_url || '/placeholder.svg',
+          id: user?.id || '',
+          name: user?.display_name || 'Unknown',
+          role: user?.role || '',
+          avatar: user?.avatar_url || '/placeholder.svg',
         },
         content: p.content,
-        timestamp: p.created_at,
-        audio: p.audio_url || undefined,
-        image: p.image_url || undefined,
-        video: p.video_url || undefined,
+        timestamp: 'Just now',
+        audio: undefined,
+        image: undefined,
+        video: undefined,
         likes: 0, // TODO: fetch like count
         comments: [], // TODO: fetch comments
         isLiked: false, // TODO: fetch like status for current user
         hashtags: extractHashtags(p.content),
         shares: 0, // TODO: fetch share count if tracked
-        beat: p.beat ? {
-          id: p.beat.id,
-          title: p.beat.title,
-          cover_art_url: p.beat.cover_art_url,
-          mp3_url: p.beat.mp3_url,
-          price_lease: p.beat.price_lease,
-          price_premium_lease: p.beat.price_premium_lease,
-          price_exclusive: p.beat.price_exclusive,
-          price_buyout: p.beat.price_buyout,
-          producer_id: p.beat.producer_id,
-          producer_name: '', // TODO: fetch producer name if needed
-          producer_avatar: '', // TODO: fetch producer avatar if needed
-          genre: p.beat.genre,
-          bpm: p.beat.bpm,
-          key: p.beat.key,
-          duration: p.beat.duration,
-          plays: p.beat.play_count,
-          likes: p.beat.likes,
-          purchases: p.beat.purchases,
-          license_type: p.beat.license_type,
-        } : undefined,
+        beat: undefined,
       }));
       setPosts(mapped);
       setLoadingPosts(false);
     }
     fetchPosts();
-  }, []);
+  }, [user?.id]);
 
   // Restore handler functions for UI interactivity
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'audio' | 'image' | 'video') => {
@@ -239,35 +220,37 @@ export default function FeedPage() {
     }
   };
 
-  const handleAddPost = () => {
+  const handleAddPost = async () => {
     if (!newContent && !newAudio && !newImage && !newVideo) return;
-    const hashtags = extractHashtags(newContent);
-    setPosts([
-      {
-        id: Date.now(),
-        user: {
-          id: user?.id || 'current-user',
-          name: user?.display_name || 'You',
-          role: 'Artist',
-          avatar: user?.avatar_url || '/placeholder.svg',
-        },
-        content: newContent,
-        timestamp: 'Just now',
-        audio: newAudio || undefined,
-        image: newImage || undefined,
-        video: newVideo || undefined,
-        likes: 0,
-        comments: [],
-        isLiked: false,
-        hashtags,
-        shares: 0
-      },
-      ...posts,
-    ]);
+    if (!user?.id) {
+      toast({ title: 'Error', description: 'You must be logged in to post.' });
+      return;
+    }
+    setLoadingPosts(true);
+    const { data, error } = await supabase
+      .from('posts')
+      .insert([
+        {
+          user_id: user.id,
+          content: newContent,
+          audio_url: newAudio,
+          image_url: newImage,
+          video_url: newVideo,
+          beat_id: selectedBeatForPost?.id || null,
+        }
+      ]);
+    if (error) {
+      setLoadingPosts(false);
+      toast({ title: 'Error', description: 'Failed to create post.' });
+      return;
+    }
     setNewContent("");
     setNewAudio(null);
     setNewImage(null);
     setNewVideo(null);
+    setSelectedBeatForPost(null);
+    // Re-fetch posts from Supabase
+    fetchPosts();
   };
 
   const handleFollowToggle = (userId: string) => {

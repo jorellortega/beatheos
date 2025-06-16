@@ -7,6 +7,7 @@ import { PlayerProvider } from "@/contexts/PlayerContext"
 import Header from "@/components/header"
 import { SiteWideBeatPlayer } from "@/components/SiteWideBeatPlayer"
 import { Toaster } from "@/components/ui/toaster"
+import Script from "next/script"
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -38,6 +39,26 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script
+          id="adsbygoogle-init"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (adsbygoogle = window.adsbygoogle || []).push({
+                google_ad_client: "ca-pub-5771281829620343",
+                enable_page_level_ads: true
+              });
+            `,
+          }}
+        />
+        <Script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5771281829620343"
+          crossOrigin="anonymous"
+          strategy="afterInteractive"
+        />
+      </head>
       <body className={`${poppins.className} ${poppins.variable} gradient-bg min-h-screen text-white bg-[#141414]`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
           <AuthProvider>

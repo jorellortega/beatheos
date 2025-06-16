@@ -683,8 +683,10 @@ function MyBeatsManager({ userId }: { userId: string }) {
 function TabManager({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
   const searchParams = useSearchParams();
   useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab) setActiveTab(tab);
+    if (searchParams) {
+      const tab = searchParams.get('tab');
+      if (tab) setActiveTab(tab);
+    }
   }, [searchParams, setActiveTab]);
   return null;
 }
@@ -818,6 +820,20 @@ export default function FreeArtistDashboard() {
                 Support & Help
               </Button>
             </Link>
+          </CardContent>
+        </Card>
+        <Card className="bg-black border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Users className="mr-2 h-5 w-5" />
+              Community Feed
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>See what the community is posting and join the conversation.</p>
+            <Button className="mt-4" asChild>
+              <Link href="/feed">Go to Feed</Link>
+            </Button>
           </CardContent>
         </Card>
       </div>

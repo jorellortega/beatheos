@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Music2 } from "lucide-react"
+import { Music2, Users } from "lucide-react"
 
 export default function ProArtistDashboardPage() {
   const { user } = useAuth()
@@ -82,6 +82,23 @@ export default function ProArtistDashboardPage() {
             <Link href="/dashboard/artist/purchases">
               <Button className="w-full gradient-button text-black font-medium hover:text-white">
                 View Purchases
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-primary flex items-center">
+              <Users className="mr-2 h-5 w-5" />
+              Community Feed
+            </CardTitle>
+            <CardDescription>See what the community is posting and join the conversation.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/feed">
+              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                Go to Feed
               </Button>
             </Link>
           </CardContent>

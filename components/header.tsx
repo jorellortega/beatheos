@@ -162,8 +162,8 @@ export default function Header() {
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
-            <Link href="/" className="mr-8">
-              <span className="text-2xl font-bold font-display text-primary">BEATHEOS</span>
+            <Link href="/" className="flex items-center space-x-2">
+              <span className="text-2xl font-bold">BEATHEOS 🇲🇽</span>
             </Link>
           </div>
           

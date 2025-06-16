@@ -31,7 +31,7 @@ function getLicensePrice(beat: any, key: string, jsonKey: string) {
 }
 
 // Memoized BeatCard for performance
-const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void }) {
+const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, onPurchase, user, editingBeatId, editingField, editValue, setEditingBeatId, setEditingField, setEditValue, handleEditInput, handleEditBlur }: { beat: any, isPlaying: boolean, onPlayPause: (beat: any) => void, onPurchase: (beat: any) => void, user: any, editingBeatId: string | null, editingField: 'title' | 'play_count' | null, editValue: string, setEditingBeatId: any, setEditingField: any, setEditValue: any, handleEditInput: any, handleEditBlur: any }) {
   const leasePrice = getLicensePrice(beat, 'price_lease', 'template-lease');
   const premiumLeasePrice = getLicensePrice(beat, 'price_premium_lease', 'template-premium-lease');
   const exclusivePrice = getLicensePrice(beat, 'price_exclusive', 'template-exclusive');
@@ -80,7 +80,31 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
         <div className="mb-2">
           <BeatRating beatId={beat.id} initialAverageRating={beat.average_rating || 0} initialTotalRatings={beat.total_ratings || 0} />
         </div>
-        <p className="text-sm text-gray-500 flex items-center justify-center gap-2">{beat.plays.toLocaleString()} plays</p>
+        <div className="text-sm text-gray-500 flex items-center justify-center gap-2">
+          {editingBeatId === beat.id && editingField === 'play_count' && user?.role === 'ceo' ? (
+            <input
+              type="number"
+              value={editValue}
+              onChange={handleEditInput}
+              onBlur={() => handleEditBlur(beat.id, 'play_count')}
+              className="bg-black text-white border border-primary rounded px-2 py-1 w-20 text-xs"
+              autoFocus
+            />
+          ) : (
+            <span
+              className={user?.role === 'ceo' ? 'cursor-pointer hover:text-yellow-400 transition-colors' : ''}
+              onClick={() => {
+                if (user?.role === 'ceo') {
+                  setEditingBeatId(beat.id);
+                  setEditingField('play_count');
+                  setEditValue(beat.plays.toString());
+                }
+              }}
+            >
+              {beat.plays.toLocaleString()} plays
+            </span>
+          )}
+        </div>
         <div className="flex items-center justify-between mt-4">
           <Button variant="outline" size="icon" onClick={() => onPlayPause(beat)}>
             {isThisPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -98,7 +122,7 @@ const BeatCard = React.memo(function BeatCard({ beat, isPlaying, onPlayPause, on
   );
 }, (prevProps, nextProps) => {
   // Only re-render if beat or isPlaying changes
-  return prevProps.beat === nextProps.beat && prevProps.isPlaying === nextProps.isPlaying;
+  return prevProps.beat === nextProps.beat && prevProps.isPlaying === nextProps.isPlaying && prevProps.editingBeatId === nextProps.editingBeatId && prevProps.editingField === nextProps.editingField && prevProps.editValue === nextProps.editValue;
 });
 
 export default function BeatsPage() {
@@ -493,6 +517,13 @@ export default function BeatsPage() {
   // Save edit to Supabase
   async function saveEdit(beatId: string, field: 'title' | 'play_count', value: string) {
     if (!beatId || !value.trim()) return;
+    // Only allow ceo to edit play_count
+    if (field === 'play_count' && user?.role !== 'ceo') {
+      setEditingBeatId(null);
+      setEditingField(null);
+      setEditValue("");
+      return;
+    }
     const updateObj: any = {};
     updateObj[field] = field === 'play_count' ? Number(value) : value.trim();
     const { error } = await supabase.from('beats').update(updateObj).eq('id', beatId);
@@ -509,6 +540,7 @@ export default function BeatsPage() {
     setEditValue(e.target.value);
   }
   function handleEditKeyDown(e: React.KeyboardEvent<HTMLInputElement>, beatId: string, field: 'title' | 'play_count') {
+    if (field === 'play_count') return;
     if (e.key === 'Enter') {
       saveEdit(beatId, field, editValue);
     } else if (e.key === 'Escape') {
@@ -530,6 +562,15 @@ export default function BeatsPage() {
           isPlaying={currentBeat?.id === beat.id && isPlaying}
           onPlayPause={handlePlayPause}
           onPurchase={handlePurchase}
+          user={user}
+          editingBeatId={editingBeatId}
+          editingField={editingField}
+          editValue={editValue}
+          setEditingBeatId={setEditingBeatId}
+          setEditingField={setEditingField}
+          setEditValue={setEditValue}
+          handleEditInput={handleEditInput}
+          handleEditBlur={handleEditBlur}
         />
       ))}
     </div>
@@ -583,7 +624,31 @@ export default function BeatsPage() {
                   initialTotalRatings={beat.total_ratings || 0}
                 />
               </div>
-              <div className="text-xs text-gray-400 mt-1">{beat.plays.toLocaleString()} plays</div>
+              <div className="text-xs text-gray-400 mt-1">
+                {editingBeatId === beat.id && editingField === 'play_count' && user?.role === 'ceo' ? (
+                  <input
+                    type="number"
+                    value={editValue}
+                    onChange={handleEditInput}
+                    onBlur={() => handleEditBlur(beat.id, 'play_count')}
+                    className="bg-black text-white border border-primary rounded px-2 py-1 w-20 text-xs"
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    className={user?.role === 'ceo' ? 'cursor-pointer hover:text-yellow-400 transition-colors' : ''}
+                    onClick={() => {
+                      if (user?.role === 'ceo') {
+                        setEditingBeatId(beat.id);
+                        setEditingField('play_count');
+                        setEditValue(beat.plays.toString());
+                      }
+                    }}
+                  >
+                    {beat.plays.toLocaleString()} plays
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 ml-4 flex-shrink-0">
@@ -665,7 +730,32 @@ export default function BeatsPage() {
                   compact={true}
                 />
               </div>
-              <p className="text-sm text-gray-500">{beat.plays.toLocaleString()} plays</p>
+              <div className="text-xs text-gray-400 mt-1">
+                {editingBeatId === beat.id && editingField === 'play_count' && user?.role === 'ceo' ? (
+                  <input
+                    type="number"
+                    value={editValue}
+                    onChange={handleEditInput}
+                    onBlur={() => handleEditBlur(beat.id, 'play_count')}
+                    className="bg-black text-white border border-primary rounded px-2 py-1 w-20 text-xs"
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    className={user?.role === 'ceo' ? 'cursor-pointer hover:text-yellow-400 transition-colors' : ''}
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (user?.role === 'ceo') {
+                        setEditingBeatId(beat.id);
+                        setEditingField('play_count');
+                        setEditValue(beat.plays.toString());
+                      }
+                    }}
+                  >
+                    {beat.plays.toLocaleString()} plays
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center space-x-2">

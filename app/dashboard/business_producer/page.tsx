@@ -1260,6 +1260,20 @@ export default function BusinessProducerDashboard() {
                 </CardContent>
               </Card>
             </Link>
+            {/* Community Feed Card */}
+            <Link href="/feed" className="block">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Users className="mr-2 h-5 w-5" />
+                    Community Feed
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>See what the community is posting and join the conversation.</p>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
           {playlistId && (
             <Link href="/playlist/edit" className="block mb-8">

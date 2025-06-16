@@ -102,6 +102,20 @@ export default function AdminDashboard() {
             <Button className="mt-4">Settings</Button>
           </CardContent>
         </Card>
+        <Card className="bg-black border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Users className="mr-2 h-5 w-5" />
+              Community Feed
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>See what the community is posting and join the conversation.</p>
+            <Button className="mt-4" asChild>
+              <Link href="/feed">Go to Feed</Link>
+            </Button>
+          </CardContent>
+        </Card>
         </div>
         {playlistId && (
           <Link href="/playlist/edit" className="block mb-8">
