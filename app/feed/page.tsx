@@ -32,8 +32,8 @@ interface Post {
   user: {
     name: string;
     role: string;
-    avatar: string;
     id: string;
+    avatar: string;
   };
   content: string;
   timestamp: string;
@@ -49,22 +49,20 @@ interface Post {
     id: string;
     title: string;
     cover_art_url: string;
-    mp3_url: string;
-    price_lease: number;
-    price_premium_lease: number;
-    price_exclusive: number;
-    price_buyout: number;
-    producer_id: string;
-    producer_name: string;
-    producer_avatar: string;
-    genre: string;
-    bpm: number;
-    key: string;
-    duration: number;
-    plays: number;
-    likes: number;
-    purchases: number;
-    license_type?: "lease" | "premium_lease" | "exclusive" | "buyout";
+    mp3_url?: string;
+    price_lease?: number;
+    price_premium_lease?: number;
+    price_exclusive?: number;
+    price_buyout?: number;
+    producer_id?: string;
+    genre?: string;
+    bpm?: number;
+    key?: string;
+    duration?: number;
+    plays?: number;
+    likes?: number;
+    purchases?: number;
+    license_type?: string;
   };
 }
 
@@ -73,8 +71,8 @@ interface Comment {
   user: {
     name: string;
     role: string;
-    avatar: string;
     id: string;
+    avatar: string;
   };
   content: string;
   timestamp: string;
@@ -169,7 +167,7 @@ export default function FeedPage() {
       setLoadingPosts(true);
       const { data, error } = await supabase
         .from('posts')
-        .select('id, content')
+        .select(`id, content, beat:beat_id (id, title, cover_art_url, mp3_url, price_lease, price_premium_lease, price_exclusive, price_buyout, producer_id)`)
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) {
@@ -182,9 +180,9 @@ export default function FeedPage() {
         id: p.id,
         user: {
           id: user?.id || '',
-          name: user?.display_name || 'Unknown',
+          name: user?.username || user?.email || 'Unknown',
           role: user?.role || '',
-          avatar: user?.avatar_url || '/placeholder.svg',
+          avatar: ''
         },
         content: p.content,
         timestamp: 'Just now',
@@ -196,7 +194,17 @@ export default function FeedPage() {
         isLiked: false, // TODO: fetch like status for current user
         hashtags: extractHashtags(p.content),
         shares: 0, // TODO: fetch share count if tracked
-        beat: undefined,
+        beat: p.beat ? {
+          id: p.beat.id,
+          title: p.beat.title,
+          cover_art_url: p.beat.cover_art_url,
+          mp3_url: p.beat.mp3_url,
+          price_lease: p.beat.price_lease,
+          price_premium_lease: p.beat.price_premium_lease,
+          price_exclusive: p.beat.price_exclusive,
+          price_buyout: p.beat.price_buyout,
+          producer_id: p.beat.producer_id,
+        } : undefined,
       }));
       setPosts(mapped);
       setLoadingPosts(false);
@@ -216,7 +224,7 @@ export default function FeedPage() {
   };
 
   const handleAddPost = async () => {
-    if (!newContent && !newAudio && !newImage && !newVideo) return;
+    if (!newContent && !newAudio && !newImage && !newVideo && !selectedBeatForPost) return;
     if (!user?.id) {
       toast({ title: 'Error', description: 'You must be logged in to post.' });
       return;
@@ -284,7 +292,7 @@ export default function FeedPage() {
               id: Date.now(),
               user: {
                 id: user?.id || 'current-user',
-                name: user?.display_name || 'You',
+                name: user?.username || user?.email || 'You',
                 role: 'Artist',
                 avatar: user?.avatar_url || '/placeholder.svg',
               },
@@ -348,6 +356,24 @@ export default function FeedPage() {
     } catch (error) {
       console.error('Error sharing:', error);
     }
+  };
+
+  // Delete post handler
+  const handleDeletePost = async (postId: number) => {
+    if (!user?.id) return;
+    setLoadingPosts(true);
+    const { error } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', postId);
+    if (error) {
+      toast({ title: 'Error', description: 'Failed to delete post.' });
+      setLoadingPosts(false);
+      return;
+    }
+    setPosts(posts.filter(post => post.id !== postId));
+    setLoadingPosts(false);
+    toast({ title: 'Success', description: 'Post deleted.' });
   };
 
   return (
@@ -476,7 +502,7 @@ export default function FeedPage() {
                 </label>
               </div>
             )}
-            <Button className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded mt-2" onClick={handleAddPost}>
+            <Button className="bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded mt-2" onClick={handleAddPost} disabled={!newContent && !newAudio && !newImage && !newVideo && !selectedBeatForPost}>
               Post
             </Button>
           </CardContent>
@@ -499,6 +525,17 @@ export default function FeedPage() {
                         onFollowToggle={handleFollowToggle}
                       />
                       <CardDescription className="text-xs text-gray-400">{post.timestamp}</CardDescription>
+                      {/* Show delete button if current user is the post owner */}
+                      {user?.id === post.user.id && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto text-gray-400 opacity-25 hover:opacity-100 hover:text-yellow-400 hover:bg-yellow-100/10 transition-colors"
+                          onClick={() => handleDeletePost(post.id)}
+                        >
+                          Delete
+                        </Button>
+                      )}
                     </CardHeader>
                     <CardContent>
                       <p className="text-base text-white mb-2">
@@ -536,50 +573,67 @@ export default function FeedPage() {
                               <div className="flex items-start justify-between">
                                 <div>
                                   <h3 className="font-semibold text-primary text-lg">{post.beat.title}</h3>
-                                  <Link 
-                                    href={`/producer/${post.beat.producer_id}`}
-                                    className="text-sm text-gray-400 hover:text-primary transition-colors"
-                                  >
-                                    by {post.beat.producer_name}
-                                  </Link>
+                                  {post.beat.producer_id ? (
+                                    <Link 
+                                      href={`/producer/${post.beat.producer_id}`}
+                                      className="text-sm text-gray-400 hover:text-primary transition-colors"
+                                    >
+                                      by {post.beat.producer_id}
+                                    </Link>
+                                  ) : (
+                                    <span className="text-sm text-gray-400">by Unknown</span>
+                                  )}
                                 </div>
-                                <Badge variant="outline" className="text-xs">
-                                  {post.beat.license_type?.replace('_', ' ').toUpperCase()}
-                                </Badge>
+                                {post.beat.license_type && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {post.beat.license_type.replace('_', ' ').toUpperCase()}
+                                  </Badge>
+                                )}
                               </div>
-                              
                               <div className="flex flex-wrap gap-2 mt-2">
-                                <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                                  <Music className="h-3 w-3" />
-                                  {post.beat.genre}
-                                </Badge>
-                                <Badge variant="secondary" className="text-xs">
-                                  {post.beat.bpm} BPM
-                                </Badge>
-                                <Badge variant="secondary" className="text-xs">
-                                  {post.beat.key}
-                                </Badge>
-                                <Badge variant="secondary" className="text-xs flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {formatDuration(post.beat.duration)}
-                                </Badge>
+                                {post.beat.genre && (
+                                  <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                                    <Music className="h-3 w-3" />
+                                    {post.beat.genre}
+                                  </Badge>
+                                )}
+                                {post.beat.bpm && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {post.beat.bpm} BPM
+                                  </Badge>
+                                )}
+                                {post.beat.key && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {post.beat.key}
+                                  </Badge>
+                                )}
+                                {post.beat.duration && (
+                                  <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    {formatDuration(post.beat.duration)}
+                                  </Badge>
+                                )}
                               </div>
-
                               <div className="flex items-center gap-4 mt-3 text-sm text-gray-400">
-                                <div className="flex items-center gap-1">
-                                  <Headphones className="h-4 w-4" />
-                                  {post.beat.plays.toLocaleString()}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Heart className="h-4 w-4" />
-                                  {post.beat.likes.toLocaleString()}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <ShoppingCart className="h-4 w-4" />
-                                  {post.beat.purchases.toLocaleString()}
-                                </div>
+                                {post.beat.plays !== undefined && (
+                                  <div className="flex items-center gap-1">
+                                    <Headphones className="h-4 w-4" />
+                                    {post.beat.plays.toLocaleString()}
+                                  </div>
+                                )}
+                                {post.beat.likes !== undefined && (
+                                  <div className="flex items-center gap-1">
+                                    <Heart className="h-4 w-4" />
+                                    {post.beat.likes.toLocaleString()}
+                                  </div>
+                                )}
+                                {post.beat.purchases !== undefined && (
+                                  <div className="flex items-center gap-1">
+                                    <ShoppingCart className="h-4 w-4" />
+                                    {post.beat.purchases.toLocaleString()}
+                                  </div>
+                                )}
                               </div>
-
                               <div className="flex items-center gap-2 mt-4">
                                 <Button
                                   variant="outline"

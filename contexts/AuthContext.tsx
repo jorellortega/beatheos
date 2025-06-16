@@ -9,6 +9,7 @@ interface User {
   role: string | null
   subscription_tier?: string | null
   subscription_status?: string | null
+  username?: string | null
 }
 
 interface AuthContextType {
@@ -144,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: sessionUser.id,
           email: sessionUser.email ?? null,
           role: userInfo?.role ?? null,
+          username: userInfo?.username ?? null,
           subscription_tier: userInfo?.subscription_tier ?? null,
           subscription_status: userInfo?.subscription_status ?? null,
         });
@@ -231,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: data.user.id,
         email: data.user.email ?? null,
         role: userInfo?.role ?? null,
+        username: userInfo?.username ?? null,
         subscription_tier: userInfo?.subscription_tier ?? null,
         subscription_status: userInfo?.subscription_status ?? null,
       };
@@ -271,6 +274,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: data.user.id ?? '',
         email: data.user.email ?? null,
         role: role,
+        username: username,
         subscription_tier: subscriptionTier,
         subscription_status: subscriptionStatus
       };
