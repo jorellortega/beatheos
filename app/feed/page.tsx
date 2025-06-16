@@ -94,16 +94,16 @@ const formatDuration = (seconds: number) => {
 // Add AdSense component
 function AdSenseAd() {
   const adRef = useRef(null);
-  const [adLoaded, setAdLoaded] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).adsbygoogle && adRef.current) {
       try {
-        console.log('Initializing AdSense ad...');
-        (window as any).adsbygoogle.push({});
-        setAdLoaded(true);
+        // Only push if not already initialized
+        if (!adRef.current.getAttribute('data-adsbygoogle-status')) {
+          (window as any).adsbygoogle.push({});
+        }
       } catch (e) {
-        console.error('Error loading AdSense ad:', e);
+        // Ignore
       }
     }
   }, []);
@@ -119,11 +119,6 @@ function AdSenseAd() {
         data-full-width-responsive="true"
         ref={adRef}
       ></ins>
-      {!adLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-          Loading advertisement...
-        </div>
-      )}
     </div>
   );
 }
