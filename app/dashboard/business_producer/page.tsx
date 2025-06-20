@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -135,6 +135,11 @@ function MyBeatsManager({ userId }: { userId: string }) {
   const [collabLoading, setCollabLoading] = useState<{ [beatId: string]: boolean }>({});
   const [collabError, setCollabError] = useState<{ [beatId: string]: string | null }>({});
   const [search, setSearch] = useState("");
+  const [showVaultKey, setShowVaultKey] = useState(false);
+  const [playlistId, setPlaylistId] = useState<string | null>(null);
+  const [vaultKey, setVaultKey] = useState<string>("");
+  const [vaultKeyLoading, setVaultKeyLoading] = useState(false);
+  const [vaultKeyEdit, setVaultKeyEdit] = useState(false);
 
   useEffect(() => {
     async function fetchBeats() {
@@ -904,6 +909,7 @@ export default function BusinessProducerDashboard() {
   const [vaultKey, setVaultKey] = useState<string>("");
   const [vaultKeyLoading, setVaultKeyLoading] = useState(false);
   const [vaultKeyEdit, setVaultKeyEdit] = useState(false);
+  const [showVaultKey, setShowVaultKey] = useState(false);
   const [playlistId, setPlaylistId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1174,7 +1180,27 @@ export default function BusinessProducerDashboard() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-4">
-                      <Input type="text" value={vaultKey} readOnly className="w-48" />
+                      <div className="relative">
+                        <Input 
+                          type={showVaultKey ? "text" : "password"} 
+                          value={showVaultKey ? vaultKey : "••••••••"} 
+                          readOnly 
+                          className="w-48 pr-10" 
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
+                          onClick={() => setShowVaultKey(!showVaultKey)}
+                        >
+                          {showVaultKey ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
                       <Button variant="outline" onClick={() => setVaultKeyEdit(true)}>
                         Edit
                       </Button>

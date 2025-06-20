@@ -20,6 +20,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@
 import { X } from "lucide-react";
 import React from "react";
 import { createClient } from '@supabase/supabase-js';
+import { formatDistanceToNow } from 'date-fns';
 
 // Add type declaration for window.adsbygoogle
 if (typeof window !== 'undefined') {
@@ -55,6 +56,7 @@ interface Post {
     price_exclusive?: number;
     price_buyout?: number;
     producer_id?: string;
+    producer_name?: string;
     genre?: string;
     bpm?: number;
     key?: string;
@@ -91,7 +93,7 @@ const formatDuration = (seconds: number) => {
 
 // Add AdSense component
 function AdSenseAd() {
-  const adRef = useRef(null);
+  const adRef = useRef<HTMLModElement>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).adsbygoogle && adRef.current) {
@@ -167,10 +169,20 @@ export default function FeedPage() {
       setLoadingPosts(true);
       const { data, error } = await supabase
         .from('posts')
-        .select(`id, content, beat:beat_id (id, title, cover_art_url, mp3_url, price_lease, price_premium_lease, price_exclusive, price_buyout, producer_id)`)
+        .select(`
+          id, 
+          content, 
+          created_at,
+          beat:beat_id (
+            *, 
+            producer:producer_id (id, username)
+          ),
+          user:user_id (id, username, role)
+        `)
         .order('created_at', { ascending: false })
         .limit(10);
       if (error) {
+        console.error("Error fetching posts:", error);
         setLoadingPosts(false);
         toast({ title: 'Error', description: 'Failed to load feed.' });
         return;
@@ -178,14 +190,19 @@ export default function FeedPage() {
       // Map data to Post[]
       const mapped = (data || []).map((p: any) => ({
         id: p.id,
-        user: {
-          id: user?.id || '',
-          name: user?.username || user?.email || 'Unknown',
-          role: user?.role || '',
+        user: p.user ? {
+          id: p.user.id,
+          name: p.user.username || 'Unknown',
+          role: p.user.role || '',
+          avatar: ''
+        } : {
+          id: 'unknown-user',
+          name: 'Unknown User',
+          role: 'user',
           avatar: ''
         },
         content: p.content,
-        timestamp: 'Just now',
+        timestamp: formatDistanceToNow(new Date(p.created_at), { addSuffix: true }),
         audio: undefined,
         image: undefined,
         video: undefined,
@@ -203,10 +220,19 @@ export default function FeedPage() {
           price_premium_lease: p.beat.price_premium_lease,
           price_exclusive: p.beat.price_exclusive,
           price_buyout: p.beat.price_buyout,
-          producer_id: p.beat.producer_id,
+          producer_id: p.beat.producer?.id,
+          producer_name: p.beat.producer?.username,
+          genre: p.beat.genre,
+          bpm: p.beat.bpm,
+          key: p.beat.key,
+          duration: p.beat.duration,
+          plays: p.beat.plays,
+          likes: p.beat.likes,
+          purchases: p.beat.purchases,
+          license_type: p.beat.license_type
         } : undefined,
       }));
-      setPosts(mapped);
+      setPosts(mapped as Post[]);
       setLoadingPosts(false);
     }
     fetchPosts();
@@ -252,8 +278,10 @@ export default function FeedPage() {
     setNewImage(null);
     setNewVideo(null);
     setSelectedBeatForPost(null);
-    // Re-fetch posts from Supabase
-    fetchPosts();
+    setShowBeatSearch(false);
+    // TODO: Optimistically update UI or refetch
+    // For now, we can just log success
+    toast({ title: "Success", description: "Your post has been added." });
   };
 
   const handleFollowToggle = (userId: string) => {
@@ -282,37 +310,17 @@ export default function FeedPage() {
   };
 
   const handleAddComment = (postId: number) => {
-    if (!newComment[postId]) return;
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: [
-            {
-              id: Date.now(),
-              user: {
-                id: user?.id || 'current-user',
-                name: user?.username || user?.email || 'You',
-                role: 'Artist',
-                avatar: user?.avatar_url || '/placeholder.svg',
-              },
-              content: newComment[postId],
-              timestamp: 'Just now'
-            },
-            ...post.comments
-          ]
-        };
-      }
-      return post;
-    }));
+    if (!newComment[postId]?.trim()) return;
+
+    // TODO: Implement optimistic update or refetch
+    console.log(`Adding comment to post ${postId}: ${newComment[postId]}`);
+
+    // Clear the input field for that post
     setNewComment({ ...newComment, [postId]: "" });
   };
 
   const toggleComments = (postId: number) => {
-    setShowComments({
-      ...showComments,
-      [postId]: !showComments[postId]
-    });
+    setShowComments(prev => ({ ...prev, [postId]: !prev[postId] }));
   };
 
   const handlePlayPause = (beat: any) => {
@@ -322,9 +330,9 @@ export default function FeedPage() {
       setCurrentBeat({
         id: beat.id,
         title: beat.title,
-        artist: beat.producer_id,
+        artist: beat.producer_name || 'Unknown Producer',
         audioUrl: beat.mp3_url,
-        image: beat.cover_art_url,
+        image: beat.cover_art_url
       });
       setIsPlaying(true);
     }
@@ -563,33 +571,15 @@ export default function FeedPage() {
                         <div className="mb-4 p-4 bg-zinc-900 rounded-lg">
                           <div className="flex items-start gap-4">
                             <Image
-                              src={post.beat.cover_art_url}
-                              alt={post.beat.title}
-                              width={120}
-                              height={120}
-                              className="rounded-lg object-cover"
+                              src={post.beat.cover_art_url || '/placeholder.jpg'}
+                              alt="Beat Cover"
+                              width={100}
+                              height={100}
+                              className="rounded-md"
                             />
                             <div className="flex-1">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <h3 className="font-semibold text-primary text-lg">{post.beat.title}</h3>
-                                  {post.beat.producer_id ? (
-                                    <Link 
-                                      href={`/producer/${post.beat.producer_id}`}
-                                      className="text-sm text-gray-400 hover:text-primary transition-colors"
-                                    >
-                                      by {post.beat.producer_id}
-                                    </Link>
-                                  ) : (
-                                    <span className="text-sm text-gray-400">by Unknown</span>
-                                  )}
-                                </div>
-                                {post.beat.license_type && (
-                                  <Badge variant="outline" className="text-xs">
-                                    {post.beat.license_type.replace('_', ' ').toUpperCase()}
-                                  </Badge>
-                                )}
-                              </div>
+                              <h3 className="font-bold text-lg text-yellow-400">{post.beat.title}</h3>
+                              <p className="text-sm text-gray-400">by {post.beat.producer_name || 'Unknown Producer'}</p>
                               <div className="flex flex-wrap gap-2 mt-2">
                                 {post.beat.genre && (
                                   <Badge variant="secondary" className="text-xs flex items-center gap-1">
