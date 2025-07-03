@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       title,
       description,
       genre,
-      bpm: parseInt(bpm),
+      bpm: bpm && /^\d+$/.test(bpm) ? parseInt(bpm) : null,
       key,
       tags,
       licensing,

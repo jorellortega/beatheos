@@ -28,6 +28,10 @@ interface BeatUploadForm {
   stemsFile: File | null
   coverArt: File | null
   licensing: Record<string, number>
+  price_lease: string | null
+  price_premium_lease: string | null
+  price_exclusive: string | null
+  price_buyout: string | null
 }
 
 async function uploadFile(file: File, type: 'mp3' | 'wav' | 'stems' | 'cover'): Promise<string> {
@@ -67,7 +71,11 @@ export default function UploadBeatPage() {
     wavFile: null,
     stemsFile: null,
     coverArt: null,
-    licensing: {}
+    licensing: {},
+    price_lease: null,
+    price_premium_lease: null,
+    price_exclusive: null,
+    price_buyout: null
   })
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -96,22 +104,29 @@ export default function UploadBeatPage() {
       const coverArtUrl = form.coverArt ? await uploadFile(form.coverArt, 'cover') : null
 
       // Create beat record
+      const beatPayload = {
+        producer_id: user.id,
+        title: form.title,
+        description: form.description,
+        genre: form.genre,
+        bpm: form.bpm && /^\d+$/.test(form.bpm) ? parseInt(form.bpm) : null,
+        price_lease: form.price_lease && /^\d+(\.\d+)?$/.test(form.price_lease) ? parseFloat(form.price_lease) : null,
+        price_premium_lease: form.price_premium_lease && /^\d+(\.\d+)?$/.test(form.price_premium_lease) ? parseFloat(form.price_premium_lease) : null,
+        price_exclusive: form.price_exclusive && /^\d+(\.\d+)?$/.test(form.price_exclusive) ? parseFloat(form.price_exclusive) : null,
+        price_buyout: form.price_buyout && /^\d+(\.\d+)?$/.test(form.price_buyout) ? parseFloat(form.price_buyout) : null,
+        play_count: null, // always null on insert
+        key: form.key,
+        tags: form.tags,
+        mp3_url: mp3Url,
+        wav_url: wavUrl,
+        stems_url: stemsUrl,
+        cover_art_url: coverArtUrl,
+        is_draft: false
+      };
+      console.log('Beat insert payload:', beatPayload);
       const { data: beat, error: beatError } = await supabase
         .from('beats')
-        .insert({
-          producer_id: user.id,
-          title: form.title,
-          description: form.description,
-          genre: form.genre,
-          bpm: parseInt(form.bpm),
-          key: form.key,
-          tags: form.tags,
-          mp3_url: mp3Url,
-          wav_url: wavUrl,
-          stems_url: stemsUrl,
-          cover_art_url: coverArtUrl,
-          is_draft: false
-        })
+        .insert(beatPayload)
         .select()
         .single()
 
@@ -147,7 +162,11 @@ export default function UploadBeatPage() {
         wavFile: null,
         stemsFile: null,
         coverArt: null,
-        licensing: {}
+        licensing: {},
+        price_lease: null,
+        price_premium_lease: null,
+        price_exclusive: null,
+        price_buyout: null
       })
 
     } catch (error: any) {
