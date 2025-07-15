@@ -70,9 +70,10 @@ export default function Header() {
     { name: "Home", path: "/" },
     { name: "Feed", path: "/feed" },
     { name: "Producers", path: "/producers" },
+    { name: "Artists", path: "/artists" },
     { name: "Beats", path: "/beats" },
     { name: "Subscription", path: "/subscriptionplans" },
-    { name: "Upload Beat", path: "/upload-beat" },
+    ...(user ? [{ name: "Upload Beat", path: "/upload-beat" }] : []),
   ]
 
   // Only include nav items except Beats and Beat Vault for mobile dropdown
@@ -94,9 +95,7 @@ export default function Header() {
         </button>
       </div>
       <nav className="flex flex-col items-center justify-center flex-1 w-full space-y-8">
-      {mobileNavItems
-        .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
-        .map((item) => (
+      {mobileNavItems.map((item) => (
           <Link
             key={item.path}
             href={item.path}
@@ -248,9 +247,7 @@ export default function Header() {
 
         {/* Desktop Navigation Menu */}
         <nav className="hidden md:flex space-x-6">
-          {navItems
-            .filter((item) => !(user?.role === "free_artist" && item.name === "Upload Beat"))
-            .map((item) => (
+          {navItems.map((item) => (
               <Link
                 key={item.path}
                 href={item.path}

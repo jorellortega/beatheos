@@ -1,83 +1,89 @@
-import { Button } from "@/components/ui/button"
-import { Plus, Trash2, Volume2, VolumeX } from 'lucide-react'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-
-interface Track {
-  id: string
-  name: string
-  mute: boolean
-  solo: boolean
-}
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Music, Volume2, VolumeX } from 'lucide-react'
+import { Track } from '@/hooks/useBeatMaker'
 
 interface TrackListProps {
   tracks: Track[]
-  onAddTrack: () => void
-  onRemoveTrack: (id: string) => void
-  onToggleMute: (id: string) => void
-  onToggleSolo: (id: string) => void
+  onTrackAudioSelect: (trackId: number) => void
+  currentStep: number
+  sequencerData: { [trackId: number]: boolean[] }
 }
 
-export function TrackList({ tracks, onAddTrack, onRemoveTrack, onToggleMute, onToggleSolo }: TrackListProps) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData }: TrackListProps) {
   return (
-    <div className="bg-secondary p-4 rounded-lg">
-      <h2 className="text-lg font-semibold mb-4 text-white">Tracks</h2>
-      <ul className="space-y-2">
-        {tracks.map((track) => (
-          <li key={track.id} className="flex items-center justify-between bg-gray-700 p-2 rounded">
-            <span className="text-white truncate">{track.name}</span>
-            <div className="flex space-x-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button onClick={() => onToggleMute(track.id)} variant="ghost" size="sm">
-                      {track.mute ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{track.mute ? 'Unmute' : 'Mute'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+    <Card className="!bg-[#141414] border-gray-700">
+      <CardHeader>
+        <CardTitle className="text-white">Tracks</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {tracks.map((track) => (
+            <div
+              key={track.id}
+              className={`p-3 rounded-lg border transition-colors ${
+                sequencerData[track.id]?.[currentStep] ? 'border-blue-400 bg-blue-900/20' : 'border-gray-700 bg-gray-800'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
+                  <span className="text-white font-medium">{track.name}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {sequencerData[track.id]?.[currentStep] ? (
+                    <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse"></div>
+                  ) : track.mute ? (
+                    <VolumeX className="w-4 h-4 text-gray-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 text-green-400" />
+                  )}
+                </div>
+              </div>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button onClick={() => onToggleSolo(track.id)} variant="ghost" size="sm" className={track.solo ? "bg-primary" : ""}>
-                      S
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{track.solo ? 'Unsolo' : 'Solo'}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {track.audioUrl ? (
+                    <Badge variant="secondary" className="text-xs">
+                      <Music className="w-3 h-3 mr-1" />
+                      Loaded
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs text-gray-400">
+                      No Audio
+                    </Badge>
+                  )}
+                </div>
 
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button onClick={() => onRemoveTrack(track.id)} variant="ghost" size="sm">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Remove Track</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onTrackAudioSelect(track.id)}
+                  className="text-xs"
+                >
+                  {track.audioUrl ? 'Change' : 'Select Audio'}
+                </Button>
+              </div>
+
+              {/* Audio preview if available */}
+              {track.audioUrl && (
+                <div className="mt-2">
+                  <audio
+                    controls
+                    className="w-full h-8"
+                    preload="metadata"
+                  >
+                    <source src={track.audioUrl} type="audio/mpeg" />
+                    Your browser does not support the audio element.
+                  </audio>
+                </div>
+              )}
             </div>
-          </li>
-        ))}
-      </ul>
-      <Button onClick={onAddTrack} className="w-full mt-4">
-        <Plus className="h-4 w-4 mr-2" />
-        Add Track
-      </Button>
-    </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

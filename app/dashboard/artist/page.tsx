@@ -695,6 +695,7 @@ export default function FreeArtistDashboard() {
   const { user } = useAuth()
   const router = useRouter()
   const [playlistId, setPlaylistId] = useState<string | null>(null);
+  const [hasArtistProfile, setHasArtistProfile] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!user || user.role !== "free_artist") {
@@ -727,12 +728,70 @@ export default function FreeArtistDashboard() {
     fetchOrCreatePlaylist();
   }, [user]);
 
+  useEffect(() => {
+    async function checkArtistProfile() {
+      if (!user) return;
+      console.log('Checking artist profile for user:', user.id);
+      const { data, error } = await supabase
+        .from('artists')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      console.log('Artist profile check result:', { data, error, hasProfile: !!data });
+      setHasArtistProfile(!!data);
+    }
+    checkArtistProfile();
+  }, [user]);
+
   if (!user) return null
+
+  console.log('Dashboard state:', { 
+    userId: user?.id, 
+    userRole: user?.role, 
+    hasArtistProfile, 
+    playlistId 
+  });
 
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Artist Dashboard</h1>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
+        {/* Activate Artist Account Card */}
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <User className="mr-2 h-5 w-5" />
+              Artist Account Status
+            </CardTitle>
+            <CardDescription>
+              {hasArtistProfile 
+                ? "Your artist profile is active and ready to use." 
+                : "Set up your public artist profile and start uploading songs."
+              }
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {hasArtistProfile ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-green-400">
+                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                  <span className="font-medium">Artist Account Activated</span>
+                </div>
+                <Link href="/activate-artist">
+                  <Button variant="outline" className="w-full bg-black text-white border border-white font-medium transition-all duration-200 hover:gradient-button hover:text-black hover:border-0">
+                    Manage Profile
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <Link href="/activate-artist">
+                <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
+                  Activate Now
+                </Button>
+              </Link>
+            )}
+          </CardContent>
+        </Card>
         {playlistId && (
           <Link href="/playlist/edit" className="block mb-8">
             <Card className="hover:border-primary transition-all cursor-pointer">
@@ -749,6 +808,23 @@ export default function FreeArtistDashboard() {
             </Card>
           </Link>
         )}
+        {/* Artist Upload Card */}
+        <Link href="/artist-upload" className="block mb-8">
+          <Card className="hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Upload className="mr-2 h-6 w-6 text-primary" />
+                Upload a Song
+              </CardTitle>
+              <CardDescription>Upload new songs to your artist profile and share them with your fans.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
+                Go to Upload
+              </Button>
+            </CardContent>
+          </Card>
+        </Link>
         <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
             <CardTitle>Browse Beats</CardTitle>
@@ -834,6 +910,22 @@ export default function FreeArtistDashboard() {
             <Button className="mt-4" asChild>
               <Link href="/feed">Go to Feed</Link>
             </Button>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <User className="mr-2 h-5 w-5" />
+              Artist Profile
+            </CardTitle>
+            <CardDescription>View and manage your public artist profile page.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href={`/artist/${user?.username?.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-') || 'my-profile'}`}>
+              <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
+                View My Profile
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </div>

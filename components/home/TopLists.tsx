@@ -39,10 +39,12 @@ export function TopLists() {
   const lastClickRef = useRef<{ id: string; time: number } | null>(null)
   const [revealedBeats, setRevealedBeats] = useState<number>(0)
   const [revealedProducers, setRevealedProducers] = useState<number>(0)
+  const [usingFallback, setUsingFallback] = useState(false)
 
   useEffect(() => {
     async function fetchTopLists() {
       setLoading(true)
+      setUsingFallback(false)
       // Fetch top 10 beats from the last 7 days
       const { data: beatsData } = await supabase
         .from('beats')
@@ -52,9 +54,9 @@ export function TopLists() {
         .order('play_count', { ascending: false })
         .limit(10)
 
-      // Fetch producer info for each beat
       let beats: Beat[] = []
-      if (beatsData && beatsData.length > 0) {
+      let useFallback = false
+      if (beatsData && beatsData.length >= 5) {
         // Get all unique producer IDs from both producer_id and producer_ids
         const allProducerIds = Array.from(new Set([
           ...beatsData.map((b: any) => b.producer_id),
@@ -66,14 +68,12 @@ export function TopLists() {
           .select('id, user_id, display_name, image, slug')
           .in('user_id', allProducerIds)
 
-        // Create a map for quick lookup
         const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
           p.user_id,
           { display_name: p.display_name, slug: p.slug, image: p.image }
         ]))
 
         beats = beatsData.map((b: any) => {
-          // Get all producer ids, names, and slugs for this beat
           const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
           const producers = ids.map((id: string) => producerMap[id]).filter(Boolean)
           const producerNames = producers.map((p: any) => p.display_name)
@@ -95,8 +95,57 @@ export function TopLists() {
             audioUrl: b.mp3_url || '',
           }
         })
+      } else {
+        // Fallback: fetch all-time top 10 beats by play count
+        useFallback = true
+        const { data: allTimeData } = await supabase
+          .from('beats')
+          .select('id, slug, title, play_count, cover_art_url, producer_id, producer_ids, created_at, mp3_url')
+          .eq('is_draft', false)
+          .order('play_count', { ascending: false })
+          .limit(10)
+        if (allTimeData && allTimeData.length > 0) {
+          const allProducerIds = Array.from(new Set([
+            ...allTimeData.map((b: any) => b.producer_id),
+            ...allTimeData.flatMap((b: any) => b.producer_ids || [])
+          ].filter(Boolean)))
+
+          const { data: producersData } = await supabase
+            .from('producers')
+            .select('id, user_id, display_name, image, slug')
+            .in('user_id', allProducerIds)
+
+          const producerMap = Object.fromEntries((producersData || []).map((p: any) => [
+            p.user_id,
+            { display_name: p.display_name, slug: p.slug, image: p.image }
+          ]))
+
+          beats = allTimeData.map((b: any) => {
+            const ids = [b.producer_id, ...(b.producer_ids || []).filter((id: string) => id !== b.producer_id)]
+            const producers = ids.map((id: string) => producerMap[id]).filter(Boolean)
+            const producerNames = producers.map((p: any) => p.display_name)
+            const producerSlugs = producers.map((p: any) => p.slug)
+            const producerImages = producers.map((p: any) => p.image)
+
+            return {
+              id: b.id,
+              slug: b.slug,
+              title: b.title,
+              producer_name: producerNames.join(', '),
+              producer_names: producerNames,
+              producer_slugs: producerSlugs,
+              producers: producers,
+              plays: b.play_count || 0,
+              image: b.cover_art_url || '/placeholder.svg',
+              producer_image: producerImages[0] || '/placeholder.svg',
+              producer_slug: producerSlugs[0] || '',
+              audioUrl: b.mp3_url || '',
+            }
+          })
+        }
       }
       setTopBeats(beats)
+      setUsingFallback(useFallback)
       setRevealedBeats(0)
 
       // Fetch top 10 producers this week
@@ -188,7 +237,7 @@ export function TopLists() {
         <CardHeader>
           <CardTitle className="flex items-center text-primary">
             <Flame className="mr-2 h-6 w-6" />
-            Top 10 Beats This Week
+            {usingFallback ? "Top 10 Beats (All-Time)" : "Top 10 Beats This Week"}
           </CardTitle>
         </CardHeader>
         <CardContent>

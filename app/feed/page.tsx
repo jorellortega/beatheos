@@ -187,52 +187,72 @@ export default function FeedPage() {
         toast({ title: 'Error', description: 'Failed to load feed.' });
         return;
       }
-      // Map data to Post[]
-      const mapped = (data || []).map((p: any) => ({
-        id: p.id,
-        user: p.user ? {
-          id: p.user.id,
-          name: p.user.username || 'Unknown',
-          role: p.user.role || '',
-          avatar: ''
-        } : {
-          id: 'unknown-user',
-          name: 'Unknown User',
-          role: 'user',
-          avatar: ''
-        },
-        content: p.content,
-        timestamp: formatDistanceToNow(new Date(p.created_at), { addSuffix: true }),
-        audio: undefined,
-        image: undefined,
-        video: undefined,
-        likes: 0, // TODO: fetch like count
-        comments: [], // TODO: fetch comments
-        isLiked: false, // TODO: fetch like status for current user
-        hashtags: extractHashtags(p.content),
-        shares: 0, // TODO: fetch share count if tracked
-        beat: p.beat ? {
-          id: p.beat.id,
-          title: p.beat.title,
-          cover_art_url: p.beat.cover_art_url,
-          mp3_url: p.beat.mp3_url,
-          price_lease: p.beat.price_lease,
-          price_premium_lease: p.beat.price_premium_lease,
-          price_exclusive: p.beat.price_exclusive,
-          price_buyout: p.beat.price_buyout,
-          producer_id: p.beat.producer?.id,
-          producer_name: p.beat.producer?.username,
-          genre: p.beat.genre,
-          bpm: p.beat.bpm,
-          key: p.beat.key,
-          duration: p.beat.duration,
-          plays: p.beat.plays,
-          likes: p.beat.likes,
-          purchases: p.beat.purchases,
-          license_type: p.beat.license_type
-        } : undefined,
+
+      // Fetch like counts and status for each post
+      const postsWithLikes = await Promise.all((data || []).map(async (p: any) => {
+        let likeCount = 0;
+        let isLiked = false;
+
+        if (user?.id) {
+          try {
+            const likeResponse = await fetch(`/api/posts/${p.id}/like`);
+            if (likeResponse.ok) {
+              const likeData = await likeResponse.json();
+              likeCount = likeData.likeCount;
+              isLiked = likeData.isLiked;
+            }
+          } catch (error) {
+            console.error('Error fetching like data for post:', p.id, error);
+          }
+        }
+
+        return {
+          id: p.id,
+          user: p.user ? {
+            id: p.user.id,
+            name: p.user.username || 'Unknown',
+            role: p.user.role || '',
+            avatar: ''
+          } : {
+            id: 'unknown-user',
+            name: 'Unknown User',
+            role: 'user',
+            avatar: ''
+          },
+          content: p.content,
+          timestamp: formatDistanceToNow(new Date(p.created_at), { addSuffix: true }),
+          audio: undefined,
+          image: undefined,
+          video: undefined,
+          likes: likeCount,
+          comments: [], // TODO: fetch comments
+          isLiked: isLiked,
+          hashtags: extractHashtags(p.content),
+          shares: 0, // TODO: fetch share count if tracked
+          beat: p.beat ? {
+            id: p.beat.id,
+            title: p.beat.title,
+            cover_art_url: p.beat.cover_art_url,
+            mp3_url: p.beat.mp3_url,
+            price_lease: p.beat.price_lease,
+            price_premium_lease: p.beat.price_premium_lease,
+            price_exclusive: p.beat.price_exclusive,
+            price_buyout: p.beat.price_buyout,
+            producer_id: p.beat.producer?.id,
+            producer_name: p.beat.producer?.username,
+            genre: p.beat.genre,
+            bpm: p.beat.bpm,
+            key: p.beat.key,
+            duration: p.beat.duration,
+            plays: p.beat.plays,
+            likes: p.beat.likes,
+            purchases: p.beat.purchases,
+            license_type: p.beat.license_type
+          } : undefined,
+        };
       }));
-      setPosts(mapped as Post[]);
+
+      setPosts(postsWithLikes as Post[]);
       setLoadingPosts(false);
     }
     fetchPosts();
@@ -296,17 +316,41 @@ export default function FeedPage() {
     });
   };
 
-  const handleLike = (postId: number) => {
-    setPosts(posts.map(post => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          likes: post.isLiked ? post.likes - 1 : post.likes + 1,
-          isLiked: !post.isLiked
-        };
+  const handleLike = async (postId: number) => {
+    if (!user?.id) {
+      toast({ title: 'Error', description: 'You must be logged in to like posts.' });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/posts/${postId}/like`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to like post');
       }
-      return post;
-    }));
+
+      const { liked } = await response.json();
+
+      // Update local state
+      setPosts(posts.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            likes: liked ? post.likes + 1 : post.likes - 1,
+            isLiked: liked
+          };
+        }
+        return post;
+      }));
+    } catch (error) {
+      console.error('Error liking post:', error);
+      toast({ title: 'Error', description: 'Failed to like post. Please try again.' });
+    }
   };
 
   const handleAddComment = (postId: number) => {

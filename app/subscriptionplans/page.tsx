@@ -99,7 +99,7 @@ export default function SubscriptionPlansPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
           {tiers.map((tier) => {
-            const isDisabled = tier.name === "Pro Artist" || tier.name === "Premium Producer";
+            const isDisabled = tier.name === "Pro Artist" || tier.name === "Premium Producer" || tier.name === "Business Producer";
             const cardContent = (
               <Card
                 className={`bg-black border-primary hover:border-yellow-400 transition-all relative ${tier.popular ? 'border-2' : ''} ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}

@@ -1,100 +1,83 @@
-import { useRef, useEffect } from 'react'
-
-interface Track {
-  id: string
-  name: string
-  steps: boolean[]
-}
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Track, SequencerData } from '@/hooks/useBeatMaker'
 
 interface SequencerGridProps {
   tracks: Track[]
-  onToggleStep: (trackId: string, stepIndex: number) => void
+  steps: number
+  sequencerData: SequencerData
+  onToggleStep: (trackId: number, stepIndex: number) => void
+  currentStep: number
 }
 
-export function SequencerGrid({ tracks, onToggleStep }: SequencerGridProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const drawGrid = () => {
-      const width = canvas.width
-      const height = canvas.height
-      const numSteps = 16
-      const stepWidth = width / numSteps
-      const trackHeight = height / Math.max(tracks.length, 1)
-
-      ctx.fillStyle = '#1f2937'
-      ctx.fillRect(0, 0, width, height)
-
-      // Draw grid lines
-      ctx.strokeStyle = '#374151'
-      for (let i = 0; i <= numSteps; i++) {
-        ctx.beginPath()
-        ctx.moveTo(i * stepWidth, 0)
-        ctx.lineTo(i * stepWidth, height)
-        ctx.stroke()
-      }
-      for (let i = 0; i <= tracks.length; i++) {
-        ctx.beginPath()
-        ctx.moveTo(0, i * trackHeight)
-        ctx.lineTo(width, i * trackHeight)
-        ctx.stroke()
-      }
-
-      // Draw active steps
-      tracks.forEach((track, trackIndex) => {
-        track.steps.forEach((isActive, stepIndex) => {
-          if (isActive) {
-            ctx.fillStyle = '#10b981'
-            ctx.fillRect(
-              stepIndex * stepWidth,
-              trackIndex * trackHeight,
-              stepWidth,
-              trackHeight
-            )
-          }
-        })
-      })
-
-      // Draw beat markers
-      ctx.fillStyle = '#6b7280'
-      for (let i = 0; i < numSteps; i += 4) {
-        ctx.fillRect(i * stepWidth, 0, 2, height)
-      }
-    }
-
-    drawGrid()
-  }, [tracks])
-
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const x = event.clientX - rect.left
-    const y = event.clientY - rect.top
-
-    const stepIndex = Math.floor((x / canvas.width) * 16)
-    const trackIndex = Math.floor((y / canvas.height) * tracks.length)
-
-    if (trackIndex >= 0 && trackIndex < tracks.length) {
-      onToggleStep(tracks[trackIndex].id, stepIndex)
-    }
-  }
-
+export function SequencerGrid({
+  tracks,
+  steps,
+  sequencerData,
+  onToggleStep,
+  currentStep
+}: SequencerGridProps) {
   return (
-    <canvas
-      ref={canvasRef}
-      width={800}
-      height={400}
-      className="w-full cursor-pointer bg-secondary rounded-lg"
-      onClick={handleCanvasClick}
-    />
+    <Card className="!bg-[#141414] border-gray-700">
+      <CardHeader>
+        <CardTitle className="text-white">Sequencer Grid</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <div className="min-w-max">
+            {/* Header row with step numbers */}
+            <div className="flex mb-2">
+              <div className="w-24 flex-shrink-0"></div> {/* Track name column */}
+              {Array.from({ length: steps }, (_, i) => (
+                <div
+                  key={i}
+                  className={`w-12 h-8 flex items-center justify-center text-xs font-mono border-r border-gray-600 ${
+                    i === currentStep ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300'
+                  }`}
+                >
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+
+            {/* Track rows */}
+            {tracks.map((track) => (
+              <div key={track.id} className="flex mb-1">
+                {/* Track name */}
+                <div className="w-24 flex-shrink-0 flex items-center px-2">
+                  <div className={`w-3 h-3 rounded-full ${track.color} mr-2`}></div>
+                  <span className="text-white text-sm truncate">{track.name}</span>
+                </div>
+
+                {/* Step buttons */}
+                {Array.from({ length: steps }, (_, stepIndex) => {
+                  const isActive = sequencerData[track.id]?.[stepIndex] || false
+                  const isCurrentStep = stepIndex === currentStep
+                  
+                  return (
+                    <Button
+                      key={stepIndex}
+                      variant={isActive ? "default" : "outline"}
+                      size="sm"
+                      className={`w-12 h-8 rounded-none border-r border-gray-600 ${
+                        isActive ? track.color : 'bg-gray-800 hover:bg-gray-700'
+                      } ${
+                        isCurrentStep ? 'ring-2 ring-blue-400' : ''
+                      }`}
+                      onClick={() => onToggleStep(track.id, stepIndex)}
+                    >
+                      {isActive && (
+                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </Button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
