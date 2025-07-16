@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
-import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2 } from 'lucide-react'
+import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Shuffle, Piano } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { useState } from 'react'
 
@@ -256,9 +256,11 @@ interface TrackListProps {
   onDirectAudioDrop?: (trackId: number, file: File) => void
   onTrackTempoChange?: (trackId: number, newBpm: number, originalBpm?: number) => void
   onTrackPitchChange?: (trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => void
+  onShuffleAudio?: (trackId: number) => void
+  onOpenPianoRoll?: (trackId: number) => void
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange }: TrackListProps) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onOpenPianoRoll }: TrackListProps) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [audioDragOverTrack, setAudioDragOverTrack] = useState<number | null>(null)
@@ -418,9 +420,70 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                       No Audio
                     </Badge>
                   )}
+                  
+                  {/* Audio metadata badges */}
+                  {track.audioUrl && (
+                    <div className="flex items-center gap-1">
+                      {track.bpm && (
+                        <Badge variant="outline" className="text-xs">
+                          {track.bpm} BPM
+                        </Badge>
+                      )}
+                      {track.key && (
+                        <Badge variant="outline" className="text-xs">
+                          {track.key}
+                        </Badge>
+                      )}
+                      {track.audio_type && (
+                        <Badge variant="outline" className="text-xs">
+                          {track.audio_type}
+                        </Badge>
+                      )}
+                      {track.tags && track.tags.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          {track.tags.slice(0, 1).map((tag, index) => (
+                            <Badge key={index} variant="secondary" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                          {track.tags.length > 1 && (
+                            <Badge variant="secondary" className="text-xs">
+                              +{track.tags.length - 1}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Shuffle button - only show for specific track types */}
+                  {onShuffleAudio && ['Kick', 'Snare', 'Hi-Hat', 'Sample', 'MIDI'].includes(track.name) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onShuffleAudio(track.id)}
+                      className="text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                      title={`Shuffle ${track.name} samples`}
+                    >
+                      <Shuffle className="w-3 h-3" />
+                    </Button>
+                  )}
+
+                  {/* Piano Roll button - only show for MIDI tracks */}
+                  {onOpenPianoRoll && track.name === 'MIDI' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onOpenPianoRoll(track.id)}
+                      className="text-xs text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
+                      title="Open Piano Roll"
+                    >
+                      <Piano className="w-3 h-3" />
+                    </Button>
+                  )}
+
                   {/* Tempo controls toggle - only show if audio is loaded */}
                   {track.audioUrl && onTrackTempoChange && (
                     <Button

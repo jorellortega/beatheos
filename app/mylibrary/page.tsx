@@ -54,6 +54,10 @@ interface AudioLibraryItem {
   pack_id?: string
   subfolder?: string
   pack?: AudioPack
+  bpm?: number
+  key?: string
+  audio_type?: string
+  tags?: string[]
 }
 
 interface AudioPack {
@@ -95,8 +99,15 @@ export default function MyLibrary() {
   const [profileError, setProfileError] = useState<string | null>(null);
   // Audio Library
   const [audioItems, setAudioItems] = useState<AudioLibraryItem[]>([]);
+  const [allAudioItems, setAllAudioItems] = useState<AudioLibraryItem[]>([]); // For packs view
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  
+  // Pagination for All Files view
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
+  const [totalItems, setTotalItems] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   
   // Audio Packs
   const [audioPacks, setAudioPacks] = useState<AudioPack[]>([]);
@@ -136,6 +147,19 @@ export default function MyLibrary() {
   // Multi-select for moving files
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [showMoveMenu, setShowMoveMenu] = useState(false);
+  
+  // Edit audio file modal
+  const [showEditAudioModal, setShowEditAudioModal] = useState(false);
+  const [editingAudio, setEditingAudio] = useState<AudioLibraryItem | null>(null);
+  const [editAudioForm, setEditAudioForm] = useState({
+    bpm: '',
+    key: '',
+    audio_type: '',
+    description: '',
+    tags: ''
+  });
+  const [savingAudio, setSavingAudio] = useState(false);
+  const [audioEditError, setAudioEditError] = useState<string | null>(null);
   
   // Handle file selection
   const toggleFileSelection = (fileId: string) => {
@@ -296,7 +320,7 @@ export default function MyLibrary() {
         setPlatformProfiles(data || []);
         setLoadingProfiles(false);
       });
-    // Audio Library
+    // Audio Library - Load all items for packs view
     setLoadingAudio(true);
     supabase.from('audio_library_items')
       .select(`
@@ -305,10 +329,26 @@ export default function MyLibrary() {
       `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
+      .then(({ data: allData, error: allError }) => {
+        if (allError) setAudioError(allError.message);
+        setAllAudioItems(allData || []);
+        setLoadingAudio(false);
+      });
+      
+    // Load first page for All Files view
+    supabase.from('audio_library_items')
+      .select(`
+        *,
+        pack:audio_packs(id, name, color)
+      `, { count: 'exact' })
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(0, itemsPerPage - 1)
+      .then(({ data, error, count }) => {
         if (error) setAudioError(error.message);
         setAudioItems(data || []);
-        setLoadingAudio(false);
+        setTotalItems(count || 0);
+        setCurrentPage(1);
       });
       
     // Audio Packs
@@ -523,7 +563,18 @@ export default function MyLibrary() {
 
   const [selectedTab, setSelectedTab] = useState('audio');
   const [showAudioModal, setShowAudioModal] = useState(false);
-  const [newAudio, setNewAudio] = useState({ name: '', type: '', description: '', file_url: '', pack_id: '', subfolder: '' });
+  const [newAudio, setNewAudio] = useState({ 
+    name: '', 
+    type: '', 
+    description: '', 
+    file_url: '', 
+    pack_id: '', 
+    subfolder: '',
+    bpm: '',
+    key: '',
+    audio_type: '',
+    tags: ''
+  });
   const [audioUploading, setAudioUploading] = useState(false);
   const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
   
@@ -573,7 +624,11 @@ export default function MyLibrary() {
       ...newAudio,
       user_id: user.id,
       pack_id: newAudio.pack_id || null,
-      subfolder: newAudio.subfolder || null
+      subfolder: newAudio.subfolder || null,
+      bpm: newAudio.bpm ? parseInt(newAudio.bpm) : null,
+      key: newAudio.key || null,
+      audio_type: newAudio.audio_type || null,
+      tags: newAudio.tags ? newAudio.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null
     };
     const { error } = await supabase.from('audio_library_items').insert([insertData]);
     if (error) {
@@ -581,7 +636,18 @@ export default function MyLibrary() {
       return;
     }
     setShowAudioModal(false);
-    setNewAudio({ name: '', type: '', description: '', file_url: '', pack_id: '', subfolder: '' });
+    setNewAudio({ 
+      name: '', 
+      type: '', 
+      description: '', 
+      file_url: '', 
+      pack_id: '', 
+      subfolder: '',
+      bpm: '',
+      key: '',
+      audio_type: '',
+      tags: ''
+    });
     // Refresh data
     await refreshAudioData();
   }
@@ -677,14 +743,103 @@ export default function MyLibrary() {
     await supabase.from('audio_library_items').delete().eq('id', itemId);
     setAudioItems(audioItems.filter(item => item.id !== itemId));
   }
+  
+  // Handle edit audio file
+  async function handleEditAudio(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingAudio || !user) return;
+    
+    setSavingAudio(true);
+    setAudioEditError(null);
+    
+    const updateData = {
+      bpm: editAudioForm.bpm ? parseInt(editAudioForm.bpm) : null,
+      key: editAudioForm.key || null,
+      audio_type: editAudioForm.audio_type || null,
+      description: editAudioForm.description || null,
+      tags: editAudioForm.tags ? editAudioForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null
+    };
+    
+    const { error } = await supabase
+      .from('audio_library_items')
+      .update(updateData)
+      .eq('id', editingAudio.id);
+    
+    if (error) {
+      setAudioEditError(error.message);
+      setSavingAudio(false);
+      return;
+    }
+    
+    // Update local state
+    const updatedItem: AudioLibraryItem = { 
+      ...editingAudio, 
+      bpm: updateData.bpm || undefined,
+      key: updateData.key || undefined,
+      audio_type: updateData.audio_type || undefined,
+      description: updateData.description || undefined,
+      tags: updateData.tags || undefined
+    };
+    setAudioItems(audioItems.map(item => 
+      item.id === editingAudio.id ? updatedItem : item
+    ));
+    setAllAudioItems(allAudioItems.map(item => 
+      item.id === editingAudio.id ? updatedItem : item
+    ));
+    
+    setShowEditAudioModal(false);
+    setEditingAudio(null);
+    setEditAudioForm({ bpm: '', key: '', audio_type: '', description: '', tags: '' });
+    setSavingAudio(false);
+  }
+  
+  // Open edit modal for audio file
+  function openEditAudioModal(item: AudioLibraryItem) {
+    setEditingAudio(item);
+    setEditAudioForm({
+      bpm: item.bpm?.toString() || '',
+      key: item.key || '',
+      audio_type: item.audio_type || '',
+      description: item.description || '',
+      tags: item.tags ? item.tags.join(', ') : ''
+    });
+    setShowEditAudioModal(true);
+  }
+
+  // Load specific page of audio items
+  async function loadPage(pageNumber: number) {
+    if (!user?.id || loadingMore) return;
+    
+    setLoadingMore(true);
+    const startIndex = (pageNumber - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage - 1;
+    
+    const { data: pageData, error: pageError } = await supabase
+      .from('audio_library_items')
+      .select(`
+        *,
+        pack:audio_packs(id, name, color)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(startIndex, endIndex);
+    
+    if (pageError) {
+      console.error('Error loading page:', pageError);
+      setLoadingMore(false);
+      return;
+    }
+    
+    setAudioItems(pageData || []);
+    setLoadingMore(false);
+  }
 
   // Refresh audio data without page reload
   async function refreshAudioData() {
     if (!user?.id) return;
     
-    // Refresh Audio Library
-    setLoadingAudio(true);
-    const { data: audioData, error: audioError } = await supabase
+    // Refresh all audio items for packs view
+    const { data: allData, error: allError } = await supabase
       .from('audio_library_items')
       .select(`
         *,
@@ -693,8 +848,25 @@ export default function MyLibrary() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     
+    if (allError) setAudioError(allError.message);
+    setAllAudioItems(allData || []);
+    
+    // Refresh Audio Library with pagination
+    setLoadingAudio(true);
+    const { data: audioData, error: audioError, count } = await supabase
+      .from('audio_library_items')
+      .select(`
+        *,
+        pack:audio_packs(id, name, color)
+      `, { count: 'exact' })
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .range(0, itemsPerPage - 1);
+    
     if (audioError) setAudioError(audioError.message);
     setAudioItems(audioData || []);
+    setTotalItems(count || 0);
+    setCurrentPage(1);
     setLoadingAudio(false);
       
     // Refresh Audio Packs
@@ -1310,6 +1482,27 @@ export default function MyLibrary() {
               value={newAudio.type}
               onChange={e => setNewAudio({ ...newAudio, type: e.target.value })}
             />
+            <Input
+              type="number"
+              placeholder="BPM (e.g., 140)"
+              value={newAudio.bpm}
+              onChange={e => setNewAudio({ ...newAudio, bpm: e.target.value })}
+            />
+            <Input
+              placeholder="Key (e.g., C, Am, F#)"
+              value={newAudio.key}
+              onChange={e => setNewAudio({ ...newAudio, key: e.target.value })}
+            />
+            <Input
+              placeholder="Audio Type (e.g., kick, snare, hihat, bass, melody, loop)"
+              value={newAudio.audio_type}
+              onChange={e => setNewAudio({ ...newAudio, audio_type: e.target.value })}
+            />
+            <Input
+              placeholder="Tags (comma-separated, e.g., trap, dark, aggressive, 808)"
+              value={newAudio.tags}
+              onChange={e => setNewAudio({ ...newAudio, tags: e.target.value })}
+            />
             <Textarea
               placeholder="Description"
               value={newAudio.description}
@@ -1683,7 +1876,11 @@ export default function MyLibrary() {
               ) : audioItems.length === 0 ? (
                 <div>No audio files found.</div>
               ) : (
-                audioItems.map(item => (
+                <>
+                  <div className="text-sm text-gray-400 mb-4">
+                    Page {currentPage} of {Math.ceil(totalItems / itemsPerPage)} - Showing {audioItems.length} files
+                  </div>
+                  {audioItems.map(item => (
                   <Card 
                     key={item.id} 
                     className={`p-6 flex items-center gap-6 cursor-move transition-opacity ${
@@ -1705,19 +1902,48 @@ export default function MyLibrary() {
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold">{item.name}</h3>
                   <p className="text-sm text-gray-400 mb-1">{item.description}</p>
-                      <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 capitalize">{item.type}</span>
-                        {item.pack && (
-                          <Badge 
-                            variant="outline" 
-                            style={{ borderColor: item.pack.color, color: item.pack.color }}
-                            className="text-xs"
-                          >
-                            {item.pack.name}
-                            {item.subfolder && ` / ${item.subfolder}`}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-gray-500 capitalize">{item.type}</span>
+                    {item.bpm && (
+                      <Badge variant="secondary" className="text-xs">
+                        {item.bpm} BPM
+                      </Badge>
+                    )}
+                    {item.key && (
+                      <Badge variant="secondary" className="text-xs">
+                        {item.key}
+                      </Badge>
+                    )}
+                    {item.audio_type && (
+                      <Badge variant="outline" className="text-xs">
+                        {item.audio_type}
+                      </Badge>
+                    )}
+                    {item.tags && item.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {item.tags.slice(0, 3).map((tag, index) => (
+                          <Badge key={index} variant="secondary" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                        {item.tags.length > 3 && (
+                          <Badge variant="secondary" className="text-xs">
+                            +{item.tags.length - 3}
                           </Badge>
                         )}
                       </div>
+                    )}
+                    {item.pack && (
+                      <Badge 
+                        variant="outline" 
+                        style={{ borderColor: item.pack.color, color: item.pack.color }}
+                        className="text-xs"
+                      >
+                        {item.pack.name}
+                        {item.subfolder && ` / ${item.subfolder}`}
+                      </Badge>
+                    )}
+                  </div>
                   {item.file_url && (
                         <audio 
                           controls 
@@ -1728,6 +1954,9 @@ export default function MyLibrary() {
                   )}
                 </div>
                 <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                    <Pencil className="h-4 w-4 mr-2" />Edit
+                  </Button>
                   <Button variant="outline" size="sm" asChild>
                   <a href={item.file_url} download>Download</a>
                   </Button>
@@ -1736,7 +1965,83 @@ export default function MyLibrary() {
                       </Button>
                 </div>
               </Card>
-                ))
+                ))}
+                  
+                  {/* Pagination Controls */}
+                  {totalItems > itemsPerPage && (
+                    <div className="flex justify-center items-center gap-2 mt-6">
+                      <Button
+                        onClick={() => {
+                          if (currentPage > 1) {
+                            setCurrentPage(currentPage - 1);
+                            loadPage(currentPage - 1);
+                          }
+                        }}
+                        disabled={currentPage === 1 || loadingMore}
+                        variant="outline"
+                        size="sm"
+                        className="px-3 py-1"
+                      >
+                        ← Previous
+                      </Button>
+                      
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, Math.ceil(totalItems / itemsPerPage)) }, (_, i) => {
+                          const pageNum = i + 1;
+                          return (
+                            <Button
+                              key={pageNum}
+                              onClick={() => {
+                                setCurrentPage(pageNum);
+                                loadPage(pageNum);
+                              }}
+                              variant={currentPage === pageNum ? "default" : "outline"}
+                              size="sm"
+                              className="px-3 py-1 min-w-[40px]"
+                              disabled={loadingMore}
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                        
+                        {Math.ceil(totalItems / itemsPerPage) > 5 && (
+                          <>
+                            <span className="text-gray-400">...</span>
+                            <Button
+                              onClick={() => {
+                                const lastPage = Math.ceil(totalItems / itemsPerPage);
+                                setCurrentPage(lastPage);
+                                loadPage(lastPage);
+                              }}
+                              variant="outline"
+                              size="sm"
+                              className="px-3 py-1"
+                              disabled={loadingMore}
+                            >
+                              {Math.ceil(totalItems / itemsPerPage)}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      
+                      <Button
+                        onClick={() => {
+                          if (currentPage < Math.ceil(totalItems / itemsPerPage)) {
+                            setCurrentPage(currentPage + 1);
+                            loadPage(currentPage + 1);
+                          }
+                        }}
+                        disabled={currentPage >= Math.ceil(totalItems / itemsPerPage) || loadingMore}
+                        variant="outline"
+                        size="sm"
+                        className="px-3 py-1"
+                      >
+                        Next →
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1764,7 +2069,7 @@ export default function MyLibrary() {
                           <h3 className="text-lg font-semibold">{pack.name}</h3>
                           <p className="text-sm text-gray-400">{pack.description}</p>
                           <p className="text-xs text-gray-500">
-                            {audioItems.filter(item => item.pack_id === pack.id).length} items
+                            {allAudioItems.filter(item => item.pack_id === pack.id).length} items
                           </p>
                         </div>
                       </div>
@@ -1863,7 +2168,7 @@ export default function MyLibrary() {
                                           : '#9CA3AF' 
                                       }}
                                     >
-                                      {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length} files
+                                      {allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length} files
                                     </p>
                                   </div>
                                   <Button 
@@ -1880,7 +2185,7 @@ export default function MyLibrary() {
                                 
                                 {expandedSubfolders.has(subfolder.id) && (
                                   <div className="px-3 pb-3 pt-4 space-y-2">
-                                                                          {audioItems
+                                                                          {allAudioItems
                                         .filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)
                                         .map(item => (
                                           <div 
@@ -1904,6 +2209,37 @@ export default function MyLibrary() {
                                           <div className="flex-1">
                                             <h5 className="text-sm font-medium">{item.name}</h5>
                                             <p className="text-xs text-gray-500 capitalize">{item.type}</p>
+                                            <div className="flex items-center gap-1 mt-1">
+                                              {item.bpm && (
+                                                <Badge variant="secondary" className="text-xs">
+                                                  {item.bpm} BPM
+                                                </Badge>
+                                              )}
+                                              {item.key && (
+                                                <Badge variant="secondary" className="text-xs">
+                                                  {item.key}
+                                                </Badge>
+                                              )}
+                                              {item.audio_type && (
+                                                <Badge variant="outline" className="text-xs">
+                                                  {item.audio_type}
+                                                </Badge>
+                                              )}
+                                            </div>
+                                            {item.tags && item.tags.length > 0 && (
+                                              <div className="flex flex-wrap gap-1 mt-1">
+                                                {item.tags.slice(0, 2).map((tag, index) => (
+                                                  <Badge key={index} variant="secondary" className="text-xs">
+                                                    {tag}
+                                                  </Badge>
+                                                ))}
+                                                {item.tags.length > 2 && (
+                                                  <Badge variant="secondary" className="text-xs">
+                                                    +{item.tags.length - 2}
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                            )}
                                                                                          {item.file_url && (
                                                <audio 
                                                  controls 
@@ -1915,6 +2251,9 @@ export default function MyLibrary() {
                                              )}
                                           </div>
                                           <div className="flex gap-1">
+                                            <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                                              <Pencil className="h-3 w-3" />
+                                            </Button>
                                             <Button variant="outline" size="sm" asChild>
                                               <a href={item.file_url} download className="text-xs">⬇️</a>
                                             </Button>
@@ -1928,7 +2267,7 @@ export default function MyLibrary() {
                                           </div>
                                         </div>
                                       ))}
-                                    {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length === 0 && (
+                                    {allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length === 0 && (
                                       <p className="text-center text-gray-400 py-2 text-sm ml-4">No files in this folder yet.</p>
                                     )}
                                   </div>
@@ -1967,7 +2306,7 @@ export default function MyLibrary() {
                             </h4>
                             
                             {/* Selection Controls */}
-                            {audioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length > 0 && (
+                            {allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length > 0 && (
                               <div className="flex items-center gap-2">
                                 {selectedFiles.size > 0 && (
                                   <>
@@ -2011,7 +2350,7 @@ export default function MyLibrary() {
                               </div>
                             )}
                           </div>
-                          {audioItems
+                          {allAudioItems
                             .filter(item => item.pack_id === pack.id && !item.subfolder)
                             .map(item => (
                               <div 
@@ -2042,6 +2381,37 @@ export default function MyLibrary() {
                                 <div className="flex-1">
                                   <h4 className="font-medium">{item.name}</h4>
                                   <p className="text-xs text-gray-500 capitalize">{item.type}</p>
+                                  <div className="flex items-center gap-1 mt-1">
+                                    {item.bpm && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        {item.bpm} BPM
+                                      </Badge>
+                                    )}
+                                    {item.key && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        {item.key}
+                                      </Badge>
+                                    )}
+                                    {item.audio_type && (
+                                      <Badge variant="outline" className="text-xs">
+                                        {item.audio_type}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {item.tags && item.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {item.tags.slice(0, 2).map((tag, index) => (
+                                        <Badge key={index} variant="secondary" className="text-xs">
+                                          {tag}
+                                        </Badge>
+                                      ))}
+                                      {item.tags.length > 2 && (
+                                        <Badge variant="secondary" className="text-xs">
+                                          +{item.tags.length - 2}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )}
                                   {item.file_url && (
                                                                     <audio 
                                   controls 
@@ -2052,6 +2422,9 @@ export default function MyLibrary() {
                               )}
                             </div>
                             <div className="flex gap-1">
+                              <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
                               <Button variant="outline" size="sm" asChild>
                                 <a href={item.file_url} download className="text-xs">Download</a>
                               </Button>
@@ -2065,12 +2438,12 @@ export default function MyLibrary() {
                             </div>
                               </div>
                             ))}
-                          {audioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length === 0 && (
+                          {allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length === 0 && (
                             <p className="text-center text-gray-500 py-2 text-sm">No root files.</p>
                           )}
                         </div>
                         
-                        {audioItems.filter(item => item.pack_id === pack.id).length === 0 && (
+                        {allAudioItems.filter(item => item.pack_id === pack.id).length === 0 && (
                           <p className="text-center text-gray-500 py-4">No files in this pack yet.</p>
                         )}
                       </div>
@@ -2080,7 +2453,7 @@ export default function MyLibrary() {
               )}
               
               {/* Show unpacked files in packs view */}
-              {audioItems.filter(item => !item.pack_id).length > 0 && (
+              {allAudioItems.filter(item => !item.pack_id).length > 0 && (
                 <Card 
                   className={`p-6 transition-colors ${
                     dragOverTarget === 'unpacked' 
@@ -2107,7 +2480,7 @@ export default function MyLibrary() {
                         </h3>
                         <p className="text-sm text-gray-400">Files not organized in any pack</p>
                         <p className="text-xs text-gray-500">
-                          {audioItems.filter(item => !item.pack_id).length} items
+                          {allAudioItems.filter(item => !item.pack_id).length} items
                         </p>
                       </div>
                     </div>
@@ -2122,7 +2495,7 @@ export default function MyLibrary() {
                   
                   {selectedPack === 'unpacked' && (
                     <div className="mt-4 space-y-3 border-t pt-4">
-                                              {audioItems
+                                              {allAudioItems
                           .filter(item => !item.pack_id)
                           .map(item => (
                             <div 
@@ -2146,6 +2519,37 @@ export default function MyLibrary() {
                             <div className="flex-1">
                               <h4 className="font-medium">{item.name}</h4>
                               <p className="text-xs text-gray-500 capitalize">{item.type}</p>
+                              <div className="flex items-center gap-1 mt-1">
+                                {item.bpm && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {item.bpm} BPM
+                                  </Badge>
+                                )}
+                                {item.key && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    {item.key}
+                                  </Badge>
+                                )}
+                                {item.audio_type && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {item.audio_type}
+                                  </Badge>
+                                )}
+                              </div>
+                              {item.tags && item.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {item.tags.slice(0, 2).map((tag, index) => (
+                                    <Badge key={index} variant="secondary" className="text-xs">
+                                      {tag}
+                                    </Badge>
+                                  ))}
+                                  {item.tags.length > 2 && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      +{item.tags.length - 2}
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
                               {item.file_url && (
                                 <audio 
                                   controls 
@@ -2156,6 +2560,9 @@ export default function MyLibrary() {
                               )}
                             </div>
                             <div className="flex gap-1">
+                              <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
                               <Button variant="outline" size="sm" asChild>
                                 <a href={item.file_url} download className="text-xs">Download</a>
                               </Button>
@@ -2186,6 +2593,82 @@ export default function MyLibrary() {
           </div>
         </TabsContent>
       </Tabs>
+      
+      {/* Edit Audio Modal */}
+      <Dialog open={showEditAudioModal} onOpenChange={setShowEditAudioModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Audio File</DialogTitle>
+          </DialogHeader>
+          {editingAudio && (
+            <form onSubmit={handleEditAudio} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">File Name</label>
+                <p className="text-sm text-gray-500">{editingAudio.name}</p>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">BPM</label>
+                <Input
+                  type="number"
+                  placeholder="e.g., 140"
+                  value={editAudioForm.bpm}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, bpm: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Key</label>
+                <Input
+                  placeholder="e.g., C, Am, F#"
+                  value={editAudioForm.key}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, key: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Audio Type</label>
+                <Input
+                  placeholder="e.g., kick, snare, hihat, bass, melody, loop"
+                  value={editAudioForm.audio_type}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, audio_type: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Tags</label>
+                <Input
+                  placeholder="comma-separated, e.g., trap, dark, aggressive, 808"
+                  value={editAudioForm.tags}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, tags: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Description</label>
+                <Textarea
+                  placeholder="Optional description"
+                  value={editAudioForm.description}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, description: e.target.value })}
+                />
+              </div>
+              
+              {audioEditError && (
+                <div className="text-red-500 text-sm">{audioEditError}</div>
+              )}
+              
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button type="submit" disabled={savingAudio}>
+                  {savingAudio ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
       
       {/* Drag Dialog */}
       {showDragDialog && dragDialogInfo && (

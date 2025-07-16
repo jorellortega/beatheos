@@ -18,6 +18,10 @@ interface AudioLibraryItem {
   pack_id?: string
   subfolder?: string
   pack?: AudioPack
+  bpm?: number
+  key?: string
+  audio_type?: string
+  tags?: string[]
   created_at: string
 }
 
@@ -47,7 +51,12 @@ interface AudioSubfolder {
 interface SampleLibraryProps {
   isOpen: boolean
   onClose: () => void
-  onSelectAudio: (audioUrl: string, audioName?: string) => void
+  onSelectAudio: (audioUrl: string, audioName?: string, metadata?: {
+    bpm?: number
+    key?: string
+    audio_type?: string
+    tags?: string[]
+  }) => void
 }
 
 export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryProps) {
@@ -191,9 +200,14 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
     }
   }
 
-  const handleSelectAudio = (fileUrl: string, fileName?: string) => {
+  const handleSelectAudio = (fileUrl: string, fileName?: string, item?: AudioLibraryItem) => {
     handleStopAudio()
-    onSelectAudio(fileUrl, fileName)
+    onSelectAudio(fileUrl, fileName, item ? {
+      bpm: item.bpm,
+      key: item.key,
+      audio_type: item.audio_type,
+      tags: item.tags
+    } : undefined)
   }
 
   const filteredAudioItems = audioItems.filter(item =>
@@ -459,6 +473,21 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                             <Badge variant="outline" className="text-xs capitalize">
                               {item.type}
                             </Badge>
+                            {item.bpm && (
+                              <Badge variant="secondary" className="text-xs">
+                                {item.bpm} BPM
+                              </Badge>
+                            )}
+                            {item.key && (
+                              <Badge variant="secondary" className="text-xs">
+                                {item.key}
+                              </Badge>
+                            )}
+                            {item.audio_type && (
+                              <Badge variant="outline" className="text-xs">
+                                {item.audio_type}
+                              </Badge>
+                            )}
                             {item.pack && (
                               <Badge 
                                 variant="outline" 
@@ -473,11 +502,25 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                               {formatFileSize(item.file_size)}
                             </Badge>
                           </div>
+                          {item.tags && item.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.tags.slice(0, 2).map((tag, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {item.tags.length > 2 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  +{item.tags.length - 2}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       <Button
-                        onClick={() => handleSelectAudio(item.file_url || '', item.name)}
+                        onClick={() => handleSelectAudio(item.file_url || '', item.name, item)}
                         variant="default"
                         size="sm"
                         className="bg-yellow-400 hover:bg-yellow-500 text-black"
@@ -588,10 +631,43 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                                             />
                                             <div className="flex-1 min-w-0">
                                               <p className="text-white text-sm font-medium truncate">{item.name}</p>
-                                              <p className="text-gray-500 text-xs capitalize">{item.type}</p>
+                                              <div className="flex items-center gap-1 mt-1">
+                                                <Badge variant="outline" className="text-xs capitalize">
+                                                  {item.type}
+                                                </Badge>
+                                                {item.bpm && (
+                                                  <Badge variant="secondary" className="text-xs">
+                                                    {item.bpm} BPM
+                                                  </Badge>
+                                                )}
+                                                {item.key && (
+                                                  <Badge variant="secondary" className="text-xs">
+                                                    {item.key}
+                                                  </Badge>
+                                                )}
+                                                {item.audio_type && (
+                                                  <Badge variant="outline" className="text-xs">
+                                                    {item.audio_type}
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                              {item.tags && item.tags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                  {item.tags.slice(0, 1).map((tag, index) => (
+                                                    <Badge key={index} variant="secondary" className="text-xs">
+                                                      {tag}
+                                                    </Badge>
+                                                  ))}
+                                                  {item.tags.length > 1 && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                      +{item.tags.length - 1}
+                                                    </Badge>
+                                                  )}
+                                                </div>
+                                              )}
                                             </div>
                                                                                          <Button
-                                               onClick={() => handleSelectAudio(item.file_url || '', item.name)}
+                                               onClick={() => handleSelectAudio(item.file_url || '', item.name, item)}
                                                variant="default"
                                                size="sm"
                                                className="bg-yellow-400 hover:bg-yellow-500 text-black text-xs"
@@ -653,10 +729,43 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                                    />
                                    <div className="flex-1 min-w-0">
                                      <p className="text-white text-sm font-medium truncate">{item.name}</p>
-                                     <p className="text-gray-500 text-xs capitalize">{item.type}</p>
+                                     <div className="flex items-center gap-1 mt-1">
+                                       <Badge variant="outline" className="text-xs capitalize">
+                                         {item.type}
+                                       </Badge>
+                                       {item.bpm && (
+                                         <Badge variant="secondary" className="text-xs">
+                                           {item.bpm} BPM
+                                         </Badge>
+                                       )}
+                                       {item.key && (
+                                         <Badge variant="secondary" className="text-xs">
+                                           {item.key}
+                                         </Badge>
+                                       )}
+                                       {item.audio_type && (
+                                         <Badge variant="outline" className="text-xs">
+                                           {item.audio_type}
+                                         </Badge>
+                                       )}
+                                     </div>
+                                     {item.tags && item.tags.length > 0 && (
+                                       <div className="flex flex-wrap gap-1 mt-1">
+                                         {item.tags.slice(0, 1).map((tag, index) => (
+                                           <Badge key={index} variant="secondary" className="text-xs">
+                                             {tag}
+                                           </Badge>
+                                         ))}
+                                         {item.tags.length > 1 && (
+                                           <Badge variant="secondary" className="text-xs">
+                                             +{item.tags.length - 1}
+                                           </Badge>
+                                         )}
+                                       </div>
+                                     )}
                                    </div>
                                    <Button
-                                     onClick={() => handleSelectAudio(item.file_url || '', item.name)}
+                                     onClick={() => handleSelectAudio(item.file_url || '', item.name, item)}
                                      variant="default"
                                      size="sm"
                                      className="bg-yellow-400 hover:bg-yellow-500 text-black"
@@ -743,10 +852,43 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                                />
                                <div className="flex-1 min-w-0">
                                  <p className="text-white text-sm font-medium truncate">{item.name}</p>
-                                 <p className="text-gray-500 text-xs capitalize">{item.type}</p>
+                                 <div className="flex items-center gap-1 mt-1">
+                                   <Badge variant="outline" className="text-xs capitalize">
+                                     {item.type}
+                                   </Badge>
+                                   {item.bpm && (
+                                     <Badge variant="secondary" className="text-xs">
+                                       {item.bpm} BPM
+                                     </Badge>
+                                   )}
+                                   {item.key && (
+                                     <Badge variant="secondary" className="text-xs">
+                                       {item.key}
+                                     </Badge>
+                                   )}
+                                   {item.audio_type && (
+                                     <Badge variant="outline" className="text-xs">
+                                       {item.audio_type}
+                                     </Badge>
+                                   )}
+                                 </div>
+                                 {item.tags && item.tags.length > 0 && (
+                                   <div className="flex flex-wrap gap-1 mt-1">
+                                     {item.tags.slice(0, 1).map((tag, index) => (
+                                       <Badge key={index} variant="secondary" className="text-xs">
+                                         {tag}
+                                       </Badge>
+                                     ))}
+                                     {item.tags.length > 1 && (
+                                       <Badge variant="secondary" className="text-xs">
+                                         +{item.tags.length - 1}
+                                       </Badge>
+                                     )}
+                                   </div>
+                                 )}
                                </div>
                                <Button
-                                 onClick={() => handleSelectAudio(item.file_url || '', item.name)}
+                                 onClick={() => handleSelectAudio(item.file_url || '', item.name, item)}
                                  variant="default"
                                  size="sm"
                                  className="bg-yellow-400 hover:bg-yellow-500 text-black"

@@ -17,6 +17,21 @@ export interface Track {
   originalKey?: string // The original key of the sample (e.g., "C", "C#", "D")
   currentKey?: string  // The current key the sample should play at
   pitchShift?: number  // The pitch shift in semitones (-12 to +12)
+  // Audio metadata from library
+  bpm?: number
+  key?: string
+  audio_type?: string
+  tags?: string[]
+  // MIDI properties
+  midiNotes?: MidiNote[]
+}
+
+export interface MidiNote {
+  id: string
+  note: string
+  startStep: number
+  duration: number
+  velocity: number
 }
 
 export interface SequencerData {
@@ -151,6 +166,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       const shouldPlay = sequencerData[track.id]?.[step]
       const validAudio = track.audioUrl && track.audioUrl !== 'undefined'
       console.log(`[DEBUG] Step ${step} - Track ${track.name} (id: ${track.id}): shouldPlay=${shouldPlay}, playerLoaded=${player?.loaded}, audioUrl=${track.audioUrl}`)
+      
+      // Handle audio samples
       if (
         shouldPlay &&
         player &&
@@ -181,6 +198,16 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
           // Remove from playing samples if there was an error
           playingSamplesRef.current.delete(player)
         }
+      }
+      
+      // Handle MIDI notes
+      if (track.name === 'MIDI' && track.midiNotes && track.midiNotes.length > 0) {
+        const notesAtStep = track.midiNotes.filter(note => note.startStep === step)
+        notesAtStep.forEach(note => {
+          console.log(`[DEBUG] Playing MIDI note: ${note.note} at step ${step}`)
+          // Here we'll trigger the MIDI note - we'll implement this in the main component
+          // where we have access to the synthesizers
+        })
       }
     })
   }, [tracks, sequencerData])

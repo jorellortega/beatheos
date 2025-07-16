@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc } fr
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
+import { PianoRoll } from '@/components/beat-maker/PianoRoll'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -24,10 +25,20 @@ export default function BeatMakerPage() {
     { id: 2, name: 'Snare', audioUrl: null, color: 'bg-blue-500' },
     { id: 3, name: 'Hi-Hat', audioUrl: null, color: 'bg-green-500' },
     { id: 4, name: 'Sample', audioUrl: null, color: 'bg-purple-500' },
+    { id: 5, name: 'MIDI', audioUrl: null, color: 'bg-orange-500' },
   ])
   const [steps, setSteps] = useState(16)
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
+  const [showPianoRoll, setShowPianoRoll] = useState(false)
+  const [pianoRollTrack, setPianoRollTrack] = useState<number | null>(null)
+  
+  // MIDI synthesizers
+  const [midiSoundType, setMidiSoundType] = useState<'piano' | 'synth' | 'bass'>('piano')
+  const [midiVolume, setMidiVolume] = useState(0.7)
+  const pianoSynthRef = useRef<any>(null)
+  const synthRef = useRef<any>(null)
+  const bassSynthRef = useRef<any>(null)
   
   // Audio level state for VU meters
   const [audioLevels, setAudioLevels] = useState<{[trackId: number]: number}>({})
@@ -37,6 +48,84 @@ export default function BeatMakerPage() {
 
   // Helper to check if any track has a valid audio file
   const hasLoadedAudio = tracks.some(track => track.audioUrl && track.audioUrl !== 'undefined')
+
+  // Initialize MIDI synthesizers
+  useEffect(() => {
+    const initMidiSynthesizers = async () => {
+      try {
+        const Tone = await import('tone')
+        
+        // Piano synthesizer (sampled piano)
+        pianoSynthRef.current = new Tone.Sampler({
+          urls: {
+            "C4": "C4.mp3",
+            "D#4": "Ds4.mp3", 
+            "F#4": "Fs4.mp3",
+          },
+          baseUrl: "https://tonejs.github.io/audio/salamander/",
+        }).toDestination()
+        
+        // Simple synth
+        synthRef.current = new Tone.Synth({
+          oscillator: {
+            type: "square"
+          },
+          envelope: {
+            attack: 0.1,
+            decay: 0.2,
+            sustain: 0.3,
+            release: 1
+          }
+        }).toDestination()
+        
+        // Bass synth
+        bassSynthRef.current = new Tone.MonoSynth({
+          oscillator: {
+            type: "sawtooth"
+          },
+          envelope: {
+            attack: 0.1,
+            decay: 0.2,
+            sustain: 0.4,
+            release: 0.8
+          },
+          filterEnvelope: {
+            attack: 0.001,
+            decay: 0.1,
+            sustain: 0.3,
+            release: 0.1,
+            baseFrequency: 200,
+            octaves: 2.6
+          }
+        }).toDestination()
+        
+        // Set initial volumes
+        pianoSynthRef.current.volume.value = Tone.gainToDb(midiVolume)
+        synthRef.current.volume.value = Tone.gainToDb(midiVolume)
+        bassSynthRef.current.volume.value = Tone.gainToDb(midiVolume)
+        
+      } catch (error) {
+        console.error('Failed to initialize MIDI synthesizers:', error)
+      }
+    }
+    
+    initMidiSynthesizers()
+  }, [midiVolume])
+
+  // MIDI note playback function
+  const playMidiNote = (note: string) => {
+    try {
+      let synth = pianoSynthRef.current
+      if (midiSoundType === 'synth') synth = synthRef.current
+      if (midiSoundType === 'bass') synth = bassSynthRef.current
+      
+      if (synth) {
+        synth.triggerAttackRelease(note, "8n")
+      }
+    } catch (error) {
+      console.error('Failed to play MIDI note:', error)
+    }
+  }
 
   // Helper to ensure we always use a public URL
   const getPublicAudioUrl = (audioUrlOrPath: string) => {
@@ -58,6 +147,22 @@ export default function BeatMakerPage() {
     updateTrackTempo,
     updateTrackPitch
   } = useBeatMaker(tracks, steps, bpm)
+
+  // Custom playStep function that includes MIDI playback
+  const customPlayStep = useCallback((step: number) => {
+    tracks.forEach(track => {
+      const shouldPlay = sequencerData[track.id]?.[step]
+      
+      // Handle MIDI notes
+      if (track.name === 'MIDI' && track.midiNotes && track.midiNotes.length > 0 && shouldPlay) {
+        const notesAtStep = track.midiNotes.filter(note => note.startStep === step)
+        notesAtStep.forEach(note => {
+          console.log(`[DEBUG] Playing MIDI note: ${note.note} at step ${step}`)
+          playMidiNote(note.note)
+        })
+      }
+    })
+  }, [tracks, sequencerData, playMidiNote])
 
   // Sync state with the hook
   useEffect(() => {
@@ -592,21 +697,31 @@ export default function BeatMakerPage() {
     setCurrentStep(0)
   }
 
-  const handleTrackAudioSelect = (trackId: number, audioUrlOrPath: string, audioName?: string) => {
+  const handleTrackAudioSelect = (trackId: number, audioUrlOrPath: string, audioName?: string, metadata?: {
+    bpm?: number
+    key?: string
+    audio_type?: string
+    tags?: string[]
+  }) => {
     const publicUrl = getPublicAudioUrl(audioUrlOrPath)
     setTracks(prev => prev.map(track => 
       track.id === trackId ? { 
         ...track, 
         audioUrl: publicUrl,
         audioName: audioName || null,
-        // Initialize tempo properties with default values
-        originalBpm: 120, // Default BPM, could be auto-detected in the future
-        currentBpm: 120,
+        // Initialize tempo properties with default values or use metadata
+        originalBpm: metadata?.bpm || 120, // Use metadata BPM if available
+        currentBpm: metadata?.bpm || 120,
         playbackRate: 1.0,
-        // Initialize pitch properties with default values
-        originalKey: 'C', // Default key
-        currentKey: 'C',
-        pitchShift: 0
+        // Initialize pitch properties with default values or use metadata
+        originalKey: metadata?.key || 'C', // Use metadata key if available
+        currentKey: metadata?.key || 'C',
+        pitchShift: 0,
+        // Store metadata
+        bpm: metadata?.bpm,
+        key: metadata?.key,
+        audio_type: metadata?.audio_type,
+        tags: metadata?.tags
       } : track
     ))
     setShowSampleLibrary(false)
@@ -616,6 +731,17 @@ export default function BeatMakerPage() {
   const handleOpenSampleLibrary = (trackId: number) => {
     setSelectedTrack(trackId)
     setShowSampleLibrary(true)
+  }
+
+  const handleOpenPianoRoll = (trackId: number) => {
+    setPianoRollTrack(trackId)
+    setShowPianoRoll(true)
+  }
+
+  const handlePianoRollNotesChange = (trackId: number, notes: any[]) => {
+    setTracks(prev => prev.map(track => 
+      track.id === trackId ? { ...track, midiNotes: notes } : track
+    ))
   }
 
   const handleTrackTempoChange = (trackId: number, newBpm: number, originalBpm?: number) => {
@@ -720,6 +846,110 @@ export default function BeatMakerPage() {
   // Function to reorder tracks
   const reorderTracks = (newOrder: Track[]) => {
     setTracks(newOrder)
+  }
+
+  // Function to shuffle audio files by type
+  const handleShuffleAudio = async (trackId: number) => {
+    try {
+      const track = tracks.find(t => t.id === trackId)
+      if (!track) return
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to shuffle audio files')
+        return
+      }
+
+      // Map track names to audio types for filtering
+      const trackTypeMap: { [key: string]: string } = {
+        'Kick': 'kick',
+        'Snare': 'snare', 
+        'Hi-Hat': 'hi-hat',
+        'Sample': 'sample',
+        'MIDI': 'midi'
+      }
+
+      const audioType = trackTypeMap[track.name]
+      if (!audioType) {
+        alert('Shuffle not available for this track type')
+        return
+      }
+
+      // Fetch audio files of the specific type - try multiple approaches
+      let audioFiles: any[] = []
+      
+      // First try to get files by audio_type
+      const { data: typeFiles, error: typeError } = await supabase
+        .from('audio_library_items')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('audio_type', audioType)
+      
+      if (typeFiles) {
+        audioFiles = [...audioFiles, ...typeFiles]
+      }
+      
+      // Then try to get files by name containing the type
+      const { data: nameFiles, error: nameError } = await supabase
+        .from('audio_library_items')
+        .select('*')
+        .eq('user_id', user.id)
+        .ilike('name', `%${audioType}%`)
+      
+      if (nameFiles) {
+        audioFiles = [...audioFiles, ...nameFiles]
+      }
+      
+      // Remove duplicates based on id
+      audioFiles = audioFiles.filter((file, index, self) => 
+        index === self.findIndex(f => f.id === file.id)
+      )
+      
+      const error = typeError || nameError
+
+      if (error) {
+        console.error('Error fetching audio files:', error)
+        alert('Failed to fetch audio files')
+        return
+      }
+
+      if (!audioFiles || audioFiles.length === 0) {
+        alert(`No ${audioType} audio files found in your library`)
+        return
+      }
+
+      // Randomly select one audio file
+      const randomIndex = Math.floor(Math.random() * audioFiles.length)
+      const selectedAudio = audioFiles[randomIndex]
+
+      // Update the track with the new audio
+      const publicUrl = getPublicAudioUrl(selectedAudio.file_url || '')
+      setTracks(prev => prev.map(t => 
+        t.id === trackId ? { 
+          ...t, 
+          audioUrl: publicUrl,
+          audioName: selectedAudio.name,
+          // Initialize tempo properties with default values or use metadata
+          originalBpm: selectedAudio.bpm || 120,
+          currentBpm: selectedAudio.bpm || 120,
+          playbackRate: 1.0,
+          // Initialize pitch properties with default values or use metadata
+          originalKey: selectedAudio.key || 'C',
+          currentKey: selectedAudio.key || 'C',
+          pitchShift: 0,
+          // Store metadata
+          bpm: selectedAudio.bpm,
+          key: selectedAudio.key,
+          audio_type: selectedAudio.audio_type,
+          tags: selectedAudio.tags
+        } : t
+      ))
+
+    } catch (error) {
+      console.error('Error shuffling audio:', error)
+      alert('Failed to shuffle audio')
+    }
   }
 
   // Function to handle direct audio file drop on tracks
@@ -914,6 +1144,30 @@ export default function BeatMakerPage() {
                 />
               </div>
             </div>
+            
+            {/* MIDI Controls */}
+            <div className="flex items-center gap-2">
+              <span className="text-white text-sm">MIDI:</span>
+              <select
+                value={midiSoundType}
+                onChange={(e) => setMidiSoundType(e.target.value as 'piano' | 'synth' | 'bass')}
+                className="bg-[#1a1a1a] border border-gray-600 rounded px-2 py-1 text-xs text-white"
+              >
+                <option value="piano">Piano</option>
+                <option value="synth">Synth</option>
+                <option value="bass">Bass</option>
+              </select>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={midiVolume}
+                onChange={(e) => setMidiVolume(parseFloat(e.target.value))}
+                className="w-16"
+              />
+              <span className="text-white text-xs">{Math.round(midiVolume * 100)}%</span>
+            </div>
 
             <div className="flex items-center gap-2">
               <span className="text-white text-sm">Steps:</span>
@@ -984,6 +1238,8 @@ export default function BeatMakerPage() {
             onDirectAudioDrop={handleDirectAudioDrop}
             onTrackTempoChange={handleTrackTempoChange}
             onTrackPitchChange={handleTrackPitchChange}
+            onShuffleAudio={handleShuffleAudio}
+            onOpenPianoRoll={handleOpenPianoRoll}
           />
         </div>
 
@@ -1004,7 +1260,19 @@ export default function BeatMakerPage() {
         <SampleLibrary
           isOpen={showSampleLibrary}
           onClose={() => setShowSampleLibrary(false)}
-          onSelectAudio={(audioUrl, audioName) => handleTrackAudioSelect(selectedTrack, audioUrl, audioName)}
+          onSelectAudio={(audioUrl, audioName, metadata) => handleTrackAudioSelect(selectedTrack, audioUrl, audioName, metadata)}
+        />
+      )}
+
+      {/* Piano Roll Modal */}
+      {showPianoRoll && pianoRollTrack && (
+        <PianoRoll
+          isOpen={showPianoRoll}
+          onClose={() => setShowPianoRoll(false)}
+          steps={steps}
+          bpm={bpm}
+          onNotesChange={(notes) => handlePianoRollNotesChange(pianoRollTrack, notes)}
+          initialNotes={tracks.find(t => t.id === pianoRollTrack)?.midiNotes || []}
         />
       )}
         </TabsContent>
