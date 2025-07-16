@@ -428,6 +428,25 @@ export function SiteWideBeatPlayer() {
 
   const togglePlay = () => setIsPlaying(!isPlaying)
 
+  // Add keyboard shortcut handling with proper focus detection
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const isTyping = event.target instanceof HTMLInputElement ||
+                      event.target instanceof HTMLTextAreaElement ||
+                      (event.target instanceof HTMLElement && event.target.contentEditable === 'true')
+
+      // Only handle spacebar if not typing and has a current beat
+      if (event.code === 'Space' && !isTyping && currentBeat) {
+        event.preventDefault()
+        togglePlay()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [currentBeat, isPlaying])
+
   const handleVolumeChange = (newVolume: number[]) => {
     setVolume(newVolume[0])
   }

@@ -1,17 +1,18 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '@/lib/supabaseClient'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
-import { Play, Square, RotateCcw, Settings, Save, Upload } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { supabase } from '@/lib/supabaseClient'
 
 export default function BeatMakerPage() {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -26,6 +27,12 @@ export default function BeatMakerPage() {
   const [steps, setSteps] = useState(16)
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
+  
+  // Audio level state for VU meters
+  const [audioLevels, setAudioLevels] = useState<{[trackId: number]: number}>({})
+  const [peakLevels, setPeakLevels] = useState<{[trackId: number]: number}>({})
+  const [masterLevel, setMasterLevel] = useState(0)
+  const [masterPeak, setMasterPeak] = useState(0)
 
   // Helper to check if any track has a valid audio file
   const hasLoadedAudio = tracks.some(track => track.audioUrl && track.audioUrl !== 'undefined')
@@ -55,6 +62,514 @@ export default function BeatMakerPage() {
     setCurrentStep(sequencerCurrentStep)
   }, [isSequencePlaying, sequencerCurrentStep])
 
+  // Song arrangement state (after useBeatMaker hook)
+  const [savedPatterns, setSavedPatterns] = useState<{id: string, name: string, tracks: Track[], sequencerData: any, bpm: number, steps: number}[]>([])
+  const [activeTab, setActiveTab] = useState('sequencer')
+  const [lastLoadedPattern, setLastLoadedPattern] = useState<string | null>(null)
+  const [showPatternDetails, setShowPatternDetails] = useState(true)
+  
+  // Mixer state for each track
+  const [mixerSettings, setMixerSettings] = useState<{[trackId: number]: {
+    volume: number, 
+    pan: number, 
+    mute: boolean, 
+    solo: boolean,
+    eq: { low: number, mid: number, high: number },
+    effects: { reverb: number, delay: number }
+  }}>({})
+
+  // Initialize mixer settings for tracks
+  useEffect(() => {
+    tracks.forEach(track => {
+      if (!mixerSettings[track.id]) {
+        setMixerSettings(prev => ({
+          ...prev,
+          [track.id]: {
+            volume: 0.7,
+            pan: 0,
+            mute: false,
+            solo: false,
+            eq: { low: 0, mid: 0, high: 0 },
+            effects: { reverb: 0, delay: 0 }
+          }
+        }))
+      }
+    })
+  }, [tracks, mixerSettings])
+
+  // Initialize song arrangement for each track (32 bars)
+  useEffect(() => {
+    // This effect is no longer needed as song playback is automatic
+    // setSongArrangement(prev => {
+    //   const newArrangement = { ...prev }
+    //   let hasChanges = false
+      
+    //   tracks.forEach(track => {
+    //     if (!newArrangement[track.id]) {
+    //       newArrangement[track.id] = new Array(32).fill(false)
+    //       hasChanges = true
+    //     }
+    //   })
+      
+    //   if (hasChanges) {
+    //     return newArrangement
+    //   }
+      
+    //   return prev
+    // })
+  }, [tracks.length]) // Only depend on tracks length to avoid unnecessary re-runs
+
+  // Toggle a track's pattern on/off for a specific bar
+  const toggleTrackAtBar = (trackId: number, barPosition: number) => {
+    // This function is no longer needed as song playback is automatic
+    // setSongArrangement(prev => {
+    //   const newArrangement = {
+    //     ...prev,
+    //     [trackId]: prev[trackId]?.map((isActive, index) => 
+    //       index === barPosition ? !isActive : isActive
+    //     ) || new Array(32).fill(false).map((_, index) => index === barPosition)
+    //   }
+    //   return newArrangement
+    // })
+  }
+
+  // Clear all arrangements
+  const clearAllArrangements = () => {
+    // This function is no longer needed as song playback is automatic
+    // setSongArrangement(prev => {
+    //   const cleared: {[trackId: number]: boolean[]} = {}
+    //   tracks.forEach(track => {
+    //     cleared[track.id] = new Array(32).fill(false)
+    //   })
+    //   return cleared
+    // })
+  }
+
+  // Song playback state
+  const [songPlayback, setSongPlayback] = useState({
+    isPlaying: false,
+    currentBar: 0
+  })
+  const songPlaybackRef = useRef<{
+    intervalId: NodeJS.Timeout | null
+    stepIntervalId: NodeJS.Timeout | null
+    currentStep: number
+    players: {[trackId: number]: any}
+  }>({
+    intervalId: null,
+    stepIntervalId: null,
+    currentStep: 0,
+    players: {}
+  })
+
+  // Initialize song players separately from sequencer
+  useEffect(() => {
+    const initializeSongPlayers = async () => {
+      // Clean up existing song players
+      Object.values(songPlaybackRef.current.players).forEach(player => {
+        try {
+          if (player.state === 'started') {
+            player.stop()
+          }
+          player.dispose()
+        } catch (error) {
+          console.warn('[SONG] Error disposing player:', error)
+        }
+      })
+      songPlaybackRef.current.players = {}
+
+      // Create separate players for song playback
+      for (const track of tracks) {
+        if (track.audioUrl && track.audioUrl !== 'undefined') {
+          try {
+            // Use dynamic import to ensure Tone is available
+            const Tone = await import('tone')
+            const player = new Tone.Player(track.audioUrl).toDestination()
+            songPlaybackRef.current.players[track.id] = player
+          } catch (error) {
+            console.error(`[SONG] Failed to create player for track ${track.id}:`, error)
+          }
+        }
+      }
+    }
+
+    initializeSongPlayers()
+  }, [tracks])
+
+  // Play song arrangement with separate audio system
+  const playSongArrangement = () => {
+    if (songPlayback.isPlaying) {
+      // Stop song playback
+      setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+      
+      // Stop song intervals
+      if (songPlaybackRef.current.intervalId) {
+        clearInterval(songPlaybackRef.current.intervalId)
+        songPlaybackRef.current.intervalId = null
+      }
+      if (songPlaybackRef.current.stepIntervalId) {
+        clearInterval(songPlaybackRef.current.stepIntervalId)
+        songPlaybackRef.current.stepIntervalId = null
+      }
+      
+      // Stop any playing song samples
+      Object.values(songPlaybackRef.current.players).forEach(player => {
+        try {
+          if (player.state === 'started') {
+            player.stop()
+          }
+        } catch (error) {
+          console.warn('[SONG] Error stopping player:', error)
+        }
+      })
+      
+      return
+    }
+
+    // Check if any tracks are activated
+    const hasActiveArrangement = Object.values(sequencerData).some(trackData => 
+      trackData && trackData.some((isActive: boolean) => isActive)
+    )
+    
+    if (!hasActiveArrangement) {
+      alert('No sequencer patterns found! Program patterns in the Sequencer tab first.')
+      return
+    }
+
+    // Start song playback
+    setSongPlayback(prev => ({ ...prev, isPlaying: true, currentBar: 0 }))
+    songPlaybackRef.current.currentStep = 0
+    
+    // Start the song step sequencer
+    startSongStepSequencer()
+  }
+
+  // Separate step sequencer for song playback
+  const startSongStepSequencer = () => {
+    const stepDuration = (60 / bpm / 4) * 1000 // 16th note duration in ms
+    
+    // Play the first step immediately
+    playSongStep(0)
+    
+    // Set up step interval
+    songPlaybackRef.current.stepIntervalId = setInterval(() => {
+      songPlaybackRef.current.currentStep = (songPlaybackRef.current.currentStep + 1) % steps
+      playSongStep(songPlaybackRef.current.currentStep)
+    }, stepDuration)
+    
+    // Set up bar progression interval
+    const barDuration = (60 / bpm) * 4 * 1000 // 4 beats per bar in ms
+    songPlaybackRef.current.intervalId = setInterval(() => {
+      setSongPlayback(prev => {
+        const nextBar = (prev.currentBar + 1) % 32 // Loop after 32 bars
+        return { ...prev, currentBar: nextBar }
+      })
+    }, barDuration)
+  }
+
+  // Play a step in the song arrangement
+  const playSongStep = (step: number) => {
+    tracks.forEach(track => {
+      const player = songPlaybackRef.current.players[track.id]
+      const trackSequencerData = sequencerData[track.id] || []
+      const isTrackActiveInCurrentBar = trackSequencerData[songPlayback.currentBar]
+      const shouldPlayStep = trackSequencerData[step] && isTrackActiveInCurrentBar
+      
+      if (shouldPlayStep && player && track.audioUrl && track.audioUrl !== 'undefined') {
+        try {
+          // Stop if already playing to prevent overlap
+          if (player.state === 'started') {
+            player.stop()
+          }
+          
+          // Start immediately (Tone.js will handle proper timing)
+          player.start()
+        } catch (error) {
+          console.warn(`[SONG] Error playing step for track ${track.name}:`, error)
+        }
+      }
+    })
+  }
+
+  // Clean up song playback on unmount
+  useEffect(() => {
+    return () => {
+      if (songPlaybackRef.current.intervalId) {
+        clearInterval(songPlaybackRef.current.intervalId)
+      }
+      if (songPlaybackRef.current.stepIntervalId) {
+        clearInterval(songPlaybackRef.current.stepIntervalId)
+      }
+      Object.values(songPlaybackRef.current.players).forEach(player => {
+        try {
+          if (player.state === 'started') {
+            player.stop()
+          }
+          player.dispose()
+        } catch (error) {
+          console.warn('[SONG] Error disposing player on unmount:', error)
+        }
+      })
+    }
+  }, [])
+
+
+
+  // Simulate audio level monitoring for VU meters
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout
+
+    if (isPlaying) {
+      intervalId = setInterval(() => {
+        const newLevels: {[trackId: number]: number} = {}
+        let mixedLevel = 0
+
+        tracks.forEach(track => {
+          const trackSettings = mixerSettings[track.id]
+          if (track.audioUrl && trackSettings && !trackSettings.mute) {
+            // Simulate audio level based on step activity and volume
+            const isActiveStep = sequencerData[track.id]?.[currentStep]
+            const baseLevel = isActiveStep ? Math.random() * 0.7 + 0.3 : Math.random() * 0.2
+            const volumeLevel = baseLevel * trackSettings.volume
+            
+            newLevels[track.id] = volumeLevel
+            
+            // Add to master mix
+            mixedLevel += volumeLevel * 0.3
+          } else {
+            newLevels[track.id] = 0
+          }
+        })
+
+        setAudioLevels(newLevels)
+        
+        // Update peak levels using functional update
+        setPeakLevels(prev => {
+          const updated = { ...prev }
+          Object.keys(newLevels).forEach(trackIdStr => {
+            const trackId = parseInt(trackIdStr)
+            const currentLevel = newLevels[trackId]
+            updated[trackId] = Math.max(prev[trackId] || 0, currentLevel)
+          })
+          return updated
+        })
+        
+        setMasterLevel(Math.min(mixedLevel, 1))
+        setMasterPeak(prev => Math.max(prev, mixedLevel))
+      }, 50) // 20fps update rate
+
+      // Peak hold decay
+      const peakDecayInterval = setInterval(() => {
+        setPeakLevels(prev => {
+          const updated = { ...prev }
+          Object.keys(updated).forEach(trackId => {
+            updated[parseInt(trackId)] = Math.max(0, updated[parseInt(trackId)] - 0.02)
+          })
+          return updated
+        })
+        setMasterPeak(prev => Math.max(0, prev - 0.02))
+      }, 100)
+
+      return () => {
+        clearInterval(intervalId)
+        clearInterval(peakDecayInterval)
+      }
+    } else {
+      // Reset levels when stopped
+      setAudioLevels({})
+      setPeakLevels({})
+      setMasterLevel(0)
+      setMasterPeak(0)
+    }
+  }, [isPlaying, tracks, mixerSettings, sequencerData, currentStep])
+
+  // Update Pattern 1 with current sequencer state
+  useEffect(() => {
+    setSavedPatterns(prev => {
+      const existingPattern = prev.find(p => p.id === 'pattern1')
+      const updatedPattern = {
+        id: 'pattern1',
+        name: 'Pattern 1',
+        tracks: tracks,
+        sequencerData: sequencerData,
+        bpm: bpm,
+        steps: steps
+      }
+      
+      if (existingPattern) {
+        return prev.map(p => p.id === 'pattern1' ? updatedPattern : p)
+      } else {
+        return [updatedPattern, ...prev]
+      }
+    })
+    
+    // Clear loaded pattern indicator if user modifies sequencer and it's not Pattern 1
+    if (lastLoadedPattern && lastLoadedPattern !== 'pattern1') {
+      setLastLoadedPattern(null)
+    }
+  }, [tracks, sequencerData, bpm, steps, lastLoadedPattern])
+
+  // Save current pattern as new pattern
+  const saveAsNewPattern = () => {
+    const newPatternId = `pattern${savedPatterns.length + 1}`
+    const newPattern = {
+      id: newPatternId,
+      name: `Pattern ${savedPatterns.length + 1}`,
+      tracks: [...tracks],
+      sequencerData: {...sequencerData},
+      bpm: bpm,
+      steps: steps
+    }
+    setSavedPatterns(prev => [...prev, newPattern])
+  }
+
+  // Load a pattern into the sequencer
+  const loadPattern = (patternId: string) => {
+    const pattern = savedPatterns.find(p => p.id === patternId)
+    if (pattern) {
+      setTracks(pattern.tracks)
+      setBpm(pattern.bpm)
+      setSteps(pattern.steps)
+      setLastLoadedPattern(patternId)
+      // Note: sequencerData will be updated by the useBeatMaker hook
+      
+      // Show feedback notification
+      console.log(`Loaded pattern: ${pattern.name}`)
+    }
+  }
+
+  // Mixer control functions
+  const updateMixerSetting = (trackId: number, setting: string, value: any) => {
+    setMixerSettings(prev => ({
+      ...prev,
+      [trackId]: {
+        ...prev[trackId],
+        [setting]: value
+      }
+    }))
+  }
+
+
+
+  const updateEQ = (trackId: number, band: 'low' | 'mid' | 'high', value: number) => {
+    setMixerSettings(prev => ({
+      ...prev,
+      [trackId]: {
+        ...prev[trackId],
+        eq: {
+          ...prev[trackId]?.eq,
+          [band]: value
+        }
+      }
+    }))
+  }
+
+  const updateEffect = (trackId: number, effect: 'reverb' | 'delay', value: number) => {
+    setMixerSettings(prev => ({
+      ...prev,
+      [trackId]: {
+        ...prev[trackId],
+        effects: {
+          ...prev[trackId]?.effects,
+          [effect]: value
+        }
+      }
+    }))
+  }
+
+  // Color mapping for pattern blocks
+  const getTrackColorHex = (colorClass: string) => {
+    const colorMap: {[key: string]: string} = {
+      'bg-red-500': '#ef4444',
+      'bg-blue-500': '#3b82f6',
+      'bg-green-500': '#22c55e',
+      'bg-purple-500': '#a855f7',
+      'bg-yellow-500': '#eab308',
+      'bg-pink-500': '#ec4899',
+      'bg-indigo-500': '#6366f1',
+      'bg-orange-500': '#f97316',
+      'bg-teal-500': '#14b8a6',
+      'bg-cyan-500': '#06b6d4',
+      'bg-lime-500': '#84cc16',
+      'bg-rose-500': '#f43f5e'
+    }
+    return colorMap[colorClass] || '#6b7280'
+  }
+
+  // VU Meter component
+  const VUMeter = ({ level, peak, height = 80 }: { level: number, peak: number, height?: number }) => {
+    const segments = 12
+    const segmentHeight = height / segments
+    
+    return (
+      <div className="w-4 mx-auto" style={{ height: `${height}px` }}>
+        <div className="relative w-full h-full bg-black border border-gray-600 rounded">
+          {Array.from({ length: segments }, (_, i) => {
+            const segmentLevel = (segments - i) / segments
+            const isActive = level >= segmentLevel
+            const isPeak = peak >= segmentLevel
+            
+            // Color coding: green (0-60%), yellow (60-85%), red (85-100%)
+            let color = 'bg-gray-800'
+            if (isActive || isPeak) {
+              if (segmentLevel > 0.85) color = 'bg-red-500'
+              else if (segmentLevel > 0.6) color = 'bg-yellow-500'
+              else color = 'bg-green-500'
+            }
+            
+            // Peak indicator styling
+            if (isPeak && !isActive) {
+              color += ' opacity-70'
+            }
+            
+            return (
+              <div
+                key={i}
+                className={`absolute w-full ${color} transition-colors duration-75`}
+                style={{
+                  height: `${segmentHeight - 1}px`,
+                  top: `${i * segmentHeight}px`,
+                }}
+              />
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // Add keyboard shortcut handling
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const isTyping = event.target instanceof HTMLInputElement ||
+                      event.target instanceof HTMLTextAreaElement ||
+                      (event.target instanceof HTMLElement && event.target.contentEditable === 'true')
+
+      // Only handle spacebar if not typing
+      if (event.code === 'Space' && !isTyping) {
+        event.preventDefault()
+        
+        if (activeTab === 'song') {
+          // Play song arrangement in Song tab
+          playSongArrangement()
+        } else if (hasLoadedAudio) {
+          // Play current sequencer pattern in Sequencer tab
+          handlePlayPause()
+        }
+      }
+
+      // Clear pattern selection with Escape key
+      // if (event.code === 'Escape' && selectedPatternForPlacement) {
+      //   event.preventDefault()
+      //   setSelectedPatternForPlacement(null)
+      // }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isPlaying, hasLoadedAudio, activeTab])
+
   const handlePlayPause = () => {
     if (isPlaying) {
       stopSequence()
@@ -82,28 +597,142 @@ export default function BeatMakerPage() {
     setShowSampleLibrary(true)
   }
 
+  // Function to add a new track
+  const addNewTrack = () => {
+    const trackColors = [
+      'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-purple-500',
+      'bg-yellow-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500',
+      'bg-teal-500', 'bg-cyan-500', 'bg-lime-500', 'bg-rose-500'
+    ]
+    
+    const newTrackId = Math.max(...tracks.map(t => t.id)) + 1
+    const colorIndex = (tracks.length) % trackColors.length
+    
+    const newTrack: Track = {
+      id: newTrackId,
+      name: 'audio',
+      audioUrl: null,
+      color: trackColors[colorIndex]
+    }
+    
+    setTracks(prev => [...prev, newTrack])
+  }
+
+  // Function to remove a track
+  const removeTrack = (trackId: number) => {
+    if (tracks.length > 1) { // Keep at least one track
+      setTracks(prev => prev.filter(track => track.id !== trackId))
+    }
+  }
+
+  // Function to reorder tracks
+  const reorderTracks = (newOrder: Track[]) => {
+    setTracks(newOrder)
+  }
+
+  // Function to handle direct audio file drop on tracks
+  const handleDirectAudioDrop = async (trackId: number, file: File) => {
+    try {
+      // Upload file to Supabase storage
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to upload files')
+        return
+      }
+
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
+      const filePath = `audio-samples/${user.id}/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        alert('Failed to upload file')
+        return
+      }
+
+      // Get public URL and assign to track
+      const { data: urlData } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      // Extract filename without extension for track name
+      const trackName = file.name.replace(/\.[^/.]+$/, "")
+
+      setTracks(prev => prev.map(track => 
+        track.id === trackId ? { 
+          ...track, 
+          audioUrl: urlData.publicUrl,
+          name: trackName
+        } : track
+      ))
+
+      // Also save to database for future use
+      await supabase
+        .from('audio_library_items')
+        .insert({
+          user_id: user.id,
+          name: file.name,
+          file_path: filePath,
+          file_url: urlData.publicUrl,
+          file_size: file.size
+        })
+
+    } catch (error) {
+      console.error('Error uploading file:', error)
+      alert('Failed to upload file')
+    }
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white">Beat Maker</h1>
-          <p className="text-gray-400">Create beats with your audio library</p>
+          <p className="text-gray-400">Create beats with our professional tools</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={saveAsNewPattern}>
             <Save className="w-4 h-4 mr-2" />
             Save Pattern
           </Button>
           <Button variant="outline" size="sm">
             <Upload className="w-4 h-4 mr-2" />
-            Load Pattern
+            Export Audio
           </Button>
         </div>
       </div>
 
+      {/* Tabs */}
+      <Tabs defaultValue="sequencer" className="w-full" onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-4 bg-[#141414] border-gray-700">
+          <TabsTrigger value="sequencer" className="data-[state=active]:bg-[#2a2a2a] text-white">
+            <Disc className="w-4 h-4 mr-2" />
+            Sequencer
+          </TabsTrigger>
+          <TabsTrigger value="song" className="data-[state=active]:bg-[#2a2a2a] text-white">
+            <Music className="w-4 h-4 mr-2" />
+            Song
+          </TabsTrigger>
+          <TabsTrigger value="mixer" className="data-[state=active]:bg-[#2a2a2a] text-white">
+            <Settings className="w-4 h-4 mr-2" />
+            Mixer
+          </TabsTrigger>
+          <TabsTrigger value="sessions" className="data-[state=active]:bg-[#2a2a2a] text-white">
+            <List className="w-4 h-4 mr-2" />
+            Sessions
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Sequencer Tab */}
+        <TabsContent value="sequencer" className="space-y-6 mt-6">
+
       {/* Transport Controls */}
-      <Card className="bg-gray-900 border-gray-700">
+      <Card className="!bg-[#141414] border-gray-700">
         <CardHeader>
           <CardTitle className="text-white">Transport</CardTitle>
         </CardHeader>
@@ -195,6 +824,10 @@ export default function BeatMakerPage() {
             onTrackAudioSelect={handleOpenSampleLibrary}
             currentStep={currentStep}
             sequencerData={sequencerData}
+            onAddTrack={addNewTrack}
+            onRemoveTrack={removeTrack}
+            onReorderTracks={reorderTracks}
+            onDirectAudioDrop={handleDirectAudioDrop}
           />
         </div>
 
@@ -218,6 +851,651 @@ export default function BeatMakerPage() {
           onSelectAudio={(audioUrl) => handleTrackAudioSelect(selectedTrack, audioUrl)}
         />
       )}
+        </TabsContent>
+
+        {/* Song Tab */}
+        <TabsContent value="song" className="space-y-6 mt-6">
+          <Card className="!bg-[#141414] border-gray-700">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-white">Song Arrangement</CardTitle>
+                  <p className="text-gray-400 text-sm">
+                    Automatic playback - tracks with sequencer patterns will play
+                  </p>
+    </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPatternDetails(!showPatternDetails)}
+                  className="flex items-center gap-2"
+                >
+                  {showPatternDetails ? (
+                    <>
+                      <div className="w-4 h-4 flex gap-0.5">
+                        <div className="flex-1 bg-blue-500 rounded-sm"></div>
+                        <div className="flex-1 bg-gray-400 rounded-sm"></div>
+                        <div className="flex-1 bg-blue-500 rounded-sm"></div>
+                        <div className="flex-1 bg-gray-400 rounded-sm"></div>
+                      </div>
+                      Hide Patterns
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                      Show Patterns
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="flex h-[600px]">
+                {/* Pattern List Sidebar */}
+                <div className="w-48 bg-[#0f0f0f] border-r border-gray-600 p-4">
+                  <h3 className="text-white font-medium mb-4">Patterns</h3>
+                  <div className="space-y-2">
+                    {savedPatterns.map((pattern, index) => (
+                      <div key={pattern.id} className="space-y-1">
+                        <div
+                          className={`flex items-center p-2 rounded border cursor-pointer transition-all ${
+                            lastLoadedPattern === pattern.id
+                              ? 'bg-[#1f3a5f] border-blue-500'
+                              : 'bg-[#1f1f1f] border-gray-600 hover:border-gray-500'
+                          }`}
+                          onClick={() => loadPattern(pattern.id)}
+                        >
+                          <div className={`w-3 h-3 rounded mr-2 ${
+                            index === 0 ? 'bg-green-500' : 
+                            index === 1 ? 'bg-blue-500' : 
+                            index === 2 ? 'bg-purple-500' : 'bg-orange-500'
+                          }`}></div>
+                          <span className="text-white text-sm">{pattern.name}</span>
+                          <div className="ml-auto flex items-center gap-2">
+                            {lastLoadedPattern === pattern.id && (
+                              <div className="text-blue-400 text-xs">🎛️ Loaded</div>
+                            )}
+                            <div className="text-xs text-gray-500">
+                              {pattern.tracks.filter(t => t.audioUrl).length}/{pattern.tracks.length}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 space-y-2">
+                    <Button size="sm" variant="outline" className="w-full" onClick={saveAsNewPattern}>
+                      <Music className="w-4 h-4 mr-2" />
+                      Save Pattern
+                    </Button>
+                    <div className="text-xs text-gray-500 text-center space-y-1">
+                      <div className="text-blue-500">🎛️ Blue = Loaded in sequencer</div>
+                      <div className="text-green-500">🔊 Green = Currently playing</div>
+                      <div className="text-purple-400 mt-2">🎼 Each track plays its own pattern!</div>
+                      <div className="text-orange-400 text-xs">🎯 Click timeline to toggle tracks</div>
+                      <div className="text-cyan-400 text-xs">👁️ Toggle button to show/hide patterns</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Song Timeline */}
+                <div className="flex-1 overflow-auto">
+                  {/* Timeline Header */}
+                  <div className="sticky top-0 bg-[#141414] border-b border-gray-600 p-2">
+                    <div className="flex relative">
+                      <div className="w-24 text-center text-gray-400 text-xs py-2">Tracks</div>
+                      {Array.from({ length: 32 }, (_, i) => {
+                        // Check if any track has patterns at this bar
+                        const hasActiveTracks = Object.values(sequencerData).some(trackData => 
+                          trackData && trackData[i]
+                        )
+                        
+                        return (
+                          <div 
+                            key={i} 
+                            className={`w-16 text-center text-xs py-2 border-r border-gray-700 relative ${
+                              songPlayback.isPlaying && songPlayback.currentBar === i 
+                                ? 'bg-green-500/20 text-green-400' 
+                                : hasActiveTracks
+                                  ? 'text-blue-400'
+                                  : 'text-gray-400'
+                            }`}
+                          >
+                            {i + 1}
+                            {hasActiveTracks && !songPlayback.isPlaying && (
+                              <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full"></div>
+                            )}
+                            {songPlayback.isPlaying && songPlayback.currentBar === i && (
+                              <div className="absolute top-0 left-0 w-full h-full bg-green-500/30 animate-pulse"></div>
+                            )}
+                          </div>
+                        )
+                      })}
+                      
+                      {/* Playhead */}
+                      {songPlayback.isPlaying && (
+                        <div 
+                          className="absolute top-0 w-1 h-full bg-green-500 z-10 transition-all duration-100"
+                          style={{ left: `${96 + songPlayback.currentBar * 64}px` }}
+                        >
+                          <div className="w-3 h-3 bg-green-500 rounded-full -ml-1 -mt-1"></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Track Rows */}
+                  <div className="space-y-1 p-2">
+                    {tracks.map((track, trackIndex) => (
+                      <div key={track.id} className="flex items-center h-12 bg-[#1a1a1a] rounded">
+                        {/* Track Header */}
+                        <div className="w-24 px-2 flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
+                          <div className="flex flex-col">
+                            <div className="text-white text-xs font-medium truncate">{track.name}</div>
+                            <div className={`text-xs ${track.audioUrl ? 'text-green-500' : 'text-gray-500'}`}>
+                              {track.audioUrl ? 'LOADED' : 'EMPTY'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Timeline Grid */}
+                        <div className="flex-1 flex relative">
+                          {/* Timeline grid */}
+                          {Array.from({ length: 32 }, (_, i) => {
+                            const isActive = sequencerData[track.id]?.[i]
+                            const isCurrentBar = songPlayback.isPlaying && songPlayback.currentBar === i
+                            
+                            return (
+                              <div 
+                                key={i} 
+                                className={`w-16 h-8 border-r border-gray-700/30 cursor-pointer transition-colors flex items-center justify-center relative ${
+                                  isActive 
+                                    ? 'bg-gray-800/50 border-gray-600' 
+                                    : 'hover:bg-gray-700/30'
+                                } ${isCurrentBar && isActive ? 'ring-2 ring-green-400 animate-pulse' : ''}`}
+                                onClick={() => toggleTrackAtBar(track.id, i)}
+                                title={`Bar ${i + 1} - ${track.name} ${isActive ? '(Active)' : '(Inactive)'} - Click to toggle`}
+                              >
+                                {isActive && (
+                                  <div className="absolute inset-0 p-1">
+                                    {showPatternDetails ? (
+                                      <>
+                                        {/* Show the sequencer pattern for this track */}
+                                        <div className="w-full h-full flex items-center gap-0.5">
+                                          {sequencerData[track.id]?.slice(0, 8).map((stepActive, stepIndex) => (
+                                            <div
+                                              key={stepIndex}
+                                              className={`flex-1 h-full rounded-sm ${
+                                                stepActive 
+                                                  ? getTrackColorHex(track.color) 
+                                                  : 'bg-gray-600/30'
+                                              }`}
+                                              style={{
+                                                backgroundColor: stepActive ? getTrackColorHex(track.color) : undefined
+                                              }}
+                                            />
+                                          )) || Array.from({ length: 8 }, (_, stepIndex) => (
+                                            <div
+                                              key={stepIndex}
+                                              className="flex-1 h-full bg-gray-600/30 rounded-sm"
+                                            />
+                                          ))}
+                                        </div>
+                                        
+                                        {/* Show playing indicator */}
+                                        {isCurrentBar && songPlayback.isPlaying && (
+                                          <div className="absolute top-1 right-1 text-green-400 text-xs font-bold">
+                                            🔊
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        {/* Simple solid bar view */}
+                                        <div 
+                                          className="w-full h-full rounded-sm"
+                                          style={{
+                                            backgroundColor: isCurrentBar && songPlayback.isPlaying 
+                                              ? '#22c55e' 
+                                              : getTrackColorHex(track.color)
+                                          }}
+                                        />
+                                        
+                                        {/* Show simple playing indicator */}
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                          <div className="text-white text-xs font-bold">
+                                            {isCurrentBar && songPlayback.isPlaying ? '🔊' : '●'}
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {!isActive && (
+                                  <div className="text-gray-500 text-xs">+</div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="p-4 border-t border-gray-600 bg-[#0f0f0f]">
+                <div className="flex items-center gap-4">
+                  <Button 
+                    size="sm" 
+                    variant={songPlayback.isPlaying ? "destructive" : "outline"}
+                    onClick={playSongArrangement}
+                    disabled={!songPlayback.isPlaying && !Object.values(sequencerData).some(trackData => 
+                      trackData && trackData.some((isActive: boolean) => isActive)
+                    )}
+                  >
+                    {songPlayback.isPlaying ? (
+                      <>
+                        <Square className="w-4 h-4 mr-2" />
+                        Stop Song
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 mr-2" />
+                        {!Object.values(sequencerData).some(trackData => 
+                          trackData && trackData.some((isActive: boolean) => isActive)
+                        ) 
+                          ? 'No Active Tracks' 
+                          : 'Play Song'
+                        }
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => setSongPlayback(prev => ({ ...prev, currentBar: 0 }))}
+                    disabled={songPlayback.isPlaying}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Reset
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={clearAllArrangements}
+                    disabled={!Object.values(sequencerData).some(trackData => 
+                      trackData && trackData.some((isActive: boolean) => isActive)
+                    )}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Clear All
+                  </Button>
+
+                  {lastLoadedPattern && (
+                    <div className="flex items-center gap-2 px-3 py-1 bg-purple-600 rounded">
+                      <span className="text-white text-sm">🎛️ In Sequencer:</span>
+                      <span className="text-purple-200 text-sm font-medium">
+                        {savedPatterns.find(p => p.id === lastLoadedPattern)?.name}
+                      </span>
+                    </div>
+                  )}
+
+                  {songPlayback.isPlaying && (
+                    <div className="flex items-center gap-2 px-3 py-1 bg-green-600 rounded animate-pulse">
+                      <span className="text-white text-sm">🔊 Playing Bar:</span>
+                      <span className="text-green-200 text-sm font-medium">
+                        {songPlayback.currentBar + 1}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-4 ml-auto">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 text-sm">Position:</span>
+                      <span className={`text-sm font-mono ${songPlayback.isPlaying ? 'text-green-500' : 'text-white'}`}>
+                        Bar {songPlayback.currentBar + 1}/32
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 text-sm">Tempo:</span>
+                      <span className="text-white text-sm font-mono">{bpm} BPM</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 text-sm">Active Bars:</span>
+                      <span className="text-white text-sm font-mono">
+                        {Object.values(sequencerData).reduce((total, trackData) => 
+                          total + (trackData ? trackData.filter((isActive: boolean) => isActive).length : 0), 0
+                        )}
+                      </span>
+                    </div>
+                    <div className="ml-auto">
+                      <Badge 
+                        variant="outline" 
+                        className={`${
+                          songPlayback.isPlaying 
+                            ? 'text-green-400 border-green-400 animate-pulse' 
+                            : 'text-green-500 border-green-500'
+                        }`}
+                      >
+                        {songPlayback.isPlaying ? '🔊 PLAYING SONG' : '🎵 Simple Toggle Mode'}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Mixer Tab */}
+        <TabsContent value="mixer" className="space-y-6 mt-6">
+          <Card className="!bg-[#141414] border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white">Mixing Console</CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="flex gap-4 overflow-x-auto">
+                {tracks.map((track) => {
+                  const settings = mixerSettings[track.id] || {
+                    volume: 0.7, pan: 0, mute: false, solo: false,
+                    eq: { low: 0, mid: 0, high: 0 },
+                    effects: { reverb: 0, delay: 0 }
+                  }
+                  
+                  return (
+                    <div key={track.id} className="flex-shrink-0 w-24 bg-[#1a1a1a] rounded-lg border border-gray-600 p-3">
+                      {/* Track Header */}
+                      <div className="text-center mb-4">
+                        <div className={`w-4 h-4 rounded-full ${track.color} mx-auto mb-1 ${
+                          isPlaying && sequencerData[track.id]?.[currentStep] ? 'animate-pulse' : ''
+                        }`}></div>
+                        <div className="text-white text-xs font-medium truncate">{track.name}</div>
+                        <div className={`text-xs ${
+                          !track.audioUrl ? 'text-gray-500' :
+                          isPlaying && sequencerData[track.id]?.[currentStep] ? 'text-green-500' :
+                          'text-gray-400'
+                        }`}>
+                          {!track.audioUrl ? 'EMPTY' :
+                           isPlaying && sequencerData[track.id]?.[currentStep] ? 'ACTIVE' : 'LOADED'}
+                        </div>
+                      </div>
+
+                      {/* VU Meter */}
+                      <div className="mb-4">
+                        <div className="text-gray-400 text-xs mb-2 text-center">LEVEL</div>
+                        <VUMeter 
+                          level={audioLevels[track.id] || 0} 
+                          peak={peakLevels[track.id] || 0} 
+                          height={60}
+                        />
+                        <div className="text-gray-500 text-xs text-center mt-1">
+                          {Math.round((audioLevels[track.id] || 0) * 100)}%
+                        </div>
+                      </div>
+
+                      {/* EQ Section */}
+                      <div className="mb-4">
+                        <div className="text-gray-400 text-xs mb-2 text-center">EQ</div>
+                        {/* High */}
+                        <div className="mb-2">
+                          <div className="text-gray-500 text-xs mb-1">HIGH</div>
+                          <Slider
+                            value={[settings.eq.high]}
+                            onValueChange={(value) => updateEQ(track.id, 'high', value[0])}
+                            min={-12}
+                            max={12}
+                            step={0.1}
+                            orientation="vertical"
+                            className="h-12"
+                          />
+                          <div className="text-gray-500 text-xs text-center mt-1">
+                            {settings.eq.high.toFixed(1)}
+                          </div>
+                        </div>
+                        {/* Mid */}
+                        <div className="mb-2">
+                          <div className="text-gray-500 text-xs mb-1">MID</div>
+                          <Slider
+                            value={[settings.eq.mid]}
+                            onValueChange={(value) => updateEQ(track.id, 'mid', value[0])}
+                            min={-12}
+                            max={12}
+                            step={0.1}
+                            orientation="vertical"
+                            className="h-12"
+                          />
+                          <div className="text-gray-500 text-xs text-center mt-1">
+                            {settings.eq.mid.toFixed(1)}
+                          </div>
+                        </div>
+                        {/* Low */}
+                        <div className="mb-2">
+                          <div className="text-gray-500 text-xs mb-1">LOW</div>
+                          <Slider
+                            value={[settings.eq.low]}
+                            onValueChange={(value) => updateEQ(track.id, 'low', value[0])}
+                            min={-12}
+                            max={12}
+                            step={0.1}
+                            orientation="vertical"
+                            className="h-12"
+                          />
+                          <div className="text-gray-500 text-xs text-center mt-1">
+                            {settings.eq.low.toFixed(1)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Effects Section */}
+                      <div className="mb-4">
+                        <div className="text-gray-400 text-xs mb-2 text-center">FX</div>
+                        {/* Reverb */}
+                        <div className="mb-2">
+                          <div className="text-gray-500 text-xs mb-1">REV</div>
+                          <Slider
+                            value={[settings.effects.reverb]}
+                            onValueChange={(value) => updateEffect(track.id, 'reverb', value[0])}
+                            min={0}
+                            max={100}
+                            step={1}
+                            orientation="vertical"
+                            className="h-8"
+                          />
+                          <div className="text-gray-500 text-xs text-center mt-1">
+                            {settings.effects.reverb}
+                          </div>
+                        </div>
+                        {/* Delay */}
+                        <div className="mb-2">
+                          <div className="text-gray-500 text-xs mb-1">DLY</div>
+                          <Slider
+                            value={[settings.effects.delay]}
+                            onValueChange={(value) => updateEffect(track.id, 'delay', value[0])}
+                            min={0}
+                            max={100}
+                            step={1}
+                            orientation="vertical"
+                            className="h-8"
+                          />
+                          <div className="text-gray-500 text-xs text-center mt-1">
+                            {settings.effects.delay}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Pan Control */}
+                      <div className="mb-4">
+                        <div className="text-gray-400 text-xs mb-1 text-center">PAN</div>
+                        <Slider
+                          value={[settings.pan]}
+                          onValueChange={(value) => updateMixerSetting(track.id, 'pan', value[0])}
+                          min={-100}
+                          max={100}
+                          step={1}
+                          className="mb-1"
+                        />
+                        <div className="text-gray-500 text-xs text-center">
+                          {settings.pan === 0 ? 'C' : settings.pan > 0 ? `R${settings.pan}` : `L${Math.abs(settings.pan)}`}
+                        </div>
+                      </div>
+
+                      {/* Mute/Solo Buttons */}
+                      <div className="mb-4 space-y-1">
+                        <Button
+                          size="sm"
+                          variant={settings.mute ? "destructive" : "outline"}
+                          className="w-full h-6 text-xs"
+                          onClick={() => updateMixerSetting(track.id, 'mute', !settings.mute)}
+                        >
+                          MUTE
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={settings.solo ? "default" : "outline"}
+                          className="w-full h-6 text-xs"
+                          onClick={() => updateMixerSetting(track.id, 'solo', !settings.solo)}
+                        >
+                          SOLO
+                        </Button>
+                      </div>
+
+                      {/* Volume Fader */}
+                      <div className="mb-2">
+                        <div className="text-gray-400 text-xs mb-2 text-center">VOLUME</div>
+                        <div className="h-32 flex justify-center">
+                          <Slider
+                            value={[settings.volume]}
+                            onValueChange={(value) => updateMixerSetting(track.id, 'volume', value[0])}
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            orientation="vertical"
+                            className="h-full"
+                          />
+                        </div>
+                        <div className="text-gray-500 text-xs text-center mt-2">
+                          {Math.round(settings.volume * 100)}%
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                
+                {/* Master Channel */}
+                <div className="flex-shrink-0 w-24 bg-[#2a1a1a] rounded-lg border border-red-600 p-3">
+                  <div className="text-center mb-4">
+                    <div className="w-4 h-4 rounded-full bg-red-500 mx-auto mb-1"></div>
+                    <div className="text-white text-xs font-medium">MASTER</div>
+                    <div className="text-gray-500 text-xs">OUT</div>
+                  </div>
+
+                  {/* Master VU Meter */}
+                  <div className="mb-4">
+                    <div className="text-gray-400 text-xs mb-2 text-center">MASTER</div>
+                    <VUMeter 
+                      level={masterLevel} 
+                      peak={masterPeak} 
+                      height={60}
+                    />
+                    <div className="text-gray-500 text-xs text-center mt-1">
+                      {Math.round(masterLevel * 100)}%
+                    </div>
+                  </div>
+
+                  {/* Master EQ */}
+                  <div className="mb-4">
+                    <div className="text-gray-400 text-xs mb-2 text-center">MASTER EQ</div>
+                    <div className="space-y-2">
+                      <Slider value={[0]} min={-12} max={12} step={0.1} orientation="vertical" className="h-8" />
+                      <Slider value={[0]} min={-12} max={12} step={0.1} orientation="vertical" className="h-8" />
+                      <Slider value={[0]} min={-12} max={12} step={0.1} orientation="vertical" className="h-8" />
+                    </div>
+                  </div>
+
+                  {/* Master Volume */}
+                  <div className="mb-2">
+                    <div className="text-gray-400 text-xs mb-2 text-center">MASTER</div>
+                    <div className="h-32 flex justify-center">
+                      <Slider
+                        value={[0.8]}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        orientation="vertical"
+                        className="h-full"
+                      />
+                    </div>
+                    <div className="text-gray-500 text-xs text-center mt-2">80%</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mixer Controls */}
+              <div className="mt-6 p-4 border-t border-gray-600 bg-[#0f0f0f] rounded">
+                <div className="flex items-center gap-4">
+                  <Button size="sm" variant="outline">
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Reset All
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm">Master Volume:</span>
+                    <span className="text-white text-sm font-mono">80%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm">Active Tracks:</span>
+                    <span className="text-white text-sm font-mono">
+                      {tracks.filter(t => t.audioUrl).length}/{tracks.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm">Playing:</span>
+                    <span className={`text-sm font-mono ${isPlaying ? 'text-green-500' : 'text-gray-500'}`}>
+                      {isPlaying ? 'LIVE' : 'STOPPED'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-sm">Peak Level:</span>
+                    <span className={`text-sm font-mono ${masterPeak > 0.85 ? 'text-red-500' : masterPeak > 0.6 ? 'text-yellow-500' : 'text-green-500'}`}>
+                      {Math.round(masterPeak * 100)}%
+                    </span>
+                  </div>
+                  <div className="ml-auto">
+                    <Badge variant="outline" className="text-blue-500 border-blue-500">
+                      Professional Mixer
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Sessions Tab */}
+        <TabsContent value="sessions" className="space-y-6 mt-6">
+          <Card className="!bg-[#141414] border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white">Beat Sessions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-12">
+                <List className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-white mb-2">Session Management</h3>
+                <p className="text-gray-400 mb-4">Save, load, and manage your beat projects</p>
+                <Badge variant="outline" className="text-yellow-500 border-yellow-500">
+                  Coming Soon
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
