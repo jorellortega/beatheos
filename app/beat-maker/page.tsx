@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
@@ -53,7 +54,9 @@ export default function BeatMakerPage() {
     playSequence,
     stopSequence,
     isSequencePlaying,
-    currentStep: sequencerCurrentStep
+    currentStep: sequencerCurrentStep,
+    updateTrackTempo,
+    updateTrackPitch
   } = useBeatMaker(tracks, steps, bpm)
 
   // Sync state with the hook
@@ -77,6 +80,12 @@ export default function BeatMakerPage() {
     eq: { low: number, mid: number, high: number },
     effects: { reverb: number, delay: number }
   }}>({})
+
+  // Transport inline editing states
+  const [editingBpm, setEditingBpm] = useState(false)
+  const [editingPosition, setEditingPosition] = useState(false)
+  const [bpmInputValue, setBpmInputValue] = useState('')
+  const [positionInputValue, setPositionInputValue] = useState('')
 
   // Initialize mixer settings for tracks
   useEffect(() => {
@@ -583,10 +592,22 @@ export default function BeatMakerPage() {
     setCurrentStep(0)
   }
 
-  const handleTrackAudioSelect = (trackId: number, audioUrlOrPath: string) => {
+  const handleTrackAudioSelect = (trackId: number, audioUrlOrPath: string, audioName?: string) => {
     const publicUrl = getPublicAudioUrl(audioUrlOrPath)
     setTracks(prev => prev.map(track => 
-      track.id === trackId ? { ...track, audioUrl: publicUrl } : track
+      track.id === trackId ? { 
+        ...track, 
+        audioUrl: publicUrl,
+        audioName: audioName || null,
+        // Initialize tempo properties with default values
+        originalBpm: 120, // Default BPM, could be auto-detected in the future
+        currentBpm: 120,
+        playbackRate: 1.0,
+        // Initialize pitch properties with default values
+        originalKey: 'C', // Default key
+        currentKey: 'C',
+        pitchShift: 0
+      } : track
     ))
     setShowSampleLibrary(false)
     setSelectedTrack(null)
@@ -595,6 +616,77 @@ export default function BeatMakerPage() {
   const handleOpenSampleLibrary = (trackId: number) => {
     setSelectedTrack(trackId)
     setShowSampleLibrary(true)
+  }
+
+  const handleTrackTempoChange = (trackId: number, newBpm: number, originalBpm?: number) => {
+    // Update the tempo in the hook and get the calculated values
+    const tempoData = updateTrackTempo(trackId, newBpm, originalBpm)
+    
+    if (tempoData) {
+      // Update the tracks state with the new tempo values
+      setTracks(prev => prev.map(track => 
+        track.id === trackId ? { 
+          ...track, 
+          originalBpm: tempoData.originalBpm,
+          currentBpm: tempoData.currentBpm,
+          playbackRate: tempoData.playbackRate
+        } : track
+      ))
+    }
+  }
+
+  const handleTrackPitchChange = (trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => {
+    // Update the pitch in the hook and get the calculated values
+    const pitchData = updateTrackPitch(trackId, pitchShift, originalKey, currentKey)
+    
+    if (pitchData) {
+      // Update the tracks state with the new pitch values
+      setTracks(prev => prev.map(track => 
+        track.id === trackId ? { 
+          ...track, 
+          originalKey: pitchData.originalKey,
+          currentKey: pitchData.currentKey,
+          pitchShift: pitchData.pitchShift
+        } : track
+      ))
+    }
+  }
+
+  // Transport inline editing handlers
+  const handleBpmEdit = () => {
+    setBpmInputValue(bpm.toString())
+    setEditingBpm(true)
+  }
+
+  const handleBpmSave = () => {
+    const newBpm = parseFloat(bpmInputValue)
+    if (newBpm >= 60 && newBpm <= 200) {
+      setBpm(newBpm)
+    }
+    setEditingBpm(false)
+  }
+
+  const handleBpmCancel = () => {
+    setEditingBpm(false)
+    setBpmInputValue('')
+  }
+
+  const handlePositionEdit = () => {
+    setPositionInputValue((currentStep + 1).toString())
+    setEditingPosition(true)
+  }
+
+  const handlePositionSave = () => {
+    const newPosition = parseInt(positionInputValue)
+    if (newPosition >= 1 && newPosition <= steps) {
+      setCurrentStep(newPosition - 1) // Convert to 0-based index
+    }
+    setEditingPosition(false)
+  }
+
+  const handlePositionCancel = () => {
+    setEditingPosition(false)
+    setPositionInputValue('')
   }
 
   // Function to add a new track
@@ -666,7 +758,16 @@ export default function BeatMakerPage() {
         track.id === trackId ? { 
           ...track, 
           audioUrl: urlData.publicUrl,
-          name: trackName
+          audioName: file.name,
+          name: trackName,
+          // Initialize tempo properties with default values
+          originalBpm: 120, // Default BPM, could be auto-detected in the future
+          currentBpm: 120,
+          playbackRate: 1.0,
+          // Initialize pitch properties with default values
+          originalKey: 'C', // Default key
+          currentKey: 'C',
+          pitchShift: 0
         } : track
       ))
 
@@ -773,9 +874,34 @@ export default function BeatMakerPage() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-white text-sm">BPM:</span>
-                <Badge variant="secondary" className="min-w-[60px] text-center">
-                  {bpm}
-                </Badge>
+                {editingBpm ? (
+                  <Input
+                    type="number"
+                    value={bpmInputValue}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBpmInputValue(e.target.value)}
+                    onBlur={handleBpmSave}
+                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                      if (e.key === 'Enter') {
+                        handleBpmSave()
+                      } else if (e.key === 'Escape') {
+                        handleBpmCancel()
+                      }
+                    }}
+                    min="60"
+                    max="200"
+                    className="w-16 h-8 text-center text-sm"
+                    autoFocus
+                  />
+                ) : (
+                  <Badge 
+                    variant="secondary" 
+                    className="min-w-[60px] text-center cursor-pointer hover:bg-gray-600 transition-colors"
+                    onClick={handleBpmEdit}
+                    title="Click to edit BPM"
+                  >
+                    {bpm}
+                  </Badge>
+                )}
               </div>
               <div className="w-32">
                 <Slider
@@ -808,9 +934,37 @@ export default function BeatMakerPage() {
 
             <div className="flex items-center gap-2">
               <span className="text-white text-sm">Position:</span>
-              <Badge variant="outline" className="min-w-[60px] text-center">
-                {currentStep + 1}/{steps}
-              </Badge>
+              {editingPosition ? (
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    value={positionInputValue}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPositionInputValue(e.target.value)}
+                    onBlur={handlePositionSave}
+                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                      if (e.key === 'Enter') {
+                        handlePositionSave()
+                      } else if (e.key === 'Escape') {
+                        handlePositionCancel()
+                      }
+                    }}
+                    min="1"
+                    max={steps.toString()}
+                    className="w-12 h-8 text-center text-sm"
+                    autoFocus
+                  />
+                  <span className="text-gray-400 text-sm">/{steps}</span>
+                </div>
+              ) : (
+                <Badge 
+                  variant="outline" 
+                  className="min-w-[60px] text-center cursor-pointer hover:bg-gray-700 transition-colors"
+                  onClick={handlePositionEdit}
+                  title="Click to edit position"
+                >
+                  {currentStep + 1}/{steps}
+                </Badge>
+              )}
             </div>
           </div>
         </CardContent>
@@ -828,6 +982,8 @@ export default function BeatMakerPage() {
             onRemoveTrack={removeTrack}
             onReorderTracks={reorderTracks}
             onDirectAudioDrop={handleDirectAudioDrop}
+            onTrackTempoChange={handleTrackTempoChange}
+            onTrackPitchChange={handleTrackPitchChange}
           />
         </div>
 
@@ -848,7 +1004,7 @@ export default function BeatMakerPage() {
         <SampleLibrary
           isOpen={showSampleLibrary}
           onClose={() => setShowSampleLibrary(false)}
-          onSelectAudio={(audioUrl) => handleTrackAudioSelect(selectedTrack, audioUrl)}
+          onSelectAudio={(audioUrl, audioName) => handleTrackAudioSelect(selectedTrack, audioUrl, audioName)}
         />
       )}
         </TabsContent>

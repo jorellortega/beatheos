@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -51,6 +51,32 @@ interface AudioLibraryItem {
   description?: string
   file_url?: string
   file_size?: number
+  pack_id?: string
+  subfolder?: string
+  pack?: AudioPack
+}
+
+interface AudioPack {
+  id: string
+  name: string
+  description?: string
+  cover_image_url?: string
+  color: string
+  created_at: string
+  updated_at: string
+  item_count?: number
+  subfolders?: AudioSubfolder[]
+}
+
+interface AudioSubfolder {
+  id: string
+  pack_id: string
+  name: string
+  description?: string
+  color: string
+  position: number
+  created_at: string
+  updated_at: string
 }
 
 export default function MyLibrary() {
@@ -71,6 +97,103 @@ export default function MyLibrary() {
   const [audioItems, setAudioItems] = useState<AudioLibraryItem[]>([]);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  
+  // Audio Packs
+  const [audioPacks, setAudioPacks] = useState<AudioPack[]>([]);
+  const [loadingPacks, setLoadingPacks] = useState(false);
+  const [packError, setPackError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'packs'>('grid');
+  const [selectedPack, setSelectedPack] = useState<string | null>(null);
+  
+  // Subfolders
+  const [subfolders, setSubfolders] = useState<AudioSubfolder[]>([]);
+  const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set());
+  
+  // Drag and drop
+  const [draggedItem, setDraggedItem] = useState<AudioLibraryItem | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [showDragDialog, setShowDragDialog] = useState(false);
+  const [dragDialogInfo, setDragDialogInfo] = useState<{
+    folderName: string;
+    folderType: 'pack' | 'subfolder' | 'unpacked';
+    packName?: string;
+  } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{
+    isUploading: boolean;
+    currentFile: string;
+    currentIndex: number;
+    totalFiles: number;
+    completedFiles: string[];
+  }>({
+    isUploading: false,
+    currentFile: '',
+    currentIndex: 0,
+    totalFiles: 0,
+    completedFiles: []
+  });
+  
+  // Multi-select for moving files
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [showMoveMenu, setShowMoveMenu] = useState(false);
+  
+  // Handle file selection
+  const toggleFileSelection = (fileId: string) => {
+    const newSelected = new Set(selectedFiles);
+    if (newSelected.has(fileId)) {
+      newSelected.delete(fileId);
+    } else {
+      newSelected.add(fileId);
+    }
+    setSelectedFiles(newSelected);
+  };
+  
+  // Select all files in current pack root
+  const selectAllInPackRoot = (packId: string) => {
+    const packRootFiles = audioItems.filter(item => item.pack_id === packId && !item.subfolder);
+    const newSelected = new Set(selectedFiles);
+    packRootFiles.forEach(file => newSelected.add(file.id));
+    setSelectedFiles(newSelected);
+  };
+  
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedFiles(new Set());
+    setShowMoveMenu(false);
+  };
+  
+  // Move selected files to subfolder
+  const moveSelectedFiles = async (targetSubfolder: string, targetPackId: string) => {
+    if (!user || selectedFiles.size === 0) return;
+    
+    try {
+      // Update all selected files in database
+      for (const fileId of selectedFiles) {
+        const { error } = await supabase
+          .from('audio_library_items')
+          .update({ subfolder: targetSubfolder })
+          .eq('id', fileId);
+          
+        if (error) {
+          console.error('Error moving file:', error);
+          continue;
+        }
+      }
+      
+      // Update local state
+      setAudioItems(audioItems.map(item => 
+        selectedFiles.has(item.id) 
+          ? { ...item, subfolder: targetSubfolder }
+          : item
+      ));
+      
+      console.log(`Moved ${selectedFiles.size} files to ${targetSubfolder}`);
+      clearSelection();
+      
+    } catch (error) {
+      console.error('Error moving files:', error);
+    }
+  };
 
   // Modal state for creating a new album
   const [showAlbumModal, setShowAlbumModal] = useState(false);
@@ -175,13 +298,80 @@ export default function MyLibrary() {
       });
     // Audio Library
     setLoadingAudio(true);
-    supabase.from('audio_library_items').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+    supabase.from('audio_library_items')
+      .select(`
+        *,
+        pack:audio_packs(id, name, color)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) setAudioError(error.message);
         setAudioItems(data || []);
         setLoadingAudio(false);
       });
+      
+    // Audio Packs
+    setLoadingPacks(true);
+    supabase.from('audio_packs')
+      .select(`
+        *,
+        item_count:audio_library_items(count),
+        subfolders:audio_subfolders(*)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) setPackError(error.message);
+        setAudioPacks(data || []);
+        setLoadingPacks(false);
+      });
+      
+    // Subfolders
+    supabase.from('audio_subfolders')
+      .select('*')
+      .in('pack_id', audioPacks.map(pack => pack.id))
+      .order('position', { ascending: true })
+      .then(({ data, error }) => {
+        if (!error) setSubfolders(data || []);
+      });
   }, [user?.id]);
+
+  // Global drag and drop detection for file uploads
+  useEffect(() => {
+    const handleWindowDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) {
+        e.preventDefault();
+        setIsDraggingFiles(true);
+      }
+    };
+
+    const handleWindowDragLeave = (e: DragEvent) => {
+      // Only clear if we're leaving the window entirely
+      if (e.clientX === 0 && e.clientY === 0) {
+        setIsDraggingFiles(false);
+        setShowDragDialog(false);
+        setDragDialogInfo(null);
+      }
+    };
+
+    const handleWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDraggingFiles(false);
+      setShowDragDialog(false);
+      setDragDialogInfo(null);
+    };
+
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+    window.addEventListener('drop', handleWindowDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+      window.removeEventListener('drop', handleWindowDrop);
+    };
+  }, []);
 
   // CRUD handlers (examples for albums, repeat for others as needed)
   async function handleDeleteAlbum(id: string) {
@@ -331,11 +521,23 @@ export default function MyLibrary() {
     setEditAdditionalCovers(editAdditionalCovers.filter((_, i) => i !== idx));
   }
 
-  const [selectedTab, setSelectedTab] = useState('albums');
+  const [selectedTab, setSelectedTab] = useState('audio');
   const [showAudioModal, setShowAudioModal] = useState(false);
-  const [newAudio, setNewAudio] = useState({ name: '', type: '', description: '', file_url: '' });
+  const [newAudio, setNewAudio] = useState({ name: '', type: '', description: '', file_url: '', pack_id: '', subfolder: '' });
   const [audioUploading, setAudioUploading] = useState(false);
   const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
+  
+  // Pack creation modal
+  const [showPackModal, setShowPackModal] = useState(false);
+  const [newPack, setNewPack] = useState({ name: '', description: '', color: '#3B82F6' });
+  const [packCreating, setPackCreating] = useState(false);
+  const [packCreateError, setPackCreateError] = useState<string | null>(null);
+  
+  // Subfolder creation modal
+  const [showSubfolderModal, setShowSubfolderModal] = useState(false);
+  const [newSubfolder, setNewSubfolder] = useState({ name: '', description: '', color: '#6B7280', pack_id: '' });
+  const [subfolderCreating, setSubfolderCreating] = useState(false);
+  const [subfolderCreateError, setSubfolderCreateError] = useState<string | null>(null);
 
   // Audio upload logic for Audio Library tab
   async function uploadAudioLibraryFile(file: File): Promise<string | null> {
@@ -367,16 +569,508 @@ export default function MyLibrary() {
       setAudioUploadError('Please upload an audio file.');
       return;
     }
-    const { error } = await supabase.from('audio_library_items').insert([
-      { ...newAudio, user_id: user.id }
-    ]);
+    const insertData = {
+      ...newAudio,
+      user_id: user.id,
+      pack_id: newAudio.pack_id || null,
+      subfolder: newAudio.subfolder || null
+    };
+    const { error } = await supabase.from('audio_library_items').insert([insertData]);
     if (error) {
       setAudioUploadError(error.message);
       return;
     }
     setShowAudioModal(false);
-    setNewAudio({ name: '', type: '', description: '', file_url: '' });
+    setNewAudio({ name: '', type: '', description: '', file_url: '', pack_id: '', subfolder: '' });
+    // Refresh data
+    await refreshAudioData();
   }
+
+  // Handle create pack
+  async function handleCreatePack(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setPackCreating(true);
+    setPackCreateError(null);
+    
+    const { error } = await supabase.from('audio_packs').insert([
+      { ...newPack, user_id: user.id }
+    ]);
+    
+    if (error) {
+      setPackCreateError(error.message);
+      setPackCreating(false);
+      return;
+    }
+    
+    setShowPackModal(false);
+    setNewPack({ name: '', description: '', color: '#3B82F6' });
+    setPackCreating(false);
+    // Refresh data
+    await refreshAudioData();
+  }
+
+  // Handle delete pack
+  async function handleDeletePack(packId: string) {
+    if (!user) return;
+    
+    // Confirm deletion
+    if (!confirm('Are you sure you want to delete this pack? This will permanently delete all audio files and subfolders inside it.')) {
+      return;
+    }
+    
+    try {
+      console.log(`Deleting pack and all its contents...`);
+      
+      // Delete all audio files in this pack
+      const { error: audioDeleteError } = await supabase
+        .from('audio_library_items')
+        .delete()
+        .eq('pack_id', packId);
+        
+      if (audioDeleteError) {
+        console.error('Error deleting audio files:', audioDeleteError);
+        return;
+      }
+      
+      // Delete all subfolders in this pack
+      const { error: subfoldersDeleteError } = await supabase
+        .from('audio_subfolders')
+        .delete()
+        .eq('pack_id', packId);
+        
+      if (subfoldersDeleteError) {
+        console.error('Error deleting subfolders:', subfoldersDeleteError);
+        return;
+      }
+      
+      // Finally delete the pack itself
+      const { error: packDeleteError } = await supabase
+        .from('audio_packs')
+        .delete()
+        .eq('id', packId);
+        
+      if (packDeleteError) {
+        console.error('Error deleting pack:', packDeleteError);
+        return;
+      }
+      
+      console.log(`Successfully deleted pack and all its contents`);
+      
+      // Update local state
+      setAudioPacks(audioPacks.filter(p => p.id !== packId));
+      
+      // Remove audio files from local state
+      setAudioItems(audioItems.filter(item => item.pack_id !== packId));
+      
+      // Remove subfolders from local state
+      setSubfolders(subfolders.filter(sf => sf.pack_id !== packId));
+      
+    } catch (error) {
+      console.error('Error during pack deletion:', error);
+    }
+  }
+
+  // Handle delete audio item
+  async function handleDeleteAudio(itemId: string) {
+    if (!user) return;
+    await supabase.from('audio_library_items').delete().eq('id', itemId);
+    setAudioItems(audioItems.filter(item => item.id !== itemId));
+  }
+
+  // Refresh audio data without page reload
+  async function refreshAudioData() {
+    if (!user?.id) return;
+    
+    // Refresh Audio Library
+    setLoadingAudio(true);
+    const { data: audioData, error: audioError } = await supabase
+      .from('audio_library_items')
+      .select(`
+        *,
+        pack:audio_packs(id, name, color)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    
+    if (audioError) setAudioError(audioError.message);
+    setAudioItems(audioData || []);
+    setLoadingAudio(false);
+      
+    // Refresh Audio Packs
+    setLoadingPacks(true);
+    const { data: packsData, error: packsError } = await supabase
+      .from('audio_packs')
+      .select(`
+        *,
+        item_count:audio_library_items(count),
+        subfolders:audio_subfolders(*)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    
+    if (packsError) setPackError(packsError.message);
+    setAudioPacks(packsData || []);
+    setLoadingPacks(false);
+  }
+
+  // Handle create subfolder
+  async function handleCreateSubfolder(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setSubfolderCreating(true);
+    setSubfolderCreateError(null);
+    
+    const { error } = await supabase.from('audio_subfolders').insert([newSubfolder]);
+    
+    if (error) {
+      setSubfolderCreateError(error.message);
+      setSubfolderCreating(false);
+      return;
+    }
+    
+    setShowSubfolderModal(false);
+    setNewSubfolder({ name: '', description: '', color: '#6B7280', pack_id: '' });
+    setSubfolderCreating(false);
+    // Refresh data
+    await refreshAudioData();
+  }
+
+  // Handle delete subfolder
+  async function handleDeleteSubfolder(subfolderId: string) {
+    if (!user) return;
+    
+    // Confirm deletion
+    if (!confirm('Are you sure you want to delete this subfolder? This will permanently delete all audio files inside it.')) {
+      return;
+    }
+    
+    try {
+      // First, get the subfolder details to find associated audio files
+      const { data: subfolderData, error: subfolderError } = await supabase
+        .from('audio_subfolders')
+        .select('name, pack_id')
+        .eq('id', subfolderId)
+        .single();
+        
+      if (subfolderError) {
+        console.error('Error fetching subfolder:', subfolderError);
+        return;
+      }
+      
+      console.log(`Deleting subfolder "${subfolderData.name}" and all its contents...`);
+      
+      // Delete all audio files in this subfolder
+      const { error: audioDeleteError } = await supabase
+        .from('audio_library_items')
+        .delete()
+        .eq('pack_id', subfolderData.pack_id)
+        .eq('subfolder', subfolderData.name);
+        
+      if (audioDeleteError) {
+        console.error('Error deleting audio files:', audioDeleteError);
+        return;
+      }
+      
+      // Then delete the subfolder itself
+      const { error: subfolderDeleteError } = await supabase
+        .from('audio_subfolders')
+        .delete()
+        .eq('id', subfolderId);
+        
+      if (subfolderDeleteError) {
+        console.error('Error deleting subfolder:', subfolderDeleteError);
+        return;
+      }
+      
+      console.log(`Successfully deleted subfolder "${subfolderData.name}" and all its audio files`);
+      
+      // Update local state
+      setSubfolders(subfolders.filter(sf => sf.id !== subfolderId));
+      
+      // Remove audio files from local state
+      setAudioItems(audioItems.filter(item => 
+        !(item.pack_id === subfolderData.pack_id && item.subfolder === subfolderData.name)
+      ));
+      
+    } catch (error) {
+      console.error('Error during subfolder deletion:', error);
+    }
+  }
+
+  // Toggle subfolder expansion
+  const toggleSubfolder = (subfolderId: string) => {
+    const newExpanded = new Set(expandedSubfolders);
+    if (newExpanded.has(subfolderId)) {
+      newExpanded.delete(subfolderId);
+    } else {
+      newExpanded.add(subfolderId);
+    }
+    setExpandedSubfolders(newExpanded);
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, item: AudioLibraryItem) => {
+    console.log('Drag started:', item.name);
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.id);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDragOverTarget(null);
+    setShowDragDialog(false);
+    setDragDialogInfo(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    // Check if files are being dragged from file system
+    if (e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy';
+      setIsDraggingFiles(true);
+    } else {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  };
+
+  const handleDragEnter = (target: string) => {
+    console.log('Drag enter:', target);
+    setDragOverTarget(target);
+    
+    // Show drag dialog when hovering over folders
+    if (isDraggingFiles || draggedItem) {
+      if (target === 'unpacked') {
+        setDragDialogInfo({
+          folderName: 'Unpacked Files',
+          folderType: 'unpacked'
+        });
+        setShowDragDialog(true);
+      } else if (target.includes('-root')) {
+        const packId = target.replace('-root', '');
+        const pack = audioPacks.find(p => p.id === packId);
+        if (pack) {
+          setDragDialogInfo({
+            folderName: pack.name,
+            folderType: 'pack',
+            packName: pack.name
+          });
+          setShowDragDialog(true);
+        }
+      } else if (target.includes('-')) {
+        const [packId, subfolderName] = target.split('-');
+        const pack = audioPacks.find(p => p.id === packId);
+        if (pack) {
+          setDragDialogInfo({
+            folderName: subfolderName,
+            folderType: 'subfolder',
+            packName: pack.name
+          });
+          setShowDragDialog(true);
+        }
+      }
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    console.log('Drag leave triggered');
+    setDragOverTarget(null);
+    setShowDragDialog(false);
+    setDragDialogInfo(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetSubfolder: string | null, targetPackId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log('Drop triggered:', { isDraggingFiles, draggedItem, targetSubfolder, targetPackId });
+    
+    if (!user) {
+      console.log('No user');
+      return;
+    }
+
+    setIsDraggingFiles(false);
+    setDragOverTarget(null);
+    setShowDragDialog(false);
+    setDragDialogInfo(null);
+
+    // Handle file uploads from computer
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      console.log('Files dropped:', e.dataTransfer.files.length);
+      
+      // Convert FileList to Array for better handling
+      const filesArray = Array.from(e.dataTransfer.files);
+      const audioFiles = filesArray.filter(file => {
+        const audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma'];
+        const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+        return file.type.startsWith('audio/') || audioExtensions.includes(fileExtension);
+      });
+      
+      console.log('Audio files to upload:', audioFiles.map(f => f.name));
+      
+      if (audioFiles.length === 0) {
+        console.log('No audio files to upload');
+        return;
+      }
+      
+      // Initialize upload progress
+      setUploadProgress({
+        isUploading: true,
+        currentFile: '',
+        currentIndex: 0,
+        totalFiles: audioFiles.length,
+        completedFiles: []
+      });
+      
+      // Show loading state during upload
+      setLoadingAudio(true);
+      let successfulUploads = 0;
+      let processedFiles = 0;
+      
+      for (const file of audioFiles) {
+        processedFiles++;
+        
+        // Update upload progress
+        setUploadProgress(prev => ({
+          ...prev,
+          currentFile: file.name,
+          currentIndex: processedFiles
+        }));
+        
+        console.log(`Processing file ${processedFiles}/${audioFiles.length}: ${file.name} (type: ${file.type})`);
+
+        try {
+          console.log(`Uploading file ${processedFiles}/${audioFiles.length}:`, file.name);
+          
+          // Upload file to storage with unique filename
+          const fileExt = file.name.split('.').pop();
+          const timestamp = Date.now();
+          const randomId = Math.random().toString(36).substring(2);
+          const fileName = `${timestamp}-${processedFiles}-${randomId}.${fileExt}`;
+          const filePath = `audio-library/${user.id}_${fileName}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('beats')
+            .upload(filePath, file, { upsert: false });
+
+          if (uploadError) {
+            console.error(`Upload error for ${file.name}:`, uploadError);
+            continue;
+          }
+
+          console.log(`Storage upload successful for ${file.name}`);
+
+          // Get public URL
+          const { data: urlData } = supabase.storage
+            .from('beats')
+            .getPublicUrl(filePath);
+
+          // Save to database
+          const insertData = {
+            user_id: user.id,
+            name: file.name,
+            type: 'sample', // Default type
+            file_url: urlData.publicUrl,
+            file_size: file.size,
+            pack_id: targetPackId,
+            subfolder: targetSubfolder
+          };
+
+          const { error: dbError } = await supabase
+            .from('audio_library_items')
+            .insert([insertData]);
+
+          if (dbError) {
+            console.error(`Database error for ${file.name}:`, dbError);
+            continue;
+          }
+
+          console.log(`File uploaded successfully: ${file.name}`);
+          successfulUploads++;
+          
+          // Update upload progress with completed file
+          setUploadProgress(prev => ({
+            ...prev,
+            completedFiles: [...prev.completedFiles, file.name]
+          }));
+        } catch (error) {
+          console.error(`Error uploading file ${file.name}:`, error);
+          // Still update progress even on error to show we tried this file
+          setUploadProgress(prev => ({
+            ...prev,
+            completedFiles: [...prev.completedFiles, `❌ ${file.name} (failed)`]
+          }));
+        }
+      }
+      
+      // Refresh data to show new files and stay on audio tab
+      console.log(`Upload complete: ${successfulUploads}/${audioFiles.length} files uploaded successfully`);
+      
+      // Reset upload progress
+      setUploadProgress({
+        isUploading: false,
+        currentFile: '',
+        currentIndex: 0,
+        totalFiles: 0,
+        completedFiles: []
+      });
+      
+      if (successfulUploads > 0) {
+        await refreshAudioData();
+        console.log(`Data refreshed. Successfully uploaded ${successfulUploads} file(s)`);
+      } else {
+        console.log('No files were uploaded successfully');
+        setLoadingAudio(false);
+      }
+      return;
+    }
+
+    // Handle moving existing items
+    if (!draggedItem) {
+      console.log('No dragged item');
+      return;
+    }
+
+    try {
+      // Update the database
+      const updateData = {
+        pack_id: targetPackId,
+        subfolder: targetSubfolder
+      };
+      
+      console.log('Updating database with:', updateData);
+      
+      const { error } = await supabase
+        .from('audio_library_items')
+        .update(updateData)
+        .eq('id', draggedItem.id);
+
+      if (error) {
+        console.error('Error moving file:', error);
+        return;
+      }
+
+      console.log('Database updated successfully');
+
+      // Update local state
+      setAudioItems(audioItems.map(item => 
+        item.id === draggedItem.id 
+          ? { 
+              ...item, 
+              pack_id: targetPackId || undefined, 
+              subfolder: targetSubfolder || undefined,
+              pack: targetPackId ? item.pack : undefined  // Clear pack info if moving to unpacked
+            }
+          : item
+      ));
+
+      setDraggedItem(null);
+    } catch (error) {
+      console.error('Error moving file:', error);
+    }
+  };
 
   return (
     <div className="container mx-auto py-8">
@@ -389,10 +1083,16 @@ export default function MyLibrary() {
         </Button>
         )}
         {selectedTab === 'audio' && (
+          <div className="flex gap-2">
           <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAudioModal(true)}>
             <Plus className="h-4 w-4" />
             Add Audio
           </Button>
+            <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2 rounded" onClick={() => setShowPackModal(true)}>
+              <Plus className="h-4 w-4" />
+              Create Pack
+            </Button>
+          </div>
         )}
       </div>
       {/* Create Album Modal */}
@@ -615,6 +1315,35 @@ export default function MyLibrary() {
               value={newAudio.description}
               onChange={e => setNewAudio({ ...newAudio, description: e.target.value })}
             />
+            <select
+              value={newAudio.pack_id}
+              onChange={e => {
+                setNewAudio({ ...newAudio, pack_id: e.target.value, subfolder: '' });
+              }}
+              className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+            >
+              <option value="">No Pack (Individual File)</option>
+              {audioPacks.map(pack => (
+                <option key={pack.id} value={pack.id}>{pack.name}</option>
+              ))}
+            </select>
+            
+            {newAudio.pack_id && (
+              <select
+                value={newAudio.subfolder}
+                onChange={e => setNewAudio({ ...newAudio, subfolder: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+              >
+                <option value="">Root of Pack (No Subfolder)</option>
+                {audioPacks
+                  .find(pack => pack.id === newAudio.pack_id)
+                  ?.subfolders?.map(subfolder => (
+                    <option key={subfolder.id} value={subfolder.name}>
+                      📁 {subfolder.name}
+                    </option>
+                  ))}
+              </select>
+            )}
             <Input
               type="file"
               accept="audio/*"
@@ -629,7 +1358,12 @@ export default function MyLibrary() {
             {audioUploading && <div className="text-sm text-gray-500">Uploading audio...</div>}
             {audioUploadError && <div className="text-red-500 text-sm">{audioUploadError}</div>}
             {newAudio.file_url && (
-              <audio controls src={newAudio.file_url} className="h-8 mt-2" />
+              <audio 
+                controls 
+                src={newAudio.file_url} 
+                className="h-8 mt-2"
+                onDragStart={(e) => e.preventDefault()}
+              />
             )}
             <DialogFooter>
               <Button type="submit" disabled={audioUploading} className="bg-yellow-400 hover:bg-yellow-500 text-black">
@@ -642,6 +1376,98 @@ export default function MyLibrary() {
           </form>
         </DialogContent>
       </Dialog>
+      
+      {/* Create Pack Modal */}
+      <Dialog open={showPackModal} onOpenChange={setShowPackModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Audio Pack</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreatePack} className="space-y-4">
+            <Input
+              placeholder="Pack Name"
+              value={newPack.name}
+              onChange={e => setNewPack({ ...newPack, name: e.target.value })}
+              required
+            />
+            <Textarea
+              placeholder="Description"
+              value={newPack.description}
+              onChange={e => setNewPack({ ...newPack, description: e.target.value })}
+            />
+            <div>
+              <label className="block text-sm font-medium mb-2">Pack Color</label>
+              <input
+                type="color"
+                value={newPack.color}
+                onChange={e => setNewPack({ ...newPack, color: e.target.value })}
+                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
+              />
+            </div>
+            {packCreateError && <div className="text-red-500 text-sm">{packCreateError}</div>}
+            <DialogFooter>
+              <Button type="submit" disabled={packCreating} className="bg-blue-500 hover:bg-blue-600 text-white">
+                {packCreating ? 'Creating...' : 'Create Pack'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Create Subfolder Modal */}
+      <Dialog open={showSubfolderModal} onOpenChange={setShowSubfolderModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Subfolder</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateSubfolder} className="space-y-4">
+            <select
+              value={newSubfolder.pack_id}
+              onChange={e => setNewSubfolder({ ...newSubfolder, pack_id: e.target.value })}
+              className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+              required
+            >
+              <option value="">Select Pack</option>
+              {audioPacks.map(pack => (
+                <option key={pack.id} value={pack.id}>{pack.name}</option>
+              ))}
+            </select>
+            <Input
+              placeholder="Subfolder Name (e.g. Kicks, Snares, 808s)"
+              value={newSubfolder.name}
+              onChange={e => setNewSubfolder({ ...newSubfolder, name: e.target.value })}
+              required
+            />
+            <Textarea
+              placeholder="Description"
+              value={newSubfolder.description}
+              onChange={e => setNewSubfolder({ ...newSubfolder, description: e.target.value })}
+            />
+            <div>
+              <label className="block text-sm font-medium mb-2">Subfolder Color</label>
+              <input
+                type="color"
+                value={newSubfolder.color}
+                onChange={e => setNewSubfolder({ ...newSubfolder, color: e.target.value })}
+                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
+              />
+            </div>
+            {subfolderCreateError && <div className="text-red-500 text-sm">{subfolderCreateError}</div>}
+            <DialogFooter>
+              <Button type="submit" disabled={subfolderCreating} className="bg-green-500 hover:bg-green-600 text-white">
+                {subfolderCreating ? 'Creating...' : 'Create Subfolder'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
       <Tabs defaultValue={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="albums">Albums</TabsTrigger>
@@ -777,8 +1603,96 @@ export default function MyLibrary() {
         </TabsContent>
         {/* Audio Library Tab */}
         <TabsContent value="audio" className="space-y-4">
-          {loadingAudio ? <div>Loading audio files...</div> : audioError ? <div className="text-red-500">{audioError}</div> : audioItems.length === 0 ? <div>No audio files found.</div> : audioItems.map(item => (
-              <Card key={item.id} className="p-6 flex items-center gap-6">
+          {/* View Mode Toggle */}
+          <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === 'grid' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('grid')}
+              >
+                <Grid className="h-4 w-4 mr-2" />
+                All Files
+              </Button>
+              <Button
+                variant={viewMode === 'packs' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('packs')}
+              >
+                <Package className="h-4 w-4 mr-2" />
+                Packs
+              </Button>
+            </div>
+            {draggedItem && (
+              <div className="text-sm text-blue-600 font-medium">
+                📁 Drag "{draggedItem.name}" to organize it into a folder
+              </div>
+            )}
+            {isDraggingFiles && (
+              <div className="text-sm text-green-600 font-medium">
+                📤 Drag audio files from your computer to upload them directly into folders
+              </div>
+            )}
+            {dragOverTarget && (
+              <div className="text-sm text-green-600 font-medium">
+                🎯 Drop zone active: {dragOverTarget.replace(/.*-/, '')}
+                {isDraggingFiles ? ' (Upload files here)' : ' (Move existing file here)'}
+              </div>
+            )}
+          </div>
+
+          {/* Upload Progress Indicator */}
+          {uploadProgress.isUploading && (
+            <div className="bg-yellow-900 border border-yellow-500 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-6 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></div>
+                <div className="flex-1">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-white font-medium">Uploading Files...</span>
+                    <span className="text-black text-sm font-medium">
+                      {uploadProgress.currentIndex} / {uploadProgress.totalFiles}
+                    </span>
+                  </div>
+                  <div className="text-sm text-black font-medium mb-2">
+                    Current: {uploadProgress.currentFile}
+                  </div>
+                  <div className="w-full bg-yellow-800 rounded-full h-2">
+                    <div 
+                      className="bg-yellow-400 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(uploadProgress.currentIndex / uploadProgress.totalFiles) * 100}%` 
+                      }}
+                    ></div>
+                  </div>
+                  {uploadProgress.completedFiles.length > 0 && (
+                    <div className="mt-2 text-xs text-black font-medium">
+                      ✅ Completed: {uploadProgress.completedFiles.join(', ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {viewMode === 'grid' && (
+            <div className="space-y-4">
+              {loadingAudio ? (
+                <div>Loading audio files...</div>
+              ) : audioError ? (
+                <div className="text-red-500">{audioError}</div>
+              ) : audioItems.length === 0 ? (
+                <div>No audio files found.</div>
+              ) : (
+                audioItems.map(item => (
+                  <Card 
+                    key={item.id} 
+                    className={`p-6 flex items-center gap-6 cursor-move transition-opacity ${
+                      draggedItem?.id === item.id ? 'opacity-50' : ''
+                    }`}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, item)}
+                    onDragEnd={handleDragEnd}
+                  >
                 <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
                   {item.type === 'midi' && <Piano className="h-6 w-6 text-yellow-400" />}
                   {item.type === 'soundkit' && <Drum className="h-6 w-6 text-red-400" />}
@@ -791,19 +1705,476 @@ export default function MyLibrary() {
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold">{item.name}</h3>
                   <p className="text-sm text-gray-400 mb-1">{item.description}</p>
+                      <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500 capitalize">{item.type}</span>
+                        {item.pack && (
+                          <Badge 
+                            variant="outline" 
+                            style={{ borderColor: item.pack.color, color: item.pack.color }}
+                            className="text-xs"
+                          >
+                            {item.pack.name}
+                            {item.subfolder && ` / ${item.subfolder}`}
+                          </Badge>
+                        )}
+                      </div>
                   {item.file_url && (
-                    <audio controls src={item.file_url} className="h-8 mt-2" />
+                        <audio 
+                          controls 
+                          src={item.file_url} 
+                          className="h-8 mt-2" 
+                          onDragStart={(e) => e.preventDefault()}
+                        />
                   )}
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" asChild>
                   <a href={item.file_url} download>Download</a>
                   </Button>
-                <Button variant="destructive" size="sm" onClick={() => {/* handleDeleteAudio(item.id) */}}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
+                      <Button variant="destructive" size="sm" onClick={() => handleDeleteAudio(item.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" />Delete
+                      </Button>
                 </div>
               </Card>
-            ))}
+                ))
+              )}
+            </div>
+          )}
+
+          {viewMode === 'packs' && (
+            <div className="space-y-4">
+              {loadingPacks ? (
+                <div>Loading packs...</div>
+              ) : packError ? (
+                <div className="text-red-500">{packError}</div>
+              ) : audioPacks.length === 0 ? (
+                <div>No packs found. Create your first pack to organize your sounds!</div>
+              ) : (
+                audioPacks.map(pack => (
+                  <Card key={pack.id} className="p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-4">
+                        <div 
+                          className="w-12 h-12 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: pack.color + '20', border: `2px solid ${pack.color}` }}
+                        >
+                          <Package className="h-6 w-6" style={{ color: pack.color }} />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold">{pack.name}</h3>
+                          <p className="text-sm text-gray-400">{pack.description}</p>
+                          <p className="text-xs text-gray-500">
+                            {audioItems.filter(item => item.pack_id === pack.id).length} items
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedPack(selectedPack === pack.id ? null : pack.id)}
+                        >
+                          {selectedPack === pack.id ? 'Hide' : 'View'} Files
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => {
+                            setNewSubfolder({ ...newSubfolder, pack_id: pack.id });
+                            setShowSubfolderModal(true);
+                          }}
+                        >
+                          <Folder className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          onClick={() => handleDeletePack(pack.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {selectedPack === pack.id && (
+                      <div className="mt-4 space-y-3 border-t pt-4">
+                        {/* Show subfolders */}
+                        {pack.subfolders && pack.subfolders.length > 0 && (
+                          <div className="space-y-2">
+                            {pack.subfolders.map(subfolder => (
+                              <div 
+                                key={subfolder.id} 
+                                className={`border border-gray-200 rounded-lg transition-colors ${
+                                  dragOverTarget === `${pack.id}-${subfolder.name}` 
+                                    ? isDraggingFiles 
+                                      ? 'bg-yellow-100 border-yellow-400 border-2' 
+                                      : 'bg-yellow-100 border-yellow-400 border-2' 
+                                    : isDraggingFiles
+                                      ? 'border-dashed border-yellow-300'
+                                      : ''
+                                }`}
+                                onDragOver={handleDragOver}
+                                onDragEnter={() => handleDragEnter(`${pack.id}-${subfolder.name}`)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, subfolder.name, pack.id)}
+                              >
+                                <div 
+                                  className="flex items-center gap-3 p-3 cursor-pointer rounded-t-lg"
+                                  style={{ 
+                                    backgroundColor: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
+                                      ? '#FCD34D' 
+                                      : '#141414' 
+                                  }}
+                                  onClick={() => toggleSubfolder(subfolder.id)}
+                                >
+                                  <div 
+                                    className="w-8 h-8 rounded-full flex items-center justify-center"
+                                    style={{ backgroundColor: subfolder.color + '20', border: `1px solid ${subfolder.color}` }}
+                                  >
+                                    <Folder className="h-4 w-4" style={{ color: subfolder.color }} />
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 
+                                      className="font-medium"
+                                      style={{ 
+                                        color: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
+                                          ? '#000000' 
+                                          : '#FFFFFF' 
+                                      }}
+                                    >
+                                      📁 {subfolder.name}
+                                      {isDraggingFiles && ' (Upload here)'}
+                                    </h4>
+                                    <p 
+                                      className="text-xs"
+                                      style={{ 
+                                        color: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
+                                          ? '#374151' 
+                                          : '#6B7280' 
+                                      }}
+                                    >
+                                      {subfolder.description}
+                                    </p>
+                                    <p 
+                                      className="text-xs"
+                                      style={{ 
+                                        color: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
+                                          ? '#374151' 
+                                          : '#9CA3AF' 
+                                      }}
+                                    >
+                                      {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length} files
+                                    </p>
+                                  </div>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteSubfolder(subfolder.id);
+                                    }}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                                
+                                {expandedSubfolders.has(subfolder.id) && (
+                                  <div className="px-3 pb-3 pt-4 space-y-2">
+                                                                          {audioItems
+                                        .filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)
+                                        .map(item => (
+                                          <div 
+                                            key={item.id} 
+                                            className={`flex items-center gap-4 p-2 bg-black rounded-lg ml-4 cursor-move transition-opacity ${
+                                              draggedItem?.id === item.id ? 'opacity-50' : ''
+                                            }`}
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, item)}
+                                            onDragEnd={handleDragEnd}
+                                          >
+                                          <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center">
+                                            {item.type === 'midi' && <Piano className="h-3 w-3 text-yellow-400" />}
+                                            {item.type === 'soundkit' && <Drum className="h-3 w-3 text-red-400" />}
+                                            {item.type === 'loop' && <Music className="h-3 w-3 text-blue-400" />}
+                                            {item.type === 'patch' && <Music2 className="h-3 w-3 text-green-400" />}
+                                            {item.type === 'sample' && <FileAudio className="h-3 w-3 text-purple-400" />}
+                                            {item.type === 'clip' && <FileMusic className="h-3 w-3 text-pink-400" />}
+                                            {item.type === 'other' && <File className="h-3 w-3 text-gray-400" />}
+                                          </div>
+                                          <div className="flex-1">
+                                            <h5 className="text-sm font-medium">{item.name}</h5>
+                                            <p className="text-xs text-gray-500 capitalize">{item.type}</p>
+                                                                                         {item.file_url && (
+                                               <audio 
+                                                 controls 
+                                                 src={item.file_url} 
+                                                 className="h-6 mt-1" 
+                                                 style={{ maxWidth: '200px' }}
+                                                 onDragStart={(e) => e.preventDefault()}
+                                               />
+                                             )}
+                                          </div>
+                                          <div className="flex gap-1">
+                                            <Button variant="outline" size="sm" asChild>
+                                              <a href={item.file_url} download className="text-xs">⬇️</a>
+                                            </Button>
+                                            <Button 
+                                              variant="destructive" 
+                                              size="sm" 
+                                              onClick={() => handleDeleteAudio(item.id)}
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length === 0 && (
+                                      <p className="text-center text-gray-400 py-2 text-sm ml-4">No files in this folder yet.</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {/* Show root level files (no subfolder) */}
+                        <div 
+                          className={`space-y-2 p-3 rounded-lg border-2 border-dashed transition-colors ${
+                            dragOverTarget === `${pack.id}-root` 
+                              ? isDraggingFiles 
+                                ? 'border-yellow-400 bg-yellow-100' 
+                                : 'border-yellow-400 bg-yellow-100'
+                              : isDraggingFiles
+                                ? 'border-yellow-300'
+                                : 'border-gray-200'
+                          }`}
+                          onDragOver={handleDragOver}
+                          onDragEnter={() => handleDragEnter(`${pack.id}-root`)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, null, pack.id)}
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-medium text-gray-600 text-sm flex items-center gap-2">
+                              <Folder className="h-4 w-4" />
+                              Pack Root 
+                              {dragOverTarget === `${pack.id}-root` && 
+                                (isDraggingFiles ? '(Upload files here)' : '(Drop here)')
+                              }
+                              {isDraggingFiles && dragOverTarget !== `${pack.id}-root` && 
+                                ' (Upload files here)'
+                              }
+                            </h4>
+                            
+                            {/* Selection Controls */}
+                            {audioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length > 0 && (
+                              <div className="flex items-center gap-2">
+                                {selectedFiles.size > 0 && (
+                                  <>
+                                    <span className="text-xs text-yellow-600">
+                                      {selectedFiles.size} selected
+                                    </span>
+                                    <select
+                                      className="text-xs p-1 rounded border bg-yellow-100 text-black"
+                                      value=""
+                                      onChange={(e) => {
+                                        if (e.target.value) {
+                                          moveSelectedFiles(e.target.value, pack.id);
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Move to subfolder...</option>
+                                      {pack.subfolders?.map(subfolder => (
+                                        <option key={subfolder.id} value={subfolder.name}>
+                                          {subfolder.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm" 
+                                      onClick={clearSelection}
+                                      className="text-xs h-6"
+                                    >
+                                      Clear
+                                    </Button>
+                                  </>
+                                )}
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => selectAllInPackRoot(pack.id)}
+                                  className="text-xs h-6"
+                                >
+                                  Select All
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          {audioItems
+                            .filter(item => item.pack_id === pack.id && !item.subfolder)
+                            .map(item => (
+                              <div 
+                                key={item.id} 
+                                className={`flex items-center gap-4 p-3 bg-black rounded-lg transition-opacity ${
+                                  selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
+                                } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
+                                draggable={!selectedFiles.has(item.id)}
+                                onDragStart={(e) => selectedFiles.has(item.id) ? e.preventDefault() : handleDragStart(e, item)}
+                                onDragEnd={handleDragEnd}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedFiles.has(item.id)}
+                                  onChange={() => toggleFileSelection(item.id)}
+                                  className="w-4 h-4 text-yellow-400 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
+                                  {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-400" />}
+                                  {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-400" />}
+                                  {item.type === 'loop' && <Music className="h-4 w-4 text-blue-400" />}
+                                  {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-400" />}
+                                  {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-400" />}
+                                  {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-400" />}
+                                  {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
+                                </div>
+                                <div className="flex-1">
+                                  <h4 className="font-medium">{item.name}</h4>
+                                  <p className="text-xs text-gray-500 capitalize">{item.type}</p>
+                                  {item.file_url && (
+                                                                    <audio 
+                                  controls 
+                                  src={item.file_url} 
+                                  className="h-6 mt-1"
+                                  onDragStart={(e) => e.preventDefault()}
+                                />
+                              )}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="outline" size="sm" asChild>
+                                <a href={item.file_url} download className="text-xs">Download</a>
+                              </Button>
+                              <Button 
+                                variant="destructive" 
+                                size="sm" 
+                                onClick={() => handleDeleteAudio(item.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                              </div>
+                            ))}
+                          {audioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length === 0 && (
+                            <p className="text-center text-gray-500 py-2 text-sm">No root files.</p>
+                          )}
+                        </div>
+                        
+                        {audioItems.filter(item => item.pack_id === pack.id).length === 0 && (
+                          <p className="text-center text-gray-500 py-4">No files in this pack yet.</p>
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                ))
+              )}
+              
+              {/* Show unpacked files in packs view */}
+              {audioItems.filter(item => !item.pack_id).length > 0 && (
+                <Card 
+                  className={`p-6 transition-colors ${
+                    dragOverTarget === 'unpacked' 
+                      ? isDraggingFiles 
+                        ? 'bg-yellow-100 border-yellow-400 border-2' 
+                        : 'bg-yellow-100 border-yellow-400 border-2'
+                      : isDraggingFiles
+                        ? 'border-dashed border-yellow-300'
+                        : ''
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragEnter={() => handleDragEnter('unpacked')}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, null, null)}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center">
+                        <Folder className="h-6 w-6 text-gray-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold">
+                          Unpacked Files {dragOverTarget === 'unpacked' && '(Drop here)'}
+                        </h3>
+                        <p className="text-sm text-gray-400">Files not organized in any pack</p>
+                        <p className="text-xs text-gray-500">
+                          {audioItems.filter(item => !item.pack_id).length} items
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedPack(selectedPack === 'unpacked' ? null : 'unpacked')}
+                    >
+                      {selectedPack === 'unpacked' ? 'Hide' : 'View'} Files
+                    </Button>
+                  </div>
+                  
+                  {selectedPack === 'unpacked' && (
+                    <div className="mt-4 space-y-3 border-t pt-4">
+                                              {audioItems
+                          .filter(item => !item.pack_id)
+                          .map(item => (
+                            <div 
+                              key={item.id} 
+                              className={`flex items-center gap-4 p-3 bg-black rounded-lg cursor-move transition-opacity ${
+                                draggedItem?.id === item.id ? 'opacity-50' : ''
+                              }`}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, item)}
+                              onDragEnd={handleDragEnd}
+                            >
+                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
+                              {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-400" />}
+                              {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-400" />}
+                              {item.type === 'loop' && <Music className="h-4 w-4 text-blue-400" />}
+                              {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-400" />}
+                              {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-400" />}
+                              {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-400" />}
+                              {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-medium">{item.name}</h4>
+                              <p className="text-xs text-gray-500 capitalize">{item.type}</p>
+                              {item.file_url && (
+                                <audio 
+                                  controls 
+                                  src={item.file_url} 
+                                  className="h-6 mt-1"
+                                  onDragStart={(e) => e.preventDefault()}
+                                />
+                              )}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="outline" size="sm" asChild>
+                                <a href={item.file_url} download className="text-xs">Download</a>
+                              </Button>
+                              <Button 
+                                variant="destructive" 
+                                size="sm" 
+                                onClick={() => handleDeleteAudio(item.id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </Card>
+              )}
+            </div>
+          )}
         </TabsContent>
         {/* Top Releases Tab (placeholder) */}
         <TabsContent value="top" className="space-y-4">
@@ -815,6 +2186,42 @@ export default function MyLibrary() {
           </div>
         </TabsContent>
       </Tabs>
+      
+      {/* Drag Dialog */}
+      {showDragDialog && dragDialogInfo && (
+        <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-50">
+          <div className="bg-black border-2 border-blue-400 rounded-lg shadow-2xl p-6 max-w-sm mx-4 pointer-events-none animate-pulse">
+            <div className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-900 flex items-center justify-center">
+                {dragDialogInfo.folderType === 'pack' && <Package className="h-8 w-8 text-blue-400" />}
+                {dragDialogInfo.folderType === 'subfolder' && <Folder className="h-8 w-8 text-blue-400" />}
+                {dragDialogInfo.folderType === 'unpacked' && <Folder className="h-8 w-8 text-gray-400" />}
+              </div>
+              <h3 className="text-lg font-semibold text-white mb-2">
+                {isDraggingFiles ? 'Upload to:' : 'Move to:'}
+              </h3>
+              <div className="text-sm text-gray-300">
+                {dragDialogInfo.folderType === 'subfolder' && (
+                  <div>
+                    <span className="font-medium">{dragDialogInfo.packName}</span>
+                    <span className="text-gray-500"> / </span>
+                    <span className="font-medium">{dragDialogInfo.folderName}</span>
+                  </div>
+                )}
+                {dragDialogInfo.folderType === 'pack' && (
+                  <span className="font-medium">{dragDialogInfo.folderName}</span>
+                )}
+                {dragDialogInfo.folderType === 'unpacked' && (
+                  <span className="font-medium text-gray-400">{dragDialogInfo.folderName}</span>
+                )}
+              </div>
+              <div className="mt-3 text-xs text-gray-400">
+                {isDraggingFiles ? 'Release to upload files' : 'Release to move file'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 

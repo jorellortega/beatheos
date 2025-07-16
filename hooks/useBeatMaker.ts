@@ -5,9 +5,18 @@ export interface Track {
   id: number
   name: string
   audioUrl: string | null
+  audioName?: string | null
   color: string
   mute?: boolean
   solo?: boolean
+  // Tempo properties for individual sample editing
+  originalBpm?: number // The original BPM of the sample (auto-detected or user-set)
+  currentBpm?: number  // The current BPM the sample should play at
+  playbackRate?: number // The calculated playback rate (currentBpm / originalBpm)
+  // Pitch properties for individual sample editing
+  originalKey?: string // The original key of the sample (e.g., "C", "C#", "D")
+  currentKey?: string  // The current key the sample should play at
+  pitchShift?: number  // The pitch shift in semitones (-12 to +12)
 }
 
 export interface SequencerData {
@@ -20,6 +29,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   const [currentStep, setCurrentStep] = useState(0)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const samplesRef = useRef<{ [key: string]: Tone.Player }>({})
+  const pitchShiftersRef = useRef<{ [key: string]: Tone.PitchShift }>({})
   const playingSamplesRef = useRef<Set<Tone.Player>>(new Set())
 
   // Initialize sequencer data
@@ -69,7 +79,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   // Load audio samples
   useEffect(() => {
     const loadSamples = async () => {
-      // Clean up existing samples
+      // Clean up existing samples and pitch shifters
       Object.values(samplesRef.current).forEach(player => {
         try {
           if (player.state === 'started') {
@@ -80,16 +90,47 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
           console.warn('[DEBUG] Error disposing player:', error)
         }
       })
+      Object.values(pitchShiftersRef.current).forEach(pitchShift => {
+        try {
+          pitchShift.dispose()
+        } catch (error) {
+          console.warn('[DEBUG] Error disposing pitch shifter:', error)
+        }
+      })
       samplesRef.current = {}
+      pitchShiftersRef.current = {}
 
       // Load new samples
       for (const track of tracks) {
         if (track.audioUrl && track.audioUrl !== 'undefined') {
           try {
             console.log(`[DEBUG] Creating Tone.Player for track ${track.name} (id: ${track.id}) with audioUrl: ${track.audioUrl}`)
-            const player = new Tone.Player(track.audioUrl).toDestination()
+            
+            // Create pitch shifter with high quality settings
+            const pitchShift = new Tone.PitchShift({
+              pitch: track.pitchShift || 0,
+              windowSize: 0.1,     // Larger window for better quality
+              delayTime: 0         // Minimize delay
+            }).toDestination()
+            pitchShiftersRef.current[track.id] = pitchShift
+            
+            // Create player and connect to pitch shifter
+            const player = new Tone.Player(track.audioUrl).connect(pitchShift)
+            
+            // Apply playback rate if specified
+            if (track.playbackRate && track.playbackRate !== 1) {
+              player.playbackRate = track.playbackRate
+              console.log(`[DEBUG] Set playback rate for track ${track.name} to ${track.playbackRate}`)
+            }
+            
+            // Apply pitch shift if specified
+            if (track.pitchShift && track.pitchShift !== 0) {
+              pitchShift.pitch = track.pitchShift
+              console.log(`[DEBUG] Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+            }
+            
             samplesRef.current[track.id] = player
-            console.log(`[DEBUG] Created player for track ${track.name}`)
+            console.log(`[DEBUG] Created player and pitch shifter for track ${track.name}`)
           } catch (error) {
             console.error(`Failed to load audio for track ${track.id}:`, error)
           }
@@ -234,12 +275,59 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     playingSamplesRef.current.clear()
   }, [])
 
+  // Function to update track tempo and recalculate playback rate
+  const updateTrackTempo = useCallback((trackId: number, newBpm: number, originalBpm?: number) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return
+
+    // Use provided originalBpm or default to 120 if not set
+    const baseBpm = originalBpm || track.originalBpm || 120
+    const playbackRate = newBpm / baseBpm
+
+    // Update the player's playback rate if it exists
+    const player = samplesRef.current[trackId]
+    if (player) {
+      player.playbackRate = playbackRate
+      console.log(`[DEBUG] Updated playback rate for track ${track.name} to ${playbackRate} (${newBpm}/${baseBpm})`)
+    }
+
+    return {
+      originalBpm: baseBpm,
+      currentBpm: newBpm,
+      playbackRate: playbackRate
+    }
+  }, [tracks])
+
+  // Function to update track pitch shift
+  const updateTrackPitch = useCallback((trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return
+
+    // Clamp pitch shift to reasonable range (-12 to +12 semitones)
+    const clampedPitchShift = Math.max(-12, Math.min(12, pitchShift))
+
+    // Update the pitch shifter if it exists
+    const pitchShifter = pitchShiftersRef.current[trackId]
+    if (pitchShifter) {
+      pitchShifter.pitch = clampedPitchShift
+      console.log(`[DEBUG] Updated pitch shift for track ${track.name} to ${clampedPitchShift} semitones`)
+    }
+
+    return {
+      originalKey: originalKey || track.originalKey || 'C',
+      currentKey: currentKey || track.currentKey || 'C',
+      pitchShift: clampedPitchShift
+    }
+  }, [tracks])
+
   return {
     sequencerData,
     toggleStep,
     playSequence,
     stopSequence,
     isSequencePlaying,
-    currentStep
+    currentStep,
+    updateTrackTempo,
+    updateTrackPitch
   }
 } 

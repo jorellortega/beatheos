@@ -1,9 +1,249 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical } from 'lucide-react'
+import { Slider } from '@/components/ui/slider'
+import { Input } from '@/components/ui/input'
+import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2 } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { useState } from 'react'
+
+// Musical key calculation utilities
+const CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+const calculateKeyFromPitchShift = (originalKey: string, pitchShift: number): string => {
+  const originalIndex = CHROMATIC_SCALE.indexOf(originalKey)
+  if (originalIndex === -1) return originalKey // Invalid key, return as-is
+  
+  // Calculate new index with wrapping
+  let newIndex = (originalIndex + pitchShift) % 12
+  if (newIndex < 0) newIndex += 12
+  
+  return CHROMATIC_SCALE[newIndex]
+}
+
+const getIntervalName = (semitones: number): string => {
+  const intervals: { [key: number]: string } = {
+    0: 'Unison',
+    1: 'Minor 2nd',
+    2: 'Major 2nd', 
+    3: 'Minor 3rd',
+    4: 'Major 3rd',
+    5: 'Perfect 4th',
+    6: 'Tritone',
+    7: 'Perfect 5th',
+    8: 'Minor 6th',
+    9: 'Major 6th',
+    10: 'Minor 7th',
+    11: 'Major 7th',
+    12: 'Octave',
+    [-12]: 'Octave Down',
+    [-11]: 'Major 7th Down',
+    [-10]: 'Minor 7th Down',
+    [-9]: 'Major 6th Down',
+    [-8]: 'Minor 6th Down',
+    [-7]: 'Perfect 5th Down',
+    [-6]: 'Tritone Down',
+    [-5]: 'Perfect 4th Down',
+    [-4]: 'Major 3rd Down',
+    [-3]: 'Minor 3rd Down',
+    [-2]: 'Major 2nd Down',
+    [-1]: 'Minor 2nd Down'
+  }
+  return intervals[semitones] || `${semitones > 0 ? '+' : ''}${semitones} semi`
+}
+
+// Piano roll component for key selection
+const PianoRoll = ({ 
+  originalKey, 
+  currentPitchShift, 
+  onKeySelect 
+}: { 
+  originalKey: string
+  currentPitchShift: number
+  onKeySelect: (pitchShift: number) => void 
+}) => {
+  const originalKeyIndex = CHROMATIC_SCALE.indexOf(originalKey)
+  const currentKeyIndex = (originalKeyIndex + currentPitchShift) % 12
+  
+  // Piano key layout: white keys and their positions
+  const whiteKeys = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
+  const blackKeys = ['C#', 'D#', '', 'F#', 'G#', 'A#', ''] // Empty strings for gaps
+  
+  const getKeyType = (key: string) => whiteKeys.includes(key) ? 'white' : 'black'
+  
+  const getPitchShiftForKey = (key: string) => {
+    const keyIndex = CHROMATIC_SCALE.indexOf(key)
+    let pitchShift = keyIndex - originalKeyIndex
+    
+    // Wrap to -6 to +6 range (closest path)
+    if (pitchShift > 6) pitchShift -= 12
+    if (pitchShift < -6) pitchShift += 12
+    
+    return pitchShift
+  }
+
+  return (
+    <div className="relative w-full h-12 bg-gray-900 rounded border border-gray-600 overflow-hidden">
+      {/* White keys */}
+      <div className="flex h-full">
+        {whiteKeys.map((key, index) => {
+          const pitchShift = getPitchShiftForKey(key)
+          const isOriginal = key === originalKey
+          const isCurrent = CHROMATIC_SCALE.indexOf(key) === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+          
+          return (
+            <button
+              key={key}
+              onClick={() => onKeySelect(pitchShift)}
+              className={`w-7 h-full border-r border-gray-300 relative transition-all duration-150 shadow-sm ${
+                isOriginal 
+                  ? 'bg-yellow-400 hover:bg-yellow-300 border-yellow-500' 
+                  : isCurrent 
+                    ? 'bg-blue-400 hover:bg-blue-300 border-blue-500' 
+                    : 'bg-white hover:bg-gray-50 active:bg-gray-100'
+              }`}
+              style={{
+                background: isOriginal 
+                  ? 'linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%)' 
+                  : isCurrent 
+                    ? 'linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%)' 
+                    : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
+              }}
+              title={`${key} (${pitchShift > 0 ? '+' : ''}${pitchShift})`}
+            >
+              <span className={`absolute bottom-0.5 left-1/2 transform -translate-x-1/2 text-xs font-semibold ${
+                isOriginal || isCurrent ? 'text-black' : 'text-gray-700'
+              }`}>
+                {key}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Black keys */}
+      <div className="absolute top-0 left-0 w-full h-7 flex">
+        {/* C# */}
+        <div className="w-3.5"></div>
+        <button
+          onClick={() => onKeySelect(getPitchShiftForKey('C#'))}
+          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
+            originalKey === 'C#' 
+              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
+              : CHROMATIC_SCALE.indexOf('C#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
+                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
+          }`}
+          style={{
+            background: originalKey === 'C#' 
+              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
+              : CHROMATIC_SCALE.indexOf('C#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
+                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
+          }}
+          title={`C# (${getPitchShiftForKey('C#') > 0 ? '+' : ''}${getPitchShiftForKey('C#')})`}
+        >
+          <span className="text-xs font-semibold text-white">♯</span>
+        </button>
+        
+        {/* D# */}
+        <div className="w-3"></div>
+        <button
+          onClick={() => onKeySelect(getPitchShiftForKey('D#'))}
+          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
+            originalKey === 'D#' 
+              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
+              : CHROMATIC_SCALE.indexOf('D#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
+                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
+          }`}
+          style={{
+            background: originalKey === 'D#' 
+              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
+              : CHROMATIC_SCALE.indexOf('D#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
+                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
+          }}
+          title={`D# (${getPitchShiftForKey('D#') > 0 ? '+' : ''}${getPitchShiftForKey('D#')})`}
+        >
+          <span className="text-xs font-semibold text-white">♯</span>
+        </button>
+        
+        {/* Gap for E */}
+        <div className="w-7"></div>
+        
+        {/* F# */}
+        <div className="w-3.5"></div>
+        <button
+          onClick={() => onKeySelect(getPitchShiftForKey('F#'))}
+          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
+            originalKey === 'F#' 
+              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
+              : CHROMATIC_SCALE.indexOf('F#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
+                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
+          }`}
+          style={{
+            background: originalKey === 'F#' 
+              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
+              : CHROMATIC_SCALE.indexOf('F#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
+                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
+          }}
+          title={`F# (${getPitchShiftForKey('F#') > 0 ? '+' : ''}${getPitchShiftForKey('F#')})`}
+        >
+          <span className="text-xs font-semibold text-white">♯</span>
+        </button>
+        
+        {/* G# */}
+        <div className="w-3"></div>
+        <button
+          onClick={() => onKeySelect(getPitchShiftForKey('G#'))}
+          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
+            originalKey === 'G#' 
+              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
+              : CHROMATIC_SCALE.indexOf('G#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
+                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
+          }`}
+          style={{
+            background: originalKey === 'G#' 
+              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
+              : CHROMATIC_SCALE.indexOf('G#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
+                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
+          }}
+          title={`G# (${getPitchShiftForKey('G#') > 0 ? '+' : ''}${getPitchShiftForKey('G#')})`}
+        >
+          <span className="text-xs font-semibold text-white">♯</span>
+        </button>
+        
+        {/* A# */}
+        <div className="w-3"></div>
+        <button
+          onClick={() => onKeySelect(getPitchShiftForKey('A#'))}
+          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
+            originalKey === 'A#' 
+              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
+              : CHROMATIC_SCALE.indexOf('A#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
+                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
+          }`}
+          style={{
+            background: originalKey === 'A#' 
+              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
+              : CHROMATIC_SCALE.indexOf('A#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
+                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
+          }}
+          title={`A# (${getPitchShiftForKey('A#') > 0 ? '+' : ''}${getPitchShiftForKey('A#')})`}
+        >
+          <span className="text-xs font-semibold text-white">♯</span>
+        </button>
+      </div>
+    </div>
+  )
+}
 
 interface TrackListProps {
   tracks: Track[]
@@ -14,12 +254,20 @@ interface TrackListProps {
   onRemoveTrack: (trackId: number) => void
   onReorderTracks?: (newOrder: Track[]) => void
   onDirectAudioDrop?: (trackId: number, file: File) => void
+  onTrackTempoChange?: (trackId: number, newBpm: number, originalBpm?: number) => void
+  onTrackPitchChange?: (trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => void
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop }: TrackListProps) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange }: TrackListProps) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [audioDragOverTrack, setAudioDragOverTrack] = useState<number | null>(null)
+  const [bpmInputValues, setBpmInputValues] = useState<{[trackId: number]: string}>({})
+  const [originalBpmInputValues, setOriginalBpmInputValues] = useState<{[trackId: number]: string}>({})
+  const [editingOriginalBpm, setEditingOriginalBpm] = useState<{[trackId: number]: boolean}>({})
+  const [showTempoControls, setShowTempoControls] = useState<{[trackId: number]: boolean}>({})
+  const [showKeyControls, setShowKeyControls] = useState<{[trackId: number]: boolean}>({})
+  const [editingOriginalKey, setEditingOriginalKey] = useState<{[trackId: number]: boolean}>({})
 
   const handleDragStart = (e: React.DragEvent, track: Track) => {
     setDraggedTrack(track)
@@ -159,9 +407,11 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {track.audioUrl ? (
-                    <Badge variant="secondary" className="text-xs bg-green-600">
-                      <Music className="w-3 h-3 mr-1" />
-                      Audio Loaded
+                    <Badge variant="secondary" className="text-xs bg-green-600 max-w-[200px]">
+                      <Music className="w-3 h-3 mr-1 flex-shrink-0" />
+                      <span className="truncate">
+                        {track.audioName || 'Audio Loaded'}
+                      </span>
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="text-xs text-gray-400">
@@ -171,6 +421,32 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Tempo controls toggle - only show if audio is loaded */}
+                  {track.audioUrl && onTrackTempoChange && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowTempoControls(prev => ({...prev, [track.id]: !prev[track.id]}))}
+                      className="text-xs text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
+                      title={showTempoControls[track.id] ? 'Hide tempo controls' : 'Show tempo controls'}
+                    >
+                      {showTempoControls[track.id] ? <ChevronUp className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                    </Button>
+                  )}
+
+                  {/* Key controls toggle - only show if audio is loaded */}
+                  {track.audioUrl && onTrackPitchChange && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowKeyControls(prev => ({...prev, [track.id]: !prev[track.id]}))}
+                      className="text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                      title={showKeyControls[track.id] ? 'Hide key controls' : 'Show key controls'}
+                    >
+                      {showKeyControls[track.id] ? <ChevronUp className="w-3 h-3" /> : <Music2 className="w-3 h-3" />}
+                    </Button>
+                  )}
+                  
                   <Button
                     variant="outline"
                     size="sm"
@@ -204,6 +480,340 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     <source src={track.audioUrl} type="audio/mpeg" />
                     Your browser does not support the audio element.
                   </audio>
+                </div>
+              )}
+
+              {/* Tempo controls if audio is loaded and toggle is enabled */}
+              {track.audioUrl && onTrackTempoChange && showTempoControls[track.id] && (
+                <div className="mt-3 p-3 bg-[#111111] rounded border border-gray-600 animate-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm text-gray-300 font-medium">Tempo Controls</span>
+                  </div>
+                  
+                  {/* Original BPM Setting */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">Original BPM</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingOriginalBpm(prev => ({...prev, [track.id]: !prev[track.id]}))}
+                        className="w-5 h-5 p-0 text-gray-400 hover:text-white"
+                        title="Edit original BPM"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                    </div>
+                    {editingOriginalBpm[track.id] ? (
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          value={originalBpmInputValues[track.id] || (track.originalBpm || 120).toString()}
+                          onChange={(e) => setOriginalBpmInputValues(prev => ({...prev, [track.id]: e.target.value}))}
+                          onBlur={() => {
+                            const newOriginalBpm = parseFloat(originalBpmInputValues[track.id] || '120')
+                            if (newOriginalBpm >= 60 && newOriginalBpm <= 200) {
+                              onTrackTempoChange(track.id, track.currentBpm || newOriginalBpm, newOriginalBpm)
+                            }
+                            setEditingOriginalBpm(prev => ({...prev, [track.id]: false}))
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const newOriginalBpm = parseFloat(originalBpmInputValues[track.id] || '120')
+                              if (newOriginalBpm >= 60 && newOriginalBpm <= 200) {
+                                onTrackTempoChange(track.id, track.currentBpm || newOriginalBpm, newOriginalBpm)
+                              }
+                              setEditingOriginalBpm(prev => ({...prev, [track.id]: false}))
+                            }
+                          }}
+                          min="60"
+                          max="200"
+                          className="flex-1 h-6 text-xs"
+                          placeholder="120"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const newOriginalBpm = parseFloat(originalBpmInputValues[track.id] || '120')
+                            if (newOriginalBpm >= 60 && newOriginalBpm <= 200) {
+                              onTrackTempoChange(track.id, track.currentBpm || newOriginalBpm, newOriginalBpm)
+                            }
+                            setEditingOriginalBpm(prev => ({...prev, [track.id]: false}))
+                          }}
+                          className="h-6 px-2 text-xs"
+                        >
+                          Set
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-white font-mono bg-[#1a1a1a] px-2 py-1 rounded">
+                        {Math.round(track.originalBpm || 120)} BPM
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Current BPM Controls */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-gray-400">Current BPM</span>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={bpmInputValues[track.id] || Math.round(track.currentBpm || track.originalBpm || 120).toString()}
+                          onChange={(e) => setBpmInputValues(prev => ({...prev, [track.id]: e.target.value}))}
+                          onBlur={() => {
+                            const newBpm = parseFloat(bpmInputValues[track.id] || '120')
+                            if (newBpm >= 60 && newBpm <= 200) {
+                              onTrackTempoChange(track.id, newBpm, track.originalBpm || 120)
+                            } else {
+                              setBpmInputValues(prev => ({...prev, [track.id]: Math.round(track.currentBpm || track.originalBpm || 120).toString()}))
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const newBpm = parseFloat(bpmInputValues[track.id] || '120')
+                              if (newBpm >= 60 && newBpm <= 200) {
+                                onTrackTempoChange(track.id, newBpm, track.originalBpm || 120)
+                              }
+                            }
+                          }}
+                          min="60"
+                          max="200"
+                          className="w-16 h-6 text-xs text-center"
+                          placeholder="120"
+                        />
+                        {track.currentBpm !== track.originalBpm && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const originalBpm = track.originalBpm || 120
+                              onTrackTempoChange(track.id, originalBpm, originalBpm)
+                              setBpmInputValues(prev => ({...prev, [track.id]: originalBpm.toString()}))
+                            }}
+                            className="w-6 h-6 p-0 text-gray-400 hover:text-white"
+                            title="Reset to original tempo"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Slider for fine control */}
+                    <Slider
+                      value={[track.currentBpm || track.originalBpm || 120]}
+                      onValueChange={(value) => {
+                        onTrackTempoChange(track.id, value[0], track.originalBpm || 120)
+                        setBpmInputValues(prev => ({...prev, [track.id]: value[0].toString()}))
+                      }}
+                      min={60}
+                      max={200}
+                      step={1}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>60</span>
+                      <span>130</span>
+                      <span>200</span>
+                    </div>
+                  </div>
+
+                  {/* Quick BPM Presets */}
+                  <div className="mb-2">
+                    <div className="text-xs text-gray-400 mb-1">Quick Sets:</div>
+                    <div className="flex gap-1 flex-wrap">
+                      {[80, 90, 100, 110, 120, 130, 140, 150, 160, 170].map(bpm => (
+                        <Button
+                          key={bpm}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            onTrackTempoChange(track.id, bpm, track.originalBpm || 120)
+                            setBpmInputValues(prev => ({...prev, [track.id]: bpm.toString()}))
+                          }}
+                          className="h-5 px-2 text-xs border-gray-600 hover:border-gray-400"
+                        >
+                          {bpm}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Playback Rate Display */}
+                  <div className="text-xs text-gray-400 text-center">
+                    Rate: {((track.currentBpm || track.originalBpm || 120) / (track.originalBpm || 120)).toFixed(2)}x
+                  </div>
+                                  </div>
+                )}
+
+              {/* Key controls if audio is loaded and toggle is enabled */}
+              {track.audioUrl && onTrackPitchChange && showKeyControls[track.id] && (
+                <div className="mt-3 p-3 bg-[#0a0a0a] rounded border border-blue-600 animate-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Music2 className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm text-gray-300 font-medium">Key Controls</span>
+                  </div>
+                  
+                  {/* Original Key Setting */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-400">Original Key</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingOriginalKey(prev => ({...prev, [track.id]: !prev[track.id]}))}
+                        className="w-5 h-5 p-0 text-gray-400 hover:text-white"
+                        title="Edit original key"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                    </div>
+                    {editingOriginalKey[track.id] ? (
+                      <div className="flex gap-1 flex-wrap">
+                        {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map(key => (
+                          <Button
+                            key={key}
+                            variant="outline"
+                            size="sm"
+                                                         onClick={() => {
+                               const newCurrentKey = calculateKeyFromPitchShift(key, track.pitchShift || 0)
+                               onTrackPitchChange(track.id, track.pitchShift || 0, key, newCurrentKey)
+                               setEditingOriginalKey(prev => ({...prev, [track.id]: false}))
+                             }}
+                            className="h-6 px-2 text-xs border-gray-600 hover:border-gray-400"
+                          >
+                            {key}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-white font-mono bg-[#1a1a1a] px-2 py-1 rounded">
+                        {track.originalKey || 'C'}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Pitch Shift Controls */}
+                  <div className="mb-3">
+                                         <div className="flex items-center justify-between mb-2">
+                       <span className="text-xs text-gray-400">Pitch Shift</span>
+                       <div className="flex items-center gap-2">
+                         <div className="text-right">
+                           <div className="text-xs text-white font-mono">
+                             {calculateKeyFromPitchShift(track.originalKey || 'C', track.pitchShift || 0)}
+                           </div>
+                           <div className="text-xs text-gray-400">
+                             {getIntervalName(track.pitchShift || 0)}
+                           </div>
+                         </div>
+                         {track.pitchShift !== 0 && (
+                           <Button
+                             variant="ghost"
+                             size="sm"
+                             onClick={() => {
+                               const resetKey = track.originalKey || 'C'
+                               onTrackPitchChange(track.id, 0, track.originalKey, resetKey)
+                             }}
+                             className="w-6 h-6 p-0 text-gray-400 hover:text-white"
+                             title="Reset pitch"
+                           >
+                             <RotateCcw className="w-3 h-3" />
+                           </Button>
+                         )}
+                       </div>
+                     </div>
+                    
+                    {/* Slider for pitch control */}
+                                         <Slider
+                       value={[track.pitchShift || 0]}
+                       onValueChange={(value) => {
+                         const newCurrentKey = calculateKeyFromPitchShift(track.originalKey || 'C', value[0])
+                         onTrackPitchChange(track.id, value[0], track.originalKey, newCurrentKey)
+                       }}
+                      min={-12}
+                      max={12}
+                      step={1}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>-12</span>
+                      <span>0</span>
+                      <span>+12</span>
+                    </div>
+                  </div>
+
+                                     {/* Piano Roll Key Selection */}
+                   <div className="mb-3">
+                     <div className="text-xs text-gray-400 mb-2">Piano Roll - Click to Select Key:</div>
+                     <PianoRoll
+                       originalKey={track.originalKey || 'C'}
+                       currentPitchShift={track.pitchShift || 0}
+                       onKeySelect={(pitchShift) => {
+                         const newCurrentKey = calculateKeyFromPitchShift(track.originalKey || 'C', pitchShift)
+                         onTrackPitchChange(track.id, pitchShift, track.originalKey, newCurrentKey)
+                       }}
+                     />
+                     <div className="flex justify-between text-xs text-gray-500 mt-1">
+                       <span>🟡 Original Key</span>
+                       <span>🔵 Current Key</span>
+                     </div>
+                     
+                     {/* Octave Controls */}
+                     <div className="flex gap-2 mt-2">
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => {
+                           const newPitch = (track.pitchShift || 0) - 12
+                           const newCurrentKey = calculateKeyFromPitchShift(track.originalKey || 'C', newPitch)
+                           onTrackPitchChange(track.id, newPitch, track.originalKey, newCurrentKey)
+                         }}
+                         className="flex-1 h-6 text-xs border-gray-600 hover:border-gray-400"
+                         disabled={(track.pitchShift || 0) <= -12}
+                       >
+                         -Oct
+                       </Button>
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => {
+                           const resetKey = track.originalKey || 'C'
+                           onTrackPitchChange(track.id, 0, track.originalKey, resetKey)
+                         }}
+                         className="flex-1 h-6 text-xs border-gray-600 hover:border-gray-400"
+                         disabled={(track.pitchShift || 0) === 0}
+                       >
+                         Reset
+                       </Button>
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => {
+                           const newPitch = (track.pitchShift || 0) + 12
+                           const newCurrentKey = calculateKeyFromPitchShift(track.originalKey || 'C', newPitch)
+                           onTrackPitchChange(track.id, newPitch, track.originalKey, newCurrentKey)
+                         }}
+                         className="flex-1 h-6 text-xs border-gray-600 hover:border-gray-400"
+                         disabled={(track.pitchShift || 0) >= 12}
+                       >
+                         +Oct
+                       </Button>
+                     </div>
+                   </div>
+
+                                     {/* Current Key Display */}
+                   <div className="text-xs text-gray-400 text-center">
+                     <div className="mb-1">
+                       Current Key: <span className="text-white font-mono">
+                         {calculateKeyFromPitchShift(track.originalKey || 'C', track.pitchShift || 0)}
+                       </span>
+                     </div>
+                     <div>
+                       {track.originalKey || 'C'} → {calculateKeyFromPitchShift(track.originalKey || 'C', track.pitchShift || 0)}
+                     </div>
+                   </div>
                 </div>
               )}
             </div>
