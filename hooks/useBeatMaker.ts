@@ -24,6 +24,8 @@ export interface Track {
   tags?: string[]
   // MIDI properties
   midiNotes?: MidiNote[]
+  // Stock sound for MIDI tracks
+  stockSound?: any
 }
 
 export interface MidiNote {

@@ -8,7 +8,7 @@ import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -901,6 +901,22 @@ export default function BeatMakerPage() {
         audioFiles = [...audioFiles, ...nameFiles]
       }
       
+      // Special handling for hi-hat to search for multiple variations
+      if (audioType === 'hi-hat') {
+        const hiHatVariations = ['hat', 'hi hat', 'hihat,hi-hat']
+        for (const variation of hiHatVariations) {
+          const { data: variationFiles, error: variationError } = await supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .ilike('name', `%${variation}%`)
+          
+          if (variationFiles) {
+            audioFiles = [...audioFiles, ...variationFiles]
+          }
+        }
+      }
+      
       // Remove duplicates based on id
       audioFiles = audioFiles.filter((file, index, self) => 
         index === self.findIndex(f => f.id === file.id)
@@ -1018,6 +1034,154 @@ export default function BeatMakerPage() {
     }
   }
 
+  const handleTrackStockSoundSelect = (trackId: number, sound: any) => {
+    setTracks(prev => prev.map(track =>
+      track.id === trackId ? { ...track, stockSound: sound, name: sound.name } : track
+    ))
+    if (sound.id.includes('piano')) setMidiSoundType('piano')
+    else if (sound.id.includes('synth')) setMidiSoundType('synth')
+    else if (sound.id.includes('bass')) setMidiSoundType('bass')
+    // Open the Piano Roll for this track
+    setPianoRollTrack(trackId)
+    setShowPianoRoll(true)
+  }
+
+  const handleShuffleAll = async () => {
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to shuffle audio files')
+        return
+      }
+
+      // Shuffle each track that has shuffle capability
+      const shufflePromises = tracks
+        .filter(track => ['Kick', 'Snare', 'Hi-Hat'].includes(track.name))
+        .map(track => handleShuffleAudio(track.id))
+
+      await Promise.all(shufflePromises)
+    } catch (error) {
+      console.error('Error shuffling all tracks:', error)
+      alert('Failed to shuffle all tracks')
+    }
+  }
+
+  const handleSavePattern = async (name: string, description?: string, category?: string, tags?: string[]) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to save patterns')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('saved_patterns')
+        .insert([{
+          user_id: user.id,
+          name,
+          description,
+          tracks,
+          sequencer_data: sequencerData,
+          bpm,
+          steps,
+          tags,
+          category
+        }])
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error saving pattern:', error)
+        alert('Failed to save pattern')
+        return
+      }
+
+      alert(`Pattern "${name}" saved successfully!`)
+    } catch (error) {
+      console.error('Error saving pattern:', error)
+      alert('Failed to save pattern')
+    }
+  }
+
+  const handleSaveAllPatterns = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to save patterns')
+        return
+      }
+
+      // Save each track as a separate pattern
+      const savePromises = tracks.map(async (track, index) => {
+        const patternName = `${track.name} Pattern ${index + 1}`
+        
+        return supabase
+          .from('saved_patterns')
+          .insert({
+            user_id: user.id,
+            name: patternName,
+            description: `Auto-saved ${track.name} pattern`,
+            tracks: [track],
+            sequencer_data: { [track.id]: sequencerData[track.id] || [] },
+            bpm,
+            steps,
+            category: 'Auto-saved',
+            tags: [track.name.toLowerCase()]
+          })
+      })
+
+      await Promise.all(savePromises)
+      alert('All patterns saved successfully!')
+    } catch (error) {
+      console.error('Error saving all patterns:', error)
+      alert('Failed to save patterns')
+    }
+  }
+
+  const handleSaveTrackPattern = async (trackId: number, name: string, description?: string, category?: string, tags?: string[]) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to save patterns')
+        return
+      }
+
+      const track = tracks.find(t => t.id === trackId)
+      if (!track) {
+        alert('Track not found')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('saved_patterns')
+        .insert([{
+          user_id: user.id,
+          name,
+          description,
+          tracks: [track], // Save only this specific track
+          sequencer_data: { [trackId]: sequencerData[trackId] || [] }, // Save only this track's data
+          bpm,
+          steps,
+          tags,
+          category
+        }])
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error saving track pattern:', error)
+        alert('Failed to save track pattern')
+        return
+      }
+
+      alert(`"${name}" saved successfully!`)
+    } catch (error) {
+      console.error('Error saving track pattern:', error)
+      alert('Failed to save track pattern')
+    }
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
@@ -1098,6 +1262,15 @@ export default function BeatMakerPage() {
                 size="sm"
               >
                 <RotateCcw className="w-4 h-4" />
+              </Button>
+              <Button
+                onClick={handleShuffleAll}
+                variant="outline"
+                size="sm"
+                className="text-purple-400 hover:text-purple-300 hover:bg-purple-90/20"
+              >
+                <Shuffle className="w-4 h-4 mr-1" />
+                Shuffle All
               </Button>
             </div>
 
@@ -1240,6 +1413,7 @@ export default function BeatMakerPage() {
             onTrackPitchChange={handleTrackPitchChange}
             onShuffleAudio={handleShuffleAudio}
             onOpenPianoRoll={handleOpenPianoRoll}
+            onTrackStockSoundSelect={handleTrackStockSoundSelect}
           />
         </div>
 
@@ -1251,6 +1425,10 @@ export default function BeatMakerPage() {
             sequencerData={sequencerData}
             onToggleStep={toggleStep}
             currentStep={currentStep}
+            bpm={bpm}
+            onSavePattern={handleSavePattern}
+            onSaveTrackPattern={handleSaveTrackPattern}
+            onSaveAllPatterns={handleSaveAllPatterns}
           />
         </div>
       </div>
