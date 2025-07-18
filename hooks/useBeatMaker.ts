@@ -24,6 +24,8 @@ export interface Track {
   tags?: string[]
   // MIDI properties
   midiNotes?: MidiNote[]
+  // Piano roll properties for audio tracks
+  pianoRollNotes?: AudioNote[]
   // Stock sound for MIDI tracks
   stockSound?: any
 }
@@ -36,18 +38,37 @@ export interface MidiNote {
   velocity: number
 }
 
+export interface AudioNote {
+  id: string
+  note: string
+  startStep: number
+  duration: number
+  velocity: number
+  pitchShift: number // Semitones up/down from original
+}
+
 export interface SequencerData {
   [trackId: number]: boolean[]
 }
 
+export interface PianoRollData {
+  [trackId: number]: AudioNote[]
+}
+
 export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   const [sequencerData, setSequencerData] = useState<SequencerData>({})
+  const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const samplesRef = useRef<{ [key: string]: Tone.Player }>({})
   const pitchShiftersRef = useRef<{ [key: string]: Tone.PitchShift }>({})
   const playingSamplesRef = useRef<Set<Tone.Player>>(new Set())
+
+  // Function to set sequencer data from outside (for session loading)
+  const setSequencerDataFromSession = useCallback((newSequencerData: SequencerData) => {
+    setSequencerData(newSequencerData)
+  }, [])
 
   // Initialize sequencer data
   useEffect(() => {
@@ -163,13 +184,15 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   // Define playStep function first
   const playStep = useCallback((step: number) => {
     setCurrentStep(step)
+    console.log(`[PLAYSTEP DEBUG] Step ${step}, pianoRollData:`, pianoRollData)
+    console.log(`[PLAYSTEP DEBUG] Total piano roll notes across all tracks:`, Object.values(pianoRollData).flat().length)
     tracks.forEach(track => {
       const player = samplesRef.current[track.id]
       const shouldPlay = sequencerData[track.id]?.[step]
       const validAudio = track.audioUrl && track.audioUrl !== 'undefined'
       console.log(`[DEBUG] Step ${step} - Track ${track.name} (id: ${track.id}): shouldPlay=${shouldPlay}, playerLoaded=${player?.loaded}, audioUrl=${track.audioUrl}`)
       
-      // Handle audio samples
+      // Handle audio samples (main sequencer pattern)
       if (
         shouldPlay &&
         player &&
@@ -202,6 +225,73 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         }
       }
       
+      // Handle piano roll notes (sub-pattern) - these play independently of main sequencer
+      const trackPianoRollNotes = pianoRollData[track.id] || []
+      
+      // Piano roll extends to 4 bars (64 steps), but sequencer is only 16 steps
+      // We need to map sequencer steps to piano roll steps correctly
+      // The sequencer loops every 16 steps, so we need to check if any piano roll notes
+      // should play at the current step in the 16-step cycle
+      const pianoRollNotesAtStep = trackPianoRollNotes.filter(note => {
+        // SIMPLE MAPPING: Just check if the piano roll step matches the sequencer step directly
+        // Since both use 1-based indexing for display, we can compare directly
+        const shouldPlay = note.startStep === (step + 1) // Convert sequencer step to 1-based for comparison
+        
+        console.log(`[STEP MAPPING DEBUG] Note at step ${note.startStep} vs sequencer step ${step + 1} -> shouldPlay: ${shouldPlay}`)
+        
+        // Additional debug info
+        if (shouldPlay) {
+          console.log(`[STEP MAPPING SUCCESS] Piano roll note ${note.note} will play at sequencer step ${step + 1}`)
+        }
+        
+        return shouldPlay
+      })
+      
+      console.log(`[PIANO ROLL STEP DEBUG] Track ${track.name}: sequencer step=${step}, notesAtStep=${pianoRollNotesAtStep.length}, allNotes=${trackPianoRollNotes.map(n => `${n.startStep}:${n.pitchShift} (bar ${Math.floor((n.startStep-1)/16) + 1}, step ${(n.startStep-1) % 16})`).join(', ')}`)
+      
+      console.log(`[PIANO ROLL DEBUG] Track ${track.name}: step=${step}, notesAtStep=${pianoRollNotesAtStep.length}, totalNotes=${trackPianoRollNotes.length}`)
+      
+      // Debug: Show all piano roll notes for this track
+      if (trackPianoRollNotes.length > 0) {
+        console.log(`[PIANO ROLL DETAILED DEBUG] Track ${track.name} has ${trackPianoRollNotes.length} notes:`, trackPianoRollNotes.map(n => ({
+          step: n.startStep,
+          note: n.note,
+          pitchShift: n.pitchShift,
+          mappedStep: (n.startStep - 1) % 16
+        })))
+      }
+      
+      // Piano roll notes play in sync with sequencer steps
+      if (pianoRollNotesAtStep.length > 0 && validAudio) {
+        console.log(`[DEBUG] Playing ${pianoRollNotesAtStep.length} piano roll notes for track ${track.name} at step ${step}`)
+        
+        pianoRollNotesAtStep.forEach(note => {
+          try {
+            // Use the existing player that's already loaded and synced
+            const existingPlayer = samplesRef.current[track.id]
+            if (!existingPlayer || !existingPlayer.loaded) {
+              console.warn(`[DEBUG] No loaded player for track ${track.name}`)
+              return
+            }
+            
+            // Stop the player first if it's already playing
+            if (existingPlayer.state === 'started') {
+              existingPlayer.stop()
+            }
+            
+            // Track the playing sample for cleanup
+            playingSamplesRef.current.add(existingPlayer)
+            
+            // Start the sample immediately (in sync with sequencer step)
+            existingPlayer.start()
+            
+            console.log(`[DEBUG] Successfully played piano roll note ${note.note} for track ${track.name} at step ${step}`)
+          } catch (error) {
+            console.warn(`[DEBUG] Error playing piano roll note for track ${track.name}:`, error)
+          }
+        })
+      }
+      
       // Handle MIDI notes
       if (track.name === 'MIDI' && track.midiNotes && track.midiNotes.length > 0) {
         const notesAtStep = track.midiNotes.filter(note => note.startStep === step)
@@ -212,7 +302,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         })
       }
     })
-  }, [tracks, sequencerData])
+  }, [tracks, sequencerData, pianoRollData])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -245,6 +335,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     const stepDuration = 60 / bpm / 4 // 16th note duration
     intervalRef.current = setInterval(() => {
       step = (step + 1) % steps
+      console.log(`[SEQUENCER INTERVAL] Step: ${step} (cycling through 0-${steps-1})`)
       playStep(step)
     }, stepDuration * 1000)
     return () => {
@@ -279,7 +370,65 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       step = (step + 1) % steps;
       playStep(step);
     }, stepDuration * 1000)
-  }, [isSequencePlaying, bpm, tracks, sequencerData, steps])
+  }, [isSequencePlaying, bpm, tracks, sequencerData, pianoRollData, steps, playStep])
+
+  // Function to play piano roll notes independently - TEMPO SYNCED VERSION
+  const playPianoRollNotes = useCallback(async () => {
+    console.log(`[PIANO ROLL PLAYBACK] Starting piano roll playback at ${bpm} BPM`)
+    console.log(`[PIANO ROLL PLAYBACK] Full piano roll data:`, pianoRollData)
+    
+    // Calculate timing based on BPM
+    const stepDuration = (60 / bpm) / 4 // 16th note duration in seconds
+    console.log(`[PIANO ROLL PLAYBACK] Step duration: ${stepDuration}s (${stepDuration * 1000}ms)`)
+    
+    // Use the existing loaded samples instead of creating new ones
+    for (const track of tracks) {
+      const trackPianoRollNotes = pianoRollData[track.id] || []
+      if (trackPianoRollNotes.length === 0) {
+        console.log(`[PIANO ROLL PLAYBACK] No notes for track ${track.name}`)
+        continue
+      }
+      
+      console.log(`[PIANO ROLL PLAYBACK] Track ${track.name} has ${trackPianoRollNotes.length} notes:`, trackPianoRollNotes)
+      
+      // Use the existing player that's already loaded
+      const existingPlayer = samplesRef.current[track.id]
+      if (!existingPlayer || !existingPlayer.loaded) {
+        console.warn(`[PIANO ROLL PLAYBACK] No loaded player for track ${track.name}`)
+        continue
+      }
+      
+      // Play each note with proper timing based on step position
+      trackPianoRollNotes.forEach((note) => {
+        // Calculate when this note should play based on its step position
+        const noteStepInBar = (note.startStep - 1) % 16 // Convert to 0-based step
+        const playDelay = noteStepInBar * stepDuration * 1000 // Convert to milliseconds
+        
+        console.log(`[PIANO ROLL PLAYBACK] Note ${note.note} at step ${note.startStep} (bar step ${noteStepInBar}) will play in ${playDelay}ms`)
+        
+        setTimeout(() => {
+          try {
+            console.log(`[PIANO ROLL PLAYBACK] Playing note ${note.note} for track ${track.name} at step ${noteStepInBar}`)
+            
+            // Stop the player first if it's already playing
+            if (existingPlayer.state === 'started') {
+              existingPlayer.stop()
+            }
+            
+            // Track the playing sample for cleanup
+            playingSamplesRef.current.add(existingPlayer)
+            
+            // Start the sample
+            existingPlayer.start()
+            
+            console.log(`[PIANO ROLL PLAYBACK] Successfully started note ${note.note} for track ${track.name}`)
+          } catch (error) {
+            console.error(`[PIANO ROLL PLAYBACK] Error playing note for track ${track.name}:`, error)
+          }
+        }, playDelay)
+      })
+    }
+  }, [tracks, pianoRollData, bpm])
 
   const stopSequence = useCallback(() => {
     setIsSequencePlaying(false)
@@ -349,14 +498,107 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     }
   }, [tracks])
 
+  // Function to clear all sequencer patterns
+  const clearAllPatterns = useCallback(() => {
+    const clearedData: SequencerData = {}
+    tracks.forEach(track => {
+      clearedData[track.id] = new Array(steps).fill(false)
+    })
+    setSequencerData(clearedData)
+  }, [tracks, steps])
+
+  // Function to clear a single track's pattern
+  const clearTrackPattern = useCallback((trackId: number) => {
+    setSequencerData(prev => ({
+      ...prev,
+      [trackId]: new Array(steps).fill(false)
+    }))
+  }, [steps])
+
+  // Function to toggle track mute state
+  const toggleTrackMute = useCallback((trackId: number) => {
+    // This will be handled by the parent component that manages track state
+    // We'll pass this function up to the parent
+  }, [])
+
+  // Function to update piano roll data for a track
+  const updatePianoRollData = useCallback((trackId: number, notes: AudioNote[]) => {
+    console.log(`[PIANO ROLL HOOK] Updating track ${trackId} with ${notes.length} notes:`, notes)
+    setPianoRollData(prev => {
+      const newData = {
+        ...prev,
+        [trackId]: notes
+      }
+      console.log(`[PIANO ROLL HOOK] New piano roll data:`, newData)
+      return newData
+    })
+  }, [])
+
+  // Debug function to test piano roll playback
+  const debugPianoRollPlayback = useCallback(() => {
+    console.log(`[DEBUG PIANO ROLL] Current piano roll data:`, pianoRollData)
+    console.log(`[DEBUG PIANO ROLL] Current sequencer step:`, currentStep)
+    
+    tracks.forEach(track => {
+      const trackNotes = pianoRollData[track.id] || []
+      console.log(`[DEBUG PIANO ROLL] Track ${track.name} (${track.id}) has ${trackNotes.length} notes`)
+      
+      trackNotes.forEach(note => {
+        const noteStepInBar = (note.startStep - 1) % 16
+        console.log(`[DEBUG PIANO ROLL] Note at step ${note.startStep} maps to sequencer step ${noteStepInBar}`)
+      })
+    })
+    
+    // Test step mapping for all steps 0-15
+    console.log(`[DEBUG PIANO ROLL] Testing step mapping for all sequencer steps:`)
+    for (let testStep = 0; testStep < 16; testStep++) {
+      tracks.forEach(track => {
+        const trackNotes = pianoRollData[track.id] || []
+        const notesAtStep = trackNotes.filter(note => {
+          const noteStepInBar = (note.startStep - 1) % 16
+          return noteStepInBar === testStep
+        })
+        if (notesAtStep.length > 0) {
+          console.log(`[DEBUG PIANO ROLL] Step ${testStep}: ${notesAtStep.length} notes for track ${track.name}`)
+        }
+      })
+    }
+    
+    // Also test playing piano roll notes directly
+    console.log(`[DEBUG PIANO ROLL] Testing direct piano roll playback...`)
+    playPianoRollNotes()
+  }, [pianoRollData, currentStep, tracks, playPianoRollNotes])
+
+  // Function to set piano roll data from session
+  const setPianoRollDataFromSession = useCallback((newPianoRollData: PianoRollData) => {
+    setPianoRollData(newPianoRollData)
+  }, [])
+
+  // Function to clear piano roll data for a track
+  const clearPianoRollData = useCallback((trackId: number) => {
+    setPianoRollData(prev => {
+      const newData = { ...prev }
+      delete newData[trackId]
+      return newData
+    })
+  }, [])
+
   return {
     sequencerData,
+    pianoRollData,
     toggleStep,
     playSequence,
     stopSequence,
     isSequencePlaying,
     currentStep,
     updateTrackTempo,
-    updateTrackPitch
+    updateTrackPitch,
+    setSequencerDataFromSession,
+    setPianoRollDataFromSession,
+    updatePianoRollData,
+    clearAllPatterns,
+    clearTrackPattern,
+    clearPianoRollData,
+    debugPianoRollPlayback
   }
 } 

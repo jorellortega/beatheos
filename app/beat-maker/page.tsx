@@ -8,11 +8,13 @@ import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
 import { PianoRoll } from '@/components/beat-maker/PianoRoll'
+import { AudioPianoRoll } from '@/components/beat-maker/AudioPianoRoll'
+import { TrackPianoRoll } from '@/components/beat-maker/TrackPianoRoll'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -32,6 +34,11 @@ export default function BeatMakerPage() {
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
   const [showPianoRoll, setShowPianoRoll] = useState(false)
   const [pianoRollTrack, setPianoRollTrack] = useState<number | null>(null)
+  const [showAudioPianoRoll, setShowAudioPianoRoll] = useState(false)
+  const [audioPianoRollNotes, setAudioPianoRollNotes] = useState<any[]>([])
+  const [showTrackPianoRoll, setShowTrackPianoRoll] = useState(false)
+  const [trackPianoRollTrack, setTrackPianoRollTrack] = useState<Track | null>(null)
+  const [trackPianoRollNotes, setTrackPianoRollNotes] = useState<any[]>([])
   
   // MIDI synthesizers
   const [midiSoundType, setMidiSoundType] = useState<'piano' | 'synth' | 'bass'>('piano')
@@ -139,13 +146,21 @@ export default function BeatMakerPage() {
 
   const {
     sequencerData,
+    pianoRollData,
     toggleStep,
     playSequence,
     stopSequence,
     isSequencePlaying,
     currentStep: sequencerCurrentStep,
     updateTrackTempo,
-    updateTrackPitch
+    updateTrackPitch,
+    setSequencerDataFromSession,
+    setPianoRollDataFromSession,
+    updatePianoRollData,
+    clearAllPatterns,
+    clearTrackPattern,
+    clearPianoRollData,
+    debugPianoRollPlayback
   } = useBeatMaker(tracks, steps, bpm)
 
   // Custom playStep function that includes MIDI playback
@@ -591,6 +606,11 @@ export default function BeatMakerPage() {
     }))
   }
 
+  const toggleTrackMute = (trackId: number) => {
+    const currentMute = mixerSettings[trackId]?.mute || false
+    updateMixerSetting(trackId, 'mute', !currentMute)
+  }
+
   // Color mapping for pattern blocks
   const getTrackColorHex = (colorClass: string) => {
     const colorMap: {[key: string]: string} = {
@@ -685,6 +705,7 @@ export default function BeatMakerPage() {
   }, [isPlaying, hasLoadedAudio, activeTab])
 
   const handlePlayPause = () => {
+    console.log(`[MAIN TRANSPORT] Play/Pause called. isPlaying: ${isPlaying}, pianoRollData:`, pianoRollData)
     if (isPlaying) {
       stopSequence()
     } else {
@@ -742,6 +763,44 @@ export default function BeatMakerPage() {
     setTracks(prev => prev.map(track => 
       track.id === trackId ? { ...track, midiNotes: notes } : track
     ))
+  }
+
+  const handleOpenAudioPianoRoll = () => {
+    setShowAudioPianoRoll(true)
+  }
+
+  const handleAudioPianoRollNotesChange = (notes: any[]) => {
+    setAudioPianoRollNotes(notes)
+  }
+
+  const handleOpenTrackPianoRoll = (trackId: number) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (track && track.audioUrl) {
+      setTrackPianoRollTrack(track)
+      // Load existing piano roll notes for this track
+      const existingNotes = pianoRollData[trackId] || []
+      setTrackPianoRollNotes(existingNotes)
+      setShowTrackPianoRoll(true)
+    }
+  }
+
+  const handleCloseTrackPianoRoll = () => {
+    console.log(`[PIANO ROLL CLOSE] Closing piano roll for track ${trackPianoRollTrack?.name}, final notes:`, trackPianoRollNotes)
+    // Make sure the final notes are saved before closing
+    if (trackPianoRollTrack && trackPianoRollNotes.length > 0) {
+      updatePianoRollData(trackPianoRollTrack.id, trackPianoRollNotes)
+    }
+    setShowTrackPianoRoll(false)
+    setTrackPianoRollTrack(null)
+  }
+
+  const handleTrackPianoRollNotesChange = (notes: any[]) => {
+    setTrackPianoRollNotes(notes)
+    // Update the piano roll data in the hook for the current track
+    if (trackPianoRollTrack) {
+      console.log(`[PIANO ROLL UPDATE] Updating track ${trackPianoRollTrack.name} with ${notes.length} notes:`, notes)
+      updatePianoRollData(trackPianoRollTrack.id, notes)
+    }
   }
 
   const handleTrackTempoChange = (trackId: number, newBpm: number, originalBpm?: number) => {
@@ -1182,18 +1241,232 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Session management state
+  const [savedSessions, setSavedSessions] = useState<any[]>([])
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [showSessionDialog, setShowSessionDialog] = useState(false)
+  const [sessionName, setSessionName] = useState('')
+  const [sessionDescription, setSessionDescription] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Save session function
+  const handleSaveSession = async () => {
+    if (!sessionName.trim()) {
+      alert('Please enter a session name')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to save sessions')
+        return
+      }
+
+      // Collect all session data
+      const sessionData = {
+        user_id: user.id,
+        name: sessionName,
+        description: sessionDescription,
+        bpm,
+        steps,
+        tracks,
+        sequencer_data: sequencerData,
+        mixer_data: mixerSettings,
+        effects_data: {}, // Will be implemented when effects are added
+        piano_roll_data: {}, // Will be populated when piano roll is used
+        sample_library_data: {}, // Will be populated when sample library is used
+        playback_state: {
+          isPlaying,
+          currentStep,
+          lastPlayedAt: new Date().toISOString()
+        },
+        ui_state: {
+          activeTab,
+          showSampleLibrary,
+          showPianoRoll,
+          selectedTrack,
+          pianoRollTrack
+        },
+        tags: [],
+        category: 'Beat Session',
+        genre: '',
+        key: '',
+        is_public: false,
+        is_template: false,
+        allow_collaboration: false
+      }
+
+      let result
+      if (currentSessionId) {
+        // Update existing session
+        result = await supabase
+          .from('beat_sessions')
+          .update(sessionData)
+          .eq('id', currentSessionId)
+          .select()
+          .single()
+      } else {
+        // Create new session
+        result = await supabase
+          .from('beat_sessions')
+          .insert([sessionData])
+          .select()
+          .single()
+      }
+
+      if (result.error) {
+        console.error('Error saving session:', result.error)
+        alert('Failed to save session')
+        return
+      }
+
+      setCurrentSessionId(result.data.id)
+      setSessionName('')
+      setSessionDescription('')
+      setShowSessionDialog(false)
+      alert(`Session "${result.data.name}" saved successfully!`)
+      
+      // Refresh saved sessions list
+      loadSavedSessions()
+    } catch (error) {
+      console.error('Error saving session:', error)
+      alert('Failed to save session')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Load saved sessions
+  const loadSavedSessions = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('beat_sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+
+      if (error) {
+        console.error('Error loading sessions:', error)
+        return
+      }
+
+      setSavedSessions(data || [])
+    } catch (error) {
+      console.error('Error loading sessions:', error)
+    }
+  }
+
+  // Load a specific session
+  const handleLoadSession = async (sessionId: string) => {
+    setIsLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('beat_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
+
+      if (error) {
+        console.error('Error loading session:', error)
+        alert('Failed to load session')
+        return
+      }
+
+      // Restore session data
+      setBpm(data.bpm)
+      setSteps(data.steps)
+      setTracks(data.tracks)
+      
+      // Restore sequencer data directly
+      if (data.sequencer_data) {
+        setSequencerDataFromSession(data.sequencer_data)
+      }
+
+      // Restore mixer settings
+      if (data.mixer_data) {
+        setMixerSettings(data.mixer_data)
+      }
+
+      // Restore playback state
+      if (data.playback_state) {
+        setIsPlaying(data.playback_state.isPlaying || false)
+        setCurrentStep(data.playback_state.currentStep || 0)
+      }
+
+      // Restore UI state
+      if (data.ui_state) {
+        setActiveTab(data.ui_state.activeTab || 'sequencer')
+        setShowSampleLibrary(data.ui_state.showSampleLibrary || false)
+        setShowPianoRoll(data.ui_state.showPianoRoll || false)
+        setSelectedTrack(data.ui_state.selectedTrack || null)
+        setPianoRollTrack(data.ui_state.pianoRollTrack || null)
+      }
+
+      setCurrentSessionId(sessionId)
+      alert(`Session "${data.name}" loaded successfully!`)
+    } catch (error) {
+      console.error('Error loading session:', error)
+      alert('Failed to load session')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Delete a session
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!confirm('Are you sure you want to delete this session?')) return
+
+    try {
+      const { error } = await supabase
+        .from('beat_sessions')
+        .delete()
+        .eq('id', sessionId)
+
+      if (error) {
+        console.error('Error deleting session:', error)
+        alert('Failed to delete session')
+        return
+      }
+
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null)
+      }
+      
+      alert('Session deleted successfully!')
+      loadSavedSessions()
+    } catch (error) {
+      console.error('Error deleting session:', error)
+      alert('Failed to delete session')
+    }
+  }
+
+  // Load saved sessions on component mount
+  useEffect(() => {
+    loadSavedSessions()
+  }, [])
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Beat Maker</h1>
+          <h1 className="text-3xl font-bold text-white">Ortega Beat Maker</h1>
           <p className="text-gray-400">Create beats with our professional tools</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={saveAsNewPattern}>
             <Save className="w-4 h-4 mr-2" />
             Save Pattern
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowSessionDialog(true)}>
+            <Save className="w-4 h-4 mr-2" />
+            Save Session
           </Button>
           <Button variant="outline" size="sm">
             <Upload className="w-4 h-4 mr-2" />
@@ -1271,6 +1544,14 @@ export default function BeatMakerPage() {
               >
                 <Shuffle className="w-4 h-4 mr-1" />
                 Shuffle All
+              </Button>
+              <Button
+                onClick={debugPianoRollPlayback}
+                variant="outline"
+                size="sm"
+                className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
+              >
+                Debug Piano Roll
               </Button>
             </div>
 
@@ -1423,12 +1704,20 @@ export default function BeatMakerPage() {
             tracks={tracks}
             steps={steps}
             sequencerData={sequencerData}
+            pianoRollData={pianoRollData}
             onToggleStep={toggleStep}
             currentStep={currentStep}
             bpm={bpm}
             onSavePattern={handleSavePattern}
             onSaveTrackPattern={handleSaveTrackPattern}
             onSaveAllPatterns={handleSaveAllPatterns}
+            onClearAllPatterns={clearAllPatterns}
+            onClearTrackPattern={clearTrackPattern}
+            onToggleTrackMute={toggleTrackMute}
+            trackMuteStates={Object.fromEntries(
+              tracks.map(track => [track.id, mixerSettings[track.id]?.mute || false])
+            )}
+            onOpenTrackPianoRoll={handleOpenTrackPianoRoll}
           />
         </div>
       </div>
@@ -1451,6 +1740,34 @@ export default function BeatMakerPage() {
           bpm={bpm}
           onNotesChange={(notes) => handlePianoRollNotesChange(pianoRollTrack, notes)}
           initialNotes={tracks.find(t => t.id === pianoRollTrack)?.midiNotes || []}
+        />
+      )}
+
+      {/* Audio Piano Roll Modal */}
+      {showAudioPianoRoll && (
+        <AudioPianoRoll
+          isOpen={showAudioPianoRoll}
+          onClose={() => setShowAudioPianoRoll(false)}
+          steps={steps}
+          bpm={bpm}
+          tracks={tracks}
+          onNotesChange={handleAudioPianoRollNotesChange}
+          initialNotes={audioPianoRollNotes}
+          onSavePattern={handleSavePattern}
+        />
+      )}
+
+      {/* Track Piano Roll Modal */}
+      {showTrackPianoRoll && trackPianoRollTrack && (
+        <TrackPianoRoll
+          isOpen={showTrackPianoRoll}
+          onClose={handleCloseTrackPianoRoll}
+          steps={steps}
+          bpm={bpm}
+          track={trackPianoRollTrack}
+          onNotesChange={handleTrackPianoRollNotesChange}
+          initialNotes={trackPianoRollNotes}
+          onSavePattern={handleSavePattern}
         />
       )}
         </TabsContent>
@@ -2083,21 +2400,220 @@ export default function BeatMakerPage() {
         <TabsContent value="sessions" className="space-y-6 mt-6">
           <Card className="!bg-[#141414] border-gray-700">
             <CardHeader>
-              <CardTitle className="text-white">Beat Sessions</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-white">Beat Sessions</CardTitle>
+                <Button
+                  onClick={() => setShowSessionDialog(true)}
+                  variant="outline"
+                  size="sm"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save New Session
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-12">
-                <List className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-white mb-2">Session Management</h3>
-                <p className="text-gray-400 mb-4">Save, load, and manage your beat projects</p>
-                <Badge variant="outline" className="text-yellow-500 border-yellow-500">
-                  Coming Soon
-                </Badge>
-              </div>
+              {savedSessions.length === 0 ? (
+                <div className="text-center py-12">
+                  <List className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-white mb-2">No saved sessions</h3>
+                  <p className="text-gray-400 mb-4">Create your first session to get started</p>
+                  <Button
+                    onClick={() => setShowSessionDialog(true)}
+                    className="text-green-400 hover:text-green-300"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Current Session
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="text-gray-400 text-sm">
+                      {savedSessions.length} session{savedSessions.length !== 1 ? 's' : ''} found
+                    </div>
+                    <Button
+                      onClick={loadSavedSessions}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Refresh
+                    </Button>
+                  </div>
+                  
+                  <div className="grid gap-4">
+                    {savedSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className={`p-4 rounded-lg border transition-colors ${
+                          currentSessionId === session.id
+                            ? 'bg-[#2a2a2a] border-green-500'
+                            : 'bg-[#1a1a1a] border-gray-600 hover:border-gray-500'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-white font-semibold text-lg">{session.name}</h3>
+                              {currentSessionId === session.id && (
+                                <Badge variant="outline" className="text-green-500 border-green-500 text-xs">
+                                  Current
+                                </Badge>
+                              )}
+                            </div>
+                            
+                            {session.description && (
+                              <p className="text-gray-400 text-sm mb-3">{session.description}</p>
+                            )}
+                            
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{new Date(session.updated_at).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Music className="w-3 h-3" />
+                                <span>{session.bpm} BPM</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Disc className="w-3 h-3" />
+                                <span>{session.steps} Steps</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <List className="w-3 h-3" />
+                                <span>{session.tracks?.length || 0} Tracks</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 ml-4">
+                            <Button
+                              size="sm"
+                              onClick={() => handleLoadSession(session.id)}
+                              disabled={isLoading}
+                              className="text-green-400 hover:text-green-300"
+                            >
+                              {isLoading ? 'Loading...' : 'Load'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeleteSession(session.id)}
+                              className="text-red-400 hover:text-red-300"
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Session Dialog */}
+      {showSessionDialog && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <Card className="w-[90vw] max-w-2xl bg-[#141414] border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center justify-between">
+                <span>Save/Load Session</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowSessionDialog(false)}
+                >
+                  Close
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Save New Session */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-white">Save Current Session</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm text-gray-300 mb-1 block">Session Name</label>
+                    <Input
+                      value={sessionName}
+                      onChange={(e) => setSessionName(e.target.value)}
+                      placeholder="Enter session name..."
+                      className="bg-[#1a1a1a] border-gray-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-gray-300 mb-1 block">Description (optional)</label>
+                    <Input
+                      value={sessionDescription}
+                      onChange={(e) => setSessionDescription(e.target.value)}
+                      placeholder="Enter description..."
+                      className="bg-[#1a1a1a] border-gray-600"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSaveSession}
+                    disabled={isSaving || !sessionName.trim()}
+                    className="w-full"
+                  >
+                    {isSaving ? 'Saving...' : 'Save Session'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Load Saved Sessions */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-white">Load Saved Sessions</h3>
+                {savedSessions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FolderOpen className="w-12 h-12 text-gray-500 mx-auto mb-2" />
+                    <p className="text-gray-400">No saved sessions found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {savedSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-gray-600"
+                      >
+                        <div className="flex-1">
+                          <div className="text-white font-medium">{session.name}</div>
+                          {session.description && (
+                            <div className="text-gray-400 text-sm">{session.description}</div>
+                          )}
+                          <div className="text-gray-500 text-xs">
+                            {new Date(session.updated_at).toLocaleDateString()} • {session.bpm} BPM • {session.steps} Steps
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleLoadSession(session.id)}
+                            disabled={isLoading}
+                          >
+                            {isLoading ? 'Loading...' : 'Load'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDeleteSession(session.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

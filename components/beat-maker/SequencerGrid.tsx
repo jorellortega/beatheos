@@ -4,12 +4,13 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Save, Download, Plus, FolderOpen, Music, Piano } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface SequencerGridProps {
   tracks: Track[]
   steps: number
   sequencerData: SequencerData
+  pianoRollData?: {[trackId: number]: any[]}
   onToggleStep: (trackId: number, stepIndex: number) => void
   currentStep: number
   bpm: number
@@ -17,26 +18,43 @@ interface SequencerGridProps {
   onSaveTrackPattern?: (trackId: number, name: string, description?: string, category?: string, tags?: string[]) => void
   onSaveAllPatterns?: () => void
   onLoadPattern?: (patternId: string) => void
+  onClearAllPatterns?: () => void
+  onClearTrackPattern?: (trackId: number) => void
+  onToggleTrackMute?: (trackId: number) => void
+  trackMuteStates?: {[trackId: number]: boolean}
+  onOpenTrackPianoRoll?: (trackId: number) => void
 }
 
 export function SequencerGrid({
   tracks,
   steps,
   sequencerData,
+  pianoRollData = {},
   onToggleStep,
   currentStep,
   bpm,
   onSavePattern,
   onSaveTrackPattern,
   onSaveAllPatterns,
-  onLoadPattern
+  onLoadPattern,
+  onClearAllPatterns,
+  onClearTrackPattern,
+  onToggleTrackMute,
+  trackMuteStates,
+  onOpenTrackPianoRoll
 }: SequencerGridProps) {
+  
+  // Debug log to see piano roll data
+  useEffect(() => {
+    console.log(`[SEQUENCER GRID] Piano roll data:`, pianoRollData)
+  }, [pianoRollData])
   const [patternName, setPatternName] = useState('')
   const [patternDescription, setPatternDescription] = useState('')
   const [patternCategory, setPatternCategory] = useState('')
   const [patternTags, setPatternTags] = useState('')
   const [showSaveForm, setShowSaveForm] = useState(false)
   const [savingTrackId, setSavingTrackId] = useState<number | null>(null)
+  const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
 
   const handleSavePattern = () => {
     if (!patternName.trim()) {
@@ -68,6 +86,13 @@ export function SequencerGrid({
 
   const handleSaveAllPatterns = () => {
     onSaveAllPatterns?.()
+  }
+
+  const toggleNameExpansion = (trackId: number) => {
+    setExpandedNames(prev => ({
+      ...prev,
+      [trackId]: !prev[trackId]
+    }))
   }
 
   return (
@@ -114,6 +139,28 @@ export function SequencerGrid({
             >
               <FolderOpen className="w-4 h-4 mr-1" />
               Library
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open('/editpatterns', '_blank')}
+              className="text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20"
+            >
+              <Piano className="w-4 h-4 mr-1" />
+              Patterns
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClearAllPatterns}
+              className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+            >
+              <div className="w-4 h-4 mr-1 flex items-center justify-center">
+                <div className="w-3 h-3 border border-current rounded-sm"></div>
+              </div>
+              Clear All
             </Button>
           </div>
         </div>
@@ -186,7 +233,7 @@ export function SequencerGrid({
           <div className="min-w-max">
             {/* Header row with step numbers */}
             <div className="flex mb-2">
-              <div className="w-24 flex-shrink-0"></div> {/* Track name column */}
+              <div className="w-40 flex-shrink-0"></div> {/* Track name column - match track row width */}
               {Array.from({ length: steps }, (_, i) => {
                 const stepNumber = i + 1
                 const isDownbeat = stepNumber % 4 === 1 // Steps 1, 5, 9, 13, etc.
@@ -203,8 +250,6 @@ export function SequencerGrid({
                         : isDownbeat 
                           ? 'bg-yellow-900/30 text-yellow-300 font-bold' 
                           : 'bg-[#1f1f1f] text-gray-300'
-                    } ${
-                      stepNumber % 4 === 1 && stepNumber !== 1 ? 'ml-1' : ''
                     }`}
                   >
                     {stepNumber}
@@ -217,46 +262,117 @@ export function SequencerGrid({
             {tracks.map((track) => (
               <div key={track.id} className="flex mb-3">
                 {/* Track name and save button */}
-                <div className="w-32 flex-shrink-0 flex items-center px-2 h-8 gap-2">
-                  <div className={`w-3 h-3 rounded-full ${track.color} mr-2`}></div>
+                <div className="w-40 flex-shrink-0 flex items-center px-2 h-8 gap-2">
+                  <div 
+                    className={`w-3 h-3 rounded-full ${track.color} mr-2 cursor-pointer transition-all duration-200 hover:scale-110 ${
+                      trackMuteStates?.[track.id] ? 'opacity-50 ring-2 ring-gray-400' : ''
+                    }`}
+                    onClick={() => onToggleTrackMute?.(track.id)}
+                    title={trackMuteStates?.[track.id] ? 'Click to unmute' : 'Click to mute'}
+                  ></div>
                   {track.name === 'MIDI' ? (
                     <Piano className="w-3 h-3 text-gray-300 mr-1" />
                   ) : (
                     <Music className="w-3 h-3 text-gray-300 mr-1" />
                   )}
-                  <span className="text-white text-sm truncate flex-1">{track.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleSaveTrackPattern(track.id)}
-                    className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
-                    title={`Save ${track.name} Pattern`}
+                  <span 
+                    className={`text-white text-sm flex-1 cursor-pointer hover:text-gray-300 transition-colors ${
+                      expandedNames[track.id] ? 'whitespace-normal break-words' : 'truncate'
+                    }`}
+                    onClick={() => toggleNameExpansion(track.id)}
+                    title={expandedNames[track.id] ? 'Click to collapse' : 'Click to see full name'}
                   >
-                    <Save className="w-3 h-3" />
-                  </Button>
+                    {track.name}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleSaveTrackPattern(track.id)}
+                      className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                      title={`Save ${track.name} Pattern`}
+                    >
+                      <Save className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onClearTrackPattern?.(track.id)}
+                      className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                      title={`Reset ${track.name} Pattern`}
+                    >
+                      <div className="w-3 h-3 flex items-center justify-center">
+                        <div className="w-2 h-2 border border-current rounded-sm"></div>
+                      </div>
+                    </Button>
+                    {track.audioUrl && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onOpenTrackPianoRoll?.(track.id)}
+                        className={`hover:bg-cyan-900/20 ${
+                          pianoRollData[track.id]?.length > 0 
+                            ? 'text-cyan-300 bg-cyan-900/30' 
+                            : 'text-cyan-400 hover:text-cyan-300'
+                        }`}
+                        title={`Open ${track.name} Piano Roll ${pianoRollData[track.id]?.length > 0 ? `(${pianoRollData[track.id].length} notes)` : ''}`}
+                      >
+                        <Piano className="w-3 h-3" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Step buttons */}
                 {Array.from({ length: steps }, (_, stepIndex) => {
                   const isActive = sequencerData[track.id]?.[stepIndex] || false
                   const isCurrentStep = stepIndex === currentStep
+                  // Piano roll uses 1-based indexing, sequencer uses 0-based
+                  // Convert sequencer step to 1-based for comparison with piano roll notes
+                  const sequencerStep1Based = stepIndex + 1
+                  const hasPianoRollNotes = pianoRollData[track.id]?.some(note => {
+                    // SIMPLE MAPPING: Just check if the piano roll step matches the sequencer step directly
+                    const sequencerStep1Based = stepIndex + 1 // Convert to 1-based for comparison
+                    const shouldPlay = note.startStep === sequencerStep1Based
+                    
+                    // Debug logging for the first few steps
+                    if (stepIndex < 5) {
+                      console.log(`[SEQUENCER GRID] Step ${stepIndex}: Note at ${note.startStep} vs sequencer step ${sequencerStep1Based}, shouldPlay: ${shouldPlay}`)
+                    }
+                    
+                    return shouldPlay
+                  }) || false
                   
                   return (
-                    <Button
-                      key={stepIndex}
-                      variant={isActive ? "default" : "outline"}
-                      size="sm"
-                      className={`w-12 h-8 rounded-none border-r border-gray-600 ${
-                        isActive ? track.color : 'bg-[#1f1f1f] hover:bg-[#2a2a2a]'
-                      } ${
-                        isCurrentStep ? 'ring-2 ring-white' : ''
-                      }`}
-                      onClick={() => onToggleStep(track.id, stepIndex)}
-                    >
-                      {isActive && (
-                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                    <div key={stepIndex} className="flex flex-col">
+                      <Button
+                        variant={isActive ? "default" : "outline"}
+                        size="sm"
+                        className={`w-12 h-8 rounded-none border-r border-gray-600 ${
+                          isActive ? track.color : 'bg-[#1f1f1f] hover:bg-[#2a2a2a]'
+                        } ${
+                          isCurrentStep ? 'ring-2 ring-white' : ''
+                        }`}
+                        onClick={() => onToggleStep(track.id, stepIndex)}
+                      >
+                        {isActive && (
+                          <div className="w-2 h-2 bg-white rounded-full"></div>
+                        )}
+                      </Button>
+                      {/* Piano roll notes indicator */}
+                      {hasPianoRollNotes && (
+                        <div className="w-12 h-2 bg-cyan-500/60 border-r border-gray-600 flex items-center justify-center">
+                          <div className="w-1 h-1 bg-cyan-300 rounded-full"></div>
+                          {/* Show count of piano roll notes */}
+                          <span className="text-xs text-cyan-300 ml-1">
+                            {pianoRollData[track.id]?.filter(note => {
+                              const sequencerStep1Based = stepIndex + 1
+                              return note.startStep === sequencerStep1Based
+                            }).length || 0}
+                          </span>
+                        </div>
                       )}
-                    </Button>
+                    </div>
                   )
                 })}
               </div>

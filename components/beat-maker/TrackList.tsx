@@ -271,6 +271,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   const [showTempoControls, setShowTempoControls] = useState<{[trackId: number]: boolean}>({})
   const [showKeyControls, setShowKeyControls] = useState<{[trackId: number]: boolean}>({})
   const [editingOriginalKey, setEditingOriginalKey] = useState<{[trackId: number]: boolean}>({})
+  const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
 
   // Stock sound selector state
   const [showStockSoundSelector, setShowStockSoundSelector] = useState<{trackId: number | null}>({trackId: null})
@@ -342,6 +343,13 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
         alert('Please drop an audio file')
       }
     }
+  }
+
+  const toggleNameExpansion = (trackId: number) => {
+    setExpandedNames(prev => ({
+      ...prev,
+      [trackId]: !prev[trackId]
+    }))
   }
   return (
     <>
@@ -430,16 +438,34 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                   <div className="flex items-center gap-2">
                     {/* MIDI: Show only stock sound name, no audio badge */}
                     {track.name === 'MIDI' && track.stockSound ? (
-                      <Badge variant="secondary" className="text-xs bg-green-600 max-w-[200px]">
+                      <Badge 
+                        variant="secondary" 
+                        className={`text-xs bg-green-600 cursor-pointer hover:bg-green-500 transition-colors ${
+                          expandedNames[track.id] ? 'max-w-none' : 'max-w-[200px]'
+                        }`}
+                        onClick={() => toggleNameExpansion(track.id)}
+                        title={expandedNames[track.id] ? 'Click to collapse' : 'Click to see full name'}
+                      >
                         <Piano className="w-3 h-3 mr-1 flex-shrink-0" />
-                        <span className="truncate">{track.stockSound.name}</span>
+                        <span className={expandedNames[track.id] ? 'whitespace-normal break-words' : 'truncate'}>
+                          {track.stockSound.name}
+                        </span>
                       </Badge>
                     ) : (
                       // Audio tracks: show audio badge or No Audio
                       track.audioUrl ? (
-                        <Badge variant="secondary" className="text-xs bg-green-600 max-w-[200px]">
+                        <Badge 
+                          variant="secondary" 
+                          className={`text-xs bg-green-600 cursor-pointer hover:bg-green-500 transition-colors ${
+                            expandedNames[track.id] ? 'max-w-none' : 'max-w-[200px]'
+                          }`}
+                          onClick={() => toggleNameExpansion(track.id)}
+                          title={expandedNames[track.id] ? 'Click to collapse' : 'Click to see full name'}
+                        >
                           <Music className="w-3 h-3 mr-1 flex-shrink-0" />
-                          <span className="truncate">{track.audioName || 'Audio Loaded'}</span>
+                          <span className={expandedNames[track.id] ? 'whitespace-normal break-words' : 'truncate'}>
+                            {track.audioName || 'Audio Loaded'}
+                          </span>
                         </Badge>
                       ) : (
                         track.name !== 'MIDI' && (
