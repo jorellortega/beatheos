@@ -3,9 +3,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
-import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Shuffle, Piano } from 'lucide-react'
+import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Brain, Piano, Lock, Unlock, Copy } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { StockSoundSelector } from './StockSoundSelector'
 
 // Musical key calculation utilities
@@ -258,12 +258,27 @@ interface TrackListProps {
   onTrackTempoChange?: (trackId: number, newBpm: number, originalBpm?: number) => void
   onTrackPitchChange?: (trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => void
   onShuffleAudio?: (trackId: number) => void
+  onShuffleAllAudio?: () => void
+  onDuplicateWithShuffle?: (trackId: number) => void
+  onCopyTrackKey?: (fromTrackId: number, toTrackId: number, key: string) => void
+  onCopyTrackBpm?: (fromTrackId: number, toTrackId: number, bpm: number) => void
   onOpenPianoRoll?: (trackId: number) => void
+  onSetTransportBpm?: (bpm: number) => void
+  onSetTransportKey?: (key: string) => void
+  onToggleTrackLock?: (trackId: number) => void
+  onToggleTrackMute?: (trackId: number) => void
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onOpenPianoRoll, onTrackStockSoundSelect }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [draggedKey, setDraggedKey] = useState<string | null>(null)
+  const [draggedKeyTrackId, setDraggedKeyTrackId] = useState<number | null>(null)
+  const [draggedBpm, setDraggedBpm] = useState<number | null>(null)
+  const [draggedBpmTrackId, setDraggedBpmTrackId] = useState<number | null>(null)
+  const [dragLinePosition, setDragLinePosition] = useState<{ x: number, y: number } | null>(null)
+  const [keyDropTarget, setKeyDropTarget] = useState<number | null>(null)
+  const [bpmDropTarget, setBpmDropTarget] = useState<number | null>(null)
   const [audioDragOverTrack, setAudioDragOverTrack] = useState<number | null>(null)
   const [bpmInputValues, setBpmInputValues] = useState<{[trackId: number]: string}>({})
   const [originalBpmInputValues, setOriginalBpmInputValues] = useState<{[trackId: number]: string}>({})
@@ -345,6 +360,115 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     }
   }
 
+  const handleKeyDrop = (e: React.DragEvent, toTrackId: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    try {
+      // Try to get the key data from the drag event
+      const keyData = e.dataTransfer.getData('application/track-key')
+      if (keyData) {
+        const { key, trackId: fromTrackId } = JSON.parse(keyData)
+        if (fromTrackId !== toTrackId && onCopyTrackKey) {
+          onCopyTrackKey(fromTrackId, toTrackId, key)
+          console.log(`Key ${key} copied from track ${fromTrackId} to track ${toTrackId}`)
+        }
+      }
+    } catch (error) {
+      console.error('Error handling key drop:', error)
+    }
+    
+    // Clear drag state
+    setDraggedKey(null)
+    setDraggedKeyTrackId(null)
+    setDragLinePosition(null)
+    setKeyDropTarget(null)
+  }
+
+  // Handle mouse move for drag line
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (draggedKey || draggedBpm) {
+      setDragLinePosition({ x: e.clientX, y: e.clientY })
+    }
+  }
+
+  // Handle mouse up to clear drag state
+  const handleMouseUp = () => {
+    if (draggedKey && keyDropTarget && draggedKeyTrackId && onCopyTrackKey) {
+      // Copy the key to the target track
+      onCopyTrackKey(draggedKeyTrackId, keyDropTarget, draggedKey)
+      console.log(`Key ${draggedKey} copied from track ${draggedKeyTrackId} to track ${keyDropTarget}`)
+    }
+    
+    if (draggedBpm && bpmDropTarget && draggedBpmTrackId && onCopyTrackBpm) {
+      // Copy the BPM to the target track
+      onCopyTrackBpm(draggedBpmTrackId, bpmDropTarget, draggedBpm)
+      console.log(`BPM ${draggedBpm} copied from track ${draggedBpmTrackId} to track ${bpmDropTarget}`)
+    }
+    
+    // Clear all drag state
+    setDraggedKey(null)
+    setDraggedKeyTrackId(null)
+    setDraggedBpm(null)
+    setDraggedBpmTrackId(null)
+    setDragLinePosition(null)
+    setKeyDropTarget(null)
+    setBpmDropTarget(null)
+  }
+
+  // Handle track hover for key drop
+  const handleTrackHover = (trackId: number) => {
+    if (draggedKey && draggedKeyTrackId && trackId !== draggedKeyTrackId) {
+      setKeyDropTarget(trackId)
+    }
+    if (draggedBpm && draggedBpmTrackId && trackId !== draggedBpmTrackId) {
+      setBpmDropTarget(trackId)
+    }
+  }
+
+  const handleTrackLeave = () => {
+    setKeyDropTarget(null)
+    setBpmDropTarget(null)
+  }
+
+  // Global mouse up handler to clear drag state
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (draggedKey) {
+        if (keyDropTarget && draggedKeyTrackId && onCopyTrackKey) {
+          // Copy the key to the target track
+          onCopyTrackKey(draggedKeyTrackId, keyDropTarget, draggedKey)
+          console.log(`Key ${draggedKey} copied from track ${draggedKeyTrackId} to track ${keyDropTarget}`)
+        }
+        
+        // Clear all drag state
+        setDraggedKey(null)
+        setDraggedKeyTrackId(null)
+        setDragLinePosition(null)
+        setKeyDropTarget(null)
+      }
+      
+      if (draggedBpm) {
+        if (bpmDropTarget && draggedBpmTrackId && onCopyTrackBpm) {
+          // Copy the BPM to the target track
+          onCopyTrackBpm(draggedBpmTrackId, bpmDropTarget, draggedBpm)
+          console.log(`BPM ${draggedBpm} copied from track ${draggedBpmTrackId} to track ${bpmDropTarget}`)
+        }
+        
+        // Clear all drag state
+        setDraggedBpm(null)
+        setDraggedBpmTrackId(null)
+        setDragLinePosition(null)
+        setBpmDropTarget(null)
+      }
+    }
+
+    document.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => {
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [draggedKey, keyDropTarget, draggedKeyTrackId, onCopyTrackKey, draggedBpm, bpmDropTarget, draggedBpmTrackId, onCopyTrackBpm])
+
   const toggleNameExpansion = (trackId: number) => {
     setExpandedNames(prev => ({
       ...prev,
@@ -366,19 +490,56 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
           }}
         />
       )}
-      <Card className="!bg-[#141414] border-gray-700">
+      
+      {/* Drag Line Visual */}
+      {(draggedKey || draggedBpm) && dragLinePosition && (
+        <div 
+          className="fixed pointer-events-none z-50"
+          style={{
+            left: dragLinePosition.x - 10,
+            top: dragLinePosition.y - 10,
+            transform: 'translate(-50%, -50%)'
+          }}
+        >
+          <div className={`text-white px-2 py-1 rounded text-xs font-medium shadow-lg ${
+            draggedKey ? 'bg-blue-500' : 'bg-orange-500'
+          }`}>
+            {draggedKey || `${draggedBpm} BPM`}
+          </div>
+          <div className={`w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent mx-auto ${
+            draggedKey ? 'border-t-blue-500' : 'border-t-orange-500'
+          }`}></div>
+        </div>
+      )}
+      
+      <Card 
+        className="!bg-[#141414] border-gray-700"
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+      >
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-white">Audio Samples</CardTitle>
-            <Button
-              onClick={onAddTrack}
-              size="sm"
-              variant="outline"
-              className="text-xs"
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Add Track
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={onShuffleAllAudio}
+                size="sm"
+                variant="outline"
+                className="text-xs bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
+                title="Shuffle all audio samples"
+              >
+                <Brain className="w-4 h-4" />
+              </Button>
+              <Button
+                onClick={onAddTrack}
+                size="sm"
+                variant="outline"
+                className="text-xs"
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add Track
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -399,7 +560,10 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 onDrop={(e) => {
                   handleDrop(e, index)
                   handleAudioDrop(e, track.id)
+                  handleKeyDrop(e, track.id)
                 }}
+                onMouseEnter={() => handleTrackHover(track.id)}
+                onMouseLeave={handleTrackLeave}
                 onDragEnd={handleDragEnd}
                 className={`p-3 rounded-lg border transition-all duration-200 ${
                   sequencerData[track.id]?.[currentStep] ? 'border-white bg-[#2a2a2a]' : 'border-gray-600 bg-[#1f1f1f]'
@@ -409,6 +573,10 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                   dragOverIndex === index ? 'ring-2 ring-blue-500 transform scale-[1.02]' : ''
                 } ${
                   audioDragOverTrack === track.id ? 'ring-2 ring-green-500 bg-green-500/10' : ''
+                } ${
+                  keyDropTarget === track.id ? 'ring-2 ring-yellow-400 bg-yellow-500/10 border-yellow-400' : ''
+                } ${
+                  bpmDropTarget === track.id ? 'ring-2 ring-orange-400 bg-orange-500/10 border-orange-400' : ''
                 } ${
                   onReorderTracks ? 'cursor-grab active:cursor-grabbing' : ''
                 } ${
@@ -477,10 +645,48 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     {track.name !== 'MIDI' && track.audioUrl && (
                       <div className="flex items-center gap-1">
                         {track.bpm && (
-                          <Badge variant="outline" className="text-xs">{track.bpm} BPM</Badge>
+                          <Badge 
+                            variant="outline" 
+                            className={`text-xs cursor-pointer transition-colors ${
+                              draggedBpm === track.bpm && draggedBpmTrackId === track.id
+                                ? 'bg-blue-600 text-white shadow-lg scale-110'
+                                : 'hover:bg-gray-600'
+                            }`}
+                            onClick={() => onSetTransportBpm?.(track.bpm!)}
+                            onMouseDown={(e) => {
+                              // Start drag operation for BPM transfer
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setDraggedBpm(track.bpm!)
+                              setDraggedBpmTrackId(track.id)
+                              setDragLinePosition({ x: e.clientX, y: e.clientY })
+                            }}
+                            title={`Click to set transport BPM to ${track.bpm}. Click and drag to copy BPM to another track.`}
+                          >
+                            {track.bpm} BPM
+                          </Badge>
                         )}
                         {track.key && (
-                          <Badge variant="outline" className="text-xs">{track.key}</Badge>
+                          <Badge 
+                            variant="outline" 
+                            className={`text-xs cursor-pointer transition-colors ${
+                              draggedKey === track.key && draggedKeyTrackId === track.id
+                                ? 'bg-blue-600 text-white shadow-lg scale-110'
+                                : 'hover:bg-gray-600'
+                            }`}
+                            onClick={() => onSetTransportKey?.(track.key!)}
+                            onMouseDown={(e) => {
+                              // Start drag operation for key transfer
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setDraggedKey(track.key!)
+                              setDraggedKeyTrackId(track.id)
+                              setDragLinePosition({ x: e.clientX, y: e.clientY })
+                            }}
+                            title={`Click to set transport key to ${track.key}. Click and drag to copy key to another track.`}
+                          >
+                            {track.key}
+                          </Badge>
                         )}
                         {track.audio_type && (
                           <Badge variant="outline" className="text-xs">{track.audio_type}</Badge>
@@ -525,16 +731,83 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     {/* Audio controls for non-MIDI tracks only */}
                     {track.name !== 'MIDI' && (
                       <>
-                        {/* Shuffle button - only show for specific track types */}
-                        {onShuffleAudio && ['Kick', 'Snare', 'Hi-Hat', 'Sample'].includes(track.name) && (
+                        {/* Lock button - show for all tracks with audio */}
+                        {track.audioUrl && onToggleTrackLock && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onToggleTrackLock(track.id)}
+                            className={`text-xs transition-colors ${
+                              track.locked 
+                                ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20' 
+                                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-900/20'
+                            }`}
+                            title={track.locked ? 'Unlock track (shuffle will change this track)' : 'Lock track (shuffle will skip this track)'}
+                          >
+                            {track.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          </Button>
+                        )}
+                        {/* Mute button - show for all tracks */}
+                        {onToggleTrackMute && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onToggleTrackMute(track.id)}
+                            className={`text-xs transition-colors ${
+                              track.mute 
+                                ? 'text-red-400 hover:text-red-300 hover:bg-red-900/20' 
+                                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-900/20'
+                            }`}
+                            title={track.mute ? 'Unmute track' : 'Mute track'}
+                          >
+                            {track.mute ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                          </Button>
+                        )}
+                        {/* Shuffle button - show for all track types that support shuffle */}
+                        {onShuffleAudio && [
+                          // Drums
+                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal',
+                          // Bass
+                          'Bass', 'Sub', '808',
+                          // Melodic
+                          'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
+                          // Loops
+                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+                          // Effects & Technical
+                          'FX', 'Vocal', 'Sample', 'MIDI', 'Patch', 'Preset'
+                        ].includes(track.name) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => onShuffleAudio(track.id)}
-                            className="text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
-                            title={`Shuffle ${track.name} samples`}
+                            className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
+                            title={`AI ${track.name} samples`}
                           >
-                            <Shuffle className="w-3 h-3" />
+                            <Brain className="w-3 h-3" />
+                          </Button>
+                        )}
+                        
+                        {/* Duplicate with Shuffle button - show for tracks with audio */}
+                        {track.audioUrl && onDuplicateWithShuffle && [
+                          // Loops (primary target for this feature)
+                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+                          // Melodic
+                          'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
+                          // Bass
+                          'Bass', 'Sub', '808',
+                          // Drums
+                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal',
+                          // Effects & Technical
+                          'FX', 'Vocal', 'Sample', 'Patch', 'Preset'
+                        ].includes(track.name) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onDuplicateWithShuffle(track.id)}
+                            className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                            title={`Duplicate ${track.name} with shuffle (same key, different audio)`}
+                          >
+                            <Copy className="w-3 h-3" />
                           </Button>
                         )}
                         {/* Tempo controls toggle - only show if audio is loaded */}
@@ -590,6 +863,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 {track.audioUrl && (
                   <div className="mt-2">
                     <audio
+                      key={track.audioUrl} // Force re-render when audio URL changes
                       controls
                       className="w-full h-8"
                       preload="metadata"

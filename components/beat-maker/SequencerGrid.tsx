@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Save, Download, Plus, FolderOpen, Music, Piano } from 'lucide-react'
+import { Save, Download, Plus, FolderOpen, Music, Piano, Brain } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
 
@@ -15,7 +15,7 @@ interface SequencerGridProps {
   currentStep: number
   bpm: number
   onSavePattern?: (name: string, description?: string, category?: string, tags?: string[]) => void
-  onSaveTrackPattern?: (trackId: number, name: string, description?: string, category?: string, tags?: string[]) => void
+  onSaveTrackPattern?: (track: Track) => void
   onSaveAllPatterns?: () => void
   onLoadPattern?: (patternId: string) => void
   onClearAllPatterns?: () => void
@@ -23,6 +23,9 @@ interface SequencerGridProps {
   onToggleTrackMute?: (trackId: number) => void
   trackMuteStates?: {[trackId: number]: boolean}
   onOpenTrackPianoRoll?: (trackId: number) => void
+  onShuffleTrack?: (trackId: number) => void
+  onShuffleTrackPattern?: (trackId: number) => void
+  onShuffleAllPatterns?: () => void
 }
 
 export function SequencerGrid({
@@ -41,7 +44,10 @@ export function SequencerGrid({
   onClearTrackPattern,
   onToggleTrackMute,
   trackMuteStates,
-  onOpenTrackPianoRoll
+  onOpenTrackPianoRoll,
+  onShuffleTrack,
+  onShuffleTrackPattern,
+  onShuffleAllPatterns
 }: SequencerGridProps) {
   
   // Debug log to see piano roll data
@@ -76,12 +82,8 @@ export function SequencerGrid({
   const handleSaveTrackPattern = (trackId: number) => {
     const track = tracks.find(t => t.id === trackId)
     if (!track) return
-
-    const trackName = track.name
-    const defaultName = `${trackName} Pattern`
-    const tags = [trackName.toLowerCase()]
     
-    onSaveTrackPattern?.(trackId, defaultName, `Saved ${trackName} pattern`, 'Individual Track', tags)
+    onSaveTrackPattern?.(track)
   }
 
   const handleSaveAllPatterns = () => {
@@ -124,6 +126,16 @@ export function SequencerGrid({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => onLoadPattern?.('database')}
+              className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
+            >
+              <FolderOpen className="w-4 h-4 mr-1" />
+              Load Pattern
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleSaveAllPatterns}
               className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
             >
@@ -149,6 +161,16 @@ export function SequencerGrid({
             >
               <Piano className="w-4 h-4 mr-1" />
               Patterns
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onShuffleAllPatterns}
+              className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
+              title="Shuffle all sequencer patterns"
+            >
+              <Brain className="w-4 h-4" />
             </Button>
             
             <Button
@@ -233,7 +255,7 @@ export function SequencerGrid({
           <div className="min-w-max">
             {/* Header row with step numbers */}
             <div className="flex mb-2">
-              <div className="w-40 flex-shrink-0"></div> {/* Track name column - match track row width */}
+              <div className="w-56 flex-shrink-0"></div> {/* Track name column - match track row width */}
               {Array.from({ length: steps }, (_, i) => {
                 const stepNumber = i + 1
                 const isDownbeat = stepNumber % 4 === 1 // Steps 1, 5, 9, 13, etc.
@@ -262,7 +284,7 @@ export function SequencerGrid({
             {tracks.map((track) => (
               <div key={track.id} className="flex mb-3">
                 {/* Track name and save button */}
-                <div className="w-40 flex-shrink-0 flex items-center px-2 h-8 gap-2">
+                <div className="w-56 flex-shrink-0 flex items-center px-2 h-8 gap-2">
                   <div 
                     className={`w-3 h-3 rounded-full ${track.color} mr-2 cursor-pointer transition-all duration-200 hover:scale-110 ${
                       trackMuteStates?.[track.id] ? 'opacity-50 ring-2 ring-gray-400' : ''
@@ -284,7 +306,7 @@ export function SequencerGrid({
                   >
                     {track.name}
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -293,6 +315,24 @@ export function SequencerGrid({
                       title={`Save ${track.name} Pattern`}
                     >
                       <Save className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onLoadPattern?.('database')}
+                      className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
+                      title={`Load Pattern for ${track.name}`}
+                    >
+                      <FolderOpen className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onShuffleTrackPattern?.(track.id)}
+                      className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
+                      title={`AI ${track.name} Pattern`}
+                    >
+                      <Brain className="w-3 h-3" />
                     </Button>
                     <Button
                       variant="ghost"

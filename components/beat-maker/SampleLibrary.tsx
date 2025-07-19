@@ -5,6 +5,17 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Search, Music, Play, Pause, Upload, X, Package, Folder, Grid, FileAudio, Piano, Drum, Music2, FileMusic, File } from 'lucide-react'
+
+// Audio type categories matching the mass edit modal
+const AUDIO_TYPE_CATEGORIES = {
+  'Drums': ['Kick', 'Snare', 'Hihat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'],
+  'Bass': ['Bass', 'Sub', '808'],
+  'Melodic': ['Melody', 'Lead', 'Pad', 'Chord', 'Arp'],
+  'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition', 'Other'],
+  'Effects': ['FX', 'Vocal', 'Sample'],
+  'Technical': ['MIDI', 'Patch', 'Preset'],
+  'Other': ['Other']
+}
 import { supabase } from '@/lib/supabaseClient'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -229,6 +240,25 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
     if (!bytes) return 'Unknown'
     const mb = bytes / (1024 * 1024)
     return `${mb.toFixed(1)} MB`
+  }
+
+  // Get category color for audio types
+  const getAudioTypeCategoryColor = (audioType: string) => {
+    for (const [category, types] of Object.entries(AUDIO_TYPE_CATEGORIES)) {
+      if (types.includes(audioType)) {
+        switch (category) {
+          case 'Drums': return 'text-red-400 border-red-400'
+          case 'Bass': return 'text-blue-400 border-blue-400'
+          case 'Melodic': return 'text-green-400 border-green-400'
+          case 'Loops': return 'text-yellow-400 border-yellow-400'
+          case 'Effects': return 'text-purple-400 border-purple-400'
+          case 'Technical': return 'text-orange-400 border-orange-400'
+          case 'Other': return 'text-gray-400 border-gray-400'
+          default: return 'text-gray-400 border-gray-400'
+        }
+      }
+    }
+    return 'text-gray-400 border-gray-400'
   }
 
   const uploadAudioFile = async (file: File) => {
@@ -484,7 +514,10 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                               </Badge>
                             )}
                             {item.audio_type && (
-                              <Badge variant="outline" className="text-xs">
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${getAudioTypeCategoryColor(item.audio_type)}`}
+                              >
                                 {item.audio_type}
                               </Badge>
                             )}
@@ -646,7 +679,10 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
                                                   </Badge>
                                                 )}
                                                 {item.audio_type && (
-                                                  <Badge variant="outline" className="text-xs">
+                                                  <Badge 
+                                                    variant="outline" 
+                                                    className={`text-xs ${getAudioTypeCategoryColor(item.audio_type)}`}
+                                                  >
                                                     {item.audio_type}
                                                   </Badge>
                                                 )}

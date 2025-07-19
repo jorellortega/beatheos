@@ -9,6 +9,7 @@ export interface Track {
   color: string
   mute?: boolean
   solo?: boolean
+  locked?: boolean // Whether the track is locked from shuffle
   // Tempo properties for individual sample editing
   originalBpm?: number // The original BPM of the sample (auto-detected or user-set)
   currentBpm?: number  // The current BPM the sample should play at
@@ -64,10 +65,36 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   const samplesRef = useRef<{ [key: string]: Tone.Player }>({})
   const pitchShiftersRef = useRef<{ [key: string]: Tone.PitchShift }>({})
   const playingSamplesRef = useRef<Set<Tone.Player>>(new Set())
+  
+  // Store original sequencer data to preserve patterns when steps change
+  const originalSequencerDataRef = useRef<SequencerData>({})
+  const isLoadingPatternRef = useRef<boolean>(false)
 
   // Function to set sequencer data from outside (for session loading)
-  const setSequencerDataFromSession = useCallback((newSequencerData: SequencerData) => {
-    setSequencerData(newSequencerData)
+  const setSequencerDataFromSession = useCallback((newSequencerData: SequencerData | ((prev: SequencerData) => SequencerData)) => {
+    console.log('[HOOK] setSequencerDataFromSession called with:', newSequencerData)
+    isLoadingPatternRef.current = true
+    
+    if (typeof newSequencerData === 'function') {
+      // If it's a function, call it with current state
+      setSequencerData(prev => {
+        const result = newSequencerData(prev)
+        // Save the result as original data for step preservation
+        originalSequencerDataRef.current = { ...result }
+        console.log('[HOOK] Sequencer data updated via function and original data saved')
+        return result
+      })
+    } else {
+      // If it's direct data, use it directly
+      originalSequencerDataRef.current = { ...newSequencerData }
+      setSequencerData(newSequencerData)
+      console.log('[HOOK] Sequencer data updated directly and original data saved')
+    }
+    
+    // Reset the loading flag after a short delay to allow the state to update
+    setTimeout(() => {
+      isLoadingPatternRef.current = false
+    }, 100)
   }, [])
 
   // Initialize sequencer data
@@ -78,6 +105,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     // Handle all tracks - either create new or resize existing
     tracks.forEach(track => {
       const existingData = sequencerData[track.id]
+      const originalData = originalSequencerDataRef.current[track.id]
       
       if (!existingData) {
         // New track - create fresh array
@@ -85,11 +113,37 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       } else if (existingData.length !== steps) {
         // Existing track but wrong length - resize array
         const resizedArray = new Array(steps).fill(false)
-        // Copy existing data up to the minimum of old and new lengths
-        const copyLength = Math.min(existingData.length, steps)
-        for (let i = 0; i < copyLength; i++) {
-          resizedArray[i] = existingData[i]
+        
+        if (steps > existingData.length) {
+          // Expanding steps - try to restore from original data if available
+          if (originalData && originalData.length >= steps) {
+            // Restore from original data
+            for (let i = 0; i < steps; i++) {
+              resizedArray[i] = originalData[i] || false
+            }
+            console.log(`[STEPS CHANGE] Restored ${steps} steps from original data for track ${track.name}`)
+          } else {
+            // No original data available, copy what we have
+            const copyLength = Math.min(existingData.length, steps)
+            for (let i = 0; i < copyLength; i++) {
+              resizedArray[i] = existingData[i]
+            }
+            console.log(`[STEPS CHANGE] Expanded to ${steps} steps, copied ${copyLength} steps for track ${track.name}`)
+          }
+        } else {
+          // Reducing steps - save current data as original and copy what fits
+          if (!originalData || originalData.length < existingData.length) {
+            originalSequencerDataRef.current[track.id] = [...existingData]
+            console.log(`[STEPS CHANGE] Saved original ${existingData.length} steps for track ${track.name}`)
+          }
+          
+          const copyLength = Math.min(existingData.length, steps)
+          for (let i = 0; i < copyLength; i++) {
+            resizedArray[i] = existingData[i]
+          }
+          console.log(`[STEPS CHANGE] Reduced to ${steps} steps, copied ${copyLength} steps for track ${track.name}`)
         }
+        
         newSequencerData[track.id] = resizedArray
       } else {
         // Existing track with correct length - keep as is
@@ -97,15 +151,19 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       }
     })
     
-    // Only update if there are changes
+    // Only update if there are changes AND we're not in the middle of loading a pattern
     const hasChanges = tracks.some(track => {
       const existing = sequencerData[track.id]
       const newData = newSequencerData[track.id]
       return !existing || existing.length !== newData.length || JSON.stringify(existing) !== JSON.stringify(newData)
     }) || Object.keys(sequencerData).length !== Object.keys(newSequencerData).length
     
-    if (hasChanges) {
+    // Don't override loaded pattern data unless we're actually changing tracks or steps
+    if (hasChanges && !isLoadingPatternRef.current) {
+      console.log('[HOOK] Initializing sequencer data for new tracks/steps')
       setSequencerData(newSequencerData)
+    } else if (isLoadingPatternRef.current) {
+      console.log('[HOOK] Skipping initialization - pattern is being loaded')
     }
   }, [tracks, steps])
 
@@ -185,7 +243,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   const playStep = useCallback((step: number) => {
     setCurrentStep(step)
     console.log(`[PLAYSTEP DEBUG] Step ${step}, pianoRollData:`, pianoRollData)
-    console.log(`[PLAYSTEP DEBUG] Total piano roll notes across all tracks:`, Object.values(pianoRollData).flat().length)
+    console.log(`[PLAYSTEP DEBUG] Total piano roll notes across all tracks:`, Object.values(pianoRollData || {}).flat().length)
     tracks.forEach(track => {
       const player = samplesRef.current[track.id]
       const shouldPlay = sequencerData[track.id]?.[step]
@@ -197,7 +255,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         shouldPlay &&
         player &&
         player.loaded &&
-        validAudio
+        validAudio &&
+        !track.mute // Don't play if track is muted
       ) {
         console.log(`[DEBUG] Playing sample for track ${track.name} at step ${step}`)
         
@@ -262,7 +321,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       }
       
       // Piano roll notes play in sync with sequencer steps
-      if (pianoRollNotesAtStep.length > 0 && validAudio) {
+      if (pianoRollNotesAtStep.length > 0 && validAudio && !track.mute) {
         console.log(`[DEBUG] Playing ${pianoRollNotesAtStep.length} piano roll notes for track ${track.name} at step ${step}`)
         
         pianoRollNotesAtStep.forEach(note => {
@@ -440,17 +499,32 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       intervalRef.current = null
     }
     
-    // Stop all currently playing samples with proper error handling
-    playingSamplesRef.current.forEach(player => {
+    // Stop ALL samples from ALL tracks, not just the ones tracked in playingSamplesRef
+    // This ensures long samples that are still playing get stopped
+    Object.values(samplesRef.current).forEach(player => {
       try {
-        if (player.state === 'started') {
+        if (player && player.state === 'started') {
+          console.log('[STOP SEQUENCE] Stopping player that was still playing')
           player.stop()
         }
       } catch (error) {
         console.warn('[DEBUG] Error stopping player:', error)
       }
     })
+    
+    // Also stop tracked playing samples
+    playingSamplesRef.current.forEach(player => {
+      try {
+        if (player.state === 'started') {
+          player.stop()
+        }
+      } catch (error) {
+        console.warn('[DEBUG] Error stopping tracked player:', error)
+      }
+    })
     playingSamplesRef.current.clear()
+    
+    console.log('[STOP SEQUENCE] All samples stopped')
   }, [])
 
   // Function to update track tempo and recalculate playback rate

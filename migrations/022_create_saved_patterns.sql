@@ -4,11 +4,12 @@ CREATE TABLE IF NOT EXISTS saved_patterns (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
   description TEXT,
-  tracks JSONB NOT NULL, -- Store track configuration and notes
+  tracks JSONB, -- Store track configuration and notes (nullable)
   sequencer_data JSONB NOT NULL, -- Store the step pattern data
-  bpm INTEGER NOT NULL DEFAULT 120 steps INTEGER NOT NULL DEFAULT16,
+  bpm INTEGER NOT NULL DEFAULT 120,
+  steps INTEGER NOT NULL DEFAULT 16,
   tags TEXT[],
-  category VARCHAR(100,
+  category VARCHAR(100),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -22,7 +23,7 @@ CREATE INDEX saved_patterns_category_idx ON saved_patterns(category);
 ALTER TABLE saved_patterns ENABLE ROW LEVEL SECURITY;
 
 -- Create policy so users can only access their own patterns
-CREATE POLICYUsers can manage their own saved patterns ON saved_patterns
+CREATE POLICY "Users can manage their own saved patterns" ON saved_patterns
   FOR ALL USING (auth.uid() = user_id);
 
 -- Function to automatically update updated_at timestamp

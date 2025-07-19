@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -21,13 +24,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 export default function BeatMakerPage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
+  const [transportKey, setTransportKey] = useState('C') // Add transport key state
   const [currentStep, setCurrentStep] = useState(0)
   const [tracks, setTracks] = useState<Track[]>([
     { id: 1, name: 'Kick', audioUrl: null, color: 'bg-red-500' },
     { id: 2, name: 'Snare', audioUrl: null, color: 'bg-blue-500' },
     { id: 3, name: 'Hi-Hat', audioUrl: null, color: 'bg-green-500' },
-    { id: 4, name: 'Sample', audioUrl: null, color: 'bg-purple-500' },
-    { id: 5, name: 'MIDI', audioUrl: null, color: 'bg-orange-500' },
   ])
   const [steps, setSteps] = useState(16)
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
@@ -39,6 +41,9 @@ export default function BeatMakerPage() {
   const [showTrackPianoRoll, setShowTrackPianoRoll] = useState(false)
   const [trackPianoRollTrack, setTrackPianoRollTrack] = useState<Track | null>(null)
   const [trackPianoRollNotes, setTrackPianoRollNotes] = useState<any[]>([])
+  
+  // Track type selection modal
+  const [showTrackTypeModal, setShowTrackTypeModal] = useState(false)
   
   // MIDI synthesizers
   const [midiSoundType, setMidiSoundType] = useState<'piano' | 'synth' | 'bass'>('piano')
@@ -186,7 +191,7 @@ export default function BeatMakerPage() {
   }, [isSequencePlaying, sequencerCurrentStep])
 
   // Song arrangement state (after useBeatMaker hook)
-  const [savedPatterns, setSavedPatterns] = useState<{id: string, name: string, tracks: Track[], sequencerData: any, bpm: number, steps: number}[]>([])
+  const [savedPatterns, setSavedPatterns] = useState<{id: string, name: string, tracks: Track[], sequencerData: any, bpm: number, transportKey: string, steps: number}[]>([])
   const [activeTab, setActiveTab] = useState('sequencer')
   const [lastLoadedPattern, setLastLoadedPattern] = useState<string | null>(null)
   const [showPatternDetails, setShowPatternDetails] = useState(true)
@@ -295,7 +300,7 @@ export default function BeatMakerPage() {
   useEffect(() => {
     const initializeSongPlayers = async () => {
       // Clean up existing song players
-      Object.values(songPlaybackRef.current.players).forEach(player => {
+      Object.values(songPlaybackRef.current.players || {}).forEach(player => {
         try {
           if (player.state === 'started') {
             player.stop()
@@ -342,7 +347,7 @@ export default function BeatMakerPage() {
       }
       
       // Stop any playing song samples
-      Object.values(songPlaybackRef.current.players).forEach(player => {
+      Object.values(songPlaybackRef.current.players || {}).forEach(player => {
         try {
           if (player.state === 'started') {
             player.stop()
@@ -356,7 +361,7 @@ export default function BeatMakerPage() {
     }
 
     // Check if any tracks are activated
-    const hasActiveArrangement = Object.values(sequencerData).some(trackData => 
+    const hasActiveArrangement = Object.values(sequencerData || {}).some(trackData => 
       trackData && trackData.some((isActive: boolean) => isActive)
     )
     
@@ -429,7 +434,7 @@ export default function BeatMakerPage() {
       if (songPlaybackRef.current.stepIntervalId) {
         clearInterval(songPlaybackRef.current.stepIntervalId)
       }
-      Object.values(songPlaybackRef.current.players).forEach(player => {
+      Object.values(songPlaybackRef.current.players || {}).forEach(player => {
         try {
           if (player.state === 'started') {
             player.stop()
@@ -522,6 +527,7 @@ export default function BeatMakerPage() {
         tracks: tracks,
         sequencerData: sequencerData,
         bpm: bpm,
+        transportKey: transportKey,
         steps: steps
       }
       
@@ -536,35 +542,185 @@ export default function BeatMakerPage() {
     if (lastLoadedPattern && lastLoadedPattern !== 'pattern1') {
       setLastLoadedPattern(null)
     }
-  }, [tracks, sequencerData, bpm, steps, lastLoadedPattern])
+  }, [tracks, sequencerData, bpm, transportKey, steps, lastLoadedPattern])
 
   // Save current pattern as new pattern
-  const saveAsNewPattern = () => {
-    const newPatternId = `pattern${savedPatterns.length + 1}`
-    const newPattern = {
-      id: newPatternId,
-      name: `Pattern ${savedPatterns.length + 1}`,
-      tracks: [...tracks],
-      sequencerData: {...sequencerData},
-      bpm: bpm,
-      steps: steps
+  const saveAsNewPattern = async () => {
+    setPatternName('')
+    setPatternDescription('')
+    setPatternCategory('')
+    setPatternTags('')
+    setShowSavePatternDialog(true)
+  }
+
+  const handleSavePatternSubmit = async () => {
+    if (!patternName.trim()) {
+      alert('Please enter a pattern name')
+      return
     }
-    setSavedPatterns(prev => [...prev, newPattern])
+    
+    try {
+      const tags = patternTags.trim() ? patternTags.split(',').map(tag => tag.trim()) : []
+      await handleSavePattern(patternName.trim(), patternDescription.trim(), patternCategory.trim(), tags)
+      setShowSavePatternDialog(false)
+    } catch (error) {
+      console.error('Error saving pattern:', error)
+    }
+  }
+
+  const openSaveTrackPatternDialog = (track: Track) => {
+    setSelectedTrackForPattern(track)
+    setPatternName('')
+    setPatternDescription('')
+    setPatternCategory('')
+    setPatternTags('')
+    setShowSaveTrackPatternDialog(true)
+  }
+
+  const handleSaveTrackPatternSubmit = async () => {
+    if (!patternName.trim()) {
+      alert('Please enter a pattern name')
+      return
+    }
+    
+    if (!selectedTrackForPattern) {
+      alert('No track selected')
+      return
+    }
+    
+    try {
+      const tags = patternTags.trim() ? patternTags.split(',').map(tag => tag.trim()) : []
+      await handleSaveTrackPattern(selectedTrackForPattern.id, patternName.trim(), patternDescription.trim(), patternCategory.trim(), tags)
+      setShowSaveTrackPatternDialog(false)
+      setSelectedTrackForPattern(null)
+    } catch (error) {
+      console.error('Error saving track pattern:', error)
+    }
   }
 
   // Load a pattern into the sequencer
   const loadPattern = (patternId: string) => {
     const pattern = savedPatterns.find(p => p.id === patternId)
     if (pattern) {
-      setTracks(pattern.tracks)
+      // Only load the sequencer pattern data, not the track configuration
       setBpm(pattern.bpm)
+      setTransportKey(pattern.transportKey || 'C')
       setSteps(pattern.steps)
       setLastLoadedPattern(patternId)
-      // Note: sequencerData will be updated by the useBeatMaker hook
+      // Load only the sequencer data, keep current tracks unchanged
+      if (pattern.sequencerData) {
+        // Merge the pattern data with existing sequencer data instead of replacing
+        setSequencerDataFromSession(prev => {
+          const mergedData = { ...prev }
+          
+          // Only update tracks that have data in the loaded pattern
+          Object.keys(pattern.sequencerData).forEach(trackIdStr => {
+            const trackId = parseInt(trackIdStr)
+            mergedData[trackId] = pattern.sequencerData[trackId]
+          })
+          
+          console.log('Merged sequencer data:', mergedData)
+          return mergedData
+        })
+      } else {
+        console.warn(`Pattern "${pattern.name}" has no sequencer data`)
+        // Don't clear existing data if pattern has no sequencer data
+      }
       
       // Show feedback notification
       console.log(`Loaded pattern: ${pattern.name}`)
     }
+  }
+
+  // Load pattern from database
+  const handleLoadPattern = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to load patterns')
+        return
+      }
+
+      // Fetch user's saved patterns
+      const { data: patterns, error } = await supabase
+        .from('saved_patterns')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error loading patterns:', error)
+        alert('Failed to load patterns')
+        return
+      }
+
+      if (!patterns || patterns.length === 0) {
+        alert('No saved patterns found. Save some patterns first!')
+        return
+      }
+
+      setAvailablePatterns(patterns)
+      setSelectedPatternToLoad(null)
+      setShowLoadPatternDialog(true)
+      
+    } catch (error) {
+      console.error('Error loading pattern:', error)
+      alert('Failed to load patterns')
+    }
+  }
+
+  const handleLoadPatternSubmit = async () => {
+    if (!selectedPatternToLoad) {
+      alert('Please select a pattern to load')
+      return
+    }
+
+    const selectedPattern = availablePatterns.find(p => p.id === selectedPatternToLoad)
+    if (!selectedPattern) {
+      alert('Selected pattern not found')
+      return
+    }
+
+    // Debug: Log the pattern data to see what we're getting
+    console.log('Selected pattern data:', selectedPattern)
+    console.log('Pattern sequencerData:', selectedPattern.sequencerData)
+    console.log('Pattern sequencer_data:', selectedPattern.sequencer_data)
+    
+    // Load only the sequencer pattern data, not the track configuration
+    setBpm(selectedPattern.bpm)
+    setSteps(selectedPattern.steps)
+    
+    // Try both camelCase and snake_case property names
+    const patternSequencerData = selectedPattern.sequencerData || selectedPattern.sequencer_data
+    
+    // Ensure sequencerData is not null/undefined before loading
+    if (patternSequencerData) {
+      console.log('Loading sequencer data:', patternSequencerData)
+      
+      // Merge the pattern data with existing sequencer data instead of replacing
+      // This preserves patterns on other tracks that aren't in the loaded pattern
+      setSequencerDataFromSession(prev => {
+        const mergedData = { ...prev }
+        
+        // Only update tracks that have data in the loaded pattern
+        Object.keys(patternSequencerData).forEach(trackIdStr => {
+          const trackId = parseInt(trackIdStr)
+          mergedData[trackId] = patternSequencerData[trackId]
+        })
+        
+        console.log('Merged sequencer data:', mergedData)
+        return mergedData
+      })
+    } else {
+      console.warn(`Pattern "${selectedPattern.name}" has no sequencer data`)
+      // Don't clear existing data if pattern has no sequencer data
+    }
+    
+    // Show success message
+    alert(`Loaded pattern: ${selectedPattern.name}`)
+    console.log(`Loaded pattern "${selectedPattern.name}" - sequencer data only, tracks unchanged`)
+    
+    setShowLoadPatternDialog(false)
   }
 
   // Mixer control functions
@@ -716,6 +872,32 @@ export default function BeatMakerPage() {
   const handleReset = () => {
     stopSequence()
     setCurrentStep(0)
+    
+    // Also stop song playback if it's running
+    if (songPlayback.isPlaying) {
+      setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+      
+      // Stop song intervals
+      if (songPlaybackRef.current.intervalId) {
+        clearInterval(songPlaybackRef.current.intervalId)
+        songPlaybackRef.current.intervalId = null
+      }
+      if (songPlaybackRef.current.stepIntervalId) {
+        clearInterval(songPlaybackRef.current.stepIntervalId)
+        songPlaybackRef.current.stepIntervalId = null
+      }
+      
+      // Stop any playing song samples
+      Object.values(songPlaybackRef.current.players || {}).forEach(player => {
+        try {
+          if (player.state === 'started') {
+            player.stop()
+          }
+        } catch (error) {
+          console.warn('[RESET] Error stopping song player:', error)
+        }
+      })
+    }
   }
 
   const handleTrackAudioSelect = (trackId: number, audioUrlOrPath: string, audioName?: string, metadata?: {
@@ -874,8 +1056,180 @@ export default function BeatMakerPage() {
     setPositionInputValue('')
   }
 
+  // Function to toggle track lock
+  const handleToggleTrackLock = (trackId: number) => {
+    setTracks(prev => prev.map(track => 
+      track.id === trackId ? { ...track, locked: !track.locked } : track
+    ))
+  }
+
+  // Function to toggle track mute
+  const handleToggleTrackMute = (trackId: number) => {
+    setTracks(prev => prev.map(track => 
+      track.id === trackId ? { ...track, mute: !track.mute } : track
+    ))
+  }
+
+  // Copy key from one track to another
+  const handleCopyTrackKey = (fromTrackId: number, toTrackId: number, key: string) => {
+    setTracks(prev => prev.map(track => 
+      track.id === toTrackId ? { ...track, key: key } : track
+    ))
+    console.log(`Copied key ${key} from track ${fromTrackId} to track ${toTrackId}`)
+  }
+
+  // Copy BPM from one track to another
+  const handleCopyTrackBpm = (fromTrackId: number, toTrackId: number, bpm: number) => {
+    setTracks(prev => prev.map(track => 
+      track.id === toTrackId ? { ...track, bpm: bpm } : track
+    ))
+    console.log(`Copied BPM ${bpm} from track ${fromTrackId} to track ${toTrackId}`)
+  }
+
+  // Duplicate track with shuffle functionality
+  const handleDuplicateWithShuffle = async (trackId: number) => {
+    const originalTrack = tracks.find(t => t.id === trackId)
+    if (!originalTrack || !originalTrack.audioUrl) {
+      console.error('Cannot duplicate track: no audio loaded')
+      return
+    }
+
+    try {
+      console.log('Attempting to duplicate track:', originalTrack.name, 'with type:', originalTrack.audio_type, 'and key:', originalTrack.key)
+      
+      // Get current user for filtering
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!currentUser) {
+        console.error('No user found, cannot fetch audio library')
+        return
+      }
+
+      // Build query based on available data
+      let query = supabase.from('audio_library_items').select('*').eq('user_id', currentUser.id)
+      
+      // Add filters only if the data exists
+      if (originalTrack.audio_type) {
+        query = query.eq('audio_type', originalTrack.audio_type)
+      }
+      
+      if (originalTrack.key) {
+        query = query.eq('key', originalTrack.key)
+      }
+      
+      // Try to exclude current audio if it's a database ID
+      if (originalTrack.audioUrl && !originalTrack.audioUrl.startsWith('http')) {
+        query = query.neq('id', originalTrack.audioUrl)
+      }
+      
+      const { data: shuffledAudio, error } = await query.limit(10)
+
+      if (error) {
+        console.error('Error fetching shuffled audio:', error)
+        // Fallback: try without key filter
+        if (originalTrack.key) {
+          console.log('Retrying without key filter...')
+          const { data: fallbackAudio, error: fallbackError } = await supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
+            .limit(10)
+          
+          if (fallbackError) {
+            console.error('Fallback query also failed:', fallbackError)
+            return
+          }
+          
+          if (fallbackAudio && fallbackAudio.length > 0) {
+            const randomAudio = fallbackAudio[Math.floor(Math.random() * fallbackAudio.length)]
+            createDuplicateTrack(originalTrack, randomAudio)
+            return
+          }
+        }
+        return
+      }
+
+      if (!shuffledAudio || shuffledAudio.length === 0) {
+        console.log('No alternative audio found with same key and type, trying broader search...')
+        // Try broader search
+        const { data: broaderAudio, error: broaderError } = await supabase
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
+          .limit(10)
+        
+        if (broaderError) {
+          console.error('Broader search failed:', broaderError)
+          return
+        }
+        
+        if (broaderAudio && broaderAudio.length > 0) {
+          const randomAudio = broaderAudio[Math.floor(Math.random() * broaderAudio.length)]
+          createDuplicateTrack(originalTrack, randomAudio)
+          return
+        }
+        
+        console.log('No audio found in database, creating duplicate with same audio but different settings')
+        // Fallback: create duplicate with same audio but different settings
+        const fallbackDuplicate: Track = {
+          ...originalTrack,
+          id: Math.max(...tracks.map(t => t.id)) + 1,
+          name: `${originalTrack.name} (Variation)`,
+          // Keep same audio but adjust settings
+          currentBpm: originalTrack.bpm ? originalTrack.bpm + Math.floor(Math.random() * 20) - 10 : originalTrack.bpm, // ±10 BPM variation
+          currentKey: originalTrack.key, // Keep same key
+          // Keep same sequencer pattern as parent
+          locked: false, // Allow shuffling of the duplicate
+          mute: false
+        }
+        setTracks(prev => [...prev, fallbackDuplicate])
+        console.log(`Created fallback duplicate track: ${fallbackDuplicate.name}`)
+        return
+      }
+
+      // Pick a random audio from the results
+      const randomAudio = shuffledAudio[Math.floor(Math.random() * shuffledAudio.length)]
+      createDuplicateTrack(originalTrack, randomAudio)
+      
+    } catch (error) {
+      console.error('Error duplicating track with shuffle:', error)
+    }
+  }
+
+  // Helper function to create duplicate track
+  const createDuplicateTrack = (originalTrack: Track, randomAudio: any) => {
+    // Create new track ID
+    const newTrackId = Math.max(...tracks.map(t => t.id)) + 1
+    
+          // Create duplicate track with shuffled audio
+      const duplicateTrack: Track = {
+        ...originalTrack,
+        id: newTrackId,
+        name: `${originalTrack.name} (Shuffle)`,
+        audioUrl: randomAudio.file_url,
+        audioName: randomAudio.name,
+        bpm: randomAudio.bpm,
+        key: randomAudio.key,
+        audio_type: randomAudio.audio_type,
+        tags: randomAudio.tags || [],
+        // Keep same sequencer pattern as parent
+        locked: false, // Allow shuffling of the duplicate
+        mute: false
+      }
+
+    // Add the duplicate track
+    setTracks(prev => [...prev, duplicateTrack])
+    
+    console.log(`Duplicated track ${originalTrack.name} with shuffled audio: ${randomAudio.name}`)
+  }
+
   // Function to add a new track
   const addNewTrack = () => {
+    setShowTrackTypeModal(true)
+  }
+
+  const addTrackByType = (trackType: string) => {
     const trackColors = [
       'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-purple-500',
       'bg-yellow-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500',
@@ -887,12 +1241,13 @@ export default function BeatMakerPage() {
     
     const newTrack: Track = {
       id: newTrackId,
-      name: 'audio',
+      name: trackType,
       audioUrl: null,
       color: trackColors[colorIndex]
     }
     
     setTracks(prev => [...prev, newTrack])
+    setShowTrackTypeModal(false)
   }
 
   // Function to remove a track
@@ -920,13 +1275,47 @@ export default function BeatMakerPage() {
         return
       }
 
-      // Map track names to audio types for filtering
+      // Map track names to audio types for filtering using the new categorized system
       const trackTypeMap: { [key: string]: string } = {
-        'Kick': 'kick',
-        'Snare': 'snare', 
-        'Hi-Hat': 'hi-hat',
-        'Sample': 'sample',
-        'MIDI': 'midi'
+        // Drums
+        'Kick': 'Kick',
+        'Snare': 'Snare', 
+        'Hi-Hat': 'Hihat',
+        'Clap': 'Clap',
+        'Crash': 'Crash',
+        'Ride': 'Ride',
+        'Tom': 'Tom',
+        'Cymbal': 'Cymbal',
+        
+        // Bass
+        'Bass': 'Bass',
+        'Sub': 'Sub',
+        '808': '808',
+        
+        // Melodic
+        'Melody': 'Melody',
+        'Lead': 'Lead',
+        'Pad': 'Pad',
+        'Chord': 'Chord',
+        'Arp': 'Arp',
+        
+        // Loops
+        'Melody Loop': 'Melody Loop',
+        'Piano Loop': 'Piano Loop',
+        '808 Loop': '808 Loop',
+        'Drum Loop': 'Drum Loop',
+        'Bass Loop': 'Bass Loop',
+        'Vocal Loop': 'Vocal Loop',
+        'Guitar Loop': 'Guitar Loop',
+        'Synth Loop': 'Synth Loop',
+        
+        // Effects & Technical
+        'FX': 'FX',
+        'Vocal': 'Vocal',
+        'Sample': 'Sample',
+        'MIDI': 'MIDI',
+        'Patch': 'Patch',
+        'Preset': 'Preset'
       }
 
       const audioType = trackTypeMap[track.name]
@@ -935,40 +1324,42 @@ export default function BeatMakerPage() {
         return
       }
 
-      // Fetch audio files of the specific type - try multiple approaches
+      // Fetch audio files of the specific type using the new audio_type system
       let audioFiles: any[] = []
       
-      // First try to get files by audio_type
+      // Get files by exact audio_type match (primary method)
       const { data: typeFiles, error: typeError } = await supabase
         .from('audio_library_items')
         .select('*')
         .eq('user_id', user.id)
         .eq('audio_type', audioType)
       
-      if (typeFiles) {
+      if (typeFiles && typeFiles.length > 0) {
         audioFiles = [...audioFiles, ...typeFiles]
       }
       
-      // Then try to get files by name containing the type
-      const { data: nameFiles, error: nameError } = await supabase
-        .from('audio_library_items')
-        .select('*')
-        .eq('user_id', user.id)
-        .ilike('name', `%${audioType}%`)
-      
-      if (nameFiles) {
-        audioFiles = [...audioFiles, ...nameFiles]
+      // If no exact matches, try to get files by name containing the type (fallback)
+      if (audioFiles.length === 0) {
+        const { data: nameFiles, error: nameError } = await supabase
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', user.id)
+          .ilike('name', `%${audioType.toLowerCase()}%`)
+        
+        if (nameFiles) {
+          audioFiles = [...audioFiles, ...nameFiles]
+        }
       }
       
-      // Special handling for hi-hat to search for multiple variations
-      if (audioType === 'hi-hat') {
-        const hiHatVariations = ['hat', 'hi hat', 'hihat,hi-hat']
+      // Special handling for Hi-Hat to search for multiple variations
+      if (audioType === 'Hihat' && audioFiles.length === 0) {
+        const hiHatVariations = ['Hihat', 'Hi-Hat', 'Hi Hat']
         for (const variation of hiHatVariations) {
           const { data: variationFiles, error: variationError } = await supabase
             .from('audio_library_items')
             .select('*')
             .eq('user_id', user.id)
-            .ilike('name', `%${variation}%`)
+            .eq('audio_type', variation)
           
           if (variationFiles) {
             audioFiles = [...audioFiles, ...variationFiles]
@@ -981,10 +1372,8 @@ export default function BeatMakerPage() {
         index === self.findIndex(f => f.id === file.id)
       )
       
-      const error = typeError || nameError
-
-      if (error) {
-        console.error('Error fetching audio files:', error)
+      if (typeError) {
+        console.error('Error fetching audio files by type:', typeError)
         alert('Failed to fetch audio files')
         return
       }
@@ -1114,15 +1503,256 @@ export default function BeatMakerPage() {
         return
       }
 
-      // Shuffle each track that has shuffle capability
-      const shufflePromises = tracks
-        .filter(track => ['Kick', 'Snare', 'Hi-Hat'].includes(track.name))
+      // Shuffle audio samples for each track that has shuffle capability
+      // BUT skip tracks that are locked
+      const audioShufflePromises = tracks
+        .filter(track => [
+          // Drums
+          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal',
+          // Bass
+          'Bass', 'Sub', '808',
+          // Melodic
+          'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
+          // Loops
+          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+          // Effects & Technical
+          'FX', 'Vocal', 'Sample', 'MIDI', 'Patch', 'Preset'
+        ].includes(track.name) && !track.locked) // Skip locked tracks
         .map(track => handleShuffleAudio(track.id))
 
-      await Promise.all(shufflePromises)
+      // Shuffle patterns for all tracks (except locked ones)
+      const patternShufflePromises = tracks
+        .filter(track => !track.locked) // Skip locked tracks
+        .map(track => {
+          // Get type-specific pattern library
+          const patternLibrary = getPatternLibraryForTrackType(track.name)
+          
+          // Select a random pattern from the library
+          const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+          
+          // Extend or truncate the pattern to match current step count
+          let newPattern: boolean[]
+          if (steps === 16) {
+            newPattern = randomPattern
+          } else if (steps === 8) {
+            newPattern = randomPattern.slice(0, 8)
+          } else if (steps === 32) {
+            // Repeat the 16-step pattern twice for 32 steps
+            newPattern = [...randomPattern, ...randomPattern]
+          } else {
+            // For any other step count, use the first N steps
+            newPattern = randomPattern.slice(0, steps)
+          }
+          
+          return { trackId: track.id, pattern: newPattern }
+        })
+
+      // Execute both audio and pattern shuffles
+      await Promise.all(audioShufflePromises)
+      
+      // Update all patterns at once
+      setSequencerDataFromSession(prev => {
+        const newSequencerData = { ...prev }
+        patternShufflePromises.forEach(({ trackId, pattern }) => {
+          newSequencerData[trackId] = pattern
+        })
+        return newSequencerData
+      })
+
+      console.log('Shuffled all audio samples and patterns')
     } catch (error) {
       console.error('Error shuffling all tracks:', error)
       alert('Failed to shuffle all tracks')
+    }
+  }
+
+  // Type-specific pattern libraries
+  const getPatternLibraryForTrackType = (trackType: string) => {
+    const patterns: { [key: string]: boolean[][] } = {
+      // Kick patterns - typically on beats 1 and 3
+      'Kick': [
+        [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false], // Basic 4/4
+        [true, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false], // Half time
+        [true, false, false, true, false, false, false, false, true, false, false, true, false, false, false, false], // Double kick
+        [true, false, false, false, true, false, true, false, true, false, false, false, true, false, true, false], // Kick + offbeat
+        [true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false], // Every other beat
+        [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false], // Single hit
+        [true, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // 3-beat pattern
+      ],
+      
+      // Snare patterns - typically on beats 2 and 4
+      'Snare': [
+        [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Basic 2 and 4
+        [false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false], // Single snare
+        [false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false], // Offbeat pattern
+        [false, false, false, false, true, false, true, false, false, false, false, false, true, false, true, false], // 2 and 4 + offbeat
+        [false, false, true, false, true, false, true, false, false, false, true, false, true, false, true, false], // Offbeat heavy
+        [false, false, false, false, true, false, false, false, false, false, false, false, true, false, true, false], // 2 and 4 + last offbeat
+      ],
+      
+      // Bass patterns - typically following kick but with more variation
+      'Bass': [
+        [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false], // Follow kick
+        [true, false, false, true, false, false, false, false, true, false, false, true, false, false, false, false], // Bass line feel
+        [true, false, true, false, false, false, true, false, true, false, true, false, false, false, true, false], // Melodic bass
+        [true, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false], // Half time
+        [true, false, true, false, true, false, true, false, false, false, false, false, false, false, false, false], // Build up
+        [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Sync with snare
+      ],
+      
+      // Melody patterns - more varied and melodic
+      'Melody': [
+        [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false], // Basic melody
+        [true, false, true, false, false, false, true, false, true, false, true, false, false, false, true, false], // Melodic phrase
+        [true, false, false, true, true, false, false, false, true, false, false, true, true, false, false, false], // Call and response
+        [false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false], // Offbeat melody
+        [true, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false], // Sparse melody
+        [true, true, false, false, true, true, false, false, true, true, false, false, true, true, false, false], // Rhythmic melody
+      ],
+      
+      // Clap patterns - similar to snare but with variation
+      'Clap': [
+        [false, false, false, false, true, false, false, false, false, false, false, false, true, false, false, false], // Basic 2 and 4
+        [false, false, false, false, true, false, true, false, false, false, false, false, true, false, true, false], // 2 and 4 + offbeat
+        [false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false], // Offbeat pattern
+        [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false], // Every beat
+        [false, false, false, false, true, false, false, false, false, false, false, false, false, false, false, false], // Single clap
+      ],
+      
+      // 808 patterns - typically following bass/kick patterns
+      '808': [
+        [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false], // Follow kick
+        [true, false, false, true, false, false, false, false, true, false, false, true, false, false, false, false], // Bass line
+        [true, false, true, false, false, false, true, false, true, false, true, false, false, false, true, false], // Melodic 808
+        [true, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false], // Half time
+        [true, false, true, false, true, false, true, false, false, false, false, false, false, false, false, false], // Build up
+      ],
+    }
+
+    // Return patterns for the specific track type, or default patterns if not found
+    return patterns[trackType] || patterns['Kick'] // Default to kick patterns if type not found
+  }
+
+  // Shuffle individual track pattern with type-specific patterns
+  const handleShuffleTrackPattern = (trackId: number) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return
+
+    // Skip if track is locked
+    if (track.locked) {
+      alert(`${track.name} is locked and cannot be shuffled`)
+      return
+    }
+
+    // Get type-specific pattern library
+    const patternLibrary = getPatternLibraryForTrackType(track.name)
+    
+    // Select a random pattern from the library
+    const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+    
+    // Extend or truncate the pattern to match current step count
+    let newPattern: boolean[]
+    if (steps === 16) {
+      newPattern = randomPattern
+    } else if (steps === 8) {
+      newPattern = randomPattern.slice(0, 8)
+    } else if (steps === 32) {
+      // Repeat the 16-step pattern twice for 32 steps
+      newPattern = [...randomPattern, ...randomPattern]
+    } else {
+      // For any other step count, use the first N steps
+      newPattern = randomPattern.slice(0, steps)
+    }
+    
+    // Update the sequencer data for this track only
+    setSequencerDataFromSession(prev => ({
+      ...prev,
+      [trackId]: newPattern
+    }))
+
+    console.log(`Shuffled ${track.name} pattern with type-specific library`)
+  }
+
+  // Shuffle all audio samples for tracks that support it
+  const handleShuffleAllAudio = async () => {
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to shuffle audio files')
+        return
+      }
+
+      // Shuffle audio samples for each track that has shuffle capability
+      // BUT skip tracks that are locked
+      const audioShufflePromises = tracks
+        .filter(track => [
+          // Drums
+          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal',
+          // Bass
+          'Bass', 'Sub', '808',
+          // Melodic
+          'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
+          // Loops
+          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+          // Effects & Technical
+          'FX', 'Vocal', 'Sample', 'MIDI', 'Patch', 'Preset'
+        ].includes(track.name) && !track.locked) // Skip locked tracks
+        .map(track => handleShuffleAudio(track.id))
+
+      // Execute audio shuffles
+      await Promise.all(audioShufflePromises)
+
+      console.log('Shuffled all audio samples')
+    } catch (error) {
+      console.error('Error shuffling all audio samples:', error)
+      alert('Failed to shuffle all audio samples')
+    }
+  }
+
+  // Shuffle all sequencer patterns for tracks that support it
+  const handleShuffleAllPatterns = () => {
+    try {
+      // Shuffle patterns for all tracks (except locked ones)
+      const patternShufflePromises = tracks
+        .filter(track => !track.locked) // Skip locked tracks
+        .map(track => {
+          // Get type-specific pattern library
+          const patternLibrary = getPatternLibraryForTrackType(track.name)
+          
+          // Select a random pattern from the library
+          const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+          
+          // Extend or truncate the pattern to match current step count
+          let newPattern: boolean[]
+          if (steps === 16) {
+            newPattern = randomPattern
+          } else if (steps === 8) {
+            newPattern = randomPattern.slice(0, 8)
+          } else if (steps === 32) {
+            // Repeat the 16-step pattern twice for 32 steps
+            newPattern = [...randomPattern, ...randomPattern]
+          } else {
+            // For any other step count, use the first N steps
+            newPattern = randomPattern.slice(0, steps)
+          }
+          
+          return { trackId: track.id, pattern: newPattern }
+        })
+
+      // Update all patterns at once
+      setSequencerDataFromSession(prev => {
+        const newSequencerData = { ...prev }
+        patternShufflePromises.forEach(({ trackId, pattern }) => {
+          newSequencerData[trackId] = pattern
+        })
+        return newSequencerData
+      })
+
+      console.log('Shuffled all sequencer patterns')
+    } catch (error) {
+      console.error('Error shuffling all patterns:', error)
+      alert('Failed to shuffle all patterns')
     }
   }
 
@@ -1134,14 +1764,15 @@ export default function BeatMakerPage() {
         return
       }
 
+      // Only save the sequencer pattern data, not the entire tracks configuration
       const { data, error } = await supabase
         .from('saved_patterns')
         .insert([{
           user_id: user.id,
           name,
           description,
-          tracks,
-          sequencer_data: sequencerData,
+          tracks: [], // Save empty array instead of null to satisfy NOT NULL constraint
+          sequencer_data: sequencerData, // Only save the pattern
           bpm,
           steps,
           tags,
@@ -1164,6 +1795,11 @@ export default function BeatMakerPage() {
   }
 
   const handleSaveAllPatterns = async () => {
+    const baseName = prompt('Enter a base name for all patterns (e.g., "My Beat" will create "My Beat Pattern 1", "My Beat Pattern 2", etc.):')
+    if (!baseName || !baseName.trim()) {
+      return // User cancelled or entered empty name
+    }
+    
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -1173,7 +1809,7 @@ export default function BeatMakerPage() {
 
       // Save each track as a separate pattern
       const savePromises = tracks.map(async (track, index) => {
-        const patternName = `${track.name} Pattern ${index + 1}`
+        const patternName = `${baseName.trim()} Pattern ${index + 1}`
         
         return supabase
           .from('saved_patterns')
@@ -1181,8 +1817,8 @@ export default function BeatMakerPage() {
             user_id: user.id,
             name: patternName,
             description: `Auto-saved ${track.name} pattern`,
-            tracks: [track],
-            sequencer_data: { [track.id]: sequencerData[track.id] || [] },
+            tracks: [], // Save empty array instead of null to satisfy NOT NULL constraint
+            sequencer_data: { [track.id]: sequencerData[track.id] || [] }, // Only save the pattern
             bpm,
             steps,
             category: 'Auto-saved',
@@ -1218,8 +1854,8 @@ export default function BeatMakerPage() {
           user_id: user.id,
           name,
           description,
-          tracks: [track], // Save only this specific track
-          sequencer_data: { [trackId]: sequencerData[trackId] || [] }, // Save only this track's data
+          tracks: [], // Save empty array instead of null to satisfy NOT NULL constraint
+          sequencer_data: { [trackId]: sequencerData[trackId] || [] }, // Save only this track's pattern
           bpm,
           steps,
           tags,
@@ -1247,8 +1883,22 @@ export default function BeatMakerPage() {
   const [showSessionDialog, setShowSessionDialog] = useState(false)
   const [sessionName, setSessionName] = useState('')
   const [sessionDescription, setSessionDescription] = useState('')
+  const [sessionCategory, setSessionCategory] = useState('')
+  const [sessionTags, setSessionTags] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Pattern management state
+  const [showSavePatternDialog, setShowSavePatternDialog] = useState(false)
+  const [showLoadPatternDialog, setShowLoadPatternDialog] = useState(false)
+  const [showSaveTrackPatternDialog, setShowSaveTrackPatternDialog] = useState(false)
+  const [selectedTrackForPattern, setSelectedTrackForPattern] = useState<Track | null>(null)
+  const [patternName, setPatternName] = useState('')
+  const [patternDescription, setPatternDescription] = useState('')
+  const [patternCategory, setPatternCategory] = useState('')
+  const [patternTags, setPatternTags] = useState('')
+  const [availablePatterns, setAvailablePatterns] = useState<any[]>([])
+  const [selectedPatternToLoad, setSelectedPatternToLoad] = useState<string | null>(null)
 
   // Save session function
   const handleSaveSession = async () => {
@@ -1265,12 +1915,17 @@ export default function BeatMakerPage() {
         return
       }
 
+      const tags = sessionTags.trim() ? sessionTags.split(',').map(tag => tag.trim()) : []
+
       // Collect all session data
       const sessionData = {
         user_id: user.id,
         name: sessionName,
         description: sessionDescription,
+        category: sessionCategory,
+        tags,
         bpm,
+        transport_key: transportKey, // Save transport key
         steps,
         tracks,
         sequencer_data: sequencerData,
@@ -1290,8 +1945,6 @@ export default function BeatMakerPage() {
           selectedTrack,
           pianoRollTrack
         },
-        tags: [],
-        category: 'Beat Session',
         genre: '',
         key: '',
         is_public: false,
@@ -1326,6 +1979,8 @@ export default function BeatMakerPage() {
       setCurrentSessionId(result.data.id)
       setSessionName('')
       setSessionDescription('')
+      setSessionCategory('')
+      setSessionTags('')
       setShowSessionDialog(false)
       alert(`Session "${result.data.name}" saved successfully!`)
       
@@ -1382,6 +2037,7 @@ export default function BeatMakerPage() {
       setBpm(data.bpm)
       setSteps(data.steps)
       setTracks(data.tracks)
+      setTransportKey(data.transport_key || 'C') // Restore transport key
       
       // Restore sequencer data directly
       if (data.sequencer_data) {
@@ -1395,8 +2051,37 @@ export default function BeatMakerPage() {
 
       // Restore playback state
       if (data.playback_state) {
-        setIsPlaying(data.playback_state.isPlaying || false)
+        const wasPlaying = data.playback_state.isPlaying || false
         setCurrentStep(data.playback_state.currentStep || 0)
+        
+        // If the session was playing when saved, we need to restart the sequencer
+        // But we need to wait for the tracks and sequencer data to be fully loaded first
+        if (wasPlaying) {
+          // Use setTimeout to ensure all state updates are complete
+          setTimeout(async () => {
+            console.log('[SESSION LOAD] Restarting sequencer after session load')
+            try {
+              // Check if there are tracks with audio before starting
+              const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
+              if (tracksWithAudio.length === 0) {
+                console.log('[SESSION LOAD] No tracks with audio found, not starting playback')
+                setIsPlaying(false)
+                return
+              }
+              
+              // Start the sequencer directly through the hook
+              await playSequence()
+              console.log('[SESSION LOAD] Sequencer started successfully')
+            } catch (error) {
+              console.error('[SESSION LOAD] Failed to start sequencer:', error)
+              // If playback fails, set playing to false
+              setIsPlaying(false)
+            }
+          }, 200) // Increased delay to ensure audio samples are loaded
+        } else {
+          // If not playing, just set the state
+          setIsPlaying(false)
+        }
       }
 
       // Restore UI state
@@ -1451,6 +2136,15 @@ export default function BeatMakerPage() {
     loadSavedSessions()
   }, [])
 
+  // Function to open save session dialog with cleared form
+  const openSaveSessionDialog = () => {
+    setSessionName('')
+    setSessionDescription('')
+    setSessionCategory('')
+    setSessionTags('')
+    setShowSessionDialog(true)
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
@@ -1464,7 +2158,11 @@ export default function BeatMakerPage() {
             <Save className="w-4 h-4 mr-2" />
             Save Pattern
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowSessionDialog(true)}>
+          <Button variant="outline" size="sm" onClick={handleLoadPattern}>
+            <FolderOpen className="w-4 h-4 mr-2" />
+            Load Pattern
+          </Button>
+          <Button variant="outline" size="sm" onClick={openSaveSessionDialog}>
             <Save className="w-4 h-4 mr-2" />
             Save Session
           </Button>
@@ -1540,10 +2238,10 @@ export default function BeatMakerPage() {
                 onClick={handleShuffleAll}
                 variant="outline"
                 size="sm"
-                className="text-purple-400 hover:text-purple-300 hover:bg-purple-90/20"
+                className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
               >
-                <Shuffle className="w-4 h-4 mr-1" />
-                Shuffle All
+                <Brain className="w-4 h-4 mr-1" />
+                AI
               </Button>
               <Button
                 onClick={debugPianoRollPlayback}
@@ -1597,6 +2295,17 @@ export default function BeatMakerPage() {
                   className="w-full"
                 />
               </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-white text-sm">Key:</span>
+              <Badge 
+                variant="secondary" 
+                className="min-w-[40px] text-center cursor-pointer hover:bg-gray-600 transition-colors"
+                title="Transport key (click track key badges to change)"
+              >
+                {transportKey}
+              </Badge>
             </div>
             
             {/* MIDI Controls */}
@@ -1693,8 +2402,16 @@ export default function BeatMakerPage() {
             onTrackTempoChange={handleTrackTempoChange}
             onTrackPitchChange={handleTrackPitchChange}
             onShuffleAudio={handleShuffleAudio}
+            onShuffleAllAudio={handleShuffleAllAudio}
+            onDuplicateWithShuffle={handleDuplicateWithShuffle}
+            onCopyTrackKey={handleCopyTrackKey}
+            onCopyTrackBpm={handleCopyTrackBpm}
             onOpenPianoRoll={handleOpenPianoRoll}
             onTrackStockSoundSelect={handleTrackStockSoundSelect}
+            onSetTransportBpm={setBpm}
+            onSetTransportKey={setTransportKey}
+            onToggleTrackLock={handleToggleTrackLock}
+            onToggleTrackMute={handleToggleTrackMute}
           />
         </div>
 
@@ -1709,8 +2426,9 @@ export default function BeatMakerPage() {
             currentStep={currentStep}
             bpm={bpm}
             onSavePattern={handleSavePattern}
-            onSaveTrackPattern={handleSaveTrackPattern}
+            onSaveTrackPattern={openSaveTrackPatternDialog}
             onSaveAllPatterns={handleSaveAllPatterns}
+            onLoadPattern={handleLoadPattern}
             onClearAllPatterns={clearAllPatterns}
             onClearTrackPattern={clearTrackPattern}
             onToggleTrackMute={toggleTrackMute}
@@ -1718,6 +2436,9 @@ export default function BeatMakerPage() {
               tracks.map(track => [track.id, mixerSettings[track.id]?.mute || false])
             )}
             onOpenTrackPianoRoll={handleOpenTrackPianoRoll}
+            onShuffleTrack={handleShuffleAudio}
+            onShuffleTrackPattern={handleShuffleTrackPattern}
+            onShuffleAllPatterns={handleShuffleAllPatterns}
           />
         </div>
       </div>
@@ -1835,7 +2556,7 @@ export default function BeatMakerPage() {
                               <div className="text-blue-400 text-xs">🎛️ Loaded</div>
                             )}
                             <div className="text-xs text-gray-500">
-                              {pattern.tracks.filter(t => t.audioUrl).length}/{pattern.tracks.length}
+                              {pattern.tracks.length > 0 ? `${pattern.tracks.filter(t => t.audioUrl).length}/${pattern.tracks.length}` : 'Pattern Only'}
                             </div>
                           </div>
                         </div>
@@ -1866,7 +2587,7 @@ export default function BeatMakerPage() {
                       <div className="w-24 text-center text-gray-400 text-xs py-2">Tracks</div>
                       {Array.from({ length: 32 }, (_, i) => {
                         // Check if any track has patterns at this bar
-                        const hasActiveTracks = Object.values(sequencerData).some(trackData => 
+                        const hasActiveTracks = Object.values(sequencerData || {}).some(trackData => 
                           trackData && trackData[i]
                         )
                         
@@ -2013,7 +2734,7 @@ export default function BeatMakerPage() {
                     size="sm" 
                     variant={songPlayback.isPlaying ? "destructive" : "outline"}
                     onClick={playSongArrangement}
-                    disabled={!songPlayback.isPlaying && !Object.values(sequencerData).some(trackData => 
+                    disabled={!songPlayback.isPlaying && !Object.values(sequencerData || {}).some(trackData => 
                       trackData && trackData.some((isActive: boolean) => isActive)
                     )}
                   >
@@ -2025,7 +2746,7 @@ export default function BeatMakerPage() {
                     ) : (
                       <>
                         <Play className="w-4 h-4 mr-2" />
-                        {!Object.values(sequencerData).some(trackData => 
+                        {!Object.values(sequencerData || {}).some(trackData => 
                           trackData && trackData.some((isActive: boolean) => isActive)
                         ) 
                           ? 'No Active Tracks' 
@@ -2049,7 +2770,7 @@ export default function BeatMakerPage() {
                     size="sm" 
                     variant="outline" 
                     onClick={clearAllArrangements}
-                    disabled={!Object.values(sequencerData).some(trackData => 
+                    disabled={!Object.values(sequencerData || {}).some(trackData => 
                       trackData && trackData.some((isActive: boolean) => isActive)
                     )}
                   >
@@ -2089,7 +2810,7 @@ export default function BeatMakerPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-gray-400 text-sm">Active Bars:</span>
                       <span className="text-white text-sm font-mono">
-                        {Object.values(sequencerData).reduce((total, trackData) => 
+                        {Object.values(sequencerData || {}).reduce((total, trackData) => 
                           total + (trackData ? trackData.filter((isActive: boolean) => isActive).length : 0), 0
                         )}
                       </span>
@@ -2516,104 +3237,620 @@ export default function BeatMakerPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Session Dialog */}
-      {showSessionDialog && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <Card className="w-[90vw] max-w-2xl bg-[#141414] border-gray-700">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center justify-between">
-                <span>Save/Load Session</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSessionDialog(false)}
-                >
-                  Close
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Save New Session */}
+      {/* Save Session Dialog */}
+      <Dialog open={showSessionDialog} onOpenChange={setShowSessionDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">Session Management</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Save your current session or load a previously saved session.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Save New Session */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2">Save Current Session</h3>
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-white">Save Current Session</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm text-gray-300 mb-1 block">Session Name</label>
-                    <Input
-                      value={sessionName}
-                      onChange={(e) => setSessionName(e.target.value)}
-                      placeholder="Enter session name..."
-                      className="bg-[#1a1a1a] border-gray-600"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-gray-300 mb-1 block">Description (optional)</label>
-                    <Input
-                      value={sessionDescription}
-                      onChange={(e) => setSessionDescription(e.target.value)}
-                      placeholder="Enter description..."
-                      className="bg-[#1a1a1a] border-gray-600"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleSaveSession}
-                    disabled={isSaving || !sessionName.trim()}
-                    className="w-full"
-                  >
-                    {isSaving ? 'Saving...' : 'Save Session'}
-                  </Button>
+                <div>
+                  <Label htmlFor="session-name" className="text-white">Session Name *</Label>
+                  <Input
+                    id="session-name"
+                    value={sessionName}
+                    onChange={(e) => setSessionName(e.target.value)}
+                    placeholder="Enter session name..."
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                    autoFocus
+                  />
                 </div>
+                <div>
+                  <Label htmlFor="session-description" className="text-white">Description</Label>
+                  <Textarea
+                    id="session-description"
+                    value={sessionDescription}
+                    onChange={(e) => setSessionDescription(e.target.value)}
+                    placeholder="Optional description..."
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="session-category" className="text-white">Category</Label>
+                  <Input
+                    id="session-category"
+                    value={sessionCategory}
+                    onChange={(e) => setSessionCategory(e.target.value)}
+                    placeholder="e.g., Hip Hop, Trap, House..."
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="session-tags" className="text-white">Tags</Label>
+                  <Input
+                    id="session-tags"
+                    value={sessionTags}
+                    onChange={(e) => setSessionTags(e.target.value)}
+                    placeholder="e.g., drums, bass, melody (comma separated)"
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+                <Button
+                  onClick={handleSaveSession}
+                  disabled={isSaving || !sessionName.trim()}
+                  className="w-full"
+                >
+                  {isSaving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Session
+                    </>
+                  )}
+                </Button>
               </div>
+            </div>
 
-              {/* Load Saved Sessions */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-white">Load Saved Sessions</h3>
-                {savedSessions.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FolderOpen className="w-12 h-12 text-gray-500 mx-auto mb-2" />
-                    <p className="text-gray-400">No saved sessions found</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {savedSessions.map((session) => (
-                      <div
-                        key={session.id}
-                        className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded border border-gray-600"
-                      >
+            {/* Load Saved Sessions */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2">Load Saved Sessions</h3>
+              {savedSessions.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <FolderOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No saved sessions found.</p>
+                  <p className="text-sm">Save some sessions first to see them here.</p>
+                </div>
+              ) : (
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {savedSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="p-4 rounded-lg border border-gray-600 bg-[#2a2a2a] hover:bg-[#3a3a3a] transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="text-white font-medium">{session.name}</div>
+                          <h3 className="font-semibold text-white">{session.name}</h3>
+                          <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
+                            <span>BPM: {session.bpm}</span>
+                            <span>Steps: {session.steps}</span>
+                            {session.category && <span>Category: {session.category}</span>}
+                          </div>
                           {session.description && (
-                            <div className="text-gray-400 text-sm">{session.description}</div>
+                            <p className="text-sm text-gray-500 mt-1">{session.description}</p>
                           )}
-                          <div className="text-gray-500 text-xs">
-                            {new Date(session.updated_at).toLocaleDateString()} • {session.bpm} BPM • {session.steps} Steps
+                          {session.tags && session.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {session.tags.map((tag: string, index: number) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-500 mt-2">
+                            {new Date(session.updated_at).toLocaleDateString()}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-2 ml-4">
                           <Button
                             size="sm"
                             onClick={() => handleLoadSession(session.id)}
                             disabled={isLoading}
+                            className="w-full"
                           >
-                            {isLoading ? 'Loading...' : 'Load'}
+                            {isLoading ? (
+                              <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                                Loading...
+                              </>
+                            ) : (
+                              <>
+                                <FolderOpen className="w-3 h-3 mr-1" />
+                                Load
+                              </>
+                            )}
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleDeleteSession(session.id)}
+                            className="w-full text-red-400 hover:text-red-300 hover:bg-red-900/20"
                           >
                             Delete
                           </Button>
                         </div>
                       </div>
-                    ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSessionDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Track Type Selection Modal */}
+      {showTrackTypeModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <Card className="w-[90vw] max-w-2xl bg-[#141414] border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center justify-between">
+                <span>Add New Track</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowTrackTypeModal(false)}
+                >
+                  Close
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-400 mb-6">Choose the type of track you want to add:</p>
+              
+              {/* Drums Category */}
+              <div className="mb-6">
+                <h3 className="text-white font-semibold mb-3 text-sm">🥁 Drums</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Button
+                    onClick={() => addTrackByType('Kick')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Kick</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Snare')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Snare</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Hi-Hat')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Hi-Hat</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Clap')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Clap</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Crash')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Crash</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Ride')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Ride</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Tom')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Tom</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Cymbal')}
+                    className="h-16 flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white border border-gray-600"
+                  >
+                    <div className="text-sm font-bold">Cymbal</div>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Bass Category */}
+              <div className="mb-6">
+                <h3 className="text-white font-semibold mb-3 text-sm">🎸 Bass</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <Button
+                    onClick={() => addTrackByType('Bass')}
+                    className="h-16 flex flex-col items-center justify-center bg-slate-700 hover:bg-slate-600 text-white border border-slate-600"
+                  >
+                    <div className="text-sm font-bold">Bass</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Sub')}
+                    className="h-16 flex flex-col items-center justify-center bg-slate-700 hover:bg-slate-600 text-white border border-slate-600"
+                  >
+                    <div className="text-sm font-bold">Sub</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('808')}
+                    className="h-16 flex flex-col items-center justify-center bg-slate-700 hover:bg-slate-600 text-white border border-slate-600"
+                  >
+                    <div className="text-sm font-bold">808</div>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Melodic Category */}
+              <div className="mb-6">
+                <h3 className="text-white font-semibold mb-3 text-sm">🎹 Melodic</h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <Button
+                    onClick={() => addTrackByType('Melody')}
+                    className="h-16 flex flex-col items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white border border-zinc-600"
+                  >
+                    <div className="text-sm font-bold">Melody</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Lead')}
+                    className="h-16 flex flex-col items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white border border-zinc-600"
+                  >
+                    <div className="text-sm font-bold">Lead</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Pad')}
+                    className="h-16 flex flex-col items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white border border-zinc-600"
+                  >
+                    <div className="text-sm font-bold">Pad</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Chord')}
+                    className="h-16 flex flex-col items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white border border-zinc-600"
+                  >
+                    <div className="text-sm font-bold">Chord</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Arp')}
+                    className="h-16 flex flex-col items-center justify-center bg-zinc-700 hover:bg-zinc-600 text-white border border-zinc-600"
+                  >
+                    <div className="text-sm font-bold">Arp</div>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Loops Category */}
+              <div className="mb-6">
+                <h3 className="text-white font-semibold mb-3 text-sm">🔄 Loops</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Button
+                    onClick={() => addTrackByType('Melody Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Melody Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Piano Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Piano Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('808 Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">808 Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Drum Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Drum Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Bass Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Bass Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Vocal Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Vocal Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Guitar Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Guitar Loop</div>
+                  </Button>
+                  <Button
+                    onClick={() => addTrackByType('Synth Loop')}
+                    className="h-16 flex flex-col items-center justify-center bg-neutral-700 hover:bg-neutral-600 text-white border border-neutral-600"
+                  >
+                    <div className="text-sm font-bold">Synth Loop</div>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Effects & Technical */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-white font-semibold mb-3 text-sm">🎛️ Effects</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      onClick={() => addTrackByType('FX')}
+                      className="h-16 flex flex-col items-center justify-center bg-stone-700 hover:bg-stone-600 text-white border border-stone-600"
+                    >
+                      <div className="text-sm font-bold">FX</div>
+                    </Button>
+                    <Button
+                      onClick={() => addTrackByType('Vocal')}
+                      className="h-16 flex flex-col items-center justify-center bg-stone-700 hover:bg-stone-600 text-white border border-stone-600"
+                    >
+                      <div className="text-sm font-bold">Vocal</div>
+                    </Button>
+                    <Button
+                      onClick={() => addTrackByType('Sample')}
+                      className="h-16 flex flex-col items-center justify-center bg-stone-700 hover:bg-stone-600 text-white border border-stone-600"
+                    >
+                      <div className="text-sm font-bold">Sample</div>
+                    </Button>
                   </div>
-                )}
+                </div>
+
+                <div>
+                  <h3 className="text-white font-semibold mb-3 text-sm">⚙️ Technical</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      onClick={() => addTrackByType('MIDI')}
+                      className="h-16 flex flex-col items-center justify-center bg-slate-600 hover:bg-slate-500 text-white border border-slate-500"
+                    >
+                      <div className="text-sm font-bold">MIDI</div>
+                    </Button>
+                    <Button
+                      onClick={() => addTrackByType('Patch')}
+                      className="h-16 flex flex-col items-center justify-center bg-slate-600 hover:bg-slate-500 text-white border border-slate-500"
+                    >
+                      <div className="text-sm font-bold">Patch</div>
+                    </Button>
+                    <Button
+                      onClick={() => addTrackByType('Preset')}
+                      className="h-16 flex flex-col items-center justify-center bg-slate-600 hover:bg-slate-500 text-white border border-slate-500"
+                    >
+                      <div className="text-sm font-bold">Preset</div>
+                    </Button>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
       )}
+
+      {/* Save Pattern Dialog */}
+      <Dialog open={showSavePatternDialog} onOpenChange={setShowSavePatternDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">Save Pattern</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Save your current sequencer pattern for later use.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="pattern-name" className="text-white">Pattern Name *</Label>
+              <Input
+                id="pattern-name"
+                value={patternName}
+                onChange={(e) => setPatternName(e.target.value)}
+                placeholder="Enter pattern name..."
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label htmlFor="pattern-description" className="text-white">Description</Label>
+              <Textarea
+                id="pattern-description"
+                value={patternDescription}
+                onChange={(e) => setPatternDescription(e.target.value)}
+                placeholder="Optional description..."
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+                rows={3}
+              />
+            </div>
+            <div>
+              <Label htmlFor="pattern-category" className="text-white">Category</Label>
+              <Input
+                id="pattern-category"
+                value={patternCategory}
+                onChange={(e) => setPatternCategory(e.target.value)}
+                placeholder="e.g., Hip Hop, Trap, House..."
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+              />
+            </div>
+            <div>
+              <Label htmlFor="pattern-tags" className="text-white">Tags</Label>
+              <Input
+                id="pattern-tags"
+                value={patternTags}
+                onChange={(e) => setPatternTags(e.target.value)}
+                placeholder="e.g., kick, snare, hi-hat (comma separated)"
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSavePatternDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSavePatternSubmit} disabled={!patternName.trim()}>
+              <Save className="w-4 h-4 mr-2" />
+              Save Pattern
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Load Pattern Dialog */}
+      <Dialog open={showLoadPatternDialog} onOpenChange={setShowLoadPatternDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">Load Pattern</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Select a pattern to load into your sequencer. This will merge with your current patterns.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {availablePatterns.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">
+                <FolderOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No saved patterns found.</p>
+                <p className="text-sm">Save some patterns first to see them here.</p>
+              </div>
+            ) : (
+              <div className="max-h-96 overflow-y-auto space-y-2">
+                {availablePatterns.map((pattern) => (
+                  <div
+                    key={pattern.id}
+                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                      selectedPatternToLoad === pattern.id
+                        ? 'bg-blue-600/20 border-blue-500'
+                        : 'bg-[#2a2a2a] border-gray-600 hover:bg-[#3a3a3a]'
+                    }`}
+                    onClick={() => setSelectedPatternToLoad(pattern.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-white">{pattern.name}</h3>
+                        <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
+                          <span>BPM: {pattern.bpm}</span>
+                          <span>Steps: {pattern.steps}</span>
+                          {pattern.category && <span>Category: {pattern.category}</span>}
+                        </div>
+                        {pattern.description && (
+                          <p className="text-sm text-gray-500 mt-1">{pattern.description}</p>
+                        )}
+                        {pattern.tags && pattern.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {pattern.tags.map((tag: string, index: number) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(pattern.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLoadPatternDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleLoadPatternSubmit} 
+              disabled={!selectedPatternToLoad}
+            >
+              <FolderOpen className="w-4 h-4 mr-2" />
+              Load Pattern
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Track Pattern Dialog */}
+      <Dialog open={showSaveTrackPatternDialog} onOpenChange={setShowSaveTrackPatternDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Save Track Pattern
+              {selectedTrackForPattern && (
+                <span className="text-blue-400 ml-2">- {selectedTrackForPattern.name}</span>
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Save the pattern for this specific track only.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="track-pattern-name" className="text-white">Pattern Name *</Label>
+              <Input
+                id="track-pattern-name"
+                value={patternName}
+                onChange={(e) => setPatternName(e.target.value)}
+                placeholder={`${selectedTrackForPattern?.name || 'Track'} Pattern`}
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+                autoFocus
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-pattern-description" className="text-white">Description</Label>
+              <Textarea
+                id="track-pattern-description"
+                value={patternDescription}
+                onChange={(e) => setPatternDescription(e.target.value)}
+                placeholder="Optional description..."
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+                rows={3}
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-pattern-category" className="text-white">Category</Label>
+              <Input
+                id="track-pattern-category"
+                value={patternCategory}
+                onChange={(e) => setPatternCategory(e.target.value)}
+                placeholder="e.g., Drums, Bass, Melody..."
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-pattern-tags" className="text-white">Tags</Label>
+              <Input
+                id="track-pattern-tags"
+                value={patternTags}
+                onChange={(e) => setPatternTags(e.target.value)}
+                placeholder={`${selectedTrackForPattern?.name?.toLowerCase() || 'track'}, pattern (comma separated)`}
+                className="bg-[#2a2a2a] border-gray-600 text-white"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveTrackPatternDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveTrackPatternSubmit} disabled={!patternName.trim()}>
+              <Save className="w-4 h-4 mr-2" />
+              Save Track Pattern
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

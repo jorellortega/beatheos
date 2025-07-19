@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog'
+import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
 
 // Types for DB tables
 interface Album {
@@ -589,6 +590,11 @@ export default function MyLibrary() {
   const [newSubfolder, setNewSubfolder] = useState({ name: '', description: '', color: '#6B7280', pack_id: '' });
   const [subfolderCreating, setSubfolderCreating] = useState(false);
   const [subfolderCreateError, setSubfolderCreateError] = useState<string | null>(null);
+  
+  // Mass edit subfolder modal
+  const [showMassEditModal, setShowMassEditModal] = useState(false);
+  const [massEditPack, setMassEditPack] = useState<AudioPack | null>(null);
+  const [massEditSubfolder, setMassEditSubfolder] = useState<AudioSubfolder | null>(null);
 
   // Audio upload logic for Audio Library tab
   async function uploadAudioLibraryFile(file: File): Promise<string | null> {
@@ -908,6 +914,13 @@ export default function MyLibrary() {
     await refreshAudioData();
   }
 
+  // Open mass edit modal for subfolder
+  function openMassEditModal(pack: AudioPack, subfolder: AudioSubfolder) {
+    setMassEditPack(pack)
+    setMassEditSubfolder(subfolder)
+    setShowMassEditModal(true)
+  }
+  
   // Handle delete subfolder
   async function handleDeleteSubfolder(subfolderId: string) {
     if (!user) return;
@@ -2171,16 +2184,28 @@ export default function MyLibrary() {
                                       {allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length} files
                                     </p>
                                   </div>
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDeleteSubfolder(subfolder.id);
-                                    }}
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </Button>
+                                  <div className="flex gap-1">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openMassEditModal(pack, subfolder);
+                                      }}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteSubfolder(subfolder.id);
+                                      }}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
                                 </div>
                                 
                                 {expandedSubfolders.has(subfolder.id) && (
@@ -2704,6 +2729,22 @@ export default function MyLibrary() {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Mass Edit Subfolder Modal */}
+      {massEditPack && massEditSubfolder && (
+        <MassEditSubfolderModal
+          isOpen={showMassEditModal}
+          onClose={() => {
+            setShowMassEditModal(false)
+            setMassEditPack(null)
+            setMassEditSubfolder(null)
+          }}
+          pack={massEditPack}
+          subfolder={massEditSubfolder}
+          audioItems={allAudioItems}
+          onUpdate={refreshAudioData}
+        />
       )}
     </div>
   )
