@@ -98,8 +98,24 @@ export default function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p>Configure platform settings.</p>
-            <Button className="mt-4">Settings</Button>
+            <p>Manage system configuration and settings.</p>
+            <Button className="mt-4" asChild>
+              <Link href="/dashboard/admin/settings">System Settings</Link>
+            </Button>
+          </CardContent>
+        </Card>
+          <Card className="bg-black border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Music2 className="mr-2 h-5 w-5" />
+              Genre Tempo Manager
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Manage genre and subgenre tempo ranges.</p>
+            <Button className="mt-4" asChild>
+              <Link href="/dashboard/admin/genre-tempo">Tempo Manager</Link>
+            </Button>
           </CardContent>
         </Card>
         <Card className="bg-black border-primary hover:border-primary transition-all">

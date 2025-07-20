@@ -2566,6 +2566,26 @@ export default function BeatMakerPage() {
       const originalGenre = isGenreLocked ? selectedGenre : null
       const originalSubgenre = isSubgenreLocked ? selectedSubgenre : null
 
+      // Get tempo range based on current genre/subgenre
+      let newBpm = bpm
+      if (selectedGenreId && selectedGenreId !== 'none') {
+        try {
+          const { data: tempoRange, error } = await supabase.rpc('get_tempo_range', {
+            p_genre_id: selectedGenreId,
+            p_subgenre: selectedSubgenre === 'none' ? null : selectedSubgenre
+          })
+          
+          if (!error && tempoRange && tempoRange.length > 0) {
+            const range = tempoRange[0]
+            // Generate random BPM within the range
+            newBpm = Math.floor(Math.random() * (range.max_bpm - range.min_bpm + 1)) + range.min_bpm
+            console.log(`[SHUFFLE] Genre tempo range: ${range.min_bpm}-${range.max_bpm}, new BPM: ${newBpm}`)
+          }
+        } catch (error) {
+          console.warn('Error getting tempo range:', error)
+        }
+      }
+
       // Shuffle audio samples for each track that has shuffle capability
       // BUT skip tracks that are locked
       const audioShufflePromises = tracks
@@ -2625,8 +2645,12 @@ export default function BeatMakerPage() {
         return newSequencerData
       })
 
-      // Restore transport settings if locked
-      if (isTransportLocked) {
+      // Update BPM based on genre tempo range (unless transport is locked)
+      if (!isTransportLocked) {
+        setBpm(newBpm)
+        console.log(`[SHUFFLE] Updated BPM to ${newBpm} based on genre tempo range`)
+      } else {
+        // Restore transport settings if locked
         if (originalBpm !== null) setBpm(originalBpm)
         if (originalKey !== null) setTransportKey(originalKey)
         console.log('Transport locked - restored BPM and Key settings')
@@ -3208,6 +3232,8 @@ export default function BeatMakerPage() {
   const [newGenreName, setNewGenreName] = useState('')
   const [newGenreDescription, setNewGenreDescription] = useState('')
   const [newGenreBpm, setNewGenreBpm] = useState(120)
+  const [newGenreMinBpm, setNewGenreMinBpm] = useState(80)
+  const [newGenreMaxBpm, setNewGenreMaxBpm] = useState(180)
   const [newGenreKey, setNewGenreKey] = useState('C')
   const [newGenreSteps, setNewGenreSteps] = useState(16)
   const [newGenreColor, setNewGenreColor] = useState('#F4C430')
@@ -3866,6 +3892,8 @@ export default function BeatMakerPage() {
           name: newGenreName.trim(),
           description: newGenreDescription.trim() || null,
           color: newGenreColor,
+          bpm_range_min: newGenreMinBpm,
+          bpm_range_max: newGenreMaxBpm,
           default_bpm: newGenreBpm,
           default_key: newGenreKey,
           default_steps: newGenreSteps,
@@ -3904,6 +3932,8 @@ export default function BeatMakerPage() {
       setNewGenreName('')
       setNewGenreDescription('')
       setNewGenreBpm(120)
+      setNewGenreMinBpm(80)
+      setNewGenreMaxBpm(180)
       setNewGenreKey('C')
       setNewGenreSteps(16)
       setNewGenreColor('#F4C430')
@@ -6676,7 +6706,7 @@ export default function BeatMakerPage() {
               Create New Genre
             </DialogTitle>
             <DialogDescription className="text-gray-400">
-              Create a custom genre with your preferred settings.
+              Create a custom genre with your preferred settings. The tempo range will be used when shuffling patterns to stay within the genre's BPM limits.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -6702,7 +6732,31 @@ export default function BeatMakerPage() {
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <Label htmlFor="genre-min-bpm" className="text-white">Min BPM</Label>
+                <Input
+                  id="genre-min-bpm"
+                  type="number"
+                  value={newGenreMinBpm}
+                  onChange={(e) => setNewGenreMinBpm(parseInt(e.target.value) || 80)}
+                  min="60"
+                  max="200"
+                  className="bg-[#2a2a2a] border-gray-600 text-white"
+                />
+              </div>
+              <div>
+                <Label htmlFor="genre-max-bpm" className="text-white">Max BPM</Label>
+                <Input
+                  id="genre-max-bpm"
+                  type="number"
+                  value={newGenreMaxBpm}
+                  onChange={(e) => setNewGenreMaxBpm(parseInt(e.target.value) || 180)}
+                  min="60"
+                  max="200"
+                  className="bg-[#2a2a2a] border-gray-600 text-white"
+                />
+              </div>
               <div>
                 <Label htmlFor="genre-bpm" className="text-white">Default BPM</Label>
                 <Input
@@ -6762,6 +6816,10 @@ export default function BeatMakerPage() {
                   <option value="32">32</option>
                 </select>
               </div>
+            </div>
+            <div className="text-xs text-gray-400 mt-2">
+              <p>• <strong>Min/Max BPM:</strong> When shuffling patterns, the BPM will randomly change within this range</p>
+              <p>• <strong>Default BPM:</strong> The starting BPM when this genre is selected</p>
             </div>
             <div>
               <Label htmlFor="genre-color" className="text-white">Genre Color</Label>
