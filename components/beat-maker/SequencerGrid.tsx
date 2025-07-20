@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Save, Download, Plus, FolderOpen, Music, Piano, Brain } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
@@ -14,7 +15,7 @@ interface SequencerGridProps {
   onToggleStep: (trackId: number, stepIndex: number) => void
   currentStep: number
   bpm: number
-  onSavePattern?: (name: string, description?: string, category?: string, tags?: string[]) => void
+  onSavePattern?: (name: string, description?: string, category?: string, tags?: string[], genreId?: string, subgenre?: string) => void
   onSaveTrackPattern?: (track: Track) => void
   onSaveAllPatterns?: () => void
   onLoadPattern?: (patternId: string) => void
@@ -27,6 +28,9 @@ interface SequencerGridProps {
   onShuffleTrack?: (trackId: number) => void
   onShuffleTrackPattern?: (trackId: number) => void
   onShuffleAllPatterns?: () => void
+  genres?: any[]
+  subgenres?: string[]
+  onGenreChange?: (genreId: string) => void
 }
 
 export function SequencerGrid({
@@ -49,7 +53,10 @@ export function SequencerGrid({
   onOpenTrackPianoRoll,
   onShuffleTrack,
   onShuffleTrackPattern,
-  onShuffleAllPatterns
+  onShuffleAllPatterns,
+  genres = [],
+  subgenres = [],
+  onGenreChange
 }: SequencerGridProps) {
   
   // Debug log to see piano roll data
@@ -60,6 +67,8 @@ export function SequencerGrid({
   const [patternDescription, setPatternDescription] = useState('')
   const [patternCategory, setPatternCategory] = useState('')
   const [patternTags, setPatternTags] = useState('')
+  const [selectedGenreId, setSelectedGenreId] = useState('none')
+  const [selectedSubgenre, setSelectedSubgenre] = useState('none')
   const [showSaveForm, setShowSaveForm] = useState(false)
   const [savingTrackId, setSavingTrackId] = useState<number | null>(null)
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
@@ -72,13 +81,15 @@ export function SequencerGrid({
     }
     
     const tags = patternTags.split(',').map(tag => tag.trim()).filter(Boolean)
-    onSavePattern?.(patternName, patternDescription, patternCategory, tags)
+    onSavePattern?.(patternName, patternDescription, patternCategory, tags, selectedGenreId === 'none' ? '' : selectedGenreId, selectedSubgenre === 'none' ? '' : selectedSubgenre)
     
     // Reset form
     setPatternName('')
     setPatternDescription('')
     setPatternCategory('')
     setPatternTags('')
+    setSelectedGenreId('none')
+    setSelectedSubgenre('none')
     setShowSaveForm(false)
   }
 
@@ -261,6 +272,46 @@ export function SequencerGrid({
                   className="bg-[#0a0a0a] border-gray-600"
                 />
               </div>
+              
+              <div>
+                <label className="text-xs text-gray-300 mb-1 block">Genre</label>
+                <Select value={selectedGenreId} onValueChange={(value) => {
+                  setSelectedGenreId(value)
+                  setSelectedSubgenre('none')
+                  onGenreChange?.(value)
+                }}>
+                  <SelectTrigger className="bg-[#0a0a0a] border-gray-600 text-white">
+                    <SelectValue placeholder="Select a genre..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                    <SelectItem value="none">None</SelectItem>
+                    {genres.map((genre) => (
+                      <SelectItem key={genre.id} value={genre.id}>
+                        {genre.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {selectedGenreId && selectedGenreId !== 'none' && (
+                <div>
+                  <label className="text-xs text-gray-300 mb-1 block">Subgenre</label>
+                  <Select value={selectedSubgenre} onValueChange={setSelectedSubgenre}>
+                    <SelectTrigger className="bg-[#0a0a0a] border-gray-600 text-white">
+                      <SelectValue placeholder="Select a subgenre..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                      <SelectItem value="none">None</SelectItem>
+                      {subgenres.map((subgenre) => (
+                        <SelectItem key={subgenre} value={subgenre}>
+                          {subgenre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               
               <div className="md:col-span-2 flex gap-2">
                 <Button

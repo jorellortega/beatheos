@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Piano, Music, Play, Square, RotateCcw, Eraser, MousePointer, Volume2, Save } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { PITCH_SHIFT_SETTINGS, calculatePitchShift, validatePitchShift } from '@/lib/utils'
@@ -23,7 +24,7 @@ interface TrackPianoRollProps {
   track: Track
   onNotesChange: (notes: AudioNote[]) => void
   initialNotes?: AudioNote[]
-  onSavePattern?: (name: string, description?: string, category?: string, tags?: string[]) => void
+  onSavePattern?: (name: string, description?: string, category?: string, tags?: string[], genreId?: string, subgenre?: string) => void
 }
 
 // Piano roll extends to 4 bars (64 steps) for more complex patterns
@@ -57,6 +58,8 @@ export function TrackPianoRoll({
   const [currentStartStep, setCurrentStartStep] = useState<number | null>(null)
   const [volume, setVolume] = useState(0.7)
   const [patternName, setPatternName] = useState('')
+  const [selectedGenreId, setSelectedGenreId] = useState('none')
+  const [selectedSubgenre, setSelectedSubgenre] = useState('none')
   const [showSaveForm, setShowSaveForm] = useState(false)
   
   // Audio player and pitch shifter refs - improved for better quality
@@ -71,7 +74,10 @@ export function TrackPianoRoll({
 
   // Calculate pitch shift from note - improved with utility function
   const getPitchShiftFromNote = (note: string, originalKey: string = 'C'): number => {
-    const pitchShift = calculatePitchShift(originalKey, note.replace(/\d/, ''))
+    // Calculate pitch shift from the original key of the audio sample to the target note
+    // This tells us how many semitones to shift the audio to match the target note
+    const targetNote = note.replace(/\d/, '') // Remove octave number
+    const pitchShift = calculatePitchShift(originalKey, targetNote)
     return validatePitchShift(pitchShift)
   }
 
@@ -195,17 +201,25 @@ export function TrackPianoRoll({
         feedback: PITCH_SHIFT_SETTINGS.feedback
       }).toDestination()
       
-      // Connect and play
+      // Connect player to pitch shifter
       notePlayer.connect(notePitchShifter)
+      
+      // Wait for the player to load before playing
+      await notePlayer.load(track.audioUrl)
       notePlayer.start()
+      console.log(`[PIANO KEY] Playing ${note} with pitch shift: ${pitchShift} semitones`)
       
       // Clean up after playback
       const cleanup = () => {
-        notePlayer.stop()
-        notePlayer.disconnect()
-        notePitchShifter.disconnect()
-        notePlayer.dispose()
-        notePitchShifter.dispose()
+        try {
+          notePlayer.stop()
+          notePlayer.disconnect()
+          notePitchShifter.disconnect()
+          notePlayer.dispose()
+          notePitchShifter.dispose()
+        } catch (error) {
+          console.warn('Error during cleanup:', error)
+        }
       }
       
       // Set up cleanup when player stops
@@ -214,7 +228,6 @@ export function TrackPianoRoll({
       // Also cleanup after a reasonable time (2 seconds)
       setTimeout(cleanup, 2000)
       
-      console.log(`[PIANO KEY] Playing ${note} with pitch shift: ${pitchShift} semitones`)
     } catch (error) {
       console.error('Error playing piano key:', error)
     }
@@ -259,6 +272,13 @@ export function TrackPianoRoll({
           
           // Connect player to pitch shifter
           audioPlayerRef.current.connect(pitchShifterRef.current)
+          
+          // Load the audio buffer
+          try {
+            await audioPlayerRef.current.load(track.audioUrl)
+          } catch (error) {
+            console.error('Failed to load audio buffer:', error)
+          }
         }
         
       } catch (error) {
@@ -317,17 +337,24 @@ export function TrackPianoRoll({
           feedback: PITCH_SHIFT_SETTINGS.feedback
         }).toDestination()
         
-        // Connect and play
+        // Connect player to pitch shifter
         notePlayer.connect(notePitchShifter)
+        
+        // Wait for the player to load before playing
+        await notePlayer.load(track.audioUrl!)
         notePlayer.start()
         
         // Clean up after playback
         const cleanup = () => {
-          notePlayer.stop()
-          notePlayer.disconnect()
-          notePitchShifter.disconnect()
-          notePlayer.dispose()
-          notePitchShifter.dispose()
+          try {
+            notePlayer.stop()
+            notePlayer.disconnect()
+            notePitchShifter.disconnect()
+            notePlayer.dispose()
+            notePitchShifter.dispose()
+          } catch (error) {
+            console.warn('Error during cleanup:', error)
+          }
         }
         
         // Set up cleanup when player stops
@@ -347,8 +374,10 @@ export function TrackPianoRoll({
       return
     }
     
-    onSavePattern?.(patternName, `${track.name} Piano Roll Pattern`, 'Audio', ['piano-roll', 'audio', track.name.toLowerCase()])
+    onSavePattern?.(patternName, `${track.name} Piano Roll Pattern`, 'Audio', ['piano-roll', 'audio', track.name.toLowerCase()], selectedGenreId === 'none' ? '' : selectedGenreId, selectedSubgenre === 'none' ? '' : selectedSubgenre)
     setPatternName('')
+    setSelectedGenreId('none')
+    setSelectedSubgenre('none')
     setShowSaveForm(false)
   }
 
@@ -467,6 +496,30 @@ export function TrackPianoRoll({
                     className="w-full bg-[#0a0a0a] border border-gray-600 rounded px-2 py-1 text-white text-sm"
                   />
                 </div>
+                <div>
+                  <label className="text-xs text-gray-300 mb-1 block">Genre</label>
+                  <Select value={selectedGenreId} onValueChange={setSelectedGenreId}>
+                    <SelectTrigger className="bg-[#0a0a0a] border-gray-600 text-white text-xs">
+                      <SelectValue placeholder="Select a genre..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                      <SelectItem value="none">None</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedGenreId && selectedGenreId !== 'none' && (
+                  <div>
+                    <label className="text-xs text-gray-300 mb-1 block">Subgenre</label>
+                    <Select value={selectedSubgenre} onValueChange={setSelectedSubgenre}>
+                      <SelectTrigger className="bg-[#0a0a0a] border-gray-600 text-white text-xs">
+                        <SelectValue placeholder="Select a subgenre..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                        <SelectItem value="none">None</SelectItem>
+                      </SelectContent>
+                  </Select>
+                  </div>
+                )}
                 <div className="flex items-end">
                   <Button
                     onClick={handleSavePattern}

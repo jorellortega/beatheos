@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +12,9 @@ import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
+import { MassEditSelectedFilesModal } from '@/components/MassEditSelectedFilesModal'
 
 // Types for DB tables
 interface Album {
@@ -609,6 +611,13 @@ export default function MyLibrary() {
   const [showMassEditModal, setShowMassEditModal] = useState(false);
   const [massEditPack, setMassEditPack] = useState<AudioPack | null>(null);
   const [massEditSubfolder, setMassEditSubfolder] = useState<AudioSubfolder | null>(null);
+  
+  // Mass edit selected files modal
+  const [showMassEditSelectedModal, setShowMassEditSelectedModal] = useState(false);
+  
+  // Search functionality
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilter, setSearchFilter] = useState<'all' | 'name' | 'type' | 'genre' | 'tags'>('all');
 
   // Audio upload logic for Audio Library tab
   async function uploadAudioLibraryFile(file: File): Promise<string | null> {
@@ -1026,6 +1035,113 @@ export default function MyLibrary() {
     setMassEditSubfolder(subfolder)
     setShowMassEditModal(true)
   }
+
+  function openMassEditSelectedModal() {
+    if (selectedFiles.size === 0) {
+      alert('Please select files to edit')
+      return
+    }
+    setShowMassEditSelectedModal(true)
+  }
+
+  function selectAllFiles() {
+    const newSelected = new Set(selectedFiles)
+    allAudioItems.forEach(file => newSelected.add(file.id))
+    setSelectedFiles(newSelected)
+  }
+
+  function selectAllSearchResults() {
+    if (!searchQuery.trim()) return;
+    
+    console.log('[DEBUG] Select All Search Results called');
+    console.log('[DEBUG] Search query:', searchQuery);
+    console.log('[DEBUG] Search filter:', searchFilter);
+    
+    // Get the current context - are we in a pack root or subfolder?
+    const currentContext = 'global'; // For now, let's make it clear this selects ALL matching files
+    
+    const searchResults = getFilteredAudioItems(allAudioItems);
+    console.log('[DEBUG] Total search results found:', searchResults?.length || 0);
+    console.log('[DEBUG] Search results:', searchResults?.map(f => ({ id: f.id, name: f.name, pack: f.pack_id, subfolder: f.subfolder })) || []);
+    
+    const newSelected = new Set(selectedFiles);
+    searchResults?.forEach(file => newSelected.add(file.id));
+    console.log('[DEBUG] New selection size:', newSelected.size);
+    
+    setSelectedFiles(newSelected);
+    
+    // Show a confirmation message
+    alert(`Selected ${searchResults?.length || 0} files matching "${searchQuery}" across all packs and subfolders.`);
+  }
+
+  function selectVisibleSearchResults(packId?: string, subfolderName?: string) {
+    if (!searchQuery.trim()) return;
+    
+    console.log('[DEBUG] Select Visible Search Results called');
+    console.log('[DEBUG] Pack ID:', packId);
+    console.log('[DEBUG] Subfolder:', subfolderName);
+    
+    // Filter files based on current context
+    let contextFiles = allAudioItems;
+    if (packId && subfolderName) {
+      // In a subfolder
+      contextFiles = allAudioItems.filter(item => item.pack_id === packId && item.subfolder === subfolderName);
+    } else if (packId) {
+      // In pack root
+      contextFiles = allAudioItems.filter(item => item.pack_id === packId && !item.subfolder);
+    }
+    
+    const searchResults = getFilteredAudioItems(contextFiles);
+    console.log('[DEBUG] Visible search results found:', searchResults?.length || 0);
+    
+    const newSelected = new Set(selectedFiles);
+    searchResults?.forEach(file => newSelected.add(file.id));
+    console.log('[DEBUG] New selection size:', newSelected.size);
+    
+    setSelectedFiles(newSelected);
+    
+    // Show a confirmation message
+    const context = subfolderName ? `in ${subfolderName}` : packId ? 'in pack root' : 'across all packs';
+    alert(`Selected ${searchResults?.length || 0} files matching "${searchQuery}" ${context}.`);
+  }
+
+  // Filter audio items based on search query
+  const getFilteredAudioItems = (items: AudioLibraryItem[]) => {
+    if (!searchQuery.trim()) return items;
+    
+    const query = searchQuery.toLowerCase().trim();
+    console.log('[DEBUG] Filtering items with query:', query, 'filter:', searchFilter);
+    
+    const filtered = items.filter(item => {
+      switch (searchFilter) {
+        case 'name':
+          return item.name.toLowerCase().includes(query);
+        case 'type':
+          return item.type.toLowerCase().includes(query) || 
+                 (item.audio_type && item.audio_type.toLowerCase().includes(query));
+        case 'genre':
+          return (item.genre && item.genre.toLowerCase().includes(query)) ||
+                 (item.subgenre && item.subgenre.toLowerCase().includes(query));
+        case 'tags':
+          return item.tags && item.tags.some(tag => tag.toLowerCase().includes(query));
+        case 'all':
+        default:
+          return (
+            item.name.toLowerCase().includes(query) ||
+            item.type.toLowerCase().includes(query) ||
+            (item.audio_type && item.audio_type.toLowerCase().includes(query)) ||
+            (item.genre && item.genre.toLowerCase().includes(query)) ||
+            (item.subgenre && item.subgenre.toLowerCase().includes(query)) ||
+            (item.tags && item.tags.some(tag => tag.toLowerCase().includes(query))) ||
+            (item.bpm && item.bpm.toString().includes(query)) ||
+            (item.key && item.key.toLowerCase().includes(query))
+          );
+      }
+    });
+    
+    console.log('[DEBUG] Filtered results:', filtered.length);
+    return filtered;
+  };
   
   // Handle delete subfolder
   async function handleDeleteSubfolder(subfolderId: string) {
@@ -1945,6 +2061,56 @@ export default function MyLibrary() {
                 Packs
               </Button>
             </div>
+            
+            {/* Global Selection Controls */}
+            {viewMode === 'packs' && allAudioItems.length > 0 && (
+              <div className="flex items-center gap-2">
+                {selectedFiles.size > 0 && (
+                  <>
+                    <span className="text-sm text-yellow-600 font-medium">
+                      {selectedFiles.size} files selected
+                    </span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={clearSelection}
+                      className="text-xs h-8"
+                    >
+                      Clear
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={openMassEditSelectedModal}
+                      className="text-xs h-8 bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      Mass Edit
+                    </Button>
+                  </>
+                )}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={selectAllFiles}
+                  className="text-xs h-8"
+                >
+                  Select All Files
+                </Button>
+                {searchQuery && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={selectAllSearchResults}
+                    className="text-xs h-8 bg-green-600 text-white hover:bg-green-700"
+                  >
+                    Select All Matching Files
+                  </Button>
+                )}
+              </div>
+            )}
+            
+            
+            
             {draggedItem && (
               <div className="text-sm text-blue-600 font-medium">
                 📁 Drag "{draggedItem.name}" to organize it into a folder
@@ -2335,18 +2501,117 @@ export default function MyLibrary() {
                                 
                                 {expandedSubfolders.has(subfolder.id) && (
                                   <div className="px-3 pb-3 pt-4 space-y-2">
-                                                                          {allAudioItems
-                                        .filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)
+                                    {/* Subfolder Search Bar */}
+                                    <div className="flex items-center gap-2 mb-3 p-2 bg-gray-50 rounded border">
+                                      <div className="relative flex-1">
+                                        <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <Input
+                                          placeholder={`Search in ${subfolder.name}...`}
+                                          value={searchQuery}
+                                          onChange={(e) => setSearchQuery(e.target.value)}
+                                          className="pl-8 bg-white border-gray-300 text-sm text-black"
+                                        />
+                                      </div>
+                                      <Select value={searchFilter} onValueChange={(value: any) => setSearchFilter(value)}>
+                                        <SelectTrigger className="w-24 bg-white border-gray-300 text-xs">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="all">All</SelectItem>
+                                          <SelectItem value="name">Name</SelectItem>
+                                          <SelectItem value="type">Type</SelectItem>
+                                          <SelectItem value="genre">Genre</SelectItem>
+                                          <SelectItem value="tags">Tags</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      {searchQuery && (
+                                        <>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => selectVisibleSearchResults(pack.id, subfolder.name)}
+                                            className="h-7 px-2 text-xs bg-green-600 text-white hover:bg-green-700"
+                                          >
+                                            Select All
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setSearchQuery('')}
+                                            className="h-7 px-2 text-xs"
+                                          >
+                                            Clear
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                    {searchQuery && (
+                                      <div className="text-xs text-gray-600 mb-2">
+                                        Found {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length} files matching "{searchQuery}"
+                                      </div>
+                                    )}
+                                    
+                                    {/* Subfolder Selection Controls */}
+                                    {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length > 0 && (
+                                      <div className="flex items-center gap-2 ml-4 mb-2">
+                                        {selectedFiles.size > 0 && (
+                                          <>
+                                            <span className="text-xs text-yellow-600">
+                                              {selectedFiles.size} selected
+                                            </span>
+                                            <Button 
+                                              variant="outline" 
+                                              size="sm" 
+                                              onClick={clearSelection}
+                                              className="text-xs h-6"
+                                            >
+                                              Clear
+                                            </Button>
+                                            <Button 
+                                              variant="outline" 
+                                              size="sm" 
+                                              onClick={openMassEditSelectedModal}
+                                              className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
+                                            >
+                                              Mass Edit
+                                            </Button>
+                                          </>
+                                        )}
+                                        <Button 
+                                          variant="outline" 
+                                          size="sm" 
+                                          onClick={() => {
+                                            const subfolderFiles = getFilteredAudioItems(allAudioItems.filter(item => 
+                                              item.pack_id === pack.id && item.subfolder === subfolder.name
+                                            ))
+                                            const newSelected = new Set(selectedFiles)
+                                            subfolderFiles.forEach(file => newSelected.add(file.id))
+                                            setSelectedFiles(newSelected)
+                                          }}
+                                          className="text-xs h-6"
+                                        >
+                                          Select All
+                                        </Button>
+                                      </div>
+                                    )}
+                                                                          {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name))
                                         .map(item => (
                                           <div 
                                             key={`${pack.id}-${subfolder.name}-${item.id}`} 
                                             className={`flex items-center gap-4 p-2 bg-black rounded-lg ml-4 cursor-move transition-opacity ${
-                                              draggedItem?.id === item.id ? 'opacity-50' : ''
-                                            }`}
-                                            draggable
-                                            onDragStart={(e) => handleDragStart(e, item)}
+                                              selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
+                                            } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
+                                            draggable={!selectedFiles.has(item.id)}
+                                            onDragStart={(e) => selectedFiles.has(item.id) ? e.preventDefault() : handleDragStart(e, item)}
                                             onDragEnd={handleDragEnd}
                                           >
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedFiles.has(item.id)}
+                                              onChange={() => toggleFileSelection(item.id)}
+                                              className="w-4 h-4 text-yellow-400 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500"
+                                              onClick={(e) => e.stopPropagation()}
+                                            />
                                           <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center">
                                             {item.type === 'midi' && <Piano className="h-3 w-3 text-yellow-400" />}
                                             {item.type === 'soundkit' && <Drum className="h-3 w-3 text-red-400" />}
@@ -2417,8 +2682,10 @@ export default function MyLibrary() {
                                           </div>
                                         </div>
                                       ))}
-                                    {allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length === 0 && (
-                                      <p className="text-center text-gray-400 py-2 text-sm ml-4">No files in this folder yet.</p>
+                                    {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length === 0 && (
+                                      <p className="text-center text-gray-400 py-2 text-sm ml-4">
+                                        {searchQuery ? 'No files match your search.' : 'No files in this folder yet.'}
+                                      </p>
                                     )}
                                   </div>
                                 )}
@@ -2455,8 +2722,43 @@ export default function MyLibrary() {
                               }
                             </h4>
                             
+                            {/* Pack Root Search Bar */}
+                            {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length > 0 && (
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-48">
+                                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                  <Input
+                                    placeholder="Search root files..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="pl-8 bg-white border-gray-300 text-sm text-black"
+                                  />
+                                </div>
+                                {searchQuery && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => selectVisibleSearchResults(pack.id)}
+                                      className="h-7 px-2 text-xs bg-green-600 text-white hover:bg-green-700"
+                                    >
+                                      Select All
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setSearchQuery('')}
+                                      className="h-7 px-2 text-xs"
+                                    >
+                                      Clear
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            
                             {/* Selection Controls */}
-                            {allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length > 0 && (
+                            {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length > 0 && (
                               <div className="flex items-center gap-2">
                                 {selectedFiles.size > 0 && (
                                   <>
@@ -2487,6 +2789,14 @@ export default function MyLibrary() {
                                     >
                                       Clear
                                     </Button>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm" 
+                                      onClick={openMassEditSelectedModal}
+                                      className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
+                                    >
+                                      Mass Edit
+                                    </Button>
                                   </>
                                 )}
                                 <Button 
@@ -2500,8 +2810,15 @@ export default function MyLibrary() {
                               </div>
                             )}
                           </div>
-                          {allAudioItems
-                            .filter(item => item.pack_id === pack.id && !item.subfolder)
+                          
+                          {/* Pack Root Search Results */}
+                          {searchQuery && (
+                            <div className="text-xs text-gray-600 mb-2">
+                              Found {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length} root files matching "{searchQuery}"
+                            </div>
+                          )}
+                          
+                          {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder))
                             .map(item => (
                               <div 
                                 key={`${pack.id}-root-${item.id}`} 
@@ -2588,8 +2905,10 @@ export default function MyLibrary() {
                             </div>
                               </div>
                             ))}
-                          {allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length === 0 && (
-                            <p className="text-center text-gray-500 py-2 text-sm">No root files.</p>
+                          {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length === 0 && (
+                            <p className="text-center text-gray-500 py-2 text-sm">
+                              {searchQuery ? 'No root files match your search.' : 'No root files.'}
+                            </p>
                           )}
                         </div>
                         
@@ -2645,8 +2964,7 @@ export default function MyLibrary() {
                   
                   {selectedPack === 'unpacked' && (
                     <div className="mt-4 space-y-3 border-t pt-4">
-                                              {allAudioItems
-                          .filter(item => !item.pack_id)
+                                              {getFilteredAudioItems(allAudioItems.filter(item => !item.pack_id))
                           .map(item => (
                             <div 
                               key={item.id} 
@@ -2953,6 +3271,14 @@ export default function MyLibrary() {
           onUpdate={refreshAudioData}
         />
       )}
+
+      {/* Mass Edit Selected Files Modal */}
+      <MassEditSelectedFilesModal
+        isOpen={showMassEditSelectedModal}
+        onClose={() => setShowMassEditSelectedModal(false)}
+        selectedFiles={allAudioItems.filter(item => selectedFiles.has(item.id))}
+        onUpdate={refreshAudioData}
+      />
     </div>
   )
 } 

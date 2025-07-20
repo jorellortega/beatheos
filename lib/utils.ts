@@ -21,7 +21,14 @@ export function calculatePitchShift(fromNote: string, toNote: string): number {
   
   if (fromIndex === -1 || toIndex === -1) return 0
   
-  return toIndex - fromIndex
+  // Calculate the shortest distance between notes (handling octave wrapping)
+  let diff = toIndex - fromIndex
+  
+  // Handle octave wrapping for shortest distance
+  if (diff > 6) diff -= 12
+  if (diff < -6) diff += 12
+  
+  return diff
 }
 
 // Get note from pitch shift

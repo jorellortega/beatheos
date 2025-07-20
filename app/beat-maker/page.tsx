@@ -12,7 +12,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -21,6 +22,7 @@ import { AudioPianoRoll } from '@/components/beat-maker/AudioPianoRoll'
 import { TrackPianoRoll } from '@/components/beat-maker/TrackPianoRoll'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { calculatePitchShift, validatePitchShift } from '@/lib/utils'
 
 export default function BeatMakerPage() {
   const searchParams = useSearchParams()
@@ -363,6 +365,65 @@ export default function BeatMakerPage() {
   const [songPatternAssignments, setSongPatternAssignments] = useState<{[trackId: number]: {[barIndex: number]: string}}>({})
   const [selectedPatternForPlacement, setSelectedPatternForPlacement] = useState<string | null>(null)
   
+  // Current sequencer patterns - these are the patterns currently active in the sequencer
+  const [currentSequencerPatterns, setCurrentSequencerPatterns] = useState<{id: string, name: string, tracks: Track[], sequencerData: any, bpm: number, transportKey: string, steps: number}[]>([])
+  
+  // Function to capture current sequencer state as a pattern
+  const captureCurrentSequencerAsPattern = (patternName?: string) => {
+    const newPattern = {
+      id: `pattern-${Date.now()}`,
+      name: patternName || `Pattern ${currentSequencerPatterns.length + 1}`,
+      tracks: tracks,
+      sequencerData: { ...sequencerData },
+      bpm: bpm,
+      transportKey: transportKey,
+      steps: steps
+    }
+    
+    setCurrentSequencerPatterns(prev => [...prev, newPattern])
+    return newPattern
+  }
+  
+  // Function to remove a pattern from current sequencer patterns
+  const removeCurrentSequencerPattern = (patternId: string) => {
+    setCurrentSequencerPatterns(prev => prev.filter(p => p.id !== patternId))
+  }
+  
+  // Function to get just the track type name (first word)
+  const getTrackTypeName = (trackName: string) => {
+    // Handle common track name patterns
+    if (trackName.toLowerCase().includes('hi-hat') || trackName.toLowerCase().includes('hihat')) {
+      return 'Hi-Hat'
+    }
+    if (trackName.toLowerCase().includes('melody loop')) {
+      return 'Melody'
+    }
+    if (trackName.toLowerCase().includes('bass loop')) {
+      return 'Bass'
+    }
+    if (trackName.toLowerCase().includes('drum loop')) {
+      return 'Drums'
+    }
+    if (trackName.toLowerCase().includes('piano loop')) {
+      return 'Piano'
+    }
+    if (trackName.toLowerCase().includes('guitar loop')) {
+      return 'Guitar'
+    }
+    if (trackName.toLowerCase().includes('synth loop')) {
+      return 'Synth'
+    }
+    if (trackName.toLowerCase().includes('vocal loop')) {
+      return 'Vocal'
+    }
+    if (trackName.toLowerCase().includes('808 loop')) {
+      return '808'
+    }
+    
+    // For other tracks, just take the first word
+    return trackName.split(' ')[0]
+  }
+  
   // Mixer state for each track
   const [mixerSettings, setMixerSettings] = useState<{[trackId: number]: {
     volume: number, 
@@ -457,6 +518,49 @@ export default function BeatMakerPage() {
   const clearPatternSelection = () => {
     setSelectedPatternForPlacement(null)
   }
+  
+  // Create individual track patterns from current sequencer state
+  const createCurrentTrackPatterns = () => {
+    return tracks.map(track => {
+      const trackPattern = {
+        id: `track-${track.id}`,
+        name: track.name,
+        tracks: [track],
+        sequencerData: { [track.id]: sequencerData[track.id] || [] },
+        bpm: bpm,
+        transportKey: transportKey,
+        steps: steps,
+        trackId: track.id,
+        color: track.color
+      }
+      return trackPattern
+    }).filter(pattern => {
+      // Only include tracks that have active sequencer data
+      const trackData = sequencerData[pattern.trackId]
+      return trackData && trackData.some(step => step === true)
+    })
+  }
+  
+  // Initialize with current track patterns
+  useEffect(() => {
+    if (currentSequencerPatterns.length === 0) {
+      const trackPatterns = createCurrentTrackPatterns()
+      setCurrentSequencerPatterns(trackPatterns)
+    }
+  }, [])
+  
+  // Update track patterns whenever sequencer data changes
+  useEffect(() => {
+    const trackPatterns = createCurrentTrackPatterns()
+    
+    setCurrentSequencerPatterns(prev => {
+      // Keep any manually captured patterns (not track patterns)
+      const manualPatterns = prev.filter(p => !p.id.startsWith('track-'))
+      
+      // Combine manual patterns with current track patterns
+      return [...manualPatterns, ...trackPatterns]
+    })
+  }, [sequencerData, tracks, bpm, transportKey, steps])
 
   // Clear all arrangements
   const clearAllArrangements = () => {
@@ -612,11 +716,19 @@ export default function BeatMakerPage() {
       if (!assignedPatternId) return
       
       // Find the assigned pattern
-      const assignedPattern = savedPatterns.find(p => p.id === assignedPatternId)
+      const assignedPattern = currentSequencerPatterns.find(p => p.id === assignedPatternId)
       if (!assignedPattern) return
       
       // Get the pattern data for this track
-      const patternSequencerData = assignedPattern.sequencerData[track.id] || []
+      let patternSequencerData: boolean[] = []
+      
+      if (assignedPattern.id.startsWith('track-')) {
+        // Track pattern - use the track's specific data
+        patternSequencerData = assignedPattern.sequencerData[track.id] || []
+      } else {
+        // Full pattern - use the track's data from the pattern
+        patternSequencerData = assignedPattern.sequencerData[track.id] || []
+      }
       
       // Check if this track should play at the current step
       const shouldPlayStep = patternSequencerData[step]
@@ -760,7 +872,14 @@ export default function BeatMakerPage() {
           sequencerData: pattern.sequencer_data || pattern.sequencerData || {},
           bpm: pattern.bpm,
           transportKey: 'C', // Default transport key
-          steps: pattern.steps
+          steps: pattern.steps,
+          genre_id: pattern.genre_id,
+          subgenre: pattern.subgenre,
+          category: pattern.category,
+          description: pattern.description,
+          tags: pattern.tags,
+          pattern_type: pattern.pattern_type,
+          created_at: pattern.created_at
         }))
 
         setSavedPatterns(convertedPatterns)
@@ -791,8 +910,12 @@ export default function BeatMakerPage() {
     
     try {
       const tags = patternTags.trim() ? patternTags.split(',').map(tag => tag.trim()) : []
-      await handleSavePattern(patternName.trim(), patternDescription.trim(), patternCategory.trim(), tags)
+      await handleSavePattern(patternName.trim(), patternDescription.trim(), patternCategory.trim(), tags, selectedGenreId === 'none' ? '' : selectedGenreId, selectedSubgenre === 'none' ? '' : selectedSubgenre)
       setShowSavePatternDialog(false)
+      
+      // Reset genre/subgenre selection
+      setSelectedGenreId('none')
+      setSelectedSubgenre('none')
       
       // Refresh the patterns list after saving
       const { data: { user } } = await supabase.auth.getUser()
@@ -811,7 +934,14 @@ export default function BeatMakerPage() {
             sequencerData: pattern.sequencer_data || pattern.sequencerData || {},
             bpm: pattern.bpm,
             transportKey: 'C',
-            steps: pattern.steps
+            steps: pattern.steps,
+            genre_id: pattern.genre_id,
+            subgenre: pattern.subgenre,
+            category: pattern.category,
+            description: pattern.description,
+            tags: pattern.tags,
+            pattern_type: pattern.pattern_type,
+            created_at: pattern.created_at
           }))
           setSavedPatterns(convertedPatterns)
         }
@@ -843,9 +973,13 @@ export default function BeatMakerPage() {
     
     try {
       const tags = patternTags.trim() ? patternTags.split(',').map(tag => tag.trim()) : []
-      await handleSaveTrackPattern(selectedTrackForPattern.id, patternName.trim(), patternDescription.trim(), patternCategory.trim(), tags)
+      await handleSaveTrackPattern(selectedTrackForPattern.id, patternName.trim(), patternDescription.trim(), patternCategory.trim(), tags, selectedGenreId === 'none' ? '' : selectedGenreId, selectedSubgenre === 'none' ? '' : selectedSubgenre)
       setShowSaveTrackPatternDialog(false)
       setSelectedTrackForPattern(null)
+      
+      // Reset genre/subgenre selection
+      setSelectedGenreId('none')
+      setSelectedSubgenre('none')
       
       // Refresh the patterns list after saving
       await refreshSavedPatterns()
@@ -879,7 +1013,14 @@ export default function BeatMakerPage() {
         sequencerData: pattern.sequencer_data || pattern.sequencerData || {},
         bpm: pattern.bpm,
         transportKey: 'C', // Default transport key
-        steps: pattern.steps
+        steps: pattern.steps,
+        genre_id: pattern.genre_id,
+        subgenre: pattern.subgenre,
+        category: pattern.category,
+        description: pattern.description,
+        tags: pattern.tags,
+        pattern_type: pattern.pattern_type,
+        created_at: pattern.created_at
       }))
 
       setSavedPatterns(convertedPatterns)
@@ -1503,6 +1644,18 @@ export default function BeatMakerPage() {
           pitchShift: pitchData.pitchShift
         } : track
       ))
+      
+      // Recalculate piano roll notes for this track with the new key
+      const track = tracks.find(t => t.id === trackId)
+      if (track && track.pianoRollNotes && track.pianoRollNotes.length > 0) {
+        const recalculatedNotes = track.pianoRollNotes.map(note => ({
+          ...note,
+          pitchShift: calculatePitchShift(pitchData.originalKey || 'C', note.note.replace(/\d/, ''))
+        }))
+        
+        // Update piano roll data with recalculated notes
+        updatePianoRollData(trackId, recalculatedNotes)
+      }
     }
   }
 
@@ -1635,8 +1788,8 @@ export default function BeatMakerPage() {
         
         // Add subgenre filter if a subgenre is selected and locked
         if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-          query = query.eq('subgenre', selectedSubgenre.trim())
-          console.log(`[DEBUG] Duplicate shuffle filtering by locked subgenre: ${selectedSubgenre}`)
+          query = query.ilike('subgenre', selectedSubgenre.trim())
+          console.log(`[DEBUG] Duplicate shuffle filtering by locked subgenre (case-insensitive): ${selectedSubgenre.trim()}`)
         }
       
       // Try to exclude current audio if it's a database ID
@@ -1679,35 +1832,26 @@ export default function BeatMakerPage() {
       }
 
       if (!shuffledAudio || shuffledAudio.length === 0) {
-        console.log('No alternative audio found with same key and type, trying broader search...')
-        // Try broader search
-        let broaderQuery = supabase
-          .from('audio_library_items')
-          .select('*')
-          .eq('user_id', currentUser.id)
-          .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
+        console.log('No alternative audio found with same key and type')
         
-        // Add genre filter if a genre is selected and locked
-        if (selectedGenre && selectedGenre.name && isGenreLocked) {
-          broaderQuery = broaderQuery.eq('genre', selectedGenre.name)
-        }
-        
-        // Add subgenre filter if a subgenre is selected and locked
-        if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-          broaderQuery = broaderQuery.eq('subgenre', selectedSubgenre.trim())
-        }
-        
-        const { data: broaderAudio, error: broaderError } = await broaderQuery.limit(10)
-        
-        if (broaderError) {
-          console.error('Broader search failed:', broaderError)
-          return
-        }
-        
-        if (broaderAudio && broaderAudio.length > 0) {
-          const randomAudio = broaderAudio[Math.floor(Math.random() * broaderAudio.length)]
-          createDuplicateTrack(originalTrack, randomAudio)
-          return
+        // Only use fallback if NOT both genre and subgenre are locked
+        // If both are locked, we want to be strict and only play files that match both
+        if (!(selectedGenre && selectedGenre.name && isGenreLocked && selectedSubgenre && isSubgenreLocked)) {
+          console.log(`[FALLBACK] Trying with no genre/subgenre filters (not both locked)`)
+          let noFilterQuery = supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
+          
+          const { data: noFilterAudio, error: noFilterError } = await noFilterQuery.limit(10)
+          
+          if (noFilterAudio && noFilterAudio.length > 0) {
+            console.log(`[FALLBACK] Found ${noFilterAudio.length} files with no genre filters`)
+            const randomAudio = noFilterAudio[Math.floor(Math.random() * noFilterAudio.length)]
+            createDuplicateTrack(originalTrack, randomAudio)
+            return
+          }
         }
         
         console.log('No audio found in database, creating duplicate with same audio but different settings')
@@ -1809,6 +1953,15 @@ export default function BeatMakerPage() {
       const track = tracks.find(t => t.id === trackId)
       if (!track) return
 
+      // Debug: Log the current state
+      console.log(`[DEBUG] Shuffle triggered for track: ${track.name}`)
+      console.log(`[DEBUG] Current state - selectedGenre:`, selectedGenre)
+      console.log(`[DEBUG] Current state - selectedSubgenre:`, selectedSubgenre)
+      console.log(`[DEBUG] Current state - isGenreLocked:`, isGenreLocked)
+      console.log(`[DEBUG] Current state - isSubgenreLocked:`, isSubgenreLocked)
+      console.log(`[DEBUG] Current state - selectedPack:`, selectedPack)
+      console.log(`[DEBUG] Current state - isPackLocked:`, isPackLocked)
+
       // Get current user
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -1896,24 +2049,147 @@ export default function BeatMakerPage() {
         .eq('user_id', user.id)
         .eq('audio_type', audioType)
       
-      // Add genre filter if a genre is selected and locked
-      if (selectedGenre && selectedGenre.name && isGenreLocked) {
-        query = query.eq('genre', selectedGenre.name)
-        console.log(`[DEBUG] Filtering by locked genre: ${selectedGenre.name}`)
+      // Add pack filter if a pack is selected and locked
+      if (selectedPack && selectedPack.id && isPackLocked) {
+        query = query.eq('pack_id', selectedPack.id)
+        console.log(`[DEBUG] Filtering by locked pack: ${selectedPack.name} (${selectedPack.id})`)
       }
       
-      // Add subgenre filter if a subgenre is selected and locked
-      if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-        query = query.eq('subgenre', selectedSubgenre.trim())
-        console.log(`[DEBUG] Filtering by locked subgenre: ${selectedSubgenre}`)
+      // Flexible genre/subgenre filtering - handle both combinations
+      if (selectedGenre && selectedGenre.name && isGenreLocked && selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
+        // When both genre and subgenre are selected, try both combinations
+        console.log(`[DEBUG] Flexible filtering for: ${selectedGenre.name} + ${selectedSubgenre.trim()}`)
+        
+        // Try combination 1: genre=selectedGenre AND subgenre=selectedSubgenre
+        let query1 = supabase
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('audio_type', audioType)
+          .eq('genre', selectedGenre.name)
+          .ilike('subgenre', selectedSubgenre.trim())
+        
+        // Add pack filter if locked
+        if (selectedPack && selectedPack.id && isPackLocked) {
+          query1 = query1.eq('pack_id', selectedPack.id)
+        }
+        
+        console.log(`[DEBUG] Query 1: genre="${selectedGenre.name}" AND subgenre ILIKE "${selectedSubgenre.trim()}"`)
+        const { data: files1, error: error1 } = await query1
+        
+        // Try combination 2: genre=selectedSubgenre AND subgenre=selectedGenre (swapped)
+        let query2 = supabase
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('audio_type', audioType)
+          .eq('genre', selectedSubgenre.trim())
+          .ilike('subgenre', selectedGenre.name)
+        
+        // Add pack filter if locked
+        if (selectedPack && selectedPack.id && isPackLocked) {
+          query2 = query2.eq('pack_id', selectedPack.id)
+        }
+        
+        console.log(`[DEBUG] Query 2: genre="${selectedSubgenre.trim()}" AND subgenre ILIKE "${selectedGenre.name}"`)
+        const { data: files2, error: error2 } = await query2
+        
+        // Combine results
+        const allFiles = [...(files1 || []), ...(files2 || [])]
+        
+        console.log(`[DEBUG] Found ${files1?.length || 0} files with ${selectedGenre.name} + ${selectedSubgenre.trim()}`)
+        if (files1 && files1.length > 0) {
+          console.log(`[DEBUG] Files from query 1:`, files1.map(f => ({ name: f.name, genre: f.genre, subgenre: f.subgenre })))
+        }
+        
+        console.log(`[DEBUG] Found ${files2?.length || 0} files with ${selectedSubgenre.trim()} + ${selectedGenre.name}`)
+        if (files2 && files2.length > 0) {
+          console.log(`[DEBUG] Files from query 2:`, files2.map(f => ({ name: f.name, genre: f.genre, subgenre: f.subgenre })))
+        }
+        
+        console.log(`[DEBUG] Total files found: ${allFiles.length}`)
+        
+        if (allFiles.length > 0) {
+          audioFiles = allFiles
+          console.log(`[DEBUG] Sample files found:`, allFiles.slice(0, 3).map(f => ({ 
+            name: f.name, 
+            genre: f.genre, 
+            subgenre: f.subgenre,
+            audio_type: f.audio_type,
+            pack_id: f.pack_id
+          })))
+        } else {
+          // Debug: Check what files exist with the genre/subgenre combination regardless of audio_type
+          console.log(`[DEBUG] No files found with audio_type="${audioType}", checking all files with genre/subgenre combination...`)
+          
+          let debugQuery = supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('genre', selectedGenre.name)
+            .ilike('subgenre', selectedSubgenre.trim())
+          
+          const { data: debugFiles, error: debugError } = await debugQuery
+          
+          console.log(`[DEBUG] Found ${debugFiles?.length || 0} files with genre="${selectedGenre.name}" AND subgenre ILIKE "${selectedSubgenre.trim()}" (any audio_type)`)
+          if (debugFiles && debugFiles.length > 0) {
+            console.log(`[DEBUG] Available files:`, debugFiles.map(f => ({ name: f.name, genre: f.genre, subgenre: f.subgenre, audio_type: f.audio_type })))
+          }
+        }
+        
+
+      } else {
+        // Single filter logic (only genre, subgenre, or pack)
+        if (selectedGenre && selectedGenre.name && isGenreLocked) {
+          query = query.eq('genre', selectedGenre.name)
+          console.log(`[DEBUG] Filtering by locked genre: ${selectedGenre.name}`)
+        }
+        
+        if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
+          query = query.ilike('subgenre', selectedSubgenre.trim())
+          console.log(`[DEBUG] Filtering by locked subgenre (case-insensitive): ${selectedSubgenre.trim()}`)
+        }
+        
+        // Pack filtering is already applied above, but let's add debug info
+        if (selectedPack && selectedPack.id && isPackLocked) {
+          console.log(`[DEBUG] Pack filter already applied: ${selectedPack.name} (${selectedPack.id})`)
+          
+          // Debug: Check what files exist with just this pack
+          let packDebugQuery = supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('pack_id', selectedPack.id)
+          
+          const { data: packDebugFiles, error: packDebugError } = await packDebugQuery
+          
+          console.log(`[DEBUG] Found ${packDebugFiles?.length || 0} files in pack "${selectedPack.name}" (any audio_type)`)
+          if (packDebugFiles && packDebugFiles.length > 0) {
+            console.log(`[DEBUG] Pack files:`, packDebugFiles.slice(0, 5).map(f => ({ 
+              name: f.name, 
+              audio_type: f.audio_type,
+              pack_id: f.pack_id
+            })))
+          }
+        }
+        
+        const { data: typeFiles, error: typeError } = await query
+        
+        console.log(`[DEBUG] Found ${typeFiles?.length || 0} files with audio_type: ${audioType}`)
+        if (typeFiles && typeFiles.length > 0) {
+          audioFiles = [...audioFiles, ...typeFiles]
+          console.log(`[DEBUG] Sample files found:`, typeFiles.slice(0, 3).map(f => ({ 
+            name: f.name, 
+            genre: f.genre, 
+            subgenre: f.subgenre,
+            audio_type: f.audio_type,
+            pack_id: f.pack_id
+          })))
+        }
       }
       
-      const { data: typeFiles, error: typeError } = await query
-      
-      console.log(`[DEBUG] Found ${typeFiles?.length || 0} files with audio_type: ${audioType}`)
-      if (typeFiles && typeFiles.length > 0) {
-        audioFiles = [...audioFiles, ...typeFiles]
-      }
+      // Debug: Log the current filter state
+      console.log(`[DEBUG] Current filters - Genre: ${selectedGenre?.name || 'none'}, Subgenre: ${selectedSubgenre || 'none'}, GenreLocked: ${isGenreLocked}, SubgenreLocked: ${isSubgenreLocked}`)
       
       // If no exact matches, try to get files by name containing the type (fallback)
       if (audioFiles.length === 0) {
@@ -1930,7 +2206,7 @@ export default function BeatMakerPage() {
         
         // Add subgenre filter if a subgenre is selected and locked
         if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-          fallbackQuery = fallbackQuery.eq('subgenre', selectedSubgenre.trim())
+          fallbackQuery = fallbackQuery.ilike('subgenre', selectedSubgenre.trim())
         }
         
         const { data: nameFiles, error: nameError } = await fallbackQuery
@@ -1958,7 +2234,7 @@ export default function BeatMakerPage() {
           
           // Add subgenre filter if a subgenre is selected and locked
           if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-            hiHatQuery = hiHatQuery.eq('subgenre', selectedSubgenre.trim())
+            hiHatQuery = hiHatQuery.ilike('subgenre', selectedSubgenre.trim())
           }
           
           const { data: variationFiles, error: variationError } = await hiHatQuery
@@ -1974,15 +2250,76 @@ export default function BeatMakerPage() {
         index === self.findIndex(f => f.id === file.id)
       )
       
-      if (typeError) {
-        console.error('Error fetching audio files by type:', typeError)
-        alert('Failed to fetch audio files')
-        return
-      }
+
 
       if (!audioFiles || audioFiles.length === 0) {
-        console.log(`No ${audioType} audio files found in your library`)
-        return
+        console.log(`No ${audioType} audio files found with current filters`)
+        
+        // Check if both genre and subgenre are locked
+        const bothLocked = selectedGenre && selectedGenre.name && isGenreLocked && selectedSubgenre && isSubgenreLocked
+        
+        if (bothLocked) {
+          console.log(`[STRICT MODE] Both genre and subgenre are locked - no fallback allowed`)
+          console.log(`[STRICT MODE] Required: genre="${selectedGenre.name}" AND subgenre="${selectedSubgenre.trim()}"`)
+          
+          // Let's check what files exist with these exact requirements
+          let strictQuery = supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('genre', selectedGenre.name)
+            .ilike('subgenre', selectedSubgenre.trim())
+          
+          const { data: strictFiles, error: strictError } = await strictQuery
+          
+          console.log(`[STRICT MODE] Found ${strictFiles?.length || 0} files with exact genre="${selectedGenre.name}" AND subgenre="${selectedSubgenre.trim()}"`)
+          
+          if (strictFiles && strictFiles.length > 0) {
+            console.log(`[STRICT MODE] Available files:`, strictFiles.map(f => ({ 
+              name: f.name, 
+              genre: f.genre, 
+              subgenre: f.subgenre, 
+              audio_type: f.audio_type 
+            })))
+            
+            // Filter by audio_type
+            const typeFiles = strictFiles.filter(f => f.audio_type === audioType)
+            console.log(`[STRICT MODE] Of those, ${typeFiles.length} have audio_type="${audioType}"`)
+            
+            if (typeFiles.length > 0) {
+              audioFiles = typeFiles
+            } else {
+              console.log(`[STRICT MODE] No files with audio_type="${audioType}" found - cannot shuffle this track type`)
+              return
+            }
+          } else {
+            console.log(`[STRICT MODE] No files found with exact genre/subgenre combination - cannot shuffle`)
+            return
+          }
+        } else {
+          // Only use fallback if NOT both genre and subgenre are locked
+          console.log(`[FALLBACK] Trying with no genre/subgenre filters (not both locked)`)
+          let noFilterQuery = supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('audio_type', audioType)
+          
+          const { data: noFilterFiles, error: noFilterError } = await noFilterQuery
+          
+          if (noFilterFiles && noFilterFiles.length > 0) {
+            console.log(`[FALLBACK] Found ${noFilterFiles.length} files with no genre filters`)
+            audioFiles = noFilterFiles
+          } else {
+            console.log(`[FALLBACK] No files found with no genre filters`)
+          }
+        }
+        
+        // If still no files, give up
+        if (!audioFiles || audioFiles.length === 0) {
+          console.log(`No ${audioType} audio files found in your library with current filter requirements`)
+          return
+        }
       }
 
       // Randomly select one audio file
@@ -2142,6 +2479,71 @@ export default function BeatMakerPage() {
     // Open the Piano Roll for this track
     setPianoRollTrack(trackId)
     setShowPianoRoll(true)
+  }
+
+  // Debug function to check audio library genre/subgenre data
+  const debugAudioLibraryData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      console.log('=== AUDIO LIBRARY DEBUG ===')
+      
+      // Check what's in the genres table
+      const { data: genresData } = await supabase
+        .from('genres')
+        .select('*')
+        .order('name')
+      
+      console.log('[DEBUG] Genres table data:', genresData)
+      
+      // Check what's in the genre_subgenres table
+      const { data: subgenresData } = await supabase
+        .from('genre_subgenres')
+        .select('*')
+        .order('genre, subgenre')
+      
+      console.log('[DEBUG] Genre_subgenres table data:', subgenresData)
+      
+      // Check what's in the audio_library_items table
+      const { data: allFiles } = await supabase
+        .from('audio_library_items')
+        .select('name, genre, subgenre, audio_type')
+        .eq('user_id', user.id)
+        .limit(50)
+      
+      console.log('[DEBUG] Audio library items data:', allFiles)
+      
+      // Show unique genres and subgenres in audio files
+      const audioGenres = [...new Set(allFiles?.map(f => f.genre).filter(Boolean) || [])]
+      const audioSubgenres = [...new Set(allFiles?.map(f => f.subgenre).filter(Boolean) || [])]
+      
+      console.log('[DEBUG] Genres in audio files:', audioGenres)
+      console.log('[DEBUG] Subgenres in audio files:', audioSubgenres)
+      
+      // Check for Trap + LA specifically
+      if (selectedGenre?.name === 'Trap' && selectedSubgenre === 'LA') {
+        console.log('\n=== TRAP + LA ANALYSIS ===')
+        
+        // Check if "Trap" exists in genres table
+        const trapInGenres = genresData?.find(g => g.name === 'Trap')
+        console.log('[DEBUG] "Trap" in genres table:', trapInGenres)
+        
+        // Check if "LA" exists in genre_subgenres table
+        const laInSubgenres = subgenresData?.find(s => s.genre === 'Trap' && s.subgenre === 'LA')
+        console.log('[DEBUG] "LA" subgenre for "Trap" in genre_subgenres table:', laInSubgenres)
+        
+        // Check if any audio files have genre="Trap" AND subgenre="LA"
+        const trapLAFiles = allFiles?.filter(f => f.genre === 'Trap' && f.subgenre === 'LA') || []
+        console.log('[DEBUG] Audio files with genre="Trap" AND subgenre="LA":', trapLAFiles)
+        
+        // Check if any audio files have genre="LA" AND subgenre="Trap" (swapped)
+        const laTrapFiles = allFiles?.filter(f => f.genre === 'LA' && f.subgenre === 'Trap') || []
+        console.log('[DEBUG] Audio files with genre="LA" AND subgenre="Trap":', laTrapFiles)
+      }
+    } catch (error) {
+      console.error('[DEBUG] Error checking audio library data:', error)
+    }
   }
 
   const handleShuffleAll = async () => {
@@ -2634,7 +3036,7 @@ export default function BeatMakerPage() {
     }
   }
 
-  const handleSavePattern = async (name: string, description?: string, category?: string, tags?: string[]) => {
+  const handleSavePattern = async (name: string, description?: string, category?: string, tags?: string[], genreId?: string, subgenre?: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -2664,6 +3066,8 @@ export default function BeatMakerPage() {
           steps,
           tags,
           category,
+          genre_id: genreId || null,
+          subgenre: subgenre || null,
           pattern_type: patternType
         }])
         .select()
@@ -2723,7 +3127,7 @@ export default function BeatMakerPage() {
     }
   }
 
-  const handleSaveTrackPattern = async (trackId: number, name: string, description?: string, category?: string, tags?: string[]) => {
+  const handleSaveTrackPattern = async (trackId: number, name: string, description?: string, category?: string, tags?: string[], genreId?: string, subgenre?: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -2749,6 +3153,8 @@ export default function BeatMakerPage() {
           steps,
           tags,
           category,
+          genre_id: genreId || null,
+          subgenre: subgenre || null,
           pattern_type: track.name.toLowerCase()
         }])
         .select()
@@ -2780,15 +3186,21 @@ export default function BeatMakerPage() {
 
   // Genre management state
   const [genres, setGenres] = useState<any[]>([])
+  const [subgenres, setSubgenres] = useState<string[]>([])
+  const [selectedGenreId, setSelectedGenreId] = useState<string>('none')
+  const [selectedSubgenre, setSelectedSubgenre] = useState<string>('none')
   const [selectedGenre, setSelectedGenre] = useState<any>(null)
-  const [selectedSubgenre, setSelectedSubgenre] = useState<string>('')
   const [isGenreLocked, setIsGenreLocked] = useState<boolean>(false)
   const [isSubgenreLocked, setIsSubgenreLocked] = useState<boolean>(false)
+  const [audioPacks, setAudioPacks] = useState<any[]>([])
+  const [selectedPack, setSelectedPack] = useState<any>(null)
+  const [isPackLocked, setIsPackLocked] = useState<boolean>(false)
   const [availableSubgenres, setAvailableSubgenres] = useState<string[]>([])
   const [genreSubgenres, setGenreSubgenres] = useState<{[key: string]: string[]}>({})
   const [genreTemplates, setGenreTemplates] = useState<any[]>([])
   const [showGenreDialog, setShowGenreDialog] = useState(false)
   const [showGenreTemplateDialog, setShowGenreTemplateDialog] = useState(false)
+  const [showPackDialog, setShowPackDialog] = useState(false)
   const [selectedGenreTemplate, setSelectedGenreTemplate] = useState<any>(null)
   
   // New genre creation state
@@ -2802,6 +3214,11 @@ export default function BeatMakerPage() {
   const [newGenreSubgenres, setNewGenreSubgenres] = useState<string[]>([])
   const [newSubgenreInput, setNewSubgenreInput] = useState('')
   const [isCreatingGenre, setIsCreatingGenre] = useState(false)
+  
+  // Subgenre editing state
+  const [editingSubgenres, setEditingSubgenres] = useState<{[genreId: string]: boolean}>({})
+  const [subgenreInputs, setSubgenreInputs] = useState<{[genreId: string]: string}>({})
+  const [isSavingSubgenres, setIsSavingSubgenres] = useState(false)
 
   // Add subgenre to new genre
   const addSubgenreToNewGenre = () => {
@@ -2814,6 +3231,114 @@ export default function BeatMakerPage() {
   // Remove subgenre from new genre
   const removeSubgenreFromNewGenre = (subgenreToRemove: string) => {
     setNewGenreSubgenres(newGenreSubgenres.filter(subgenre => subgenre !== subgenreToRemove))
+  }
+  
+  // Start editing subgenres for a genre
+  const startEditingSubgenres = (genreId: string) => {
+    setEditingSubgenres(prev => ({ ...prev, [genreId]: true }))
+    setSubgenreInputs(prev => ({ ...prev, [genreId]: '' }))
+  }
+  
+  // Stop editing subgenres for a genre
+  const stopEditingSubgenres = (genreId: string) => {
+    setEditingSubgenres(prev => ({ ...prev, [genreId]: false }))
+    setSubgenreInputs(prev => ({ ...prev, [genreId]: '' }))
+  }
+  
+  // Add subgenre to existing genre
+  const addSubgenreToGenre = async (genreId: string, genreName: string) => {
+    const subgenre = subgenreInputs[genreId]?.trim()
+    if (!subgenre) return
+    
+    setIsSavingSubgenres(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to edit subgenres')
+        return
+      }
+      
+      // Check if subgenre already exists for this genre
+      const { data: existingSubgenre } = await supabase
+        .from('genre_subgenres')
+        .select('subgenre')
+        .eq('genre', genreName)
+        .eq('subgenre', subgenre)
+        .single()
+      
+      if (existingSubgenre) {
+        alert('This subgenre already exists for this genre')
+        return
+      }
+      
+      // Add the new subgenre
+      const { error } = await supabase
+        .from('genre_subgenres')
+        .insert({
+          genre: genreName,
+          subgenre: subgenre
+        })
+      
+      if (error) {
+        console.error('Error adding subgenre:', error)
+        alert('Failed to add subgenre')
+        return
+      }
+      
+      // Update local state
+      setGenreSubgenres(prev => ({
+        ...prev,
+        [genreName]: [...(prev[genreName] || []), subgenre].sort()
+      }))
+      
+      // Clear input
+      setSubgenreInputs(prev => ({ ...prev, [genreId]: '' }))
+      
+      console.log(`Added subgenre "${subgenre}" to genre "${genreName}"`)
+    } catch (error) {
+      console.error('Error adding subgenre:', error)
+      alert('Failed to add subgenre')
+    } finally {
+      setIsSavingSubgenres(false)
+    }
+  }
+  
+  // Remove subgenre from existing genre
+  const removeSubgenreFromGenre = async (genreName: string, subgenreToRemove: string) => {
+    setIsSavingSubgenres(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to edit subgenres')
+        return
+      }
+      
+      // Remove the subgenre
+      const { error } = await supabase
+        .from('genre_subgenres')
+        .delete()
+        .eq('genre', genreName)
+        .eq('subgenre', subgenreToRemove)
+      
+      if (error) {
+        console.error('Error removing subgenre:', error)
+        alert('Failed to remove subgenre')
+        return
+      }
+      
+      // Update local state
+      setGenreSubgenres(prev => ({
+        ...prev,
+        [genreName]: (prev[genreName] || []).filter(subgenre => subgenre !== subgenreToRemove)
+      }))
+      
+      console.log(`Removed subgenre "${subgenreToRemove}" from genre "${genreName}"`)
+    } catch (error) {
+      console.error('Error removing subgenre:', error)
+      alert('Failed to remove subgenre')
+    } finally {
+      setIsSavingSubgenres(false)
+    }
   }
 
   // Transport lock state
@@ -3067,6 +3592,7 @@ export default function BeatMakerPage() {
   useEffect(() => {
     loadSavedSessions()
     loadGenres()
+    loadAudioPacks()
   }, [])
 
   // Load genres from database
@@ -3103,6 +3629,30 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Load audio packs from database
+  const loadAudioPacks = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('audio_packs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('name')
+
+      if (error) {
+        console.error('Error loading audio packs:', error)
+        return
+      }
+
+      setAudioPacks(data || [])
+      console.log('Loaded audio packs:', data)
+    } catch (error) {
+      console.error('Error loading audio packs:', error)
+    }
+  }
+
   // Load subgenres for all genres
   const loadAllGenreSubgenres = async () => {
     try {
@@ -3129,6 +3679,42 @@ export default function BeatMakerPage() {
       console.log('Loaded subgenres for all genres:', subgenresByGenre)
     } catch (error) {
       console.error('Error loading all subgenres:', error)
+    }
+  }
+
+  // Load subgenres for a specific genre
+  const loadSubgenres = async (genreId: string) => {
+    try {
+      // Don't load subgenres if "none" is selected
+      if (genreId === 'none') {
+        setSubgenres([])
+        setSelectedSubgenre('none')
+        return
+      }
+
+      const genre = genres.find(g => g.id === genreId)
+      if (!genre) {
+        setSubgenres([])
+        setSelectedSubgenre('none')
+        return
+      }
+
+      const { data, error } = await supabase
+        .rpc('get_valid_subgenres', { p_genre_id: genreId })
+
+      if (error) {
+        console.error('Error loading subgenres:', error)
+        setSubgenres([])
+        setSelectedSubgenre('none')
+        return
+      }
+
+      setSubgenres(data?.map((item: any) => item.subgenre) || [])
+      setSelectedSubgenre('none') // Reset subgenre when genre changes
+    } catch (error) {
+      console.error('Error loading subgenres:', error)
+      setSubgenres([])
+      setSelectedSubgenre('none')
     }
   }
 
@@ -3385,11 +3971,18 @@ export default function BeatMakerPage() {
 
   // Clear all function - reset to fresh start
   const handleToggleGenreLock = () => {
+    console.log(`[DEBUG] Toggling genre lock from ${isGenreLocked} to ${!isGenreLocked}`)
     setIsGenreLocked(!isGenreLocked)
   }
 
   const handleToggleSubgenreLock = () => {
+    console.log(`[DEBUG] Toggling subgenre lock from ${isSubgenreLocked} to ${!isSubgenreLocked}`)
     setIsSubgenreLocked(!isSubgenreLocked)
+  }
+
+  const handleTogglePackLock = () => {
+    console.log(`[DEBUG] Toggling pack lock from ${isPackLocked} to ${!isPackLocked}`)
+    setIsPackLocked(!isPackLocked)
   }
 
   const handleClearAll = () => {
@@ -3951,6 +4544,15 @@ export default function BeatMakerPage() {
             <Music className="w-4 h-4 mr-2" />
             Genres
           </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={debugAudioLibraryData}
+            className="border-purple-400 text-purple-400 hover:bg-purple-400 hover:text-black"
+          >
+            <Bug className="w-4 h-4 mr-2" />
+            Debug Audio
+          </Button>
           
           <Button variant="outline" size="sm" onClick={saveAsNewPattern}>
             <Save className="w-4 h-4 mr-2" />
@@ -4204,6 +4806,45 @@ export default function BeatMakerPage() {
                   </div>
                 </div>
               )}
+
+              {/* Pack Display */}
+              <div className="flex items-center gap-2">
+                <span className="text-white text-sm">Pack:</span>
+                {selectedPack ? (
+                  <div className="flex items-center gap-1">
+                    <Badge 
+                      variant="secondary" 
+                      className="bg-green-100 text-green-800 border-green-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => setShowPackDialog(true)}
+                      title="Click to change pack"
+                    >
+                      {selectedPack.name}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleTogglePackLock}
+                      className={`w-6 h-6 p-0 ${
+                        isPackLocked 
+                          ? 'text-yellow-400 hover:text-yellow-300' 
+                          : 'text-gray-400 hover:text-gray-300'
+                      }`}
+                      title={isPackLocked ? "Unlock pack (will shuffle)" : "Lock pack (won't shuffle)"}
+                    >
+                      {isPackLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowPackDialog(true)}
+                    className="text-green-400 border-green-400 hover:bg-green-400 hover:text-black"
+                  >
+                    Select Pack
+                  </Button>
+                )}
+              </div>
             </div>
 
             {/* Secondary Controls Row */}
@@ -4370,6 +5011,9 @@ export default function BeatMakerPage() {
             onShuffleTrack={handleShuffleAudio}
             onShuffleTrackPattern={handleShuffleTrackPattern}
             onShuffleAllPatterns={handleShuffleAllPatterns}
+            genres={genres}
+            subgenres={subgenres}
+            onGenreChange={loadSubgenres}
           />
         </div>
       </div>
@@ -4486,44 +5130,56 @@ export default function BeatMakerPage() {
                 <div className="w-48 bg-[#0f0f0f] border-r border-gray-600 p-4">
                   <h3 className="text-white font-medium mb-4">Patterns</h3>
                   <div className="space-y-2">
-                    {savedPatterns.length === 0 ? (
+                    {currentSequencerPatterns.length === 0 ? (
                       <div className="text-center text-gray-500 text-sm py-4">
-                        <div className="mb-2">No saved patterns yet</div>
-                        <div className="text-xs">Save patterns in the Sequencer tab first</div>
+                        <div className="mb-2">No active patterns</div>
+                        <div className="text-xs">Create patterns in the Sequencer tab first</div>
                       </div>
                     ) : (
-                      savedPatterns.map((pattern, index) => (
+                      currentSequencerPatterns.map((pattern, index) => (
                         <div key={pattern.id} className="space-y-1">
-                          <div
-                            className={`flex items-center p-2 rounded border transition-all cursor-pointer hover:bg-[#2a2a2a] ${
-                              lastLoadedPattern === pattern.id
-                                ? 'bg-[#1f3a5f] border-blue-500'
-                                : selectedPatternForPlacement === pattern.id
+                                                      <div
+                              className={`flex items-center p-2 rounded border transition-all cursor-pointer hover:bg-[#2a2a2a] ${
+                                selectedPatternForPlacement === pattern.id
                                   ? 'bg-[#1f5f3a] border-green-500'
                                   : 'bg-[#1f1f1f] border-gray-600 hover:border-gray-500'
-                            }`}
-                            onClick={() => {
-                              // Toggle pattern selection - if already selected, deselect it
-                              if (selectedPatternForPlacement === pattern.id) {
-                                clearPatternSelection()
-                              } else {
-                                selectPatternForPlacement(pattern.id)
-                              }
-                            }}
-                            title="Click to select/deselect this pattern for placement"
-                          >
+                              }`}
+                              onClick={() => {
+                                // Toggle pattern selection - if already selected, deselect it
+                                if (selectedPatternForPlacement === pattern.id) {
+                                  clearPatternSelection()
+                                } else {
+                                  selectPatternForPlacement(pattern.id)
+                                }
+                              }}
+                              title="Click to select/deselect this pattern for placement"
+                            >
                             <div className={`w-3 h-3 rounded mr-2 ${
-                              index === 0 ? 'bg-green-500' : 
+                              pattern.id.startsWith('track-') && pattern.tracks[0] ? pattern.tracks[0].color : (index === 0 ? 'bg-green-500' : 
                               index === 1 ? 'bg-blue-500' : 
-                              index === 2 ? 'bg-purple-500' : 'bg-orange-500'
+                              index === 2 ? 'bg-purple-500' : 'bg-orange-500')
                             }`}></div>
                             <span className="text-white text-sm flex-1">{pattern.name}</span>
                             <div className="ml-auto flex items-center gap-1">
-                              {lastLoadedPattern === pattern.id && (
+                              {pattern.id.startsWith('track-') && (
                                 <div className="text-blue-400 text-xs">🎛️</div>
                               )}
                               {selectedPatternForPlacement === pattern.id && (
                                 <div className="text-green-400 text-xs">📌</div>
+                              )}
+                              {!pattern.id.startsWith('track-') && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-xs h-6 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    removeCurrentSequencerPattern(pattern.id)
+                                  }}
+                                  title="Remove this pattern"
+                                >
+                                  ×
+                                </Button>
                               )}
                             </div>
                           </div>
@@ -4536,10 +5192,10 @@ export default function BeatMakerPage() {
                               className="flex-1 text-xs h-6"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                loadPattern(pattern.id)
+                                selectPatternForPlacement(pattern.id)
                               }}
                             >
-                              Load
+                              Use
                             </Button>
                             <Button
                               size="sm"
@@ -4547,20 +5203,11 @@ export default function BeatMakerPage() {
                               className="text-xs h-6 text-green-400 hover:text-green-300 hover:bg-green-900/20"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                // Save this pattern as a track pattern
-                                const patternData = {
-                                  name: pattern.name,
-                                  sequencer_data: pattern.sequencerData || [],
-                                  bpm: pattern.bpm,
-                                  key: pattern.transportKey || transportKey,
-                                  color: 'bg-gray-500',
-                                  audioUrl: null
-                                }
-                                
-                                // Create a new song arrangement with just this pattern
-                                savePatternAsTrackPattern(patternData)
+                                // Save this track pattern
+                                const patternName = pattern.id.startsWith('track-') ? `${pattern.name} Pattern` : pattern.name
+                                handleSavePattern(patternName)
                               }}
-                              title="Save this pattern as individual track pattern"
+                              title="Save this pattern"
                             >
                               <Save className="w-3 h-3" />
                             </Button>
@@ -4570,9 +5217,11 @@ export default function BeatMakerPage() {
                               className="text-xs h-6 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setShowLoadSongTrackPatternDialog(true)
+                                // Load saved patterns
+                                refreshSavedPatterns()
+                                setShowLoadPatternDialog(true)
                               }}
-                              title="Load saved track patterns"
+                              title="Load saved patterns"
                             >
                               <FolderOpen className="w-3 h-3" />
                             </Button>
@@ -4580,7 +5229,7 @@ export default function BeatMakerPage() {
                           
                           {/* Pattern info */}
                           <div className="text-xs text-gray-500 text-center">
-                            BPM: {pattern.bpm} | Steps: {pattern.steps}
+                            BPM: {pattern.bpm} | Steps: {pattern.steps} {pattern.id.startsWith('track-') ? '| Live' : ''}
                           </div>
                         </div>
                       ))
@@ -4588,19 +5237,23 @@ export default function BeatMakerPage() {
                   </div>
 
                   <div className="mt-6 space-y-2">
-                    <Button size="sm" variant="outline" className="w-full" onClick={saveAsNewPattern}>
+                    <Button size="sm" variant="outline" className="w-full" onClick={() => captureCurrentSequencerAsPattern()}>
                       <Music className="w-4 h-4 mr-2" />
-                      Save Pattern
+                      Capture Full Pattern
+                    </Button>
+                    <Button size="sm" variant="outline" className="w-full" onClick={saveAsNewPattern}>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save to Database
                     </Button>
                     <Button size="sm" variant="outline" className="w-full" onClick={refreshSavedPatterns}>
                       <RotateCcw className="w-4 h-4 mr-2" />
-                      Refresh Patterns
+                      Load Saved Patterns
                     </Button>
                     <div className="text-xs text-gray-500 text-center space-y-1">
-                      <div className="text-blue-500">🎛️ Blue = Loaded in sequencer</div>
+                      <div className="text-blue-500">🎛️ Blue = Live track patterns</div>
                       <div className="text-green-500">📌 Green = Selected for placement</div>
                       <div className="text-purple-400 mt-2">🎼 Click pattern then click timeline to assign!</div>
-                      <div className="text-orange-400 text-xs">🎯 Click timeline cell to assign/remove patterns</div>
+                      <div className="text-orange-400 text-xs">🎯 Track patterns only work on their specific track</div>
                       <div className="text-cyan-400 text-xs">👁️ Toggle button to show/hide pattern details</div>
                     </div>
                   </div>
@@ -4660,7 +5313,9 @@ export default function BeatMakerPage() {
                         <div className="w-24 px-2 flex items-center gap-2">
                           <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
                           <div className="flex flex-col">
-                            <div className="text-white text-xs font-medium truncate">{track.name}</div>
+                            <div className="text-white text-xs font-medium truncate">
+                              {getTrackTypeName(track.name)}
+                            </div>
                             <div className={`text-xs ${track.audioUrl ? 'text-green-500' : 'text-gray-500'}`}>
                               {track.audioUrl ? 'LOADED' : 'EMPTY'}
                             </div>
@@ -4672,7 +5327,7 @@ export default function BeatMakerPage() {
                           {/* Timeline grid */}
                           {Array.from({ length: 32 }, (_, i) => {
                             const assignedPatternId = getAssignedPattern(track.id, i)
-                            const assignedPattern = assignedPatternId ? savedPatterns.find(p => p.id === assignedPatternId) : null
+                            const assignedPattern = assignedPatternId ? currentSequencerPatterns.find(p => p.id === assignedPatternId) : null
                             const isCurrentBar = songPlayback.isPlaying && songPlayback.currentBar === i
                             const isSelected = selectedPatternForPlacement === assignedPatternId
                             
@@ -4686,8 +5341,23 @@ export default function BeatMakerPage() {
                                 } ${isCurrentBar && assignedPattern ? 'ring-2 ring-green-400 animate-pulse' : ''} ${isSelected ? 'ring-2 ring-blue-400' : ''}`}
                                 onClick={() => {
                                   if (selectedPatternForPlacement) {
-                                    // Assign the selected pattern
-                                    assignPatternToTrack(track.id, i, selectedPatternForPlacement)
+                                    // Check if the selected pattern is compatible with this track
+                                    const selectedPattern = currentSequencerPatterns.find(p => p.id === selectedPatternForPlacement)
+                                    if (selectedPattern) {
+                                      if (selectedPattern.id.startsWith('track-')) {
+                                        // Track pattern - only assign if it matches this track
+                                        const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''))
+                                        if (patternTrackId === track.id) {
+                                          assignPatternToTrack(track.id, i, selectedPatternForPlacement)
+                                        } else {
+                                          // Show a message that this pattern is for a different track
+                                          alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`)
+                                        }
+                                      } else {
+                                        // Full pattern - assign to all tracks
+                                        assignPatternToTrack(track.id, i, selectedPatternForPlacement)
+                                      }
+                                    }
                                     // Don't clear selection - keep it selected for multiple assignments
                                   } else if (assignedPatternId) {
                                     // Remove the assigned pattern
@@ -5497,6 +6167,40 @@ export default function BeatMakerPage() {
                 className="bg-[#2a2a2a] border-gray-600 text-white"
               />
             </div>
+            <div>
+              <Label htmlFor="pattern-genre" className="text-white">Genre</Label>
+              <Select value={selectedGenreId} onValueChange={setSelectedGenreId}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                  <SelectValue placeholder="Select a genre..." />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                  <SelectItem value="none">None</SelectItem>
+                  {genres.map((genre) => (
+                    <SelectItem key={genre.id} value={genre.id}>
+                      {genre.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedGenreId && selectedGenreId !== 'none' && (
+              <div>
+                <Label htmlFor="pattern-subgenre" className="text-white">Subgenre</Label>
+                <Select value={selectedSubgenre} onValueChange={setSelectedSubgenre}>
+                  <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                    <SelectValue placeholder="Select a subgenre..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                    <SelectItem value="none">None</SelectItem>
+                    {subgenres.map((subgenre) => (
+                      <SelectItem key={subgenre} value={subgenre}>
+                        {subgenre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSavePatternDialog(false)}>
@@ -5546,6 +6250,10 @@ export default function BeatMakerPage() {
                           <span>Steps: {pattern.steps}</span>
                           {pattern.pattern_type && <span>Type: {pattern.pattern_type}</span>}
                           {pattern.category && <span>Category: {pattern.category}</span>}
+                          {pattern.genre_id && (
+                            <span>Genre: {genres.find(g => g.id === pattern.genre_id)?.name || 'Unknown'}</span>
+                          )}
+                          {pattern.subgenre && <span>Subgenre: {pattern.subgenre}</span>}
                         </div>
                         {pattern.description && (
                           <p className="text-sm text-gray-500 mt-1">{pattern.description}</p>
@@ -5641,6 +6349,40 @@ export default function BeatMakerPage() {
                 className="bg-[#2a2a2a] border-gray-600 text-white"
               />
             </div>
+            <div>
+              <Label htmlFor="track-pattern-genre" className="text-white">Genre</Label>
+              <Select value={selectedGenreId} onValueChange={setSelectedGenreId}>
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                  <SelectValue placeholder="Select a genre..." />
+                </SelectTrigger>
+                <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                  <SelectItem value="none">None</SelectItem>
+                  {genres.map((genre) => (
+                    <SelectItem key={genre.id} value={genre.id}>
+                      {genre.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedGenreId && selectedGenreId !== 'none' && (
+              <div>
+                <Label htmlFor="track-pattern-subgenre" className="text-white">Subgenre</Label>
+                <Select value={selectedSubgenre} onValueChange={setSelectedSubgenre}>
+                  <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                    <SelectValue placeholder="Select a subgenre..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                    <SelectItem value="none">None</SelectItem>
+                    {subgenres.map((subgenre) => (
+                      <SelectItem key={subgenre} value={subgenre}>
+                        {subgenre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSaveTrackPatternDialog(false)}>
@@ -5701,26 +6443,97 @@ export default function BeatMakerPage() {
                           <span>Key: {genre.default_key}</span>
                           <span>Steps: {genre.default_steps}</span>
                         </div>
-                        {genreSubgenres[genre.name] && genreSubgenres[genre.name].length > 0 && (
-                          <div className="mt-2">
-                            <div className="text-xs text-gray-500 mb-1">Subgenres:</div>
-                            <div className="flex flex-wrap gap-1">
-                              {genreSubgenres[genre.name].slice(0, 3).map((subgenre, index) => (
-                                <span
-                                  key={index}
-                                  className="px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
-                                >
-                                  {subgenre}
-                                </span>
-                              ))}
-                              {genreSubgenres[genre.name].length > 3 && (
-                                <span className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded border border-gray-600">
-                                  +{genreSubgenres[genre.name].length - 3} more
-                                </span>
-                              )}
-                            </div>
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="text-xs text-gray-500">Subgenres:</div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-6 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (editingSubgenres[genre.id]) {
+                                  stopEditingSubgenres(genre.id)
+                                } else {
+                                  startEditingSubgenres(genre.id)
+                                }
+                              }}
+                            >
+                              {editingSubgenres[genre.id] ? 'Cancel' : 'Edit'}
+                            </Button>
                           </div>
-                        )}
+                          
+                          {editingSubgenres[genre.id] ? (
+                            // Edit mode
+                            <div className="space-y-2">
+                              <div className="flex gap-1">
+                                <Input
+                                  size={1}
+                                  placeholder="New subgenre..."
+                                  value={subgenreInputs[genre.id] || ''}
+                                  onChange={(e) => setSubgenreInputs(prev => ({ ...prev, [genre.id]: e.target.value }))}
+                                  onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                      addSubgenreToGenre(genre.id, genre.name)
+                                    }
+                                  }}
+                                  className="text-xs h-6"
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs h-6"
+                                  onClick={() => addSubgenreToGenre(genre.id, genre.name)}
+                                  disabled={isSavingSubgenres || !subgenreInputs[genre.id]?.trim()}
+                                >
+                                  {isSavingSubgenres ? '...' : '+'}
+                                </Button>
+                              </div>
+                              
+                              <div className="flex flex-wrap gap-1">
+                                {(genreSubgenres[genre.name] || []).map((subgenre, index) => (
+                                  <div
+                                    key={index}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
+                                  >
+                                    <span>{subgenre}</span>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        removeSubgenreFromGenre(genre.name, subgenre)
+                                      }}
+                                      className="text-red-400 hover:text-red-300 ml-1"
+                                      disabled={isSavingSubgenres}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            // View mode
+                            genreSubgenres[genre.name] && genreSubgenres[genre.name].length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {genreSubgenres[genre.name].slice(0, 3).map((subgenre, index) => (
+                                  <span
+                                    key={index}
+                                    className="px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
+                                  >
+                                    {subgenre}
+                                  </span>
+                                ))}
+                                {genreSubgenres[genre.name].length > 3 && (
+                                  <span className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded border border-gray-600">
+                                    +{genreSubgenres[genre.name].length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-gray-500 italic">No subgenres</div>
+                            )
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -6338,6 +7151,73 @@ export default function BeatMakerPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowLoadSongTrackPatternDialog(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pack Selection Dialog */}
+      <Dialog open={showPackDialog} onOpenChange={setShowPackDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Select Audio Pack
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Choose an audio pack to filter shuffle sounds from.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {audioPacks.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <div className="mb-2">No audio packs found</div>
+                <div className="text-sm">Create packs in My Library first</div>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {audioPacks.map((pack) => (
+                  <div
+                    key={pack.id}
+                    className="flex items-center justify-between p-3 bg-[#2a2a2a] rounded border border-gray-600 hover:border-gray-500 transition-colors cursor-pointer"
+                    onClick={() => {
+                      setSelectedPack(pack)
+                      setShowPackDialog(false)
+                    }}
+                  >
+                    <div className="flex-1">
+                      <div className="text-white font-medium">{pack.name}</div>
+                      <div className="text-gray-400 text-sm">
+                        {pack.description || 'No description'}
+                      </div>
+                      <div className="text-gray-500 text-xs">
+                        Created: {new Date(pack.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {selectedPack?.id === pack.id && (
+                        <Badge variant="secondary" className="bg-green-400 text-black">
+                          Selected
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPackDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => {
+                setSelectedPack(null)
+                setShowPackDialog(false)
+              }}
+              className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+            >
+              Clear Selection
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1125,9 +1125,26 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     </div>
 
                     {/* Playback Rate Display */}
-                    <div className="text-xs text-gray-400 text-center">
+                    <div className="text-xs text-gray-400 text-center mb-2">
                       Rate: {((track.currentBpm || track.originalBpm || 120) / (track.originalBpm || 120)).toFixed(2)}x
                     </div>
+
+                    {/* Quantize Button for Tempo Sync Issues */}
+                    {track.currentBpm !== track.originalBpm && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          // This would call a quantize function if implemented
+                          console.log(`[QUANTIZE] Attempting to quantize ${track.name} for tempo sync`)
+                          alert(`Quantize feature coming soon! This will align the loop to the grid for better tempo sync.`)
+                        }}
+                        className="w-full h-6 text-xs border-yellow-500 text-yellow-400 hover:bg-yellow-500 hover:text-black"
+                        title="Align loop to grid for better tempo sync"
+                      >
+                        🔧 Quantize Loop
+                      </Button>
+                    )}
                   </div>
                 )}
 

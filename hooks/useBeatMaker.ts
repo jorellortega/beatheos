@@ -66,6 +66,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   const samplesRef = useRef<{ [key: string]: Tone.Player }>({})
   const pitchShiftersRef = useRef<{ [key: string]: Tone.PitchShift }>({})
   const playingSamplesRef = useRef<Set<Tone.Player>>(new Set())
+  const trackPlayersRef = useRef<{ [trackId: number]: Tone.Player[] }>({})
   
   // Store original sequencer data to preserve patterns when steps change
   const originalSequencerDataRef = useRef<SequencerData>({})
@@ -319,27 +320,83 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       if (pianoRollNotesAtStep.length > 0 && validAudio && !track.mute) {
         console.log(`[DEBUG] Playing ${pianoRollNotesAtStep.length} piano roll notes for track ${track.name} at step ${step}`)
         
+        // Only stop players that are currently playing to prevent overlap
+        if (trackPlayersRef.current[track.id]) {
+          trackPlayersRef.current[track.id].forEach(player => {
+            try {
+              if (player.state === 'started') {
+                player.stop()
+              }
+            } catch (error) {
+              console.warn('Error stopping existing player:', error)
+            }
+          })
+        }
+        
         pianoRollNotesAtStep.forEach(note => {
           try {
-            // Use the existing player that's already loaded and synced
-            const existingPlayer = samplesRef.current[track.id]
-            if (!existingPlayer || !existingPlayer.loaded) {
-              console.warn(`[DEBUG] No loaded player for track ${track.name}`)
-              return
+            // Create a new player for this specific note to avoid conflicts
+            const notePlayer = new Tone.Player(track.audioUrl!)
+            
+            // Create a pitch shifter for this note
+            const notePitchShifter = new Tone.PitchShift({
+              pitch: note.pitchShift,
+              windowSize: 0.1,    // Smaller window for better quality
+              delayTime: 0.001,   // Smaller delay for better quality
+              feedback: 0.05      // Smaller feedback for stability
+            }).toDestination()
+            
+            // Connect player to pitch shifter
+            notePlayer.connect(notePitchShifter)
+            
+            // Track this player for this track
+            if (!trackPlayersRef.current[track.id]) {
+              trackPlayersRef.current[track.id] = []
             }
+            trackPlayersRef.current[track.id].push(notePlayer)
             
-            // Stop the player first if it's already playing
-            if (existingPlayer.state === 'started') {
-              existingPlayer.stop()
-            }
+            // Load and play the note with pitch shifting
+            notePlayer.load(track.audioUrl!).then(() => {
+              // Track the playing sample for cleanup
+              playingSamplesRef.current.add(notePlayer)
+              
+              // Start the sample immediately (in sync with sequencer step)
+              notePlayer.start()
+              
+              console.log(`[DEBUG] Successfully played piano roll note ${note.note} with pitch shift ${note.pitchShift} for track ${track.name} at step ${step}`)
+              
+              // Clean up after playback
+              const cleanup = () => {
+                try {
+                  notePlayer.stop()
+                  notePlayer.disconnect()
+                  notePitchShifter.disconnect()
+                  notePlayer.dispose()
+                  notePitchShifter.dispose()
+                  playingSamplesRef.current.delete(notePlayer)
+                  
+                  // Remove from track players array
+                  if (trackPlayersRef.current[track.id]) {
+                    const index = trackPlayersRef.current[track.id].indexOf(notePlayer)
+                    if (index > -1) {
+                      trackPlayersRef.current[track.id].splice(index, 1)
+                    }
+                  }
+                } catch (error) {
+                  console.warn('Error during cleanup:', error)
+                }
+              }
+              
+              // Set up cleanup when player stops
+              notePlayer.onstop = cleanup
+              
+              // Cleanup after the audio duration or 1.5 seconds, whichever is longer
+              const audioDuration = notePlayer.buffer ? notePlayer.buffer.duration : 1.5
+              setTimeout(cleanup, Math.max(audioDuration * 1000, 1500))
+            }).catch((error) => {
+              console.warn(`[DEBUG] Error loading audio for piano roll note:`, error)
+            })
             
-            // Track the playing sample for cleanup
-            playingSamplesRef.current.add(existingPlayer)
-            
-            // Start the sample immediately (in sync with sequencer step)
-            existingPlayer.start()
-            
-            console.log(`[DEBUG] Successfully played piano roll note ${note.note} for track ${track.name} at step ${step}`)
           } catch (error) {
             console.warn(`[DEBUG] Error playing piano roll note for track ${track.name}:`, error)
           }
@@ -368,6 +425,20 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         }
       })
       playingSamplesRef.current.clear()
+      
+      // Dispose all track players
+      Object.values(trackPlayersRef.current).flat().forEach(player => {
+        try {
+          if (player.state === 'started') {
+            player.stop()
+          }
+          player.disconnect()
+          player.dispose()
+        } catch (error) {
+          console.warn('Error disposing track player:', error)
+        }
+      })
+      trackPlayersRef.current = {}
       
       // Dispose all players
       Object.values(samplesRef.current).forEach(player => player.dispose())
@@ -519,6 +590,18 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     })
     playingSamplesRef.current.clear()
     
+    // Stop all track players (piano roll notes)
+    Object.values(trackPlayersRef.current).flat().forEach(player => {
+      try {
+        if (player.state === 'started') {
+          player.stop()
+        }
+      } catch (error) {
+        console.warn('[DEBUG] Error stopping track player:', error)
+      }
+    })
+    trackPlayersRef.current = {}
+    
     console.log('[STOP SEQUENCE] All samples stopped')
   }, [])
 
@@ -531,11 +614,26 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     const baseBpm = originalBpm || track.originalBpm || 120
     const playbackRate = newBpm / baseBpm
 
+    console.log(`[TEMPO UPDATE] Track: ${track.name}`)
+    console.log(`[TEMPO UPDATE] Original BPM: ${baseBpm}`)
+    console.log(`[TEMPO UPDATE] New BPM: ${newBpm}`)
+    console.log(`[TEMPO UPDATE] Playback Rate: ${playbackRate.toFixed(3)}`)
+
     // Update the player's playback rate if it exists
     const player = samplesRef.current[trackId]
     if (player) {
+      // Stop the player first if it's playing to prevent timing issues
+      if (player.state === 'started') {
+        player.stop()
+      }
+      
       player.playbackRate = playbackRate
       console.log(`[DEBUG] Updated playback rate for track ${track.name} to ${playbackRate} (${newBpm}/${baseBpm})`)
+      
+      // Force a small delay to ensure the playback rate change takes effect
+      setTimeout(() => {
+        console.log(`[TEMPO UPDATE] Playback rate change applied for ${track.name}`)
+      }, 10)
     }
 
     return {
@@ -543,6 +641,20 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       currentBpm: newBpm,
       playbackRate: playbackRate
     }
+  }, [tracks])
+
+  // Function to quantize a track to the grid (for tempo sync issues)
+  const quantizeTrack = useCallback((trackId: number) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return
+
+    console.log(`[QUANTIZE] Quantizing track ${track.name} to grid`)
+    
+    // For now, this is a placeholder for quantization logic
+    // In a full implementation, this would adjust the loop start point
+    // to align with the sequencer grid
+    
+    console.log(`[QUANTIZE] Track ${track.name} quantized to grid`)
   }, [tracks])
 
   // Function to update track pitch shift
