@@ -11,7 +11,7 @@ const AUDIO_TYPE_CATEGORIES = {
   'Drums': ['Kick', 'Snare', 'Hihat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'],
   'Bass': ['Bass', 'Sub', '808'],
   'Melodic': ['Melody', 'Lead', 'Pad', 'Chord', 'Arp'],
-  'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition', 'Other'],
+  'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Percussion Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition', 'Other'],
   'Effects': ['FX', 'Vocal', 'Sample'],
   'Technical': ['MIDI', 'Patch', 'Preset'],
   'Other': ['Other']

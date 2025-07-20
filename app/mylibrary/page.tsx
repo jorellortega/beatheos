@@ -58,6 +58,8 @@ interface AudioLibraryItem {
   bpm?: number
   key?: string
   audio_type?: string
+  genre?: string
+  subgenre?: string
   tags?: string[]
 }
 
@@ -156,11 +158,21 @@ export default function MyLibrary() {
     bpm: '',
     key: '',
     audio_type: '',
+    genre: '',
+    subgenre: '',
     description: '',
     tags: ''
   });
   const [savingAudio, setSavingAudio] = useState(false);
   const [audioEditError, setAudioEditError] = useState<string | null>(null);
+  
+  // Bulk genre edit modal
+  const [showBulkGenreModal, setShowBulkGenreModal] = useState(false);
+  const [bulkGenrePack, setBulkGenrePack] = useState<AudioPack | null>(null);
+  const [bulkGenreValue, setBulkGenreValue] = useState('');
+  const [bulkSubgenreValue, setBulkSubgenreValue] = useState('');
+  const [bulkGenreSaving, setBulkGenreSaving] = useState(false);
+  const [bulkGenreError, setBulkGenreError] = useState<string | null>(null);
   
   // Handle file selection
   const toggleFileSelection = (fileId: string) => {
@@ -574,6 +586,8 @@ export default function MyLibrary() {
     bpm: '',
     key: '',
     audio_type: '',
+    genre: '',
+    subgenre: '',
     tags: ''
   });
   const [audioUploading, setAudioUploading] = useState(false);
@@ -634,6 +648,8 @@ export default function MyLibrary() {
       bpm: newAudio.bpm ? parseInt(newAudio.bpm) : null,
       key: newAudio.key || null,
       audio_type: newAudio.audio_type || null,
+      genre: newAudio.genre || null,
+      subgenre: newAudio.subgenre || null,
       tags: newAudio.tags ? newAudio.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null
     };
     const { error } = await supabase.from('audio_library_items').insert([insertData]);
@@ -652,6 +668,8 @@ export default function MyLibrary() {
       bpm: '',
       key: '',
       audio_type: '',
+      genre: '',
+      subgenre: '',
       tags: ''
     });
     // Refresh data
@@ -762,6 +780,8 @@ export default function MyLibrary() {
       bpm: editAudioForm.bpm ? parseInt(editAudioForm.bpm) : null,
       key: editAudioForm.key || null,
       audio_type: editAudioForm.audio_type || null,
+      genre: editAudioForm.genre || null,
+      subgenre: editAudioForm.subgenre || null,
       description: editAudioForm.description || null,
       tags: editAudioForm.tags ? editAudioForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null
     };
@@ -783,6 +803,8 @@ export default function MyLibrary() {
       bpm: updateData.bpm || undefined,
       key: updateData.key || undefined,
       audio_type: updateData.audio_type || undefined,
+      genre: updateData.genre || undefined,
+      subgenre: updateData.subgenre || undefined,
       description: updateData.description || undefined,
       tags: updateData.tags || undefined
     };
@@ -795,7 +817,7 @@ export default function MyLibrary() {
     
     setShowEditAudioModal(false);
     setEditingAudio(null);
-    setEditAudioForm({ bpm: '', key: '', audio_type: '', description: '', tags: '' });
+            setEditAudioForm({ bpm: '', key: '', audio_type: '', genre: '', subgenre: '', description: '', tags: '' });
     setSavingAudio(false);
   }
   
@@ -806,10 +828,94 @@ export default function MyLibrary() {
       bpm: item.bpm?.toString() || '',
       key: item.key || '',
       audio_type: item.audio_type || '',
+      genre: item.genre || '',
+      subgenre: item.subgenre || '',
       description: item.description || '',
       tags: item.tags ? item.tags.join(', ') : ''
     });
     setShowEditAudioModal(true);
+  }
+  
+  // Open bulk genre edit modal for pack
+  function openBulkGenreModal(pack: AudioPack) {
+    setBulkGenrePack(pack);
+    setBulkGenreValue('');
+    setBulkSubgenreValue('');
+    setBulkGenreError(null);
+    setShowBulkGenreModal(true);
+  }
+  
+  // Handle bulk genre edit
+  async function handleBulkGenreEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user || !bulkGenrePack || !bulkGenreValue.trim()) return;
+    
+    setBulkGenreSaving(true);
+    setBulkGenreError(null);
+    
+    try {
+      // Get all audio items in this pack
+      const packItems = allAudioItems.filter(item => item.pack_id === bulkGenrePack.id);
+      
+      if (packItems.length === 0) {
+        setBulkGenreError('No audio files found in this pack');
+        setBulkGenreSaving(false);
+        return;
+      }
+      
+      // Prepare update data
+      const updateData: any = { genre: bulkGenreValue.trim() };
+      if (bulkSubgenreValue.trim()) {
+        updateData.subgenre = bulkSubgenreValue.trim();
+      }
+      
+      // Update all items in the pack with the new genre and subgenre
+      const { error } = await supabase
+        .from('audio_library_items')
+        .update(updateData)
+        .eq('pack_id', bulkGenrePack.id);
+      
+      if (error) {
+        setBulkGenreError(error.message);
+        setBulkGenreSaving(false);
+        return;
+      }
+      
+      // Update local state
+      const updatedItems = allAudioItems.map(item => 
+        item.pack_id === bulkGenrePack.id 
+          ? { 
+              ...item, 
+              genre: bulkGenreValue.trim(),
+              subgenre: bulkSubgenreValue.trim() || undefined
+            }
+          : item
+      );
+      
+      setAllAudioItems(updatedItems);
+      setAudioItems(audioItems.map(item => 
+        item.pack_id === bulkGenrePack.id 
+          ? { 
+              ...item, 
+              genre: bulkGenreValue.trim(),
+              subgenre: bulkSubgenreValue.trim() || undefined
+            }
+          : item
+      ));
+      
+      setShowBulkGenreModal(false);
+      setBulkGenrePack(null);
+      setBulkGenreValue('');
+      setBulkSubgenreValue('');
+      setBulkGenreSaving(false);
+      
+      const subgenreText = bulkSubgenreValue.trim() ? ` and subgenre "${bulkSubgenreValue.trim()}"` : '';
+      console.log(`Updated genre for ${packItems.length} files in pack "${bulkGenrePack.name}" to "${bulkGenreValue.trim()}"${subgenreText}`);
+    } catch (error) {
+      console.error('Error updating bulk genre:', error);
+      setBulkGenreError('Failed to update genre');
+      setBulkGenreSaving(false);
+    }
   }
 
   // Load specific page of audio items
@@ -1512,6 +1618,16 @@ export default function MyLibrary() {
               onChange={e => setNewAudio({ ...newAudio, audio_type: e.target.value })}
             />
             <Input
+              placeholder="Genre (e.g., trap, hip-hop, house, techno, dubstep, pop, rock)"
+              value={newAudio.genre}
+              onChange={e => setNewAudio({ ...newAudio, genre: e.target.value })}
+            />
+            <Input
+              placeholder="Subgenre (e.g., drill, boom bap, deep house, acid techno, melodic dubstep)"
+              value={newAudio.subgenre}
+              onChange={e => setNewAudio({ ...newAudio, subgenre: e.target.value })}
+            />
+            <Input
               placeholder="Tags (comma-separated, e.g., trap, dark, aggressive, 808)"
               value={newAudio.tags}
               onChange={e => setNewAudio({ ...newAudio, tags: e.target.value })}
@@ -2094,6 +2210,15 @@ export default function MyLibrary() {
                         >
                           {selectedPack === pack.id ? 'Hide' : 'View'} Files
                         </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openBulkGenreModal(pack)}
+                          className="bg-purple-500 hover:bg-purple-600 text-white border-purple-500"
+                        >
+                          <Music className="h-4 w-4 mr-1" />
+                          Set Genre
+                        </Button>
                         <Button 
                           variant="outline" 
                           size="sm" 
@@ -2214,7 +2339,7 @@ export default function MyLibrary() {
                                         .filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)
                                         .map(item => (
                                           <div 
-                                            key={item.id} 
+                                            key={`${pack.id}-${subfolder.name}-${item.id}`} 
                                             className={`flex items-center gap-4 p-2 bg-black rounded-lg ml-4 cursor-move transition-opacity ${
                                               draggedItem?.id === item.id ? 'opacity-50' : ''
                                             }`}
@@ -2236,17 +2361,17 @@ export default function MyLibrary() {
                                             <p className="text-xs text-gray-500 capitalize">{item.type}</p>
                                             <div className="flex items-center gap-1 mt-1">
                                               {item.bpm && (
-                                                <Badge variant="secondary" className="text-xs">
+                                                <Badge key={`bpm-${item.id}`} variant="secondary" className="text-xs">
                                                   {item.bpm} BPM
                                                 </Badge>
                                               )}
                                               {item.key && (
-                                                <Badge variant="secondary" className="text-xs">
+                                                <Badge key={`key-${item.id}`} variant="secondary" className="text-xs">
                                                   {item.key}
                                                 </Badge>
                                               )}
                                               {item.audio_type && (
-                                                <Badge variant="outline" className="text-xs">
+                                                <Badge key={`audio-type-${item.id}`} variant="outline" className="text-xs">
                                                   {item.audio_type}
                                                 </Badge>
                                               )}
@@ -2379,7 +2504,7 @@ export default function MyLibrary() {
                             .filter(item => item.pack_id === pack.id && !item.subfolder)
                             .map(item => (
                               <div 
-                                key={item.id} 
+                                key={`${pack.id}-root-${item.id}`} 
                                 className={`flex items-center gap-4 p-3 bg-black rounded-lg transition-opacity ${
                                   selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
                                 } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
@@ -2408,17 +2533,17 @@ export default function MyLibrary() {
                                   <p className="text-xs text-gray-500 capitalize">{item.type}</p>
                                   <div className="flex items-center gap-1 mt-1">
                                     {item.bpm && (
-                                      <Badge variant="secondary" className="text-xs">
+                                      <Badge key={`bpm-${item.id}`} variant="secondary" className="text-xs">
                                         {item.bpm} BPM
                                       </Badge>
                                     )}
                                     {item.key && (
-                                      <Badge variant="secondary" className="text-xs">
+                                      <Badge key={`key-${item.id}`} variant="secondary" className="text-xs">
                                         {item.key}
                                       </Badge>
                                     )}
                                     {item.audio_type && (
-                                      <Badge variant="outline" className="text-xs">
+                                      <Badge key={`audio-type-${item.id}`} variant="outline" className="text-xs">
                                         {item.audio_type}
                                       </Badge>
                                     )}
@@ -2560,6 +2685,16 @@ export default function MyLibrary() {
                                     {item.audio_type}
                                   </Badge>
                                 )}
+                                {item.genre && (
+                                  <Badge key={`genre-${item.id}`} variant="secondary" className="text-xs bg-purple-100 text-purple-800">
+                                    {item.genre}
+                                  </Badge>
+                                )}
+                                {item.subgenre && (
+                                  <Badge key={`subgenre-${item.id}`} variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                    {item.subgenre}
+                                  </Badge>
+                                )}
                               </div>
                               {item.tags && item.tags.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-1">
@@ -2661,6 +2796,24 @@ export default function MyLibrary() {
               </div>
               
               <div>
+                <label className="text-sm font-medium">Genre</label>
+                <Input
+                  placeholder="e.g., trap, hip-hop, house, techno, dubstep, pop, rock"
+                  value={editAudioForm.genre}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, genre: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Subgenre</label>
+                <Input
+                  placeholder="e.g., drill, boom bap, deep house, acid techno, melodic dubstep"
+                  value={editAudioForm.subgenre}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, subgenre: e.target.value })}
+                />
+              </div>
+              
+              <div>
                 <label className="text-sm font-medium">Tags</label>
                 <Input
                   placeholder="comma-separated, e.g., trap, dark, aggressive, 808"
@@ -2730,6 +2883,60 @@ export default function MyLibrary() {
           </div>
         </div>
       )}
+      
+      {/* Bulk Genre Edit Modal */}
+      <Dialog open={showBulkGenreModal} onOpenChange={setShowBulkGenreModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Genre & Subgenre for Pack: {bulkGenrePack?.name}</DialogTitle>
+          </DialogHeader>
+          {bulkGenrePack && (
+            <form onSubmit={handleBulkGenreEdit} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Genre *</label>
+                <Input
+                  placeholder="e.g., trap, hip-hop, house, techno, dubstep, pop, rock"
+                  value={bulkGenreValue}
+                  onChange={e => setBulkGenreValue(e.target.value)}
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Subgenre (Optional)</label>
+                <Input
+                  placeholder="e.g., drill, boom bap, deep house, acid techno, melodic dubstep"
+                  value={bulkSubgenreValue}
+                  onChange={e => setBulkSubgenreValue(e.target.value)}
+                />
+              </div>
+              
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  This will set the genre{bulkSubgenreValue.trim() ? ' and subgenre' : ''} for <strong>{allAudioItems.filter(item => item.pack_id === bulkGenrePack.id).length} audio files</strong> in the "{bulkGenrePack.name}" pack.
+                </p>
+              </div>
+              
+              {bulkGenreError && (
+                <div className="text-red-500 text-sm">{bulkGenreError}</div>
+              )}
+              
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button 
+                  type="submit" 
+                  disabled={bulkGenreSaving || !bulkGenreValue.trim()}
+                  className="bg-purple-500 hover:bg-purple-600 text-white"
+                >
+                  {bulkGenreSaving ? 'Setting Genre...' : 'Set Genre & Subgenre'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
       
       {/* Mass Edit Subfolder Modal */}
       {massEditPack && massEditSubfolder && (

@@ -18,6 +18,7 @@ interface SequencerGridProps {
   onSaveTrackPattern?: (track: Track) => void
   onSaveAllPatterns?: () => void
   onLoadPattern?: (patternId: string) => void
+  onLoadTrackPattern?: (trackId: number) => void
   onClearAllPatterns?: () => void
   onClearTrackPattern?: (trackId: number) => void
   onToggleTrackMute?: (trackId: number) => void
@@ -40,6 +41,7 @@ export function SequencerGrid({
   onSaveTrackPattern,
   onSaveAllPatterns,
   onLoadPattern,
+  onLoadTrackPattern,
   onClearAllPatterns,
   onClearTrackPattern,
   onToggleTrackMute,
@@ -61,6 +63,7 @@ export function SequencerGrid({
   const [showSaveForm, setShowSaveForm] = useState(false)
   const [savingTrackId, setSavingTrackId] = useState<number | null>(null)
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
+  const [stepWidth, setStepWidth] = useState(48) // Default step width in pixels
 
   const handleSavePattern = () => {
     if (!patternName.trim()) {
@@ -100,19 +103,55 @@ export function SequencerGrid({
   return (
     <Card className="!bg-[#141414] border-gray-700">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-white">Sequencer Grid</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-xs">
-              {bpm} BPM
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              {steps} Steps
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              {tracks.length} Tracks
-            </Badge>
-            
+        <div className="flex flex-col gap-4">
+          {/* Title and Stats Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-white">Sequencer Grid</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onShuffleAllPatterns}
+                className="text-xs bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
+                title="Shuffle all sequencer patterns"
+              >
+                <Brain className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">
+                {bpm} BPM
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {steps} Steps
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {tracks.length} Tracks
+              </Badge>
+            </div>
+          </div>
+
+          {/* Zoom Control Row */}
+          <div className="flex items-center gap-3">
+            <span className="text-white text-sm">Zoom:</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="24"
+                max="96"
+                value={stepWidth}
+                onChange={(e) => setStepWidth(parseInt(e.target.value))}
+                className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                style={{
+                  background: `linear-gradient(to right, #fbbf24 0%, #fbbf24 ${((stepWidth - 24) / (96 - 24)) * 100}%, #374151 ${((stepWidth - 24) / (96 - 24)) * 100}%, #374151 100%)`
+                }}
+              />
+              <span className="text-white text-xs min-w-[2rem]">{stepWidth}px</span>
+            </div>
+          </div>
+
+          {/* Action Buttons Row */}
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -163,15 +202,7 @@ export function SequencerGrid({
               Patterns
             </Button>
             
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onShuffleAllPatterns}
-              className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
-              title="Shuffle all sequencer patterns"
-            >
-              <Brain className="w-4 h-4" />
-            </Button>
+
             
             <Button
               variant="outline"
@@ -264,7 +295,8 @@ export function SequencerGrid({
                 return (
                   <div
                     key={i}
-                    className={`w-12 h-8 flex items-center justify-center text-xs font-mono border-r ${
+                    style={{ width: `${stepWidth}px`, minWidth: `${stepWidth}px` }}
+                    className={`h-8 flex items-center justify-center text-xs font-mono border-r ${
                       isDownbeat ? 'border-yellow-500 border-r-2' : 'border-gray-600'
                     } ${
                       isCurrentStep 
@@ -319,9 +351,9 @@ export function SequencerGrid({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => onLoadPattern?.('database')}
+                      onClick={() => onLoadTrackPattern?.(track.id)}
                       className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
-                      title={`Load Pattern for ${track.name}`}
+                      title={`Load ${track.name} Pattern`}
                     >
                       <FolderOpen className="w-3 h-3" />
                     </Button>
@@ -388,7 +420,8 @@ export function SequencerGrid({
                       <Button
                         variant={isActive ? "default" : "outline"}
                         size="sm"
-                        className={`w-12 h-8 rounded-none border-r border-gray-600 ${
+                        style={{ width: `${stepWidth}px`, minWidth: `${stepWidth}px` }}
+                        className={`h-8 rounded-none border-r border-gray-600 ${
                           isActive ? track.color : 'bg-[#1f1f1f] hover:bg-[#2a2a2a]'
                         } ${
                           isCurrentStep ? 'ring-2 ring-white' : ''
@@ -401,7 +434,10 @@ export function SequencerGrid({
                       </Button>
                       {/* Piano roll notes indicator */}
                       {hasPianoRollNotes && (
-                        <div className="w-12 h-2 bg-cyan-500/60 border-r border-gray-600 flex items-center justify-center">
+                        <div 
+                          style={{ width: `${stepWidth}px`, minWidth: `${stepWidth}px` }}
+                          className="h-2 bg-cyan-500/60 border-r border-gray-600 flex items-center justify-center"
+                        >
                           <div className="w-1 h-1 bg-cyan-300 rounded-full"></div>
                           {/* Show count of piano roll notes */}
                           <span className="text-xs text-cyan-300 ml-1">
@@ -422,5 +458,48 @@ export function SequencerGrid({
       </CardContent>
     </Card>
   )
+}
+
+// Add custom slider styles
+const sliderStyles = `
+  .slider::-webkit-slider-thumb {
+    appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #000000;
+    border: 2px solid #fbbf24;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+  
+  .slider::-moz-range-thumb {
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #000000;
+    border: 2px solid #fbbf24;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  }
+  
+  .slider::-webkit-slider-track {
+    height: 8px;
+    border-radius: 4px;
+    background: transparent;
+  }
+  
+  .slider::-moz-range-track {
+    height: 8px;
+    border-radius: 4px;
+    background: transparent;
+  }
+`
+
+// Inject styles
+if (typeof document !== 'undefined') {
+  const styleElement = document.createElement('style')
+  styleElement.textContent = sliderStyles
+  document.head.appendChild(styleElement)
 }
 

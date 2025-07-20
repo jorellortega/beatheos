@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Piano, Music, Play, Square, RotateCcw, Grid, Eraser, MousePointer, Volume2, Save, Download } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
+import { PITCH_SHIFT_SETTINGS, calculatePitchShift, validatePitchShift } from '@/lib/utils'
 
 interface AudioNote {
   id: string
@@ -53,19 +54,20 @@ export function AudioPianoRoll({
   const [patternName, setPatternName] = useState('')
   const [showSaveForm, setShowSaveForm] = useState(false)
   
-  // Audio players refs
+  // Audio players and pitch shifters refs - improved for better quality
   const audioPlayersRef = useRef<{[noteId: string]: any}>({})
+  const pitchShiftersRef = useRef<{[noteId: string]: any}>({})
+  const audioContextRef = useRef<any>(null)
 
   // Generate all note names for the piano roll
   const allNotes = OCTAVES.flatMap(octave => 
     NOTES.map(note => `${note}${octave}`)
   ).reverse() // Reverse to show higher notes at top
 
-  // Calculate pitch shift from note
+  // Calculate pitch shift from note - improved with utility function
   const getPitchShiftFromNote = (note: string, originalKey: string = 'C'): number => {
-    const noteIndex = NOTES.indexOf(note.replace(/\d/, ''))
-    const originalIndex = NOTES.indexOf(originalKey)
-    return noteIndex - originalIndex
+    const pitchShift = calculatePitchShift(originalKey, note.replace(/\d/, ''))
+    return validatePitchShift(pitchShift)
   }
 
   // Get note from pitch shift
@@ -198,28 +200,53 @@ export function AudioPianoRoll({
     return colorMap[track.color] || 'bg-blue-500/80'
   }
 
-  // Initialize audio players
+  // Initialize audio players with improved pitch shifting
   useEffect(() => {
     const initAudioPlayers = async () => {
       try {
         const Tone = await import('tone')
         
-        // Clean up existing players
+        // Initialize audio context if not already done
+        if (!audioContextRef.current) {
+          await Tone.start()
+          audioContextRef.current = Tone.context
+        }
+        
+        // Clean up existing players and pitch shifters
         Object.values(audioPlayersRef.current).forEach(player => {
           if (player.state === 'started') {
             player.stop()
           }
           player.dispose()
         })
+        Object.values(pitchShiftersRef.current).forEach(shifter => {
+          shifter.dispose()
+        })
         audioPlayersRef.current = {}
+        pitchShiftersRef.current = {}
 
-        // Create players for each unique audio URL
+        // Create players for each unique audio URL with pre-created pitch shifters
         const uniqueAudioUrls = [...new Set(notes.map(n => n.audioUrl))]
         
         for (const audioUrl of uniqueAudioUrls) {
-          const player = new Tone.Player(audioUrl).toDestination()
-          player.volume.value = Tone.gainToDb(volume)
-          audioPlayersRef.current[audioUrl] = player
+          // Create a master player for this audio URL
+          const masterPlayer = new Tone.Player(audioUrl)
+          masterPlayer.volume.value = Tone.gainToDb(volume)
+          
+          // Create a high-quality pitch shifter for this audio URL
+          const pitchShifter = new Tone.PitchShift({
+            pitch: 0, // Will be set dynamically
+            windowSize: PITCH_SHIFT_SETTINGS.windowSize,
+            delayTime: PITCH_SHIFT_SETTINGS.delayTime,
+            feedback: PITCH_SHIFT_SETTINGS.feedback
+          }).toDestination()
+          
+          // Connect master player to pitch shifter
+          masterPlayer.connect(pitchShifter)
+          
+          // Store references
+          audioPlayersRef.current[audioUrl] = masterPlayer
+          pitchShiftersRef.current[audioUrl] = pitchShifter
         }
         
       } catch (error) {
@@ -232,31 +259,74 @@ export function AudioPianoRoll({
     }
   }, [isOpen, volume, notes])
 
+  // Cleanup audio resources on unmount
+  useEffect(() => {
+    return () => {
+      // Clean up all audio players and pitch shifters
+      Object.values(audioPlayersRef.current).forEach(player => {
+        if (player.state === 'started') {
+          player.stop()
+        }
+        player.dispose()
+      })
+      Object.values(pitchShiftersRef.current).forEach(shifter => {
+        shifter.dispose()
+      })
+      audioPlayersRef.current = {}
+      pitchShiftersRef.current = {}
+    }
+  }, [])
+
+  // Update volume when volume state changes
+  useEffect(() => {
+    const Tone = import('tone').then(Tone => {
+      Object.values(audioPlayersRef.current).forEach(player => {
+        if (player) {
+          player.volume.value = Tone.gainToDb(volume)
+        }
+      })
+    }).catch(error => {
+      console.error('Failed to update volume:', error)
+    })
+  }, [volume])
+
   const playAudioNote = async (note: AudioNote) => {
     try {
       const player = audioPlayersRef.current[note.audioUrl]
-      if (player && player.loaded) {
-        // Apply pitch shift
-        const pitchShift = note.pitchShift
-        if (pitchShift !== 0) {
-          const Tone = await import('tone')
-          const pitchShiftNode = new Tone.PitchShift({
-            pitch: pitchShift,
-            windowSize: 0.1,
-            delayTime: 0
-          }).toDestination()
-          
-          player.connect(pitchShiftNode)
-          player.start()
-          
-          // Disconnect after playback
-          setTimeout(() => {
-            player.disconnect(pitchShiftNode)
-            pitchShiftNode.dispose()
-          }, 1000)
-        } else {
-          player.start()
+      const pitchShifter = pitchShiftersRef.current[note.audioUrl]
+      
+      if (player && player.loaded && pitchShifter) {
+        // Create a new player instance for this specific note to avoid conflicts
+        const Tone = await import('tone')
+        const notePlayer = new Tone.Player(note.audioUrl)
+        notePlayer.volume.value = Tone.gainToDb(volume)
+        
+        // Create a dedicated pitch shifter for this note
+        const notePitchShifter = new Tone.PitchShift({
+          pitch: note.pitchShift,
+          windowSize: PITCH_SHIFT_SETTINGS.windowSize,
+          delayTime: PITCH_SHIFT_SETTINGS.delayTime,
+          feedback: PITCH_SHIFT_SETTINGS.feedback
+        }).toDestination()
+        
+        // Connect and play
+        notePlayer.connect(notePitchShifter)
+        notePlayer.start()
+        
+        // Clean up after playback
+        const cleanup = () => {
+          notePlayer.stop()
+          notePlayer.disconnect()
+          notePitchShifter.disconnect()
+          notePlayer.dispose()
+          notePitchShifter.dispose()
         }
+        
+        // Set up cleanup when player stops
+        notePlayer.onstop = cleanup
+        
+        // Also cleanup after a reasonable time (2 seconds)
+        setTimeout(cleanup, 2000)
       }
     } catch (error) {
       console.error('Failed to play audio note:', error)

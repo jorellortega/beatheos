@@ -3,10 +3,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
-import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Brain, Piano, Lock, Unlock, Copy } from 'lucide-react'
+import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Brain, Piano, Lock, Unlock, Copy, X, Save, FolderOpen } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
 import { StockSoundSelector } from './StockSoundSelector'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 // Musical key calculation utilities
 const CHROMATIC_SCALE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -251,7 +252,7 @@ interface TrackListProps {
   onTrackAudioSelect: (trackId: number) => void
   currentStep: number
   sequencerData: { [trackId: number]: boolean[] }
-  onAddTrack: () => void
+  onAddTrack: (trackType?: string) => void
   onRemoveTrack: (trackId: number) => void
   onReorderTracks?: (newOrder: Track[]) => void
   onDirectAudioDrop?: (trackId: number, file: File) => void
@@ -267,9 +268,10 @@ interface TrackListProps {
   onSetTransportKey?: (key: string) => void
   onToggleTrackLock?: (trackId: number) => void
   onToggleTrackMute?: (trackId: number) => void
+  transportKey?: string
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, transportKey }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [draggedKey, setDraggedKey] = useState<string | null>(null)
@@ -287,6 +289,9 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   const [showKeyControls, setShowKeyControls] = useState<{[trackId: number]: boolean}>({})
   const [editingOriginalKey, setEditingOriginalKey] = useState<{[trackId: number]: boolean}>({})
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
+  const [showCategoryModal, setShowCategoryModal] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [selectedKey, setSelectedKey] = useState<string>(transportKey || 'C')
 
   // Stock sound selector state
   const [showStockSoundSelector, setShowStockSoundSelector] = useState<{trackId: number | null}>({trackId: null})
@@ -475,6 +480,43 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
       [trackId]: !prev[trackId]
     }))
   }
+
+  // Track categories and their options
+  const trackCategories = {
+    'Drums': ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'],
+    'Bass': ['Bass', 'Sub', '808'],
+    'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Percussion Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition'],
+    'Effects': ['FX', 'Vocal', 'Sample'],
+    'Technical': ['MIDI', 'Patch', 'Preset']
+  }
+
+  const categoryIcons = {
+    'Drums': '🥁',
+    'Bass': '🎸',
+    'Loops': '🔄',
+    'Effects': '🎛️',
+    'Technical': '⚙️'
+  }
+
+  const categoryColors = {
+    'Drums': 'text-green-400',
+    'Bass': 'text-orange-400',
+    'Loops': 'text-purple-400',
+    'Effects': 'text-cyan-400',
+    'Technical': 'text-blue-400'
+  }
+
+  const handleCategoryClick = (category: string) => {
+    setSelectedCategory(category)
+    setShowCategoryModal(true)
+  }
+
+  const handleTrackTypeSelect = (trackType: string) => {
+    // Call the existing addTrackByType function from the parent component
+    onAddTrack(trackType)
+    setShowCategoryModal(false)
+  }
+
   return (
     <>
       {/* Stock Sound Selector Modal */}
@@ -489,6 +531,43 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
             setShowStockSoundSelector({trackId: null})
           }}
         />
+      )}
+      
+      {/* Category Selection Modal */}
+      {showCategoryModal && (
+        <Dialog open={showCategoryModal} onOpenChange={setShowCategoryModal}>
+          <DialogContent className="bg-[#141414] border-gray-700 max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center justify-between">
+                <span>Add {selectedCategory} Track</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCategoryModal(false)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="p-6">
+              <p className="text-gray-400 mb-6">Choose the type of {selectedCategory.toLowerCase()} track you want to add:</p>
+              
+
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {trackCategories[selectedCategory as keyof typeof trackCategories]?.map((trackType) => (
+                  <Button
+                    key={trackType}
+                    onClick={() => handleTrackTypeSelect(trackType)}
+                    className={`h-16 flex flex-col items-center justify-center bg-black border-gray-700 hover:bg-gray-900 ${categoryColors[selectedCategory as keyof typeof categoryColors]}`}
+                  >
+                    <div className="text-sm font-bold">{trackType}</div>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
       
       {/* Drag Line Visual */}
@@ -518,9 +597,10 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
         onMouseUp={handleMouseUp}
       >
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-white">Audio Samples</CardTitle>
+          <div className="flex flex-col gap-4">
+            {/* Title and Shuffle Row */}
             <div className="flex items-center gap-2">
+              <CardTitle className="text-white">Tracks</CardTitle>
               <Button
                 onClick={onShuffleAllAudio}
                 size="sm"
@@ -530,15 +610,23 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
               >
                 <Brain className="w-4 h-4" />
               </Button>
-              <Button
-                onClick={onAddTrack}
-                size="sm"
-                variant="outline"
-                className="text-xs"
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add Track
-              </Button>
+            </div>
+
+            {/* Category Buttons Row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {Object.entries(trackCategories).map(([category, options]) => (
+                <Button
+                  key={category}
+                  onClick={() => handleCategoryClick(category)}
+                  size="sm"
+                  variant="outline"
+                  className={`text-xs bg-black border-gray-700 hover:bg-gray-900 rounded-md px-3 py-1.5 font-medium ${categoryColors[category as keyof typeof categoryColors]}`}
+                  title={`Add ${category} Track`}
+                >
+                  <span className="mr-1.5 text-sm">{categoryIcons[category as keyof typeof categoryIcons]}</span>
+                  <span>Add {category}</span>
+                </Button>
+              ))}
             </div>
           </div>
         </CardHeader>
@@ -602,8 +690,9 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-2">
+                  {/* Audio Info Row */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     {/* MIDI: Show only stock sound name, no audio badge */}
                     {track.name === 'MIDI' && track.stockSound ? (
                       <Badge 
@@ -704,7 +793,9 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  {/* Controls Row */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     {/* Only show Piano Roll button for MIDI */}
                     {onOpenPianoRoll && track.name === 'MIDI' && (
                       <Button
@@ -766,7 +857,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         {/* Shuffle button - show for all track types that support shuffle */}
                         {onShuffleAudio && [
                           // Drums
-                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal',
+                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion',
                           // Bass
                           'Bass', 'Sub', '808',
                           // Melodic
@@ -796,7 +887,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                           // Bass
                           'Bass', 'Sub', '808',
                           // Drums
-                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal',
+                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion',
                           // Effects & Technical
                           'FX', 'Vocal', 'Sample', 'Patch', 'Preset'
                         ].includes(track.name) && (
@@ -843,6 +934,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         >
                           {track.audioUrl ? 'Change' : 'Select Audio'}
                         </Button>
+
                       </>
                     )}
                     {/* Remove track button (all tracks) */}

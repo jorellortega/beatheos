@@ -21,6 +21,8 @@ interface AudioLibraryItem {
   bpm?: number
   key?: string
   audio_type?: string
+  genre?: string
+  subgenre?: string
   tags?: string[]
 }
 
@@ -60,7 +62,7 @@ interface MassEditSubfolderModalProps {
     'Drums': ['Kick', 'Snare', 'Hihat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'],
     'Bass': ['Bass', 'Sub', '808'],
     'Melodic': ['Melody', 'Lead', 'Pad', 'Chord', 'Arp'],
-    'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition', 'Other'],
+    'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Percussion Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition', 'Other'],
     'Effects': ['FX', 'Vocal', 'Sample'],
     'Technical': ['MIDI', 'Patch', 'Preset'],
     'Other': ['Other']
@@ -86,6 +88,8 @@ const MASS_EDIT_FIELDS = [
   { value: 'bpm', label: 'BPM' },
   { value: 'key', label: 'Key' },
   { value: 'audio_type', label: 'Audio Type' },
+  { value: 'genre', label: 'Genre' },
+  { value: 'subgenre', label: 'Subgenre' },
   { value: 'tags', label: 'Tags' },
 ]
 
@@ -429,9 +433,9 @@ export function MassEditSubfolderModal({
                 
                 {/* Audio Type Options */}
                 <div className="grid grid-cols-3 gap-2">
-                  {AUDIO_TYPE_CATEGORIES[selectedAudioCategory as keyof typeof AUDIO_TYPE_CATEGORIES]?.map((type: string) => (
+                  {AUDIO_TYPE_CATEGORIES[selectedAudioCategory as keyof typeof AUDIO_TYPE_CATEGORIES]?.map((type: string, index: number) => (
                     <button
-                      key={type}
+                      key={`${selectedAudioCategory}-${type}-${index}`}
                       type="button"
                       className={`p-2 rounded text-sm transition-colors ${
                         editValue === type
@@ -444,6 +448,26 @@ export function MassEditSubfolderModal({
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+            {selectedField === 'genre' && (
+              <div className="mb-3">
+                <Label>Genre</Label>
+                <Input
+                  placeholder="e.g., trap, hip-hop, house, techno, dubstep, pop, rock"
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                />
+              </div>
+            )}
+            {selectedField === 'subgenre' && (
+              <div className="mb-3">
+                <Label>Subgenre</Label>
+                <Input
+                  placeholder="e.g., drill, boom bap, deep house, acid techno, melodic dubstep"
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                />
               </div>
             )}
             {selectedField === 'tags' && (
@@ -527,11 +551,13 @@ export function MassEditSubfolderModal({
                               {item.bpm && <span>BPM: {item.bpm}</span>}
                               {item.key && <span>Key: {item.key}</span>}
                               {item.audio_type && <span>Audio: {item.audio_type}</span>}
+                              {item.genre && <span>Genre: {item.genre}</span>}
+                              {item.subgenre && <span>Subgenre: {item.subgenre}</span>}
                             </div>
                             {item.tags && item.tags.length > 0 && (
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {item.tags.map((tag, index) => (
-                                  <Badge key={index} variant="secondary" className="text-xs">
+                                  <Badge key={`tag-${item.id}-${index}`} variant="secondary" className="text-xs">
                                     {tag}
                                   </Badge>
                                 ))}
@@ -635,11 +661,29 @@ export function MassEditSubfolderModal({
                                 <SelectValue placeholder="Select audio type..." />
                               </SelectTrigger>
                               <SelectContent>
-                                {Object.values(AUDIO_TYPE_CATEGORIES).flat().map((type: string) => (
-                                  <SelectItem key={type} value={type}>{type}</SelectItem>
+                                {Object.values(AUDIO_TYPE_CATEGORIES).flat().map((type: string, index: number) => (
+                                  <SelectItem key={`audio-type-${type}-${index}`} value={type}>{type}</SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
+                          </div>
+                          
+                          <div>
+                            <Label>Genre</Label>
+                            <Input
+                              value={editingItems[item.id]?.genre || ''}
+                              onChange={(e) => updateEditingItem(item.id, 'genre', e.target.value)}
+                              placeholder="e.g., trap, hip-hop, house"
+                            />
+                          </div>
+                          
+                          <div>
+                            <Label>Subgenre</Label>
+                            <Input
+                              value={editingItems[item.id]?.subgenre || ''}
+                              onChange={(e) => updateEditingItem(item.id, 'subgenre', e.target.value)}
+                              placeholder="e.g., drill, boom bap, deep house"
+                            />
                           </div>
                         </div>
                         
@@ -647,7 +691,7 @@ export function MassEditSubfolderModal({
                           <Label>Tags</Label>
                           <div className="flex flex-wrap gap-2 mb-2">
                             {(editingItems[item.id]?.tags || []).map((tag, index) => (
-                              <Badge key={index} variant="secondary" className="text-xs">
+                              <Badge key={`edit-tag-${item.id}-${index}`} variant="secondary" className="text-xs">
                                 {tag}
                                 <button
                                   onClick={() => removeTagFromItem(item.id, tag)}

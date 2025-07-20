@@ -31,6 +31,9 @@ export default function Navbar() {
         <Link href="/upload-beat" className="text-lg text-white hover:text-[#FFD700]">
           Upload Beat
         </Link>
+        <Link href="/ai" className="text-lg text-white hover:text-[#FFD700]">
+          AI Assistant
+        </Link>
       </div>
     </nav>
   )

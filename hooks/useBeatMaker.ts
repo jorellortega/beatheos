@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import * as Tone from 'tone'
+import { PITCH_SHIFT_SETTINGS } from '@/lib/utils'
 
 export interface Track {
   id: number
@@ -172,31 +173,24 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     Tone.Transport.bpm.value = bpm
   }, [bpm])
 
-  // Load audio samples
+  // Load samples with improved pitch shifting
   useEffect(() => {
     const loadSamples = async () => {
+      const Tone = await import('tone')
+      
       // Clean up existing samples and pitch shifters
       Object.values(samplesRef.current).forEach(player => {
-        try {
-          if (player.state === 'started') {
-            player.stop()
-          }
-          player.dispose()
-        } catch (error) {
-          console.warn('[DEBUG] Error disposing player:', error)
+        if (player.state === 'started') {
+          player.stop()
         }
+        player.dispose()
       })
-      Object.values(pitchShiftersRef.current).forEach(pitchShift => {
-        try {
-          pitchShift.dispose()
-        } catch (error) {
-          console.warn('[DEBUG] Error disposing pitch shifter:', error)
-        }
+      Object.values(pitchShiftersRef.current).forEach(shifter => {
+        shifter.dispose()
       })
       samplesRef.current = {}
       pitchShiftersRef.current = {}
 
-      // Load new samples
       for (const track of tracks) {
         if (track.audioUrl && track.audioUrl !== 'undefined') {
           try {
@@ -205,8 +199,9 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
             // Create pitch shifter with high quality settings
             const pitchShift = new Tone.PitchShift({
               pitch: track.pitchShift || 0,
-              windowSize: 0.1,     // Larger window for better quality
-              delayTime: 0         // Minimize delay
+              windowSize: PITCH_SHIFT_SETTINGS.windowSize,
+              delayTime: PITCH_SHIFT_SETTINGS.delayTime,
+              feedback: PITCH_SHIFT_SETTINGS.feedback
             }).toDestination()
             pitchShiftersRef.current[track.id] = pitchShift
             
