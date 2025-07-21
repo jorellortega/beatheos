@@ -1839,18 +1839,18 @@ export default function BeatMakerPage() {
         if (!(selectedGenre && selectedGenre.name && isGenreLocked && selectedSubgenre && isSubgenreLocked)) {
           console.log(`[FALLBACK] Trying with no genre/subgenre filters (not both locked)`)
           let noFilterQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
-          
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
+        
           const { data: noFilterAudio, error: noFilterError } = await noFilterQuery.limit(10)
-          
+        
           if (noFilterAudio && noFilterAudio.length > 0) {
             console.log(`[FALLBACK] Found ${noFilterAudio.length} files with no genre filters`)
             const randomAudio = noFilterAudio[Math.floor(Math.random() * noFilterAudio.length)]
-            createDuplicateTrack(originalTrack, randomAudio)
-            return
+          createDuplicateTrack(originalTrack, randomAudio)
+          return
           }
         }
         
@@ -2140,12 +2140,12 @@ export default function BeatMakerPage() {
 
       } else {
         // Single filter logic (only genre, subgenre, or pack)
-        if (selectedGenre && selectedGenre.name && isGenreLocked) {
-          query = query.eq('genre', selectedGenre.name)
-          console.log(`[DEBUG] Filtering by locked genre: ${selectedGenre.name}`)
-        }
-        
-        if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
+      if (selectedGenre && selectedGenre.name && isGenreLocked) {
+        query = query.eq('genre', selectedGenre.name)
+        console.log(`[DEBUG] Filtering by locked genre: ${selectedGenre.name}`)
+      }
+      
+      if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
           query = query.ilike('subgenre', selectedSubgenre.trim())
           console.log(`[DEBUG] Filtering by locked subgenre (case-insensitive): ${selectedSubgenre.trim()}`)
         }
@@ -2171,13 +2171,13 @@ export default function BeatMakerPage() {
               pack_id: f.pack_id
             })))
           }
-        }
-        
-        const { data: typeFiles, error: typeError } = await query
-        
-        console.log(`[DEBUG] Found ${typeFiles?.length || 0} files with audio_type: ${audioType}`)
-        if (typeFiles && typeFiles.length > 0) {
-          audioFiles = [...audioFiles, ...typeFiles]
+      }
+      
+      const { data: typeFiles, error: typeError } = await query
+      
+      console.log(`[DEBUG] Found ${typeFiles?.length || 0} files with audio_type: ${audioType}`)
+      if (typeFiles && typeFiles.length > 0) {
+        audioFiles = [...audioFiles, ...typeFiles]
           console.log(`[DEBUG] Sample files found:`, typeFiles.slice(0, 3).map(f => ({ 
             name: f.name, 
             genre: f.genre, 
@@ -2290,8 +2290,8 @@ export default function BeatMakerPage() {
               audioFiles = typeFiles
             } else {
               console.log(`[STRICT MODE] No files with audio_type="${audioType}" found - cannot shuffle this track type`)
-              return
-            }
+        return
+      }
           } else {
             console.log(`[STRICT MODE] No files found with exact genre/subgenre combination - cannot shuffle`)
             return
@@ -2316,9 +2316,9 @@ export default function BeatMakerPage() {
         }
         
         // If still no files, give up
-        if (!audioFiles || audioFiles.length === 0) {
+      if (!audioFiles || audioFiles.length === 0) {
           console.log(`No ${audioType} audio files found in your library with current filter requirements`)
-          return
+        return
         }
       }
 
@@ -2606,28 +2606,82 @@ export default function BeatMakerPage() {
       // Shuffle patterns for all tracks (except locked ones)
       const patternShufflePromises = tracks
         .filter(track => !track.locked) // Skip locked tracks
-        .map(track => {
-          // Get type-specific pattern library
-          const patternLibrary = getPatternLibraryForTrackType(track.name)
+        .map(async track => {
+          // Special handling for Melody Loop - only first step active
+          if (track.name === 'Melody Loop') {
+            const newPattern = new Array(steps).fill(false)
+            newPattern[0] = true // Always keep the first step active
+            return { trackId: track.id, pattern: newPattern }
+          }
+
+          // For other tracks, try database patterns first with genre/subgenre filtering
+          const patternType = track.name.toLowerCase()
           
-          // Select a random pattern from the library
-          const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+          // Build query for patterns from database filtered by pattern type and genre/subgenre
+          let query = supabase
+            .from('saved_patterns')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('pattern_type', patternType)
+          
+          // Add genre filter if selected and not locked
+          if (selectedGenreId && selectedGenreId !== 'none' && !isGenreLocked) {
+            query = query.eq('genre_id', selectedGenreId)
+          }
+          
+          // Add subgenre filter if selected and not locked
+          if (selectedSubgenre && selectedSubgenre !== 'none' && !isSubgenreLocked) {
+            query = query.eq('subgenre', selectedSubgenre)
+          }
+          
+          const { data: patterns, error } = await query.order('created_at', { ascending: false })
+
+          let selectedPattern: boolean[]
+          
+          if (error || !patterns || patterns.length === 0) {
+            // Fallback to built-in patterns
+            console.log(`No saved patterns found for ${patternType}, using built-in patterns`)
+            const patternLibrary = getPatternLibraryForTrackType(track.name)
+            selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+          } else {
+            // Use database pattern
+            const randomPattern = patterns[Math.floor(Math.random() * patterns.length)]
+            const sequencerData = randomPattern.sequencer_data || randomPattern.sequencerData
+            
+            if (!sequencerData) {
+              // Fallback to built-in patterns
+              const patternLibrary = getPatternLibraryForTrackType(track.name)
+              selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+            } else {
+              // Extract the pattern for this specific track
+              const trackPattern = sequencerData[track.id]
+              
+              if (!trackPattern) {
+                // Fallback to built-in patterns
+                const patternLibrary = getPatternLibraryForTrackType(track.name)
+                selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+              } else {
+                // Use database pattern
+                selectedPattern = trackPattern
+              }
+            }
+          }
           
           // Extend or truncate the pattern to match current step count
           let newPattern: boolean[]
           if (steps === 16) {
-            newPattern = randomPattern
+            newPattern = selectedPattern
           } else if (steps === 8) {
-            newPattern = randomPattern.slice(0, 8)
+            newPattern = selectedPattern.slice(0, 8)
           } else if (steps === 32) {
             // Repeat the 16-step pattern twice for 32 steps
-            newPattern = [...randomPattern, ...randomPattern]
+            newPattern = [...selectedPattern, ...selectedPattern]
           } else if (steps === 64) {
             // Repeat the 16-step pattern four times for 64 steps
-            newPattern = [...randomPattern, ...randomPattern, ...randomPattern, ...randomPattern]
+            newPattern = [...selectedPattern, ...selectedPattern, ...selectedPattern, ...selectedPattern]
           } else {
             // For any other step count, use the first N steps
-            newPattern = randomPattern.slice(0, steps)
+            newPattern = selectedPattern.slice(0, steps)
           }
           
           return { trackId: track.id, pattern: newPattern }
@@ -2636,10 +2690,13 @@ export default function BeatMakerPage() {
       // Execute both audio and pattern shuffles
       await Promise.all(audioShufflePromises)
       
+      // Wait for all pattern shuffles to complete
+      const patternResults = await Promise.all(patternShufflePromises)
+      
       // Update all patterns at once
       setSequencerDataFromSession(prev => {
         const newSequencerData = { ...prev }
-        patternShufflePromises.forEach(({ trackId, pattern }) => {
+        patternResults.forEach(({ trackId, pattern }) => {
           newSequencerData[trackId] = pattern
         })
         return newSequencerData
@@ -2650,7 +2707,7 @@ export default function BeatMakerPage() {
         setBpm(newBpm)
         console.log(`[SHUFFLE] Updated BPM to ${newBpm} based on genre tempo range`)
       } else {
-        // Restore transport settings if locked
+      // Restore transport settings if locked
         if (originalBpm !== null) setBpm(originalBpm)
         if (originalKey !== null) setTransportKey(originalKey)
         console.log('Transport locked - restored BPM and Key settings')
@@ -2772,13 +2829,24 @@ export default function BeatMakerPage() {
       // Get pattern type from track name
       const patternType = track.name.toLowerCase()
 
-      // Fetch patterns from database filtered by pattern type
-      const { data: patterns, error } = await supabase
+      // Build query for patterns from database filtered by pattern type and genre/subgenre
+      let query = supabase
         .from('saved_patterns')
         .select('*')
         .eq('user_id', user.id)
         .eq('pattern_type', patternType)
-        .order('created_at', { ascending: false })
+      
+      // Add genre filter if selected and not locked
+      if (selectedGenreId && selectedGenreId !== 'none' && !isGenreLocked) {
+        query = query.eq('genre_id', selectedGenreId)
+      }
+      
+      // Add subgenre filter if selected and not locked
+      if (selectedSubgenre && selectedSubgenre !== 'none' && !isSubgenreLocked) {
+        query = query.eq('subgenre', selectedSubgenre)
+      }
+      
+      const { data: patterns, error } = await query.order('created_at', { ascending: false })
 
       if (error) {
         console.error('Error fetching patterns:', error)
@@ -2953,13 +3021,24 @@ export default function BeatMakerPage() {
         .map(async track => {
           const patternType = track.name.toLowerCase()
           
-          // Try to get patterns from database first
-          const { data: patterns, error } = await supabase
+          // Build query for patterns from database filtered by pattern type and genre/subgenre
+          let query = supabase
             .from('saved_patterns')
             .select('*')
             .eq('user_id', user.id)
             .eq('pattern_type', patternType)
-            .order('created_at', { ascending: false })
+          
+          // Add genre filter if selected and not locked
+          if (selectedGenreId && selectedGenreId !== 'none' && !isGenreLocked) {
+            query = query.eq('genre_id', selectedGenreId)
+          }
+          
+          // Add subgenre filter if selected and not locked
+          if (selectedSubgenre && selectedSubgenre !== 'none' && !isSubgenreLocked) {
+            query = query.eq('subgenre', selectedSubgenre)
+          }
+          
+          const { data: patterns, error } = await query.order('created_at', { ascending: false })
 
           let newPattern: boolean[]
           
@@ -5168,22 +5247,22 @@ export default function BeatMakerPage() {
                     ) : (
                       currentSequencerPatterns.map((pattern, index) => (
                         <div key={pattern.id} className="space-y-1">
-                                                      <div
-                              className={`flex items-center p-2 rounded border transition-all cursor-pointer hover:bg-[#2a2a2a] ${
+                          <div
+                            className={`flex items-center p-2 rounded border transition-all cursor-pointer hover:bg-[#2a2a2a] ${
                                 selectedPatternForPlacement === pattern.id
                                   ? 'bg-[#1f5f3a] border-green-500'
                                   : 'bg-[#1f1f1f] border-gray-600 hover:border-gray-500'
-                              }`}
-                              onClick={() => {
-                                // Toggle pattern selection - if already selected, deselect it
-                                if (selectedPatternForPlacement === pattern.id) {
-                                  clearPatternSelection()
-                                } else {
-                                  selectPatternForPlacement(pattern.id)
-                                }
-                              }}
-                              title="Click to select/deselect this pattern for placement"
-                            >
+                            }`}
+                            onClick={() => {
+                              // Toggle pattern selection - if already selected, deselect it
+                              if (selectedPatternForPlacement === pattern.id) {
+                                clearPatternSelection()
+                              } else {
+                                selectPatternForPlacement(pattern.id)
+                              }
+                            }}
+                            title="Click to select/deselect this pattern for placement"
+                          >
                             <div className={`w-3 h-3 rounded mr-2 ${
                               pattern.id.startsWith('track-') && pattern.tracks[0] ? pattern.tracks[0].color : (index === 0 ? 'bg-green-500' : 
                               index === 1 ? 'bg-blue-500' : 
@@ -5378,7 +5457,7 @@ export default function BeatMakerPage() {
                                         // Track pattern - only assign if it matches this track
                                         const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''))
                                         if (patternTrackId === track.id) {
-                                          assignPatternToTrack(track.id, i, selectedPatternForPlacement)
+                                    assignPatternToTrack(track.id, i, selectedPatternForPlacement)
                                         } else {
                                           // Show a message that this pattern is for a different track
                                           alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`)
@@ -6473,7 +6552,7 @@ export default function BeatMakerPage() {
                           <span>Key: {genre.default_key}</span>
                           <span>Steps: {genre.default_steps}</span>
                         </div>
-                        <div className="mt-2">
+                          <div className="mt-2">
                           <div className="flex items-center justify-between mb-1">
                             <div className="text-xs text-gray-500">Subgenres:</div>
                             <Button
@@ -6544,25 +6623,25 @@ export default function BeatMakerPage() {
                           ) : (
                             // View mode
                             genreSubgenres[genre.name] && genreSubgenres[genre.name].length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {genreSubgenres[genre.name].slice(0, 3).map((subgenre, index) => (
-                                  <span
-                                    key={index}
-                                    className="px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
-                                  >
-                                    {subgenre}
-                                  </span>
-                                ))}
-                                {genreSubgenres[genre.name].length > 3 && (
-                                  <span className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded border border-gray-600">
-                                    +{genreSubgenres[genre.name].length - 3} more
-                                  </span>
-                                )}
-                              </div>
+                            <div className="flex flex-wrap gap-1">
+                              {genreSubgenres[genre.name].slice(0, 3).map((subgenre, index) => (
+                                <span
+                                  key={index}
+                                  className="px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
+                                >
+                                  {subgenre}
+                                </span>
+                              ))}
+                              {genreSubgenres[genre.name].length > 3 && (
+                                <span className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded border border-gray-600">
+                                  +{genreSubgenres[genre.name].length - 3} more
+                                </span>
+                              )}
+                            </div>
                             ) : (
                               <div className="text-xs text-gray-500 italic">No subgenres</div>
                             )
-                          )}
+                        )}
                         </div>
                       </div>
                     </div>

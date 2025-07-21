@@ -34,6 +34,9 @@ export default function Navbar() {
         <Link href="/ai" className="text-lg text-white hover:text-[#FFD700]">
           AI Assistant
         </Link>
+        <Link href="/editdata" className="text-lg text-white hover:text-[#FFD700]">
+          Edit Data
+        </Link>
       </div>
     </nav>
   )

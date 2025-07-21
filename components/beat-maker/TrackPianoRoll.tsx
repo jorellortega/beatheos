@@ -212,11 +212,11 @@ export function TrackPianoRoll({
       // Clean up after playback
       const cleanup = () => {
         try {
-          notePlayer.stop()
-          notePlayer.disconnect()
-          notePitchShifter.disconnect()
-          notePlayer.dispose()
-          notePitchShifter.dispose()
+        notePlayer.stop()
+        notePlayer.disconnect()
+        notePitchShifter.disconnect()
+        notePlayer.dispose()
+        notePitchShifter.dispose()
         } catch (error) {
           console.warn('Error during cleanup:', error)
         }
@@ -347,11 +347,11 @@ export function TrackPianoRoll({
         // Clean up after playback
         const cleanup = () => {
           try {
-            notePlayer.stop()
-            notePlayer.disconnect()
-            notePitchShifter.disconnect()
-            notePlayer.dispose()
-            notePitchShifter.dispose()
+          notePlayer.stop()
+          notePlayer.disconnect()
+          notePitchShifter.disconnect()
+          notePlayer.dispose()
+          notePitchShifter.dispose()
           } catch (error) {
             console.warn('Error during cleanup:', error)
           }
