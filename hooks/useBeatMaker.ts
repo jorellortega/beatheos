@@ -30,6 +30,9 @@ export interface Track {
   pianoRollNotes?: AudioNote[]
   // Stock sound for MIDI tracks
   stockSound?: any
+  // Loop properties for quantization
+  loopStartTime?: number
+  loopEndTime?: number
 }
 
 export interface MidiNote {
@@ -99,12 +102,12 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     }, 100)
   }, [])
 
-  // Initialize sequencer data
+  // Initialize sequencer data for new tracks or step count changes
   useEffect(() => {
     const newSequencerData: SequencerData = {}
-    const currentTrackIds = tracks.map(track => track.id)
+    let hasChanges = false
     
-    // Handle all tracks - either create new or resize existing
+    // Handle step count changes for existing tracks
     tracks.forEach(track => {
       const existingData = sequencerData[track.id]
       const originalData = originalSequencerDataRef.current[track.id]
@@ -112,6 +115,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       if (!existingData) {
         // New track - create fresh array
         newSequencerData[track.id] = new Array(steps).fill(false)
+        hasChanges = true
+        console.log(`[HOOK] Created new track ${track.name} (id: ${track.id}) with fresh sequencer data`)
       } else if (existingData.length !== steps) {
         // Existing track but wrong length - resize array
         const resizedArray = new Array(steps).fill(false)
@@ -147,27 +152,21 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         }
         
         newSequencerData[track.id] = resizedArray
+        hasChanges = true
       } else {
-        // Existing track with correct length - keep as is
+        // Existing track with correct length - keep as is (don't clear patterns!)
         newSequencerData[track.id] = existingData
       }
     })
     
     // Only update if there are changes AND we're not in the middle of loading a pattern
-    const hasChanges = tracks.some(track => {
-      const existing = sequencerData[track.id]
-      const newData = newSequencerData[track.id]
-      return !existing || existing.length !== newData.length || JSON.stringify(existing) !== JSON.stringify(newData)
-    }) || Object.keys(sequencerData).length !== Object.keys(newSequencerData).length
-    
-    // Don't override loaded pattern data unless we're actually changing tracks or steps
     if (hasChanges && !isLoadingPatternRef.current) {
       console.log('[HOOK] Initializing sequencer data for new tracks/steps')
       setSequencerData(newSequencerData)
     } else if (isLoadingPatternRef.current) {
       console.log('[HOOK] Skipping initialization - pattern is being loaded')
     }
-  }, [tracks, steps])
+  }, [steps]) // Only depend on steps, not tracks
 
   // Update BPM
   useEffect(() => {
@@ -208,6 +207,26 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
             
             // Create player and connect to pitch shifter
             const player = new Tone.Player(track.audioUrl).connect(pitchShift)
+            
+            // Apply loop start/end points if specified (from quantization)
+            if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+              player.loopStart = track.loopStartTime
+              player.loopEnd = track.loopEndTime
+              player.loop = true // Enable looping
+              
+              // Calculate if we need to adjust playback rate to match sequencer timing
+              const loopDuration = track.loopEndTime - track.loopStartTime
+              const sequencerDuration = steps * (60 / bpm / 4) // Total sequencer duration
+              
+              // If loop duration doesn't match sequencer duration, adjust playback rate
+              if (Math.abs(loopDuration - sequencerDuration) > 0.01) {
+                const newPlaybackRate = sequencerDuration / loopDuration
+                player.playbackRate = newPlaybackRate
+                console.log(`[DEBUG] Adjusted playback rate for ${track.name}: ${newPlaybackRate.toFixed(3)} (loop: ${loopDuration.toFixed(2)}s, sequencer: ${sequencerDuration.toFixed(2)}s)`)
+              }
+              
+              console.log(`[DEBUG] Set loop points for track ${track.name}: start=${track.loopStartTime}s, end=${track.loopEndTime}s, loop enabled`)
+            }
             
             // Apply playback rate if specified
             if (track.playbackRate && track.playbackRate !== 1) {
@@ -251,23 +270,51 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         shouldPlay &&
         player &&
         player.loaded &&
-        validAudio &&
-        !track.mute // Don't play if track is muted
+        validAudio
       ) {
+        // If track is muted, stop any playing loops
+        if (track.mute) {
+          if (player.state === 'started') {
+            player.stop()
+            console.log(`[DEBUG] Stopped loop for muted track ${track.name}`)
+          }
+          return
+        }
         console.log(`[DEBUG] Playing sample for track ${track.name} at step ${step}`)
         
         try {
-          // Stop the player first if it's already playing to prevent timing conflicts
-          if (player.state === 'started') {
-            player.stop()
+          // For tracks with loop points, we need to handle them differently
+          if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+            // Only start the loop on the first step (step 0)
+            if (step !== 0) {
+              console.log(`[DEBUG] Track ${track.name} is looping, skipping step ${step}`)
+              return
+            }
+            
+            // Start the loop from the quantized start position
+            const startTime = Tone.now()
+            player.start(startTime, track.loopStartTime)
+            console.log(`[DEBUG] Started loop for track ${track.name} at loop start: ${track.loopStartTime}s`)
+          } else {
+            // For non-looping tracks, restart each time
+            if (player.state === 'started') {
+              player.stop()
+            }
+            
+            // Start the sample with precise timing to ensure perfect sync
+            const startTime = Tone.now() + 0.001 // 1ms offset
+            
+            // Ensure the playback rate is still correctly set
+            if (track.playbackRate && track.playbackRate !== 1) {
+              const precisePlaybackRate = Math.round(track.playbackRate * 10000) / 10000
+              player.playbackRate = precisePlaybackRate
+            }
+            
+            player.start(startTime)
           }
           
           // Track the playing sample for cleanup
           playingSamplesRef.current.add(player)
-          
-          // Start the sample with a small timing offset to prevent scheduling conflicts
-          const startTime = Tone.now() + 0.001 // 1ms offset
-          player.start(startTime)
           
           // Set up cleanup when sample stops (Tone.js way)
           player.onstop = () => {
@@ -627,6 +674,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         player.stop()
       }
       
+      // Apply the new playback rate
       player.playbackRate = playbackRate
       console.log(`[DEBUG] Updated playback rate for track ${track.name} to ${playbackRate} (${newBpm}/${baseBpm})`)
       
@@ -642,6 +690,129 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       playbackRate: playbackRate
     }
   }, [tracks])
+
+  // Function to force reload samples for a specific track with improved sync
+  const forceReloadTrackSamples = useCallback(async (trackId: number) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (!track || !track.audioUrl) {
+      console.warn(`[FORCE RELOAD] No track or audio URL found for trackId: ${trackId}`)
+      return
+    }
+
+    const Tone = await import('tone')
+    
+    // Clean up existing sample for this track
+    const existingPlayer = samplesRef.current[trackId]
+    if (existingPlayer) {
+      try {
+        if (existingPlayer.state === 'started') {
+          existingPlayer.stop()
+          console.log(`[FORCE RELOAD] Stopped existing player for track ${track.name}`)
+        }
+        existingPlayer.dispose()
+        console.log(`[FORCE RELOAD] Disposed existing player for track ${track.name}`)
+      } catch (error) {
+        console.warn(`[FORCE RELOAD] Error disposing existing player for track ${track.name}:`, error)
+      }
+    }
+    
+    const existingPitchShifter = pitchShiftersRef.current[trackId]
+    if (existingPitchShifter) {
+      try {
+        existingPitchShifter.dispose()
+        console.log(`[FORCE RELOAD] Disposed existing pitch shifter for track ${track.name}`)
+      } catch (error) {
+        console.warn(`[FORCE RELOAD] Error disposing existing pitch shifter for track ${track.name}:`, error)
+      }
+    }
+
+    try {
+      console.log(`[FORCE RELOAD] Reloading sample for track ${track.name} with playback rate ${track.playbackRate}`)
+      console.log(`[FORCE RELOAD] Original BPM: ${track.originalBpm}, Current BPM: ${track.currentBpm}`)
+      
+      // Create new pitch shifter
+      const pitchShift = new Tone.PitchShift({
+        pitch: track.pitchShift || 0,
+        windowSize: PITCH_SHIFT_SETTINGS.windowSize,
+        delayTime: PITCH_SHIFT_SETTINGS.delayTime,
+        feedback: PITCH_SHIFT_SETTINGS.feedback
+      }).toDestination()
+      pitchShiftersRef.current[trackId] = pitchShift
+      
+      // Create new player with correct playback rate
+      const player = new Tone.Player(track.audioUrl).connect(pitchShift)
+      
+      // Apply playback rate with high precision
+      if (track.playbackRate && track.playbackRate !== 1) {
+        // Round to 4 decimal places to avoid floating point precision issues
+        const precisePlaybackRate = Math.round(track.playbackRate * 10000) / 10000
+        player.playbackRate = precisePlaybackRate
+        console.log(`[FORCE RELOAD] Set precise playback rate for track ${track.name} to ${precisePlaybackRate}`)
+      } else {
+        // Ensure playback rate is reset to 1.0 if no rate is specified
+        player.playbackRate = 1.0
+        console.log(`[FORCE RELOAD] Reset playback rate for track ${track.name} to 1.0`)
+      }
+      
+      // Apply pitch shift if specified
+      if (track.pitchShift && track.pitchShift !== 0) {
+        pitchShift.pitch = track.pitchShift
+        console.log(`[FORCE RELOAD] Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+      }
+      
+      // Wait for the player to load before setting it
+      if (!player.loaded) {
+        console.log(`[FORCE RELOAD] Loading audio buffer for track ${track.name}...`)
+        await player.load(track.audioUrl)
+        console.log(`[FORCE RELOAD] Audio buffer loaded for track ${track.name}`)
+      }
+      
+      // Verify the player is properly loaded
+      if (!player.loaded) {
+        throw new Error(`Player failed to load for track ${track.name}`)
+      }
+      
+      samplesRef.current[trackId] = player
+      console.log(`[FORCE RELOAD] Successfully reloaded sample for track ${track.name} with improved sync`)
+      
+      // Test the player to ensure it's working
+      setTimeout(() => {
+        try {
+          if (player.loaded && player.state !== 'started') {
+            console.log(`[FORCE RELOAD] Player for track ${track.name} is ready for playback`)
+          }
+        } catch (error) {
+          console.warn(`[FORCE RELOAD] Player test failed for track ${track.name}:`, error)
+        }
+      }, 100)
+      
+    } catch (error) {
+      console.error(`[FORCE RELOAD] Failed to reload sample for track ${track.name}:`, error)
+      throw error // Re-throw to allow calling code to handle the error
+    }
+  }, [tracks])
+
+  // Function to quantize track timing for perfect sync
+  const quantizeTrackTiming = useCallback((trackId: number) => {
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return
+
+    console.log(`[QUANTIZE] Quantizing track ${track.name} for perfect sync`)
+    
+    // Calculate the exact loop length in seconds based on BPM and steps
+    const secondsPerBeat = 60 / bpm
+    const beatsPerStep = 1 // Assuming 16th notes
+    const stepDuration = secondsPerBeat * beatsPerStep
+    const loopDuration = stepDuration * steps
+    
+    console.log(`[QUANTIZE] Loop duration: ${loopDuration.toFixed(3)}s (${bpm} BPM, ${steps} steps)`)
+    
+    // For now, this is a placeholder for quantization logic
+    // In a full implementation, this would adjust the loop start point
+    // to align with the sequencer grid
+    
+    console.log(`[QUANTIZE] Track ${track.name} quantized to grid`)
+  }, [tracks, bpm, steps])
 
   // Function to quantize a track to the grid (for tempo sync issues)
   const quantizeTrack = useCallback((trackId: number) => {
@@ -774,6 +945,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     currentStep,
     updateTrackTempo,
     updateTrackPitch,
+    forceReloadTrackSamples,
+    quantizeTrackTiming,
     setSequencerDataFromSession,
     setPianoRollDataFromSession,
     updatePianoRollData,

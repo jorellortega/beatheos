@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Users, Music, BarChart, Settings, Music2 } from "lucide-react"
+import { Users, Music, BarChart, Settings, Music2, Timer } from "lucide-react"
 import Link from "next/link"
 import { supabase } from '@/lib/supabaseClient'
 
@@ -115,6 +115,20 @@ export default function AdminDashboard() {
             <p>Manage genre and subgenre tempo ranges.</p>
             <Button className="mt-4" asChild>
               <Link href="/dashboard/admin/genre-tempo">Tempo Manager</Link>
+            </Button>
+          </CardContent>
+        </Card>
+        <Card className="bg-black border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Timer className="mr-2 h-5 w-5" />
+              Universal Time Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Control timing across all components - sequencer, loops, patterns.</p>
+            <Button className="mt-4" asChild>
+              <Link href="/timesettings">Time Settings</Link>
             </Button>
           </CardContent>
         </Card>

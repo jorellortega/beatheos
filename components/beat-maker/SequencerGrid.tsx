@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Save, Download, Plus, FolderOpen, Music, Piano, Brain } from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Save, Download, Plus, FolderOpen, Music, Piano, Brain, MoreHorizontal } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
 
@@ -335,38 +336,65 @@ export function SequencerGrid({
       <CardContent>
         <div className="overflow-x-auto">
           <div className="min-w-max">
-            {/* Header row with step numbers */}
-            <div className="flex mb-2">
-              <div className="w-56 flex-shrink-0"></div> {/* Track name column - match track row width */}
-              {Array.from({ length: steps }, (_, i) => {
-                const stepNumber = i + 1
-                const isDownbeat = stepNumber % 4 === 1 // Steps 1, 5, 9, 13, etc.
-                const isCurrentStep = i === currentStep
-                
-                return (
-                  <div
-                    key={i}
-                    style={{ width: `${stepWidth}px`, minWidth: `${stepWidth}px` }}
-                    className={`h-8 flex items-center justify-center text-xs font-mono border-r ${
-                      isDownbeat ? 'border-yellow-500 border-r-2' : 'border-gray-600'
-                    } ${
-                      isCurrentStep 
-                        ? 'bg-[#2a2a2a] text-white border-2 border-white' 
-                        : isDownbeat 
-                          ? 'bg-yellow-900/30 text-yellow-300 font-bold' 
-                          : 'bg-[#1f1f1f] text-gray-300'
-                    }`}
-                  >
-                    {stepNumber}
-                  </div>
-                )
-              })}
+            {/* Header row with measure numbers and step numbers */}
+            <div className="flex flex-col mb-2">
+              {/* Measure numbers row - only show numbers, no empty divs */}
+              <div className="flex h-6 relative">
+                <div className="w-56 flex-shrink-0"></div> {/* Track name column - match track row width */}
+                {Array.from({ length: Math.ceil(steps / 16) }, (_, measureIndex) => {
+                  const measureNumber = measureIndex + 1
+                  const stepPosition = measureIndex * 16 // Position in steps (0, 16, 32, etc.)
+                  
+                  return (
+                    <div
+                      key={`measure-${measureIndex}`}
+                      style={{ 
+                        position: 'absolute',
+                        left: `${stepPosition * stepWidth + 224}px`, // 224px = 56 * 4 (track name width)
+                        width: `${stepWidth}px`,
+                        minWidth: `${stepWidth}px`
+                      }}
+                      className="flex items-center justify-center text-xs font-mono border-r border-yellow-500 border-r-2 bg-yellow-900/20 text-yellow-400 font-bold h-6"
+                    >
+                      {measureNumber}
+                    </div>
+                  )
+                })}
+              </div>
+              
+              {/* Step numbers row */}
+              <div className="flex h-8">
+                <div className="w-56 flex-shrink-0"></div> {/* Track name column - match track row width */}
+                {Array.from({ length: steps }, (_, i) => {
+                  const stepNumber = i + 1
+                  const isDownbeat = stepNumber % 4 === 1 // Steps 1, 5, 9, 13, etc.
+                  const isCurrentStep = i === currentStep
+                  
+                  return (
+                    <div
+                      key={`step-${i}`}
+                      style={{ width: `${stepWidth}px`, minWidth: `${stepWidth}px` }}
+                      className={`flex items-center justify-center text-xs font-mono border-r ${
+                        isDownbeat ? 'border-yellow-500 border-r-2' : 'border-gray-600'
+                      } ${
+                        isCurrentStep 
+                          ? 'bg-[#2a2a2a] text-white border-2 border-white' 
+                          : isDownbeat 
+                            ? 'bg-black text-gray-300 font-bold' 
+                            : 'bg-[#1f1f1f] text-gray-300'
+                      }`}
+                    >
+                      {stepNumber}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Track rows */}
             {tracks.map((track) => (
               <div key={track.id} className="flex mb-3">
-                {/* Track name and save button */}
+                {/* Track name and controls */}
                 <div className="w-56 flex-shrink-0 flex items-center px-2 h-8 gap-2">
                   <div 
                     className={`w-3 h-3 rounded-full ${track.color} mr-2 cursor-pointer transition-all duration-200 hover:scale-110 ${
@@ -390,24 +418,7 @@ export function SequencerGrid({
                     {track.name}
                   </span>
                   <div className="flex items-center gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleSaveTrackPattern(track.id)}
-                      className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
-                      title={`Save ${track.name} Pattern`}
-                    >
-                      <Save className="w-3 h-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onLoadTrackPattern?.(track.id)}
-                      className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
-                      title={`Load ${track.name} Pattern`}
-                    >
-                      <FolderOpen className="w-3 h-3" />
-                    </Button>
+                    {/* Shuffle Pattern Button - Outside dropdown */}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -417,6 +428,8 @@ export function SequencerGrid({
                     >
                       <Brain className="w-3 h-3" />
                     </Button>
+                    
+                    {/* Reset Pattern Button - Outside dropdown */}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -428,21 +441,49 @@ export function SequencerGrid({
                         <div className="w-2 h-2 border border-current rounded-sm"></div>
                       </div>
                     </Button>
-                    {track.audioUrl && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onOpenTrackPianoRoll?.(track.id)}
-                        className={`hover:bg-cyan-900/20 ${
-                          pianoRollData[track.id]?.length > 0 
-                            ? 'text-cyan-300 bg-cyan-900/30' 
-                            : 'text-cyan-400 hover:text-cyan-300'
-                        }`}
-                        title={`Open ${track.name} Piano Roll ${pianoRollData[track.id]?.length > 0 ? `(${pianoRollData[track.id].length} notes)` : ''}`}
-                      >
-                        <Piano className="w-3 h-3" />
-                      </Button>
-                    )}
+                    
+                    {/* Dropdown Menu for other controls */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400 hover:text-gray-300 hover:bg-gray-900/20"
+                          title="More options"
+                        >
+                          <MoreHorizontal className="w-3 h-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="bg-gray-800 border-gray-600">
+                        <DropdownMenuItem
+                          onClick={() => handleSaveTrackPattern(track.id)}
+                          className="text-green-400 hover:text-green-300 hover:bg-green-900/20 cursor-pointer"
+                        >
+                          <Save className="w-3 h-3 mr-2" />
+                          Save Pattern
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => onLoadTrackPattern?.(track.id)}
+                          className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 cursor-pointer"
+                        >
+                          <FolderOpen className="w-3 h-3 mr-2" />
+                          Load Pattern
+                        </DropdownMenuItem>
+                        {track.audioUrl && (
+                          <DropdownMenuItem
+                            onClick={() => onOpenTrackPianoRoll?.(track.id)}
+                            className={`cursor-pointer ${
+                              pianoRollData[track.id]?.length > 0 
+                                ? 'text-cyan-300 bg-cyan-900/30' 
+                                : 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20'
+                            }`}
+                          >
+                            <Piano className="w-3 h-3 mr-2" />
+                            Piano Roll {pianoRollData[track.id]?.length > 0 ? `(${pianoRollData[track.id].length} notes)` : ''}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 

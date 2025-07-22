@@ -17,12 +17,14 @@ import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shu
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
+import { QuantizeLoopModal } from '@/components/beat-maker/QuantizeLoopModal'
 import { PianoRoll } from '@/components/beat-maker/PianoRoll'
 import { AudioPianoRoll } from '@/components/beat-maker/AudioPianoRoll'
 import { TrackPianoRoll } from '@/components/beat-maker/TrackPianoRoll'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { calculatePitchShift, validatePitchShift } from '@/lib/utils'
+import { toast } from '@/hooks/use-toast'
 
 export default function BeatMakerPage() {
   const searchParams = useSearchParams()
@@ -49,11 +51,36 @@ export default function BeatMakerPage() {
   const [songTrackPatternTags, setSongTrackPatternTags] = useState('')
   const [savedSongTrackPatterns, setSavedSongTrackPatterns] = useState<any[]>([])
   const [tracks, setTracks] = useState<Track[]>([
-    { id: 1, name: 'Kick', audioUrl: null, color: 'bg-red-500' },
-    { id: 2, name: 'Snare', audioUrl: null, color: 'bg-blue-500' },
-    { id: 3, name: 'Hi-Hat', audioUrl: null, color: 'bg-green-500' },
+    { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
+    { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
+    { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
+    { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
+    { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
   ])
+  const [isAutoMode, setIsAutoMode] = useState(true) // Auto mode is on by default when no template is loaded
   const [steps, setSteps] = useState(16)
+  
+  // Initialize sequencer with first step active for each track when in auto mode
+  useEffect(() => {
+    if (isAutoMode) {
+      // Only initialize if we don't have any sequencer data yet
+      const hasExistingData = Object.keys(sequencerData).length > 0
+      
+      if (!hasExistingData) {
+        // Set first step active for each track
+        const initialSequencerData: {[trackId: number]: boolean[]} = {}
+        tracks.forEach(track => {
+          const stepPattern = new Array(steps).fill(false)
+          stepPattern[0] = true // Activate first step
+          initialSequencerData[track.id] = stepPattern
+        })
+        setSequencerDataFromSession(initialSequencerData)
+        console.log('[AUTO MODE] Initialized sequencer data for new session')
+      } else {
+        console.log('[AUTO MODE] Skipping initialization - sequencer data already exists')
+      }
+    }
+  }, [isAutoMode, steps]) // Remove tracks dependency to prevent clearing patterns
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
   const [showPianoRoll, setShowPianoRoll] = useState(false)
@@ -180,6 +207,8 @@ export default function BeatMakerPage() {
     currentStep: sequencerCurrentStep,
     updateTrackTempo,
     updateTrackPitch,
+    forceReloadTrackSamples,
+    quantizeTrackTiming,
     setSequencerDataFromSession,
     setPianoRollDataFromSession,
     updatePianoRollData,
@@ -249,6 +278,9 @@ export default function BeatMakerPage() {
       }
 
       console.log('Loaded pattern from database:', pattern)
+
+      // Turn off auto mode when a template/pattern is loaded
+      setIsAutoMode(false)
 
       // Load pattern BPM and steps
       setBpm(pattern.bpm)
@@ -508,6 +540,62 @@ export default function BeatMakerPage() {
   const getAssignedPattern = (trackId: number, barPosition: number) => {
     return songPatternAssignments[trackId]?.[barPosition] || null
   }
+
+  // Calculate playhead base position (start of current bar)
+  const getPlayheadBasePosition = () => {
+    let position = 0
+    for (let bar = 0; bar < songPlayback.currentBar; bar++) {
+      // Calculate bar width based on the pattern with the most steps in this bar
+      let maxSteps = 16
+      tracks.forEach(track => {
+        const patternId = getAssignedPattern(track.id, bar)
+        if (patternId) {
+          const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+          if (pattern) {
+            maxSteps = Math.max(maxSteps, pattern.steps || 16)
+          }
+        }
+      })
+      // Each step should be 4px wide, so a 32-step pattern should be 128px wide
+      const barWidth = Math.max(64, maxSteps * 4) // 16 steps = 64px, 32 steps = 128px
+      position += barWidth
+    }
+    return position
+  }
+
+  // Calculate playhead offset within the current bar based on pattern step count
+  const getPlayheadOffset = () => {
+    if (!songPlayback.isPlaying) return 0
+    
+    const currentBar = songPlayback.currentBar
+    const currentStep = songPlaybackRef.current.currentStep || 0
+    
+    // Find any pattern assigned to the current bar to get its step count
+    let patternSteps = 16 // Default
+    for (const trackId of tracks.map(t => t.id)) {
+      const patternId = getAssignedPattern(trackId, currentBar)
+      if (patternId) {
+        const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+        if (pattern) {
+          patternSteps = pattern.steps || 16
+          break // Use the first pattern found for this bar
+        }
+      }
+    }
+    
+    // Calculate step position within the current bar
+    const stepInBar = currentStep % patternSteps
+    
+    // Calculate bar width based on step count
+    // Each step should be 4px wide, so a 32-step pattern should be 128px wide
+    const barWidth = Math.max(64, patternSteps * 4) // 16 steps = 64px, 32 steps = 128px
+    
+    // Calculate offset: each step is barWidth / patternSteps wide
+    const stepWidth = barWidth / patternSteps
+    const offset = stepInBar * stepWidth
+    
+    return offset
+  }
   
   // Select a pattern for placement
   const selectPatternForPlacement = (patternId: string) => {
@@ -612,6 +700,14 @@ export default function BeatMakerPage() {
             // Use dynamic import to ensure Tone is available
             const Tone = await import('tone')
             const player = new Tone.Player(track.audioUrl).toDestination()
+            
+            // Apply the same tempo adjustments as the sequencer
+            if (track.playbackRate && track.playbackRate !== 1) {
+              const precisePlaybackRate = Math.round(track.playbackRate * 10000) / 10000
+              player.playbackRate = precisePlaybackRate
+              console.log(`[SONG INIT] Track ${track.name} playback rate: ${precisePlaybackRate} (${track.currentBpm}/${track.originalBpm})`)
+            }
+            
             songPlaybackRef.current.players[track.id] = player
           } catch (error) {
             console.error(`[SONG] Failed to create player for track ${track.id}:`, error)
@@ -655,10 +751,19 @@ export default function BeatMakerPage() {
       return
     }
 
+    // Stop sequencer if it's playing
+    if (isPlaying) {
+      stopSequence()
+    }
+
     // Check if any patterns are assigned to tracks
     const hasActiveArrangement = Object.values(songPatternAssignments).some(trackAssignments => 
       Object.keys(trackAssignments).length > 0
     )
+    
+    console.log('[SONG DEBUG] Pattern assignments:', songPatternAssignments)
+    console.log('[SONG DEBUG] Available patterns:', currentSequencerPatterns)
+    console.log('[SONG DEBUG] Has active arrangement:', hasActiveArrangement)
     
     if (!hasActiveArrangement) {
       alert('No patterns assigned! Select patterns and assign them to tracks in the timeline.')
@@ -668,6 +773,10 @@ export default function BeatMakerPage() {
     // Start Tone.js audio context
     const Tone = await import('tone')
     await Tone.start()
+    
+    // Synchronize Tone.js Transport BPM with sequencer BPM
+    Tone.Transport.bpm.value = bpm
+    console.log(`[SONG ARRANGEMENT] Starting with BPM: ${bpm}`)
     
     // Start song playback
     setSongPlayback(prev => ({ ...prev, isPlaying: true, currentBar: 0 }))
@@ -687,17 +796,67 @@ export default function BeatMakerPage() {
       songPlaybackRef.current.sequence.dispose()
     }
     
-    // Create a sequence that plays every 16th note
+    // Calculate the total number of steps needed for the song arrangement
+    // Find the maximum step count needed based on assigned patterns
+    let maxSteps = 16 // Default minimum
+    Object.values(songPatternAssignments).forEach(trackAssignments => {
+      Object.entries(trackAssignments).forEach(([barStr, patternId]) => {
+        const bar = parseInt(barStr)
+        const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+        if (pattern) {
+          const patternSteps = pattern.steps || 16
+          const barEndStep = (bar + 1) * patternSteps
+          maxSteps = Math.max(maxSteps, barEndStep)
+        }
+      })
+    })
+    
+    console.log(`[SONG SEQUENCE] Total steps for song arrangement: ${maxSteps}`)
+    
+    // Set the BPM for Tone.js Transport to match the sequencer
+    Tone.Transport.bpm.value = bpm
+    
+    // Calculate step duration to match sequencer timing
+    const stepDuration = 60 / bpm / 4 // 16th note duration - same as sequencer
+    
+    // Create a sequence that uses the same timing as the sequencer
     songPlaybackRef.current.sequence = new Tone.Sequence((time, step) => {
       songPlaybackRef.current.currentStep = step
+      console.log(`[SONG SEQUENCE] Playing step ${step} at time ${time}, BPM: ${bpm}, stepDuration: ${stepDuration}s`)
       playSongStep(step)
       
-      // Update bar position every 16 steps (one bar)
-      if (step % 16 === 0) {
-        const barIndex = Math.floor(step / 16) % 32
-        setSongPlayback(prev => ({ ...prev, currentBar: barIndex }))
+      // Update bar position based on the pattern's step count
+      // Find which bar this step belongs to
+      let currentBar = 0
+      for (let bar = 0; bar < 32; bar++) {
+        // Check if any pattern is assigned to this bar
+        const hasPattern = Object.values(songPatternAssignments).some(trackAssignments => {
+          const patternId = trackAssignments[bar]
+          if (patternId) {
+            const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+            if (pattern) {
+              const patternSteps = pattern.steps || 16
+              const barStartStep = bar * patternSteps
+              const barEndStep = (bar + 1) * patternSteps - 1
+              return step >= barStartStep && step <= barEndStep
+            }
+          }
+          return false
+        })
+        
+        if (hasPattern) {
+          currentBar = bar
+          break
+        }
       }
-    }, Array.from({ length: steps }, (_, i) => i), '16n')
+      
+      // Update bar position when we start a new bar
+      const previousBar = songPlayback.currentBar
+      if (currentBar !== previousBar) {
+        console.log(`[SONG SEQUENCE] Moving to bar ${currentBar + 1}`)
+        setSongPlayback(prev => ({ ...prev, currentBar }))
+      }
+    }, Array.from({ length: maxSteps }, (_, i) => i), stepDuration)
     
     // Start the sequence
     songPlaybackRef.current.sequence.start(0)
@@ -709,11 +868,32 @@ export default function BeatMakerPage() {
     tracks.forEach(track => {
       const player = songPlaybackRef.current.players[track.id]
       const trackAssignments = songPatternAssignments[track.id] || {}
-      const currentBar = songPlayback.currentBar
-      const assignedPatternId = trackAssignments[currentBar]
       
-      // If no pattern is assigned to this track at this bar, don't play
-      if (!assignedPatternId) return
+      // Find which bar this step belongs to by checking all bars
+      let currentBar = -1
+      let assignedPatternId: string | null = null
+      
+      // Check each bar to see if this step falls within it
+      for (let bar = 0; bar < 32; bar++) {
+        const patternId = trackAssignments[bar]
+        if (patternId) {
+          const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+          if (pattern) {
+            const patternSteps = pattern.steps || 16
+            const barStartStep = bar * patternSteps
+            const barEndStep = (bar + 1) * patternSteps - 1
+            
+            if (step >= barStartStep && step <= barEndStep) {
+              currentBar = bar
+              assignedPatternId = patternId
+              break
+            }
+          }
+        }
+      }
+      
+      // If no pattern is assigned to this track at this step, don't play
+      if (!assignedPatternId || currentBar === -1) return
       
       // Find the assigned pattern
       const assignedPattern = currentSequencerPatterns.find(p => p.id === assignedPatternId)
@@ -730,14 +910,32 @@ export default function BeatMakerPage() {
         patternSequencerData = assignedPattern.sequencerData[track.id] || []
       }
       
-      // Check if this track should play at the current step
-      const shouldPlayStep = patternSequencerData[step]
+      // Use the pattern's own step count, not the global steps
+      const patternSteps = assignedPattern.steps || 16
+      
+      // Calculate the step within the current bar (0 to patternSteps-1)
+      const stepInBar = step % patternSteps
+      
+      // Check if this track should play at the current step within the bar
+      const shouldPlayStep = patternSequencerData[stepInBar]
+      
+      // Debug logging for pattern playback
+      if (assignedPattern && patternSequencerData.length > 0) {
+        console.log(`[SONG DEBUG] Track ${track.name}, Bar ${currentBar}, Step ${stepInBar}/${patternSteps}: patternData=${patternSequencerData}, shouldPlay=${shouldPlayStep}`)
+      }
       
       if (shouldPlayStep && player && track.audioUrl && track.audioUrl !== 'undefined') {
         try {
           // Stop if already playing to prevent overlap
           if (player.state === 'started') {
             player.stop()
+          }
+          
+          // Apply the same tempo adjustments as the sequencer
+          if (track.playbackRate && track.playbackRate !== 1) {
+            const precisePlaybackRate = Math.round(track.playbackRate * 10000) / 10000
+            player.playbackRate = precisePlaybackRate
+            console.log(`[SONG TEMPO] Track ${track.name} playback rate: ${precisePlaybackRate} (${track.currentBpm}/${track.originalBpm})`)
           }
           
           // Start with proper timing using Tone.js
@@ -1033,6 +1231,9 @@ export default function BeatMakerPage() {
   const loadPattern = (patternId: string) => {
     const pattern = savedPatterns.find(p => p.id === patternId)
     if (pattern) {
+      // Turn off auto mode when a template/pattern is loaded
+      setIsAutoMode(false)
+      
       // Load pattern BPM, transport key, and steps
       setBpm(pattern.bpm)
       setTransportKey(pattern.transportKey || 'C')
@@ -1176,6 +1377,48 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Shared function to map track names to pattern types
+  const getPatternTypeForTrack = (trackName: string) => {
+    const name = trackName.toLowerCase()
+    if (name.includes('hi-hat') || name.includes('hihat')) {
+      return 'hihat loop'
+    } else if (name.includes('kick')) {
+      return 'kick'
+    } else if (name.includes('snare')) {
+      return 'snare'
+    } else if (name.includes('clap')) {
+      return 'clap'
+    } else if (name.includes('tom')) {
+      return 'tom'
+    } else if (name.includes('crash')) {
+      return 'crash'
+    } else if (name.includes('ride')) {
+      return 'ride'
+    } else if (name.includes('808')) {
+      return '808'
+    } else if (name.includes('bass')) {
+      return 'bass loop'
+    } else if (name.includes('melody')) {
+      return 'melody loop'
+    } else if (name.includes('lead')) {
+      return 'lead'
+    } else if (name.includes('pad')) {
+      return 'pad'
+    } else if (name.includes('arp')) {
+      return 'arp'
+    } else if (name.includes('chord')) {
+      return 'chord'
+    } else if (name.includes('fx') || name.includes('effect')) {
+      return 'fx'
+    } else if (name.includes('percussion') || name.includes('perc')) {
+      return 'percussion'
+    } else if (name.includes('vocal')) {
+      return 'vocal'
+    } else {
+      return name // fallback to track name
+    }
+  }
+
   // Load patterns for a specific track type
   const handleLoadTrackPattern = async (trackId: number) => {
     const track = tracks.find(t => t.id === trackId)
@@ -1188,7 +1431,8 @@ export default function BeatMakerPage() {
         return
       }
 
-      const patternType = track.name.toLowerCase()
+      const patternType = getPatternTypeForTrack(track.name)
+      console.log(`[LOAD PATTERN] Track: ${track.name}, Looking for pattern type: ${patternType}`)
 
       // Fetch patterns filtered by pattern type
       const { data: patterns, error } = await supabase
@@ -1198,6 +1442,11 @@ export default function BeatMakerPage() {
         .eq('pattern_type', patternType)
         .order('created_at', { ascending: false })
 
+      console.log(`[LOAD PATTERN] Query result: ${patterns?.length || 0} patterns found`)
+      if (patterns && patterns.length > 0) {
+        console.log(`[LOAD PATTERN] Found patterns:`, patterns.map(p => ({ id: p.id, name: p.name, pattern_type: p.pattern_type })))
+      }
+
       if (error) {
         console.error('Error loading patterns:', error)
         alert('Failed to load patterns')
@@ -1205,7 +1454,30 @@ export default function BeatMakerPage() {
       }
 
       if (!patterns || patterns.length === 0) {
+        // Try a broader search with partial matching
+        console.log(`[LOAD PATTERN] No exact matches for "${patternType}", trying broader search...`)
+        
+        const { data: broaderPatterns, error: broaderError } = await supabase
+          .from('saved_patterns')
+          .select('*')
+          .eq('user_id', user.id)
+          .ilike('pattern_type', `%${patternType.split(' ')[0]}%`) // Search for first word of pattern type
+          .order('created_at', { ascending: false })
+        
+        if (broaderError) {
+          console.error('Error in broader pattern search:', broaderError)
+        }
+        
+        if (broaderPatterns && broaderPatterns.length > 0) {
+          console.log(`[LOAD PATTERN] Found ${broaderPatterns.length} patterns with broader search:`, broaderPatterns.map(p => ({ id: p.id, name: p.name, pattern_type: p.pattern_type })))
+          setAvailablePatterns(broaderPatterns)
+          setSelectedPatternToLoad(null)
+          setShowLoadPatternDialog(true)
+          return
+        }
+        
         alert(`No ${patternType} patterns found. Save some ${patternType} patterns first!`)
+        console.log(`[LOAD PATTERN] No patterns found for type: ${patternType} (even with broader search)`)
         return
       }
 
@@ -1237,6 +1509,9 @@ export default function BeatMakerPage() {
     console.log('Pattern sequencerData:', selectedPattern.sequencerData)
     console.log('Pattern sequencer_data:', selectedPattern.sequencer_data)
     console.log('Current tracks in sequencer:', tracks)
+    
+    // Turn off auto mode when a template/pattern is loaded
+    setIsAutoMode(false)
     
     // Load pattern BPM and steps
     setBpm(selectedPattern.bpm)
@@ -1467,9 +1742,40 @@ export default function BeatMakerPage() {
         event.preventDefault()
         
         if (activeTab === 'song') {
+          // Stop sequencer if it's playing before starting song arrangement
+          if (isPlaying) {
+            stopSequence()
+          }
           // Play song arrangement in Song tab
           playSongArrangement()
         } else if (hasLoadedAudio) {
+          // Stop song arrangement if it's playing before starting sequencer
+          if (songPlayback.isPlaying) {
+            setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+            
+            // Stop Tone.js sequence
+            if (songPlaybackRef.current.sequence) {
+              songPlaybackRef.current.sequence.stop()
+              songPlaybackRef.current.sequence.dispose()
+              songPlaybackRef.current.sequence = null
+            }
+            
+            // Stop Tone.js transport
+            import('tone').then(Tone => {
+              Tone.Transport.stop()
+            }).catch(console.warn)
+            
+            // Stop any playing song samples
+            Object.values(songPlaybackRef.current.players || {}).forEach(player => {
+              try {
+                if (player.state === 'started') {
+                  player.stop()
+                }
+              } catch (error) {
+                console.warn('[SPACEBAR] Error stopping song player:', error)
+              }
+            })
+          }
           // Play current sequencer pattern in Sequencer tab
           handlePlayPause()
         }
@@ -1484,13 +1790,40 @@ export default function BeatMakerPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isPlaying, hasLoadedAudio, activeTab])
+  }, [isPlaying, hasLoadedAudio, activeTab, songPlayback.isPlaying])
 
   const handlePlayPause = () => {
     console.log(`[MAIN TRANSPORT] Play/Pause called. isPlaying: ${isPlaying}, pianoRollData:`, pianoRollData)
     if (isPlaying) {
       stopSequence()
     } else {
+      // Stop song arrangement if it's playing
+      if (songPlayback.isPlaying) {
+        setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+        
+        // Stop Tone.js sequence
+        if (songPlaybackRef.current.sequence) {
+          songPlaybackRef.current.sequence.stop()
+          songPlaybackRef.current.sequence.dispose()
+          songPlaybackRef.current.sequence = null
+        }
+        
+        // Stop Tone.js transport
+        import('tone').then(Tone => {
+          Tone.Transport.stop()
+        }).catch(console.warn)
+        
+        // Stop any playing song samples
+        Object.values(songPlaybackRef.current.players || {}).forEach(player => {
+          try {
+            if (player.state === 'started') {
+              player.stop()
+            }
+          } catch (error) {
+            console.warn('[SEQUENCER] Error stopping song player:', error)
+          }
+        })
+      }
       playSequence()
     }
   }
@@ -1614,6 +1947,18 @@ export default function BeatMakerPage() {
   }
 
   const handleTrackTempoChange = (trackId: number, newBpm: number, originalBpm?: number) => {
+    // Find the current track to understand what's changing
+    const currentTrack = tracks.find(t => t.id === trackId)
+    if (!currentTrack) return
+    
+    // Check if this is an Original BPM change (originalBpm parameter is provided and different from current)
+    const isOriginalBpmChange = originalBpm !== undefined && originalBpm !== currentTrack.originalBpm
+    
+    console.log(`[TEMPO CHANGE] Track: ${currentTrack.name}`)
+    console.log(`[TEMPO CHANGE] Is Original BPM change: ${isOriginalBpmChange}`)
+    console.log(`[TEMPO CHANGE] Old original BPM: ${currentTrack.originalBpm}, New original BPM: ${originalBpm}`)
+    console.log(`[TEMPO CHANGE] Current BPM: ${currentTrack.currentBpm}, New BPM: ${newBpm}`)
+    
     // Update the tempo in the hook and get the calculated values
     const tempoData = updateTrackTempo(trackId, newBpm, originalBpm)
     
@@ -1627,10 +1972,135 @@ export default function BeatMakerPage() {
           playbackRate: tempoData.playbackRate
         } : track
       ))
+      
+      // Update song arrangement player tempo
+      const songPlayer = songPlaybackRef.current.players[trackId]
+      if (songPlayer) {
+        const precisePlaybackRate = Math.round(tempoData.playbackRate * 10000) / 10000
+        songPlayer.playbackRate = precisePlaybackRate
+        console.log(`[SONG TEMPO UPDATE] Track ${currentTrack.name} song player playback rate: ${precisePlaybackRate}`)
+      }
+      
+      // If this is an Original BPM change, update the database
+      if (isOriginalBpmChange && currentTrack.audioUrl) {
+        updateAudioFileBpmInDatabase(currentTrack, tempoData.originalBpm)
+      }
+      
+      // Force reload of samples to ensure playback rate is applied correctly
+      console.log(`[TEMPO CHANGE] Forcing sample reload for track ${trackId} with playback rate ${tempoData.playbackRate}`)
+      
+      // For Original BPM changes, we need to be more careful about the reload timing
+      if (isOriginalBpmChange) {
+        // Add a longer delay for Original BPM changes to ensure clean reload
+        setTimeout(async () => {
+          try {
+            await forceReloadTrackSamples(trackId)
+            console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after Original BPM change`)
+            
+            setTimeout(() => {
+              quantizeTrackTiming(trackId)
+            }, 200)
+          } catch (error) {
+            console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
+          }
+        }, 300) // Increased delay for Original BPM changes
+      } else {
+        // Regular tempo change - use normal timing
+        setTimeout(async () => {
+          try {
+            await forceReloadTrackSamples(trackId)
+            console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after tempo change`)
+            
+            setTimeout(() => {
+              quantizeTrackTiming(trackId)
+            }, 200)
+          } catch (error) {
+            console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
+          }
+        }, 150) // Shorter delay for regular tempo changes
+      }
+    }
+  }
+
+
+
+  // Function to update the BPM of an audio file in the database
+  const updateAudioFileBpmInDatabase = async (track: Track, newBpm: number) => {
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.warn('[DATABASE UPDATE] User not authenticated, cannot update database')
+        return
+      }
+
+      // Extract the file path from the audio URL to find the database record
+      // The URL format is typically: https://.../audio-library/user_id_filename.ext
+      const audioUrl = track.audioUrl
+      if (!audioUrl) {
+        console.warn('[DATABASE UPDATE] No audio URL found for track')
+        return
+      }
+
+      // Try to find the audio file in the database by matching the URL
+      const { data: audioFiles, error: fetchError } = await supabase
+        .from('audio_library_items')
+        .select('id, name, file_url, bpm')
+        .eq('user_id', user.id)
+        .eq('file_url', audioUrl)
+
+      if (fetchError) {
+        console.error('[DATABASE UPDATE] Error fetching audio file:', fetchError)
+        return
+      }
+
+      if (!audioFiles || audioFiles.length === 0) {
+        console.warn(`[DATABASE UPDATE] No audio file found in database for URL: ${audioUrl}`)
+        return
+      }
+
+      // Update the BPM for the found audio file
+      const audioFile = audioFiles[0]
+      const { error: updateError } = await supabase
+        .from('audio_library_items')
+        .update({ 
+          bpm: newBpm,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', audioFile.id)
+        .eq('user_id', user.id)
+
+      if (updateError) {
+        console.error('[DATABASE UPDATE] Error updating BPM in database:', updateError)
+        return
+      }
+
+      console.log(`[DATABASE UPDATE] Successfully updated BPM for "${audioFile.name}" from ${audioFile.bpm || 'unknown'} to ${newBpm}`)
+      
+      // Show a subtle notification to the user
+      toast({
+        title: "BPM Updated",
+        description: `Updated "${audioFile.name}" BPM from ${audioFile.bpm || 'unknown'} to ${newBpm}`,
+        duration: 3000,
+      })
+      
+    } catch (error) {
+      console.error('[DATABASE UPDATE] Unexpected error updating BPM:', error)
     }
   }
 
   const handleTrackPitchChange = (trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => {
+    // Find the current track to understand what's changing
+    const currentTrack = tracks.find(t => t.id === trackId)
+    if (!currentTrack) return
+    
+    // Check if this is an Original Key change (originalKey parameter is provided and different from current)
+    const isOriginalKeyChange = originalKey !== undefined && originalKey !== currentTrack.originalKey
+    
+    console.log(`[PITCH CHANGE] Track: ${currentTrack.name}`)
+    console.log(`[PITCH CHANGE] Is Original Key change: ${isOriginalKeyChange}`)
+    console.log(`[PITCH CHANGE] Old original Key: ${currentTrack.originalKey}, New original Key: ${originalKey}`)
+    
     // Update the pitch in the hook and get the calculated values
     const pitchData = updateTrackPitch(trackId, pitchShift, originalKey, currentKey)
     
@@ -1644,6 +2114,11 @@ export default function BeatMakerPage() {
           pitchShift: pitchData.pitchShift
         } : track
       ))
+      
+      // If this is an Original Key change, update the database
+      if (isOriginalKeyChange && currentTrack.audioUrl) {
+        updateAudioFileKeyInDatabase(currentTrack, pitchData.originalKey)
+      }
       
       // Recalculate piano roll notes for this track with the new key
       const track = tracks.find(t => t.id === trackId)
@@ -1659,6 +2134,70 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Function to update the Key of an audio file in the database
+  const updateAudioFileKeyInDatabase = async (track: Track, newKey: string) => {
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        console.warn('[DATABASE UPDATE] User not authenticated, cannot update database')
+        return
+      }
+
+      // Extract the file path from the audio URL to find the database record
+      const audioUrl = track.audioUrl
+      if (!audioUrl) {
+        console.warn('[DATABASE UPDATE] No audio URL found for track')
+        return
+      }
+
+      // Try to find the audio file in the database by matching the URL
+      const { data: audioFiles, error: fetchError } = await supabase
+        .from('audio_library_items')
+        .select('id, name, file_url, key')
+        .eq('user_id', user.id)
+        .eq('file_url', audioUrl)
+
+      if (fetchError) {
+        console.error('[DATABASE UPDATE] Error fetching audio file:', fetchError)
+        return
+      }
+
+      if (!audioFiles || audioFiles.length === 0) {
+        console.warn(`[DATABASE UPDATE] No audio file found in database for URL: ${audioUrl}`)
+        return
+      }
+
+      // Update the Key for the found audio file
+      const audioFile = audioFiles[0]
+      const { error: updateError } = await supabase
+        .from('audio_library_items')
+        .update({ 
+          key: newKey,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', audioFile.id)
+        .eq('user_id', user.id)
+
+      if (updateError) {
+        console.error('[DATABASE UPDATE] Error updating Key in database:', updateError)
+        return
+      }
+
+      console.log(`[DATABASE UPDATE] Successfully updated Key for "${audioFile.name}" from ${audioFile.key || 'unknown'} to ${newKey}`)
+      
+      // Show a subtle notification to the user
+      toast({
+        title: "Key Updated",
+        description: `Updated "${audioFile.name}" key from ${audioFile.key || 'unknown'} to ${newKey}`,
+        duration: 3000,
+      })
+      
+    } catch (error) {
+      console.error('[DATABASE UPDATE] Unexpected error updating Key:', error)
+    }
+  }
+
   // Transport inline editing handlers
   const handleBpmEdit = () => {
     setBpmInputValue(bpm.toString())
@@ -1669,6 +2208,58 @@ export default function BeatMakerPage() {
     const newBpm = parseFloat(bpmInputValue)
     if (newBpm >= 60 && newBpm <= 200) {
       setBpm(newBpm)
+      
+      // Synchronize Tone.js Transport BPM
+      import('tone').then(Tone => {
+        Tone.Transport.bpm.value = newBpm
+        console.log(`[TRANSPORT BPM] Tone.js Transport BPM set to: ${newBpm}`)
+      }).catch(console.warn)
+      
+      // Restart song arrangement if it's playing to sync with new BPM
+      if (songPlayback.isPlaying) {
+        console.log(`[TRANSPORT BPM] Restarting song arrangement to sync with new BPM: ${newBpm}`)
+        // Stop current song arrangement
+        setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+        if (songPlaybackRef.current.sequence) {
+          songPlaybackRef.current.sequence.stop()
+          songPlaybackRef.current.sequence.dispose()
+          songPlaybackRef.current.sequence = null
+        }
+        
+        // Restart with new BPM after a short delay
+        setTimeout(() => {
+          startSongStepSequencer()
+        }, 100)
+      }
+      
+      // Synchronize all tracks when transport BPM changes
+      // BUT respect M-T/T-M mode - only sync tracks in T-M mode
+      if (melodyLoopMode === 'transport-dominates') {
+        console.log(`[TRANSPORT BPM] T-M mode: Syncing all tracks to new BPM: ${newBpm}`)
+        tracks.forEach(track => {
+          if (track.audioUrl && track.originalBpm) {
+            // Recalculate playback rate for this track
+            const newPlaybackRate = newBpm / track.originalBpm
+            const precisePlaybackRate = Math.round(newPlaybackRate * 10000) / 10000
+            
+            // Update track state
+            setTracks(prev => prev.map(t => 
+              t.id === track.id ? { 
+                ...t, 
+                currentBpm: newBpm,
+                playbackRate: precisePlaybackRate
+              } : t
+            ))
+            
+            // Force reload with new playback rate
+            setTimeout(() => {
+              forceReloadTrackSamples(track.id)
+            }, 50 * track.id) // Stagger reloads to prevent conflicts
+          }
+        })
+      } else {
+        console.log(`[TRANSPORT BPM] M-T mode: Skipping track sync - Melody Loop controls transport`)
+      }
     }
     setEditingBpm(false)
   }
@@ -2036,6 +2627,7 @@ export default function BeatMakerPage() {
       console.log(`[DEBUG] Track: ${track.name}, Base: ${baseTrackName}, AudioType: ${audioType}`)
       if (!audioType) {
         console.log(`No audio type mapping found for track: ${track.name} (base: ${baseTrackName})`)
+        console.log(`[DEBUG] Available track types:`, Object.keys(trackTypeMap))
         return
       }
 
@@ -2043,6 +2635,7 @@ export default function BeatMakerPage() {
       let audioFiles: any[] = []
       
       // Build query with genre filtering if a genre is selected
+      // Try to include files with BPM and key metadata first, but fall back if needed
       let query = supabase
         .from('audio_library_items')
         .select('*')
@@ -2110,14 +2703,35 @@ export default function BeatMakerPage() {
         console.log(`[DEBUG] Total files found: ${allFiles.length}`)
         
         if (allFiles.length > 0) {
-          audioFiles = allFiles
-          console.log(`[DEBUG] Sample files found:`, allFiles.slice(0, 3).map(f => ({ 
-            name: f.name, 
-            genre: f.genre, 
-            subgenre: f.subgenre,
-            audio_type: f.audio_type,
-            pack_id: f.pack_id
-          })))
+          // Filter files to prioritize those with BPM and key metadata
+          const filesWithMetadata = allFiles.filter(f => f.bpm && f.key && f.bpm !== '' && f.key !== '')
+          console.log(`[DEBUG] Found ${filesWithMetadata.length} files with BPM and key metadata`)
+          
+          if (filesWithMetadata.length > 0) {
+            // Use files with metadata
+            audioFiles = filesWithMetadata
+            console.log(`[DEBUG] Using files with metadata:`, filesWithMetadata.slice(0, 3).map(f => ({ 
+              name: f.name, 
+              bpm: f.bpm,
+              key: f.key,
+              genre: f.genre, 
+              subgenre: f.subgenre,
+              audio_type: f.audio_type
+            })))
+          } else {
+            // Fall back to all files if none have metadata
+            console.log(`[DEBUG] No files with metadata found, using all files`)
+            audioFiles = allFiles
+            console.log(`[DEBUG] Sample files found:`, allFiles.slice(0, 3).map(f => ({ 
+              name: f.name, 
+              bpm: f.bpm || 'none',
+              key: f.key || 'none',
+              genre: f.genre, 
+              subgenre: f.subgenre,
+              audio_type: f.audio_type,
+              pack_id: f.pack_id
+            })))
+          }
         } else {
           // Debug: Check what files exist with the genre/subgenre combination regardless of audio_type
           console.log(`[DEBUG] No files found with audio_type="${audioType}", checking all files with genre/subgenre combination...`)
@@ -2176,10 +2790,32 @@ export default function BeatMakerPage() {
       const { data: typeFiles, error: typeError } = await query
       
       console.log(`[DEBUG] Found ${typeFiles?.length || 0} files with audio_type: ${audioType}`)
+      
+      // Filter files to prioritize those with BPM and key metadata
       if (typeFiles && typeFiles.length > 0) {
-        audioFiles = [...audioFiles, ...typeFiles]
+        // First, try to get files with both BPM and key
+        const filesWithMetadata = typeFiles.filter(f => f.bpm && f.key && f.bpm !== '' && f.key !== '')
+        console.log(`[DEBUG] Found ${filesWithMetadata.length} files with BPM and key metadata`)
+        
+        if (filesWithMetadata.length > 0) {
+          // Use files with metadata
+          audioFiles = [...audioFiles, ...filesWithMetadata]
+          console.log(`[DEBUG] Using files with metadata:`, filesWithMetadata.slice(0, 3).map(f => ({ 
+            name: f.name, 
+            bpm: f.bpm,
+            key: f.key,
+            genre: f.genre, 
+            subgenre: f.subgenre,
+            audio_type: f.audio_type
+          })))
+        } else {
+          // Fall back to all files if none have metadata
+          console.log(`[DEBUG] No files with metadata found, using all files`)
+          audioFiles = [...audioFiles, ...typeFiles]
           console.log(`[DEBUG] Sample files found:`, typeFiles.slice(0, 3).map(f => ({ 
             name: f.name, 
+            bpm: f.bpm || 'none',
+            key: f.key || 'none',
             genre: f.genre, 
             subgenre: f.subgenre,
             audio_type: f.audio_type,
@@ -2187,9 +2823,11 @@ export default function BeatMakerPage() {
           })))
         }
       }
+      }
       
       // Debug: Log the current filter state
       console.log(`[DEBUG] Current filters - Genre: ${selectedGenre?.name || 'none'}, Subgenre: ${selectedSubgenre || 'none'}, GenreLocked: ${isGenreLocked}, SubgenreLocked: ${isSubgenreLocked}`)
+      console.log(`[DEBUG] BPM/Key filtering: Prioritizing files with BPM and key metadata, falling back to all files if needed`)
       
       // If no exact matches, try to get files by name containing the type (fallback)
       if (audioFiles.length === 0) {
@@ -2218,8 +2856,8 @@ export default function BeatMakerPage() {
       }
       
       // Special handling for Hi-Hat to search for multiple variations
-      if (audioType === 'Hihat' && audioFiles.length === 0) {
-        const hiHatVariations = ['Hihat', 'Hi-Hat', 'Hi Hat']
+      if ((audioType === 'Hihat' || audioType === 'Hi-Hat') && audioFiles.length === 0) {
+        const hiHatVariations = ['Hihat', 'Hi-Hat', 'Hi Hat', 'hihat', 'hi-hat', 'hi hat']
         for (const variation of hiHatVariations) {
           let hiHatQuery = supabase
             .from('audio_library_items')
@@ -2241,6 +2879,33 @@ export default function BeatMakerPage() {
           
           if (variationFiles) {
             audioFiles = [...audioFiles, ...variationFiles]
+          }
+        }
+        
+        // Also try a broader search if still no results
+        if (audioFiles.length === 0) {
+          console.log('[DEBUG] No hi-hat files found with exact audio_type, trying broader search...')
+          let broaderQuery = supabase
+            .from('audio_library_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .or('name.ilike.%hihat%,name.ilike.%hi-hat%,name.ilike.%hi hat%')
+          
+          // Add genre filter if a genre is selected and locked
+          if (selectedGenre && selectedGenre.name && isGenreLocked) {
+            broaderQuery = broaderQuery.eq('genre', selectedGenre.name)
+          }
+          
+          // Add subgenre filter if a subgenre is selected and locked
+          if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
+            broaderQuery = broaderQuery.ilike('subgenre', selectedSubgenre.trim())
+          }
+          
+          const { data: broaderFiles, error: broaderError } = await broaderQuery
+          
+          if (broaderFiles) {
+            audioFiles = [...audioFiles, ...broaderFiles]
+            console.log(`[DEBUG] Found ${broaderFiles.length} hi-hat files with broader search`)
           }
         }
       }
@@ -2329,13 +2994,42 @@ export default function BeatMakerPage() {
       // Update the track with the new audio
       const publicUrl = getPublicAudioUrl(selectedAudio.file_url || '')
       
-      // Special handling for Melody Loop tracks - sync with transport key and tempo
+      // Handle tempo and key based on transport lock status
       let finalBpm = selectedAudio.bpm || 120
       let finalKey = selectedAudio.key || 'C'
       let pitchShift = 0
       let playbackRate = 1.0
       
-      if (track.name === 'Melody Loop') {
+      if (isBpmLocked || isKeyLocked) {
+        // Transport is partially or fully locked - adapt tracks accordingly
+        if (isBpmLocked) {
+          finalBpm = bpm
+          // Calculate playback rate to match transport tempo
+          if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+            playbackRate = bpm / selectedAudio.bpm
+          }
+        }
+        
+        if (isKeyLocked) {
+          finalKey = transportKey
+          // Calculate pitch shift needed to match transport key
+          if (selectedAudio.key && transportKey) {
+            const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            const originalIndex = chromaticScale.indexOf(selectedAudio.key)
+            const targetIndex = chromaticScale.indexOf(transportKey)
+            
+            if (originalIndex !== -1 && targetIndex !== -1) {
+              pitchShift = targetIndex - originalIndex
+              // Handle octave wrapping
+              if (pitchShift > 6) pitchShift -= 12
+              if (pitchShift < -6) pitchShift += 12
+            }
+          }
+        }
+        
+        console.log(`[TRANSPORT LOCKED] Track adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${finalBpm}BPM ${finalKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
+      } else if (track.name === 'Melody Loop') {
+        // Transport not locked - special handling for Melody Loop tracks
         if (melodyLoopMode === 'transport-dominates') {
           // Mode B: Transport dominates - Melody Loop adapts to transport
           finalBpm = bpm
@@ -2362,18 +3056,50 @@ export default function BeatMakerPage() {
           
           console.log(`[Mode B] Melody Loop adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${bpm}BPM ${transportKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
         } else {
-          // Mode A: Melody Loop dominates - Transport adapts to melody loop
+          // Mode A: Melody Loop dominates - Transport adapts to melody loop's ORIGINAL BPM
           finalBpm = selectedAudio.bpm || 120
           finalKey = selectedAudio.key || 'C'
           playbackRate = 1.0
           pitchShift = 0
           
-          // Update transport to match melody loop
-          setBpm(selectedAudio.bpm || 120)
+          // Update transport to match melody loop's ORIGINAL BPM from the database
+          // This is the true original BPM of the audio file, not the current adjusted BPM
+          const originalBpm = selectedAudio.bpm || 120
+          console.log(`[Mode A] DEBUG - selectedAudio:`, selectedAudio)
+          console.log(`[Mode A] DEBUG - selectedAudio.bpm: ${selectedAudio.bpm}`)
+          console.log(`[Mode A] DEBUG - originalBpm calculated: ${originalBpm}`)
+          console.log(`[Mode A] Setting transport BPM to ORIGINAL: ${originalBpm} (from selectedAudio.bpm: ${selectedAudio.bpm})`)
+          setBpm(originalBpm)
           setTransportKey(selectedAudio.key || 'C')
           
-          console.log(`[Mode A] Transport adapts to Melody Loop: ${bpm}BPM ${transportKey} -> ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
+          console.log(`[Mode A] Transport adapts to Melody Loop ORIGINAL BPM: ${bpm}BPM ${transportKey} -> ${originalBpm}BPM ${selectedAudio.key}`)
+          
+          // CRITICAL FIX: In M-T mode, ensure Current BPM matches Original BPM to prevent confusion
+          // Update the track's currentBpm to match the originalBpm
+          setTracks(prev => prev.map(track => 
+            track.name === 'Melody Loop' ? {
+              ...track,
+              currentBpm: originalBpm,
+              playbackRate: 1.0 // Reset playback rate since we're using original BPM
+            } : track
+          ))
+          
+          console.log(`[Mode A] CRITICAL FIX: Updated Melody Loop currentBpm to match originalBpm: ${originalBpm}`)
+          
+          // Force immediate update to ensure transport BPM is set correctly
+          setTimeout(() => {
+            console.log(`[Mode A] Verifying transport BPM is set to: ${originalBpm}`)
+            setBpm(originalBpm)
+          }, 10)
         }
+      } else {
+        // Transport not locked and not Melody Loop - use original audio BPM and key
+        finalBpm = selectedAudio.bpm || 120
+        finalKey = selectedAudio.key || 'C'
+        playbackRate = 1.0
+        pitchShift = 0
+        
+        console.log(`[NORMAL] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
       }
       
       setTracks(prev => prev.map(t => 
@@ -2555,12 +3281,46 @@ export default function BeatMakerPage() {
         return
       }
 
-      // Toggle melody loop mode
-      setMelodyLoopMode(prev => prev === 'transport-dominates' ? 'melody-dominates' : 'transport-dominates')
+      // If auto mode is on, ensure we have the default tracks loaded
+      if (isAutoMode) {
+        const defaultTrackNames = ['Melody Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', '808 Loop']
+        const currentTrackNames = tracks.map(t => t.name)
+        
+        // Check if any default tracks are missing
+        const missingTracks = defaultTrackNames.filter(name => !currentTrackNames.includes(name))
+        
+        if (missingTracks.length > 0) {
+          console.log(`[AUTO MODE] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default tracks.`)
+          
+          // Reset to default tracks
+          const defaultTracks: Track[] = [
+            { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
+            { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
+            { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
+            { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
+            { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
+          ]
+          
+          setTracks(defaultTracks)
+          
+          // Initialize sequencer data for new tracks
+          const initialSequencerData: {[trackId: number]: boolean[]} = {}
+          defaultTracks.forEach(track => {
+            const stepPattern = new Array(steps).fill(false)
+            stepPattern[0] = true // Activate first step
+            initialSequencerData[track.id] = stepPattern
+          })
+          setSequencerDataFromSession(initialSequencerData)
+        }
+      }
+
+      // DON'T toggle melody loop mode on shuffle - keep the current mode
+      // The mode should only be changed when explicitly requested, not automatically
+      console.log(`[SHUFFLE ALL] Keeping current Melody Loop Mode: ${melodyLoopMode} (${melodyLoopMode === 'transport-dominates' ? 'T→M' : 'M→T'})`)
       
       // Store current transport settings if locked
-      const originalBpm = isTransportLocked ? bpm : null
-      const originalKey = isTransportLocked ? transportKey : null
+      const originalBpm = isBpmLocked ? bpm : null
+      const originalKey = isKeyLocked ? transportKey : null
 
       // Store current genre/subgenre settings if locked
       const originalGenre = isGenreLocked ? selectedGenre : null
@@ -2568,6 +3328,10 @@ export default function BeatMakerPage() {
 
       // Get tempo range based on current genre/subgenre
       let newBpm = bpm
+      console.log(`[SHUFFLE DEBUG] selectedGenreId: "${selectedGenreId}"`)
+      console.log(`[SHUFFLE DEBUG] selectedGenreId !== 'none': ${selectedGenreId !== 'none'}`)
+      console.log(`[SHUFFLE DEBUG] selectedGenreId && selectedGenreId !== 'none': ${selectedGenreId && selectedGenreId !== 'none'}`)
+      
       if (selectedGenreId && selectedGenreId !== 'none') {
         try {
           const { data: tempoRange, error } = await supabase.rpc('get_tempo_range', {
@@ -2584,6 +3348,8 @@ export default function BeatMakerPage() {
         } catch (error) {
           console.warn('Error getting tempo range:', error)
         }
+      } else {
+        console.log(`[SHUFFLE DEBUG] No genre selected or genre is 'none', skipping genre tempo range check`)
       }
 
       // Shuffle audio samples for each track that has shuffle capability
@@ -2641,7 +3407,7 @@ export default function BeatMakerPage() {
           if (error || !patterns || patterns.length === 0) {
             // Fallback to built-in patterns
             console.log(`No saved patterns found for ${patternType}, using built-in patterns`)
-            const patternLibrary = getPatternLibraryForTrackType(track.name)
+          const patternLibrary = getPatternLibraryForTrackType(track.name)
             selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
           } else {
             // Use database pattern
@@ -2702,15 +3468,30 @@ export default function BeatMakerPage() {
         return newSequencerData
       })
 
-      // Update BPM based on genre tempo range (unless transport is locked)
-      if (!isTransportLocked) {
-        setBpm(newBpm)
-        console.log(`[SHUFFLE] Updated BPM to ${newBpm} based on genre tempo range`)
+      // Update BPM based on genre tempo range (unless BPM is locked)
+      // BUT respect M-T mode - if Melody Loop dominates, don't override the BPM set by individual track shuffles
+      console.log(`[SHUFFLE DEBUG] Current melodyLoopMode: ${melodyLoopMode}`)
+      console.log(`[SHUFFLE DEBUG] melodyLoopMode === 'transport-dominates': ${melodyLoopMode === 'transport-dominates'}`)
+      
+      if (!isBpmLocked) {
+        // Only set genre-based BPM if we're in T-M mode (Transport dominates)
+        // In M-T mode, the Melody Loop's original BPM should control the transport
+        if (melodyLoopMode === 'transport-dominates') {
+          setBpm(newBpm)
+          console.log(`[SHUFFLE] Updated BPM to ${newBpm} based on genre tempo range (T-M mode)`)
+        } else {
+          console.log(`[SHUFFLE] Skipping genre BPM update - M-T mode active, Melody Loop controls transport BPM`)
+        }
       } else {
-      // Restore transport settings if locked
+        // Restore BPM if locked
         if (originalBpm !== null) setBpm(originalBpm)
-        if (originalKey !== null) setTransportKey(originalKey)
-        console.log('Transport locked - restored BPM and Key settings')
+        console.log('BPM locked - restored BPM setting')
+      }
+      
+      // Restore Key if locked
+      if (isKeyLocked && originalKey !== null) {
+        setTransportKey(originalKey)
+        console.log('Key locked - restored Key setting')
       }
 
       // Restore genre/subgenre settings if locked
@@ -2826,8 +3607,10 @@ export default function BeatMakerPage() {
         return
       }
 
-      // Get pattern type from track name
-      const patternType = track.name.toLowerCase()
+
+
+      const patternType = getPatternTypeForTrack(track.name)
+      console.log(`[SHUFFLE PATTERN] Track: ${track.name}, Looking for pattern type: ${patternType}`)
 
       // Build query for patterns from database filtered by pattern type and genre/subgenre
       let query = supabase
@@ -2835,6 +3618,8 @@ export default function BeatMakerPage() {
         .select('*')
         .eq('user_id', user.id)
         .eq('pattern_type', patternType)
+      
+      console.log(`[SHUFFLE PATTERN] Query: user_id=${user.id}, pattern_type=${patternType}`)
       
       // Add genre filter if selected and not locked
       if (selectedGenreId && selectedGenreId !== 'none' && !isGenreLocked) {
@@ -2847,6 +3632,18 @@ export default function BeatMakerPage() {
       }
       
       const { data: patterns, error } = await query.order('created_at', { ascending: false })
+
+      console.log(`[SHUFFLE PATTERN] Query result: ${patterns?.length || 0} patterns found`)
+      if (patterns && patterns.length > 0) {
+        console.log(`[SHUFFLE PATTERN] Found patterns:`, patterns.map(p => ({ 
+          id: p.id, 
+          name: p.name, 
+          pattern_type: p.pattern_type,
+          has_sequencer_data: !!p.sequencer_data,
+          has_sequencerData: !!p.sequencerData,
+          track_ids: p.sequencer_data ? Object.keys(p.sequencer_data) : p.sequencerData ? Object.keys(p.sequencerData) : []
+        })))
+      }
 
       if (error) {
         console.error('Error fetching patterns:', error)
@@ -2903,7 +3700,15 @@ export default function BeatMakerPage() {
 
       // Select a random pattern from the database
       const randomPattern = patterns[Math.floor(Math.random() * patterns.length)]
+      console.log(`[SHUFFLE PATTERN] Selected pattern:`, { 
+        id: randomPattern.id, 
+        name: randomPattern.name, 
+        pattern_type: randomPattern.pattern_type 
+      })
+      
       const sequencerData = randomPattern.sequencer_data || randomPattern.sequencerData
+      console.log(`[SHUFFLE PATTERN] Sequencer data keys:`, sequencerData ? Object.keys(sequencerData) : 'none')
+      console.log(`[SHUFFLE PATTERN] Looking for track ID: ${trackId} or ${track.id}`)
       
       if (!sequencerData) {
         console.warn('Selected pattern has no sequencer data')
@@ -2911,11 +3716,23 @@ export default function BeatMakerPage() {
       }
 
       // Extract the pattern for this specific track
-      const trackPattern = sequencerData[trackId] || sequencerData[track.id]
+      let trackPattern = sequencerData[trackId] || sequencerData[track.id]
+      console.log(`[SHUFFLE PATTERN] Track pattern found:`, !!trackPattern, trackPattern ? trackPattern.length : 'N/A')
       
       if (!trackPattern) {
         console.warn('Selected pattern has no data for this track')
-        return
+        console.log(`[SHUFFLE PATTERN] Available track IDs in pattern:`, Object.keys(sequencerData))
+        
+        // Try to find any pattern data in the sequencer data (fallback to first available)
+        const availableTrackIds = Object.keys(sequencerData)
+        if (availableTrackIds.length > 0) {
+          const fallbackTrackId = availableTrackIds[0]
+          trackPattern = sequencerData[fallbackTrackId]
+          console.log(`[SHUFFLE PATTERN] Using fallback pattern from track ID: ${fallbackTrackId}`)
+        } else {
+          console.warn('No pattern data found in sequencer data')
+          return
+        }
       }
 
       // Extend or truncate the pattern to match current step count
@@ -3218,7 +4035,7 @@ export default function BeatMakerPage() {
             steps,
             category: 'Auto-saved',
             tags: [track.name.toLowerCase()],
-            pattern_type: track.name.toLowerCase()
+            pattern_type: getPatternTypeForTrack(track.name)
           })
       })
 
@@ -3258,7 +4075,7 @@ export default function BeatMakerPage() {
           category,
           genre_id: genreId || null,
           subgenre: subgenre || null,
-          pattern_type: track.name.toLowerCase()
+          pattern_type: getPatternTypeForTrack(track.name)
         }])
         .select()
         .single()
@@ -3324,6 +4141,10 @@ export default function BeatMakerPage() {
   const [editingSubgenres, setEditingSubgenres] = useState<{[genreId: string]: boolean}>({})
   const [subgenreInputs, setSubgenreInputs] = useState<{[genreId: string]: string}>({})
   const [isSavingSubgenres, setIsSavingSubgenres] = useState(false)
+  
+  // Quantization modal state
+  const [showQuantizeModal, setShowQuantizeModal] = useState(false)
+  const [quantizeTrack, setQuantizeTrack] = useState<any>(null)
 
   // Add subgenre to new genre
   const addSubgenreToNewGenre = () => {
@@ -3446,8 +4267,9 @@ export default function BeatMakerPage() {
     }
   }
 
-  // Transport lock state
-  const [isTransportLocked, setIsTransportLocked] = useState(false)
+  // Transport lock states
+  const [isBpmLocked, setIsBpmLocked] = useState(false)
+  const [isKeyLocked, setIsKeyLocked] = useState(false)
   const [melodyLoopMode, setMelodyLoopMode] = useState<'transport-dominates' | 'melody-dominates'>('transport-dominates')
 
   // Pattern management state
@@ -4094,6 +4916,33 @@ export default function BeatMakerPage() {
     setIsPackLocked(!isPackLocked)
   }
 
+  // Handle quantization
+  const handleQuantizeLoop = (trackId: number, startTime: number, endTime: number, playbackRate: number) => {
+    console.log(`[QUANTIZE] Applying quantization to track ${trackId}`)
+    console.log(`[QUANTIZE] Start: ${startTime}s, End: ${endTime}s, Rate: ${playbackRate}`)
+    
+    // Update track with new loop points and playback rate
+    setTracks(prev => prev.map(track => 
+      track.id === trackId ? { 
+        ...track, 
+        loopStartTime: startTime,
+        loopEndTime: endTime,
+        playbackRate: playbackRate
+      } : track
+    ))
+    
+    // Force reload the sample with new settings
+    setTimeout(() => {
+      forceReloadTrackSamples(trackId)
+    }, 100)
+  }
+
+  // Open quantization modal
+  const openQuantizeModal = (track: any) => {
+    setQuantizeTrack(track)
+    setShowQuantizeModal(true)
+  }
+
   const handleClearAll = () => {
     // Reset transport settings
     setBpm(120)
@@ -4101,14 +4950,19 @@ export default function BeatMakerPage() {
     setSteps(16)
     setCurrentStep(0)
     
-    // Reset tracks to default
+    // Reset tracks to default (Auto mode tracks)
     setTracks([
-      { id: 1, name: 'Kick', audioUrl: null, color: 'bg-red-500' },
-      { id: 2, name: 'Snare', audioUrl: null, color: 'bg-blue-500' },
-      { id: 3, name: 'Hi-Hat', audioUrl: null, color: 'bg-green-500' },
+      { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
+      { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
+      { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
+      { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
+      { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
     ])
     
-    // Clear all sequencer data
+    // Turn auto mode back on when clearing all
+    setIsAutoMode(true)
+    
+    // Clear all sequencer data (will be re-initialized by the useEffect when auto mode is set to true)
     setSequencerDataFromSession({})
     
     // Clear piano roll data
@@ -4133,8 +4987,9 @@ export default function BeatMakerPage() {
     stopSequence()
     setIsPlaying(false)
     
-    // Reset transport lock
-    setIsTransportLocked(false)
+    // Reset transport locks
+    setIsBpmLocked(false)
+    setIsKeyLocked(false)
     
     console.log('Cleared all data - fresh start!')
   }
@@ -4765,11 +5620,35 @@ export default function BeatMakerPage() {
                   <RotateCcw className="w-4 h-4 mr-1" />
                   Clear All
                 </Button>
+                <Button
+                  onClick={() => setIsAutoMode(!isAutoMode)}
+                  variant="outline"
+                  size="sm"
+                  className={`${
+                    isAutoMode 
+                      ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                  }`}
+                  title={isAutoMode ? "Auto mode is ON - Click to turn off" : "Auto mode is OFF - Click to turn on"}
+                >
+                  <Settings className="w-4 h-4 mr-1" />
+                  Auto
+                </Button>
               </div>
 
               {/* BPM Controls */}
               <div className="flex items-center gap-2">
-                <span className="text-white text-sm">BPM:</span>
+                <span 
+                  className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
+                    isBpmLocked 
+                      ? 'bg-yellow-400 text-black hover:bg-yellow-300' 
+                      : 'text-white hover:text-yellow-400 hover:bg-yellow-400/20'
+                  }`}
+                  onClick={() => setIsBpmLocked(!isBpmLocked)}
+                  title={isBpmLocked ? "Click to unlock BPM" : "Click to lock BPM"}
+                >
+                  BPM:
+                </span>
                 {editingBpm ? (
                   <Input
                     type="number"
@@ -4789,18 +5668,26 @@ export default function BeatMakerPage() {
                     autoFocus
                   />
                 ) : (
-                  <Badge 
-                    variant="secondary" 
-                    className={`min-w-[60px] text-center cursor-pointer hover:bg-gray-600 transition-colors ${
-                      isTransportLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
-                    }`}
+                                  <Badge 
+                  variant="secondary" 
+                  className={`min-w-[60px] text-center cursor-pointer hover:bg-gray-600 transition-colors ${
+                    isBpmLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
+                  } ${
+                    // Add yellow outline when in T-M mode (Transport dominates)
+                    // In M-T mode, transport should NOT have yellow outline since Melody Loop controls it
+                    melodyLoopMode === 'transport-dominates' ? 'ring-2 ring-yellow-400 border-yellow-400 bg-yellow-400/10' : ''
+                  }`}
                     onClick={handleBpmEdit}
-                    title="Click to edit BPM"
+                    title="Click to edit BPM (or click 'BPM' label to lock/unlock)"
                   >
                     {bpm}
                   </Badge>
                 )}
-                <div className="w-24">
+                <div className={`w-24 ${
+                  // Add yellow outline when in T-M mode (Transport dominates)
+                  // In M-T mode, transport should NOT have yellow outline since Melody Loop controls it
+                  melodyLoopMode === 'transport-dominates' ? 'ring-2 ring-yellow-400 rounded p-1 bg-yellow-400/10' : ''
+                }`}>
                   <Slider
                     value={[bpm]}
                     onValueChange={(value) => setBpm(value[0])}
@@ -4808,14 +5695,24 @@ export default function BeatMakerPage() {
                     max={200}
                     step={1}
                     className="w-full"
-                    disabled={isTransportLocked}
+                    disabled={isBpmLocked}
                   />
                 </div>
               </div>
               
               {/* Key Controls */}
               <div className="flex items-center gap-2">
-                <span className="text-white text-sm">Key:</span>
+                <span 
+                  className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
+                    isKeyLocked 
+                      ? 'bg-yellow-400 text-black hover:bg-yellow-300' 
+                      : 'text-white hover:text-yellow-400 hover:bg-yellow-400/20'
+                  }`}
+                  onClick={() => setIsKeyLocked(!isKeyLocked)}
+                  title={isKeyLocked ? "Click to unlock Key" : "Click to lock Key"}
+                >
+                  Key:
+                </span>
                 {editingTransportKey ? (
                   <div className="flex items-center gap-1">
                     <select
@@ -4848,10 +5745,14 @@ export default function BeatMakerPage() {
                   <Badge 
                     variant="secondary" 
                     className={`min-w-[40px] text-center cursor-pointer hover:bg-gray-600 hover:scale-105 transition-all duration-200 ${
-                      isTransportLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
+                      isKeyLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
+                    } ${
+                      // Add yellow outline when in T-M mode (Transport dominates)
+                      // In M-T mode, transport should NOT have yellow outline since Melody Loop controls it
+                      melodyLoopMode === 'transport-dominates' ? 'ring-2 ring-yellow-400 border-yellow-400 bg-yellow-400/10' : ''
                     }`}
                     onClick={handleTransportKeyEdit}
-                    title="Click to edit transport key"
+                    title="Click to edit transport key (or click 'Key' label to lock/unlock)"
                   >
                     {transportKey}
                   </Badge>
@@ -4958,34 +5859,29 @@ export default function BeatMakerPage() {
 
             {/* Secondary Controls Row */}
             <div className="flex items-center gap-4 flex-wrap">
-              {/* Transport Lock and Mode */}
+              {/* Melody Loop Mode */}
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsTransportLocked(!isTransportLocked)}
-                  className={`${
-                    isTransportLocked 
-                      ? 'bg-yellow-400 text-black border-yellow-400 hover:bg-yellow-300' 
-                      : 'bg-black text-yellow-400 border-yellow-400 hover:bg-yellow-400 hover:text-black'
-                  }`}
-                  title={isTransportLocked ? "Unlock transport (BPM & Key)" : "Lock transport (BPM & Key)"}
-                >
-                  {isTransportLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                </Button>
                 
                 {/* Melody Loop Mode Indicator */}
-                <Badge 
-                  variant="outline" 
-                  className={`text-xs px-2 py-1 ${
-                    melodyLoopMode === 'transport-dominates' 
-                      ? 'bg-blue-400/20 border-blue-400 text-blue-300' 
-                      : 'bg-purple-400/20 border-purple-400 text-purple-300'
-                  }`}
-                  title={`Melody Loop Mode: ${melodyLoopMode === 'transport-dominates' ? 'Transport dominates (Mode B)' : 'Melody Loop dominates (Mode A)'}`}
-                >
-                  {melodyLoopMode === 'transport-dominates' ? 'T→M' : 'M→T'}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge 
+                    variant="outline" 
+                    className={`text-xs px-2 py-1 ${
+                      melodyLoopMode === 'transport-dominates' 
+                        ? 'bg-blue-400/20 border-blue-400 text-blue-300' 
+                        : 'bg-purple-400/20 border-purple-400 text-purple-300'
+                    }`}
+                    title={`Melody Loop Mode: ${melodyLoopMode === 'transport-dominates' ? 'Transport dominates (Mode B)' : 'Melody Loop dominates (Mode A)'}`}
+                  >
+                    {melodyLoopMode === 'transport-dominates' ? 'T→M' : 'M→T'}
+                  </Badge>
+                  <span className="text-gray-400 text-xs">
+                    {melodyLoopMode === 'transport-dominates' 
+                      ? 'Transport controls Melody Loop' 
+                      : 'Melody Loop controls Transport'
+                    }
+                  </span>
+                </div>
               </div>
               
 
@@ -5085,7 +5981,9 @@ export default function BeatMakerPage() {
             onSetTransportKey={setTransportKey}
             onToggleTrackLock={handleToggleTrackLock}
             onToggleTrackMute={handleToggleTrackMute}
+            onQuantizeLoop={openQuantizeModal}
             transportKey={transportKey}
+            melodyLoopMode={melodyLoopMode}
           />
         </div>
 
@@ -5374,39 +6272,60 @@ export default function BeatMakerPage() {
                   <div className="sticky top-0 bg-[#141414] border-b border-gray-600 p-2">
                     <div className="flex relative">
                       <div className="w-24 text-center text-gray-400 text-xs py-2">Tracks</div>
-                      {Array.from({ length: 32 }, (_, i) => {
+                                                                      {Array.from({ length: 32 }, (_, i) => {
                         // Check if any track has pattern assignments at this bar
                         const hasPatternAssignments = Object.values(songPatternAssignments).some(trackAssignments => 
                           trackAssignments[i]
                         )
                         
+                        // Check if this bar is currently playing based on step position
+                        const isCurrentlyPlaying = songPlayback.isPlaying && songPlayback.currentBar === i
+                        
+                                        // Calculate bar width based on the pattern with the most steps in this bar
+                let maxSteps = 16
+                tracks.forEach(track => {
+                  const patternId = getAssignedPattern(track.id, i)
+                  if (patternId) {
+                    const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+                    if (pattern) {
+                      maxSteps = Math.max(maxSteps, pattern.steps || 16)
+                    }
+                  }
+                })
+                // Each step should be 4px wide, so a 32-step pattern should be 128px wide
+                const barWidth = Math.max(64, maxSteps * 4) // 16 steps = 64px, 32 steps = 128px
+                        
                         return (
                           <div 
                             key={i} 
-                            className={`w-16 text-center text-xs py-2 border-r border-gray-700 relative ${
-                              songPlayback.isPlaying && songPlayback.currentBar === i 
+                            className={`text-center text-xs py-2 border-r border-gray-700 relative ${
+                              isCurrentlyPlaying
                                 ? 'bg-green-500/20 text-green-400' 
                                 : hasPatternAssignments
                                   ? 'text-blue-400'
                                   : 'text-gray-400'
                             }`}
+                            style={{ width: `${barWidth}px` }}
                           >
-                            {i + 1}
-                            {hasPatternAssignments && !songPlayback.isPlaying && (
-                              <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full"></div>
-                            )}
-                            {songPlayback.isPlaying && songPlayback.currentBar === i && (
-                              <div className="absolute top-0 left-0 w-full h-full bg-green-500/30 animate-pulse"></div>
-                            )}
-                          </div>
-                        )
-                      })}
+                                {i + 1}
+                                {hasPatternAssignments && !songPlayback.isPlaying && (
+                                  <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full"></div>
+                                )}
+                                {isCurrentlyPlaying && (
+                                  <div className="absolute top-0 left-0 w-full h-full bg-green-500/30 animate-pulse"></div>
+                                )}
+                              </div>
+                            )
+                          })}
                       
                       {/* Playhead */}
                       {songPlayback.isPlaying && (
                         <div 
                           className="absolute top-0 w-1 h-full bg-green-500 z-10 transition-all duration-100"
-                          style={{ left: `${96 + songPlayback.currentBar * 64}px` }}
+                          style={{ 
+                            left: `${96 + getPlayheadBasePosition()}px`,
+                            transform: `translateX(${getPlayheadOffset()}px)`
+                          }}
                         >
                           <div className="w-3 h-3 bg-green-500 rounded-full -ml-1 -mt-1"></div>
                         </div>
@@ -5440,14 +6359,24 @@ export default function BeatMakerPage() {
                             const isCurrentBar = songPlayback.isPlaying && songPlayback.currentBar === i
                             const isSelected = selectedPatternForPlacement === assignedPatternId
                             
+                            // Calculate if this specific step is currently playing
+                            const isCurrentStep = isCurrentBar && assignedPattern && songPlayback.isPlaying
+                            const currentStepInBar = songPlaybackRef.current.currentStep % (assignedPattern?.steps || 16)
+                            
+                            // Calculate bar width based on pattern step count
+                            const patternSteps = assignedPattern?.steps || 16
+                            // Each step should be 4px wide, so a 32-step pattern should be 128px wide
+                            const barWidth = Math.max(64, patternSteps * 4) // 16 steps = 64px, 32 steps = 128px
+                            
                             return (
                               <div 
                                 key={i} 
-                                className={`w-16 h-8 border-r border-gray-700/30 cursor-pointer transition-colors flex items-center justify-center relative ${
+                                className={`h-8 border-r border-gray-700/30 cursor-pointer transition-colors flex items-center justify-center relative ${
                                   assignedPattern 
                                     ? 'bg-gray-800/50 border-gray-600' 
                                     : 'hover:bg-gray-700/30'
                                 } ${isCurrentBar && assignedPattern ? 'ring-2 ring-green-400 animate-pulse' : ''} ${isSelected ? 'ring-2 ring-blue-400' : ''}`}
+                                style={{ width: `${barWidth}px` }}
                                 onClick={() => {
                                   if (selectedPatternForPlacement) {
                                     // Check if the selected pattern is compatible with this track
@@ -5473,7 +6402,7 @@ export default function BeatMakerPage() {
                                     assignPatternToTrack(track.id, i, null)
                                   }
                                 }}
-                                title={`Bar ${i + 1} - ${track.name} ${assignedPattern ? `(${assignedPattern.name})` : '(No Pattern)'} - ${selectedPatternForPlacement ? 'Click to assign pattern' : 'Click to remove pattern'}`}
+                                title={`Bar ${i + 1} - ${track.name} ${assignedPattern ? `(${assignedPattern.name}, ${assignedPattern.steps || 16} steps)` : '(No Pattern)'} - ${selectedPatternForPlacement ? 'Click to assign pattern' : 'Click to remove pattern'}`}
                               >
                                 {assignedPattern && (
                                   <div className="absolute inset-0 p-1">
@@ -5481,32 +6410,48 @@ export default function BeatMakerPage() {
                                       <>
                                         {/* Show the assigned pattern for this track */}
                                         <div className="w-full h-full flex items-center gap-0.5">
-                                          {(assignedPattern.sequencerData[track.id] || []).slice(0, 8).map((stepActive: boolean, stepIndex: number) => (
+                                          {(assignedPattern.sequencerData[track.id] || []).slice(0, assignedPattern.steps || 16).map((stepActive: boolean, stepIndex: number) => (
                                             <div
                                               key={stepIndex}
-                                              className={`flex-1 h-full rounded-sm ${
+                                              className={`h-full rounded-sm ${
                                                 stepActive 
                                                   ? getTrackColorHex(track.color) 
                                                   : 'bg-gray-600/30'
-                                              }`}
+                                              } ${isCurrentStep && currentStepInBar === stepIndex ? 'ring-1 ring-white' : ''}`}
                                               style={{
-                                                backgroundColor: stepActive ? getTrackColorHex(track.color) : undefined
+                                                backgroundColor: stepActive ? getTrackColorHex(track.color) : undefined,
+                                                width: `${100 / (assignedPattern.steps || 16)}%`
                                               }}
                                             />
-                                          )) || Array.from({ length: 8 }, (_, stepIndex) => (
+                                          )) || Array.from({ length: assignedPattern.steps || 16 }, (_, stepIndex) => (
                                             <div
                                               key={stepIndex}
-                                              className="flex-1 h-full bg-gray-600/30 rounded-sm"
+                                              className={`h-full bg-gray-600/30 rounded-sm ${isCurrentStep && currentStepInBar === stepIndex ? 'ring-1 ring-white' : ''}`}
+                                              style={{
+                                                width: `${100 / (assignedPattern.steps || 16)}%`
+                                              }}
                                             />
                                           ))}
                                         </div>
                                         
-                                        {/* Show pattern name */}
+                                        {/* Show pattern name and step count */}
                                         <div className="absolute bottom-0 left-0 right-0 text-center">
                                           <div className="text-white text-xs font-bold truncate px-1">
                                             {assignedPattern.name}
                                           </div>
+                                          <div className="text-gray-400 text-xs">
+                                            {assignedPattern.steps || 16} steps
+                                          </div>
                                         </div>
+                                        
+                                        {/* Show current step position when playing */}
+                                        {isCurrentStep && (
+                                          <div className="absolute top-0 left-0 right-0 text-center">
+                                            <div className="text-yellow-300 text-xs font-bold bg-black/50 px-1 rounded">
+                                              Step {currentStepInBar + 1}
+                                            </div>
+                                          </div>
+                                        )}
                                         
                                         {/* Show playing indicator */}
                                         {isCurrentBar && songPlayback.isPlaying && (
@@ -5619,6 +6564,60 @@ export default function BeatMakerPage() {
                       </span>
                     </div>
                   )}
+
+                  {/* Debug Info */}
+                  <div className="flex items-center gap-2 px-3 py-1 bg-gray-700 rounded">
+                    <span className="text-white text-sm">Debug:</span>
+                    <span className="text-gray-200 text-sm">
+                      Global Steps: {steps} | Patterns: {currentSequencerPatterns.length} | BPM: {bpm}
+                    </span>
+                  </div>
+                  
+                  {/* Timing Sync Info */}
+                  <div className="flex items-center gap-2 px-3 py-1 bg-blue-700 rounded">
+                    <span className="text-white text-sm">Timing:</span>
+                    <span className="text-blue-200 text-sm">
+                      Step Duration: {(60 / bpm / 4).toFixed(3)}s | 
+                      {songPlayback.isPlaying ? 'Song Playing' : 'Song Stopped'} | 
+                      {isPlaying ? 'Sequencer Playing' : 'Sequencer Stopped'}
+                    </span>
+                  </div>
+                  
+                  {/* Tempo Sync Info */}
+                  <div className="flex items-center gap-2 px-3 py-1 bg-green-700 rounded">
+                    <span className="text-white text-sm">Tempo:</span>
+                    <span className="text-green-200 text-sm">
+                      Transport: {bpm} BPM | 
+                      {tracks.filter(t => t.playbackRate && t.playbackRate !== 1).length > 0 
+                        ? `${tracks.filter(t => t.playbackRate && t.playbackRate !== 1).length} tracks adjusted` 
+                        : 'All tracks at original tempo'}
+                    </span>
+                  </div>
+                  
+                  {/* Visual Width Info */}
+                  <div className="flex items-center gap-2 px-3 py-1 bg-purple-700 rounded">
+                    <span className="text-white text-sm">Visual:</span>
+                    <span className="text-purple-200 text-sm">
+                      {songPlayback.isPlaying ? `Bar ${songPlayback.currentBar + 1}: ${songPlaybackRef.current.currentStep || 0} steps` : 'Stopped'} | 
+                      {currentSequencerPatterns.filter(p => p.steps && p.steps > 16).length > 0 
+                        ? `${currentSequencerPatterns.filter(p => p.steps && p.steps > 16).length} long patterns` 
+                        : 'All patterns 16 steps'}
+                    </span>
+                  </div>
+                  
+                  {/* M-T Mode Debug */}
+                  <div className="flex items-center gap-2 px-3 py-1 bg-purple-900 rounded">
+                    <span className="text-white text-sm">M-T Debug:</span>
+                    <span className="text-purple-200 text-sm">
+                      {melodyLoopMode === 'melody-dominates' ? (
+                        tracks.find(t => t.name === 'Melody Loop') ? (
+                          `ML Original: ${tracks.find(t => t.name === 'Melody Loop')?.originalBpm} | ` +
+                          `ML Current: ${tracks.find(t => t.name === 'Melody Loop')?.currentBpm} | ` +
+                          `Transport: ${bpm}`
+                        ) : 'No Melody Loop track'
+                      ) : 'Not in M-T mode'}
+                    </span>
+                  </div>
 
                   <div className="flex items-center gap-4 ml-auto">
                     <div className="flex items-center gap-2">
@@ -6272,7 +7271,7 @@ export default function BeatMakerPage() {
                 id="pattern-tags"
                 value={patternTags}
                 onChange={(e) => setPatternTags(e.target.value)}
-                placeholder="e.g., kick, snare, hi-hat (comma separated)"
+                placeholder="e.g., melody loop, drum loop, hihat loop (comma separated)"
                 className="bg-[#2a2a2a] border-gray-600 text-white"
               />
             </div>
@@ -7359,6 +8358,19 @@ export default function BeatMakerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+              {/* Quantize Loop Modal */}
+        {quantizeTrack && (
+          <QuantizeLoopModal
+            isOpen={showQuantizeModal}
+            onClose={() => setShowQuantizeModal(false)}
+            track={quantizeTrack}
+            bpm={bpm}
+            steps={steps}
+            currentStep={currentStep}
+            onQuantize={handleQuantizeLoop}
+          />
+        )}
     </div>
   )
 }

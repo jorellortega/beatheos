@@ -268,10 +268,12 @@ interface TrackListProps {
   onSetTransportKey?: (key: string) => void
   onToggleTrackLock?: (trackId: number) => void
   onToggleTrackMute?: (trackId: number) => void
+  onQuantizeLoop?: (track: any) => void
   transportKey?: string
+  melodyLoopMode?: 'transport-dominates' | 'melody-dominates'
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, transportKey }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, transportKey, melodyLoopMode }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [draggedKey, setDraggedKey] = useState<string | null>(null)
@@ -669,6 +671,11 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                   onReorderTracks ? 'cursor-grab active:cursor-grabbing' : ''
                 } ${
                   track.name === 'MIDI' && track.stockSound ? 'ring-2 ring-green-400 border-green-400' : ''
+                } ${
+                  // Highlight Melody Loop track when in M-T mode (Melody Loop dominates)
+                  melodyLoopMode === 'melody-dominates' && track.name === 'Melody Loop' 
+                    ? 'ring-2 ring-purple-400 border-purple-400 bg-purple-500/10 shadow-lg shadow-purple-500/20' 
+                    : ''
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -693,6 +700,16 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 <div className="flex flex-col gap-2">
                   {/* Audio Info Row */}
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* M-T Mode Indicator for Melody Loop */}
+                    {melodyLoopMode === 'melody-dominates' && track.name === 'Melody Loop' && (
+                      <Badge 
+                        variant="secondary" 
+                        className="text-xs bg-purple-600 text-white border-purple-400 animate-pulse"
+                        title="Melody Loop is controlling Transport tempo and key"
+                      >
+                        🎵 M-T Mode
+                      </Badge>
+                    )}
                     {/* MIDI: Show only stock sound name, no audio badge */}
                     {track.name === 'MIDI' && track.stockSound ? (
                       <Badge 
@@ -1135,9 +1152,8 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          // This would call a quantize function if implemented
-                          console.log(`[QUANTIZE] Attempting to quantize ${track.name} for tempo sync`)
-                          alert(`Quantize feature coming soon! This will align the loop to the grid for better tempo sync.`)
+                          console.log(`[QUANTIZE] Opening quantization modal for ${track.name}`)
+                          onQuantizeLoop?.(track)
                         }}
                         className="w-full h-6 text-xs border-yellow-500 text-yellow-400 hover:bg-yellow-500 hover:text-black"
                         title="Align loop to grid for better tempo sync"

@@ -27,7 +27,8 @@ import {
   Plus,
   Package,
   Folder,
-  Settings
+  Settings,
+  CheckCircle2
 } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { useAuth } from '@/contexts/AuthContext'
@@ -753,6 +754,24 @@ function EditPatternsPage() {
   // Pattern metadata editing
   const [editingPatternMetadata, setEditingPatternMetadata] = useState<SavedPattern | null>(null)
   const [editingTrackMetadata, setEditingTrackMetadata] = useState<{ [trackId: number]: any }>({})
+
+  // Mass edit functionality
+  const [selectedPatterns, setSelectedPatterns] = useState<Set<string>>(new Set())
+  const [showMassEditModal, setShowMassEditModal] = useState(false)
+  const [massEditValues, setMassEditValues] = useState({
+    category: '',
+    pattern_type: '',
+    tags: '',
+    bpm: '',
+    key: ''
+  })
+  const [selectedMassEditFields, setSelectedMassEditFields] = useState<Set<string>>(new Set())
+  const [massEditLoading, setMassEditLoading] = useState(false)
+
+  // Pack search functionality
+  const [packSearchTerm, setPackSearchTerm] = useState('')
+  const [packFilterCategory, setPackFilterCategory] = useState('all')
+  const [packFilterType, setPackFilterType] = useState('all')
 
   useEffect(() => {
     loadPatterns()
@@ -1506,7 +1525,23 @@ function EditPatternsPage() {
           // Show preview before saving
           const defaultName = file.name.replace(/\.(mid|midi)$/i, '')
           setPatternName(defaultName)
-          setPatternType('') // Reset pattern type for new import
+          
+          // Auto-detect pattern type based on filename
+          let defaultPatternType = ''
+          const lowerName = defaultName.toLowerCase()
+          if (lowerName.includes('hihat') || lowerName.includes('hi-hat') || lowerName.includes('hat')) {
+            defaultPatternType = 'hihat loop'
+          } else if (lowerName.includes('melody') || lowerName.includes('lead')) {
+            defaultPatternType = 'melody loop'
+          } else if (lowerName.includes('bass')) {
+            defaultPatternType = 'bass loop'
+          } else if (lowerName.includes('kick')) {
+            defaultPatternType = 'kick'
+          } else if (lowerName.includes('snare')) {
+            defaultPatternType = 'snare'
+          }
+          
+          setPatternType(defaultPatternType)
           setPreviewPattern({
             name: defaultName,
             description: `Imported from ${file.name} - ${midiData.tracks.length} tracks, ${midiData.bpm} BPM`,
@@ -1977,7 +2012,16 @@ function EditPatternsPage() {
     setEditingName(pattern.name)
     setEditingDescription(pattern.description || '')
     setEditingCategory(pattern.category || '')
-    setEditingPatternType(pattern.pattern_type || '')
+    
+    // Auto-correct pattern type for hi-hat patterns
+    let correctedPatternType = pattern.pattern_type || ''
+    if (correctedPatternType === 'hihat' || 
+        pattern.name.toLowerCase().includes('hihat') || 
+        pattern.name.toLowerCase().includes('hi-hat')) {
+      correctedPatternType = 'hihat loop'
+    }
+    
+    setEditingPatternType(correctedPatternType)
     setEditingTags(pattern.tags?.join(', ') || '')
   }
 
@@ -2173,13 +2217,24 @@ function EditPatternsPage() {
   })
 
   const openEditPatternMetadata = (pattern: SavedPattern) => {
-    setEditingPatternMetadata(pattern)
+    // Auto-correct pattern type for hi-hat patterns
+    let correctedPattern = pattern
+    if (pattern.pattern_type === 'hihat' || 
+        pattern.name.toLowerCase().includes('hihat') || 
+        pattern.name.toLowerCase().includes('hi-hat')) {
+      correctedPattern = {
+        ...pattern,
+        pattern_type: 'hihat loop'
+      }
+    }
+    
+    setEditingPatternMetadata(correctedPattern)
     // Initialize track metadata for editing
     const trackMetadata: { [trackId: number]: any } = {}
-    pattern.tracks.forEach(track => {
+    correctedPattern.tracks.forEach(track => {
       trackMetadata[track.id] = {
         name: track.name,
-        bpm: track.bpm || pattern.bpm,
+        bpm: track.bpm || correctedPattern.bpm,
         key: track.key || 'C',
         audio_type: track.audio_type || 'other',
         tags: track.tags?.join(', ') || ''
@@ -2286,6 +2341,173 @@ function EditPatternsPage() {
     setEditingTrackMetadata({})
   }
 
+  // Mass edit functionality
+  const togglePatternSelection = (patternId: string) => {
+    const newSelected = new Set(selectedPatterns)
+    if (newSelected.has(patternId)) {
+      newSelected.delete(patternId)
+    } else {
+      newSelected.add(patternId)
+    }
+    setSelectedPatterns(newSelected)
+  }
+
+  const selectAllPatternsInPack = (packId: string, subfolderName?: string) => {
+    let packPatterns: SavedPattern[]
+    
+    if (packId === 'unpacked') {
+      packPatterns = allPatterns.filter(pattern => !pattern.pack_id)
+    } else {
+      packPatterns = allPatterns.filter(pattern => 
+        pattern.pack_id === packId && 
+        (subfolderName ? pattern.subfolder === subfolderName : !pattern.subfolder)
+      )
+    }
+    
+    const newSelected = new Set(selectedPatterns)
+    packPatterns.forEach(pattern => newSelected.add(pattern.id))
+    setSelectedPatterns(newSelected)
+  }
+
+  const clearPatternSelection = () => {
+    setSelectedPatterns(new Set())
+  }
+
+  const openMassEditModal = () => {
+    if (selectedPatterns.size === 0) {
+      alert('Please select at least one pattern to edit')
+      return
+    }
+    setShowMassEditModal(true)
+  }
+
+  const handleMassEditFieldToggle = (field: string) => {
+    const newSelected = new Set(selectedMassEditFields)
+    if (newSelected.has(field)) {
+      newSelected.delete(field)
+    } else {
+      newSelected.add(field)
+    }
+    setSelectedMassEditFields(newSelected)
+  }
+
+  const handleMassEditValueChange = (field: string, value: string) => {
+    setMassEditValues(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const applyMassEdit = async () => {
+    if (selectedMassEditFields.size === 0) {
+      alert('Please select at least one field to edit')
+      return
+    }
+
+    setMassEditLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to edit patterns')
+        return
+      }
+
+      let successCount = 0
+      let errorCount = 0
+
+      for (const patternId of selectedPatterns) {
+        const updates: any = {}
+
+        // Only update selected fields
+        if (selectedMassEditFields.has('category') && massEditValues.category.trim()) {
+          updates.category = massEditValues.category.trim()
+        }
+        if (selectedMassEditFields.has('pattern_type') && massEditValues.pattern_type.trim()) {
+          updates.pattern_type = massEditValues.pattern_type.trim()
+        }
+        if (selectedMassEditFields.has('tags') && massEditValues.tags.trim()) {
+          const tags = massEditValues.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
+          updates.tags = tags
+        }
+        if (selectedMassEditFields.has('bpm') && massEditValues.bpm.trim()) {
+          updates.bpm = parseInt(massEditValues.bpm.trim())
+        }
+        if (selectedMassEditFields.has('key') && massEditValues.key.trim()) {
+          updates.key = massEditValues.key.trim()
+        }
+
+        if (Object.keys(updates).length > 0) {
+          const { error } = await supabase
+            .from('saved_patterns')
+            .update(updates)
+            .eq('id', patternId)
+            .eq('user_id', user.id)
+
+          if (error) {
+            console.error(`Error updating pattern ${patternId}:`, error)
+            errorCount++
+          } else {
+            successCount++
+          }
+        }
+      }
+
+      if (successCount > 0) {
+        alert(`Successfully updated ${successCount} patterns${errorCount > 0 ? ` (${errorCount} errors)` : ''}`)
+        setSelectedPatterns(new Set())
+        setShowMassEditModal(false)
+        loadPatterns() // Refresh data
+      } else {
+        alert('No patterns were updated')
+      }
+    } catch (error) {
+      console.error('Error in mass edit:', error)
+      alert('Error updating patterns')
+    } finally {
+      setMassEditLoading(false)
+    }
+  }
+
+  const resetMassEditForm = () => {
+    setMassEditValues({
+      category: '',
+      pattern_type: '',
+      tags: '',
+      bpm: '',
+      key: ''
+    })
+    setSelectedMassEditFields(new Set())
+  }
+
+  // Search and filter functions for packs view
+  const getFilteredPatternsInPack = (packId: string, subfolderName?: string) => {
+    let patterns = allPatterns.filter(pattern => 
+      pattern.pack_id === packId && 
+      (subfolderName ? pattern.subfolder === subfolderName : !pattern.subfolder)
+    )
+
+    // Apply search filter
+    if (packSearchTerm) {
+      patterns = patterns.filter(pattern =>
+        pattern.name.toLowerCase().includes(packSearchTerm.toLowerCase()) ||
+        pattern.description?.toLowerCase().includes(packSearchTerm.toLowerCase()) ||
+        pattern.tags?.some(tag => tag.toLowerCase().includes(packSearchTerm.toLowerCase()))
+      )
+    }
+
+    // Apply category filter
+    if (packFilterCategory !== 'all') {
+      patterns = patterns.filter(pattern => pattern.category === packFilterCategory)
+    }
+
+    // Apply type filter
+    if (packFilterType !== 'all') {
+      patterns = patterns.filter(pattern => pattern.pattern_type === packFilterType)
+    }
+
+    return patterns
+  }
+
   const PatternCard = ({ pattern }: { pattern: SavedPattern }) => (
     <Card 
       className={`bg-[#141414] hover:border-gray-600 transition-colors cursor-move ${
@@ -2303,6 +2525,13 @@ function EditPatternsPage() {
           <CardTitle className="text-white text-lg">{pattern.name}</CardTitle>
           </div>
           <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={selectedPatterns.has(pattern.id)}
+              onChange={() => togglePatternSelection(pattern.id)}
+              className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+              onClick={(e) => e.stopPropagation()}
+            />
             <Button
               variant="ghost"
               size="sm"
@@ -2597,12 +2826,15 @@ function EditPatternsPage() {
               <option value="kick">Kick</option>
               <option value="snare">Snare</option>
               <option value="hihat">Hi-Hat</option>
+              <option value="hihat loop">Hi-Hat Loop</option>
               <option value="clap">Clap</option>
               <option value="tom">Tom</option>
               <option value="crash">Crash</option>
               <option value="ride">Ride</option>
               <option value="melody">Melody</option>
+              <option value="melody loop">Melody Loop</option>
               <option value="bass">Bass</option>
+              <option value="bass loop">Bass Loop</option>
               <option value="chord">Chord</option>
               <option value="arp">Arpeggio</option>
               <option value="lead">Lead</option>
@@ -2634,6 +2866,19 @@ function EditPatternsPage() {
               >
                 <Package className="w-4 h-4" />
               </Button>
+              {viewMode !== 'packs' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const newSelected = new Set(selectedPatterns)
+                    filteredPatterns.forEach(pattern => newSelected.add(pattern.id))
+                    setSelectedPatterns(newSelected)
+                  }}
+                >
+                  Select All Filtered
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -2642,7 +2887,7 @@ function EditPatternsPage() {
       {viewMode === 'packs' ? (
         // Packs View
         <div className="space-y-4">
-          {/* Pack Creation Button */}
+          {/* Pack Creation Button and Search Controls */}
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
               {draggedPattern && (
@@ -2650,16 +2895,98 @@ function EditPatternsPage() {
                   📁 Dragging "{draggedPattern.name}" - Drop it into a pack below
                 </div>
               )}
+              {selectedPatterns.size > 0 && (
+                <div className="text-sm text-green-600 font-medium bg-green-100/10 px-3 py-1 rounded-lg border border-green-400">
+                  ✓ {selectedPatterns.size} patterns selected
+                </div>
+              )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowPackModal(true)}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Create Pack
-            </Button>
+            <div className="flex items-center gap-2">
+              {selectedPatterns.size > 0 && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={openMassEditModal}
+                  >
+                    <Edit className="w-4 h-4 mr-2" />
+                    Mass Edit ({selectedPatterns.size})
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={clearPatternSelection}
+                  >
+                    Clear Selection
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPackModal(true)}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Create Pack
+              </Button>
+            </div>
           </div>
+
+          {/* Search and Filter Controls for Packs */}
+          <Card className="!bg-[#141414] border border-gray-700 rounded-lg">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <Input
+                      placeholder="Search patterns in packs..."
+                      value={packSearchTerm}
+                      onChange={(e) => setPackSearchTerm(e.target.value)}
+                      className="pl-10 bg-[#1a1a1a] border border-gray-600"
+                    />
+                  </div>
+                </div>
+                <select
+                  value={packFilterCategory}
+                  onChange={(e) => setPackFilterCategory(e.target.value)}
+                  className="bg-[#1a1a1a] border border-gray-600 rounded px-3 py-2 text-white"
+                >
+                  <option value="all">All Categories</option>
+                  {categories?.map(category => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+                <select
+                  value={packFilterType}
+                  onChange={(e) => setPackFilterType(e.target.value)}
+                  className="bg-[#1a1a1a] border border-gray-600 rounded px-3 py-2 text-white"
+                >
+                  <option value="all">All Types</option>
+                  <option value="kick">Kick</option>
+                  <option value="snare">Snare</option>
+                  <option value="hihat">Hi-Hat</option>
+                  <option value="hihat loop">Hi-Hat Loop</option>
+                  <option value="clap">Clap</option>
+                  <option value="tom">Tom</option>
+                  <option value="crash">Crash</option>
+                  <option value="ride">Ride</option>
+                  <option value="melody">Melody</option>
+                  <option value="melody loop">Melody Loop</option>
+                  <option value="bass">Bass</option>
+                  <option value="bass loop">Bass Loop</option>
+                  <option value="chord">Chord</option>
+                  <option value="arp">Arpeggio</option>
+                  <option value="lead">Lead</option>
+                  <option value="pad">Pad</option>
+                  <option value="fx">FX</option>
+                  <option value="percussion">Percussion</option>
+                  <option value="vocal">Vocal</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </CardContent>
+          </Card>
 
           {loadingPacks ? (
             <div className="text-white">Loading packs...</div>
@@ -2713,17 +3040,26 @@ function EditPatternsPage() {
                     {/* Subfolder Creation Button */}
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="text-white font-medium">Subfolders</h4>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setNewSubfolder({ ...newSubfolder, pack_id: pack.id })
-                          setShowSubfolderModal(true)
-                        }}
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create Subfolder
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => selectAllPatternsInPack(pack.id)}
+                        >
+                          Select All in Pack
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setNewSubfolder({ ...newSubfolder, pack_id: pack.id })
+                            setShowSubfolderModal(true)
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create Subfolder
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Show subfolders */}
@@ -2814,24 +3150,31 @@ function EditPatternsPage() {
                                           {pattern.bpm} BPM • {pattern.steps} Steps • {pattern.tracks.length} Tracks
                                         </div>
                                       </div>
-                                      <div className="flex gap-1">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => openEditPattern(pattern)}
-                                          className="text-blue-400 hover:text-blue-300"
-                                        >
-                                          <Edit className="h-3 w-3" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => deletePattern(pattern.id)}
-                                          className="text-red-400 hover:text-red-300"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </Button>
-                                      </div>
+                                                                  <div className="flex gap-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedPatterns.has(pattern.id)}
+                                onChange={() => togglePatternSelection(pattern.id)}
+                                className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => openEditPattern(pattern)}
+                                className="text-blue-400 hover:text-blue-300"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deletePattern(pattern.id)}
+                                className="text-red-400 hover:text-red-300"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
                                     </div>
                                   ))}
                                 {allPatterns.filter(pattern => pattern.pack_id === pack.id && pattern.subfolder === subfolder.name).length === 0 && (
@@ -2901,24 +3244,31 @@ function EditPatternsPage() {
                                 {pattern.bpm} BPM • {pattern.steps} Steps • {pattern.tracks.length} Tracks
                               </div>
                             </div>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEditPattern(pattern)}
-                                className="text-blue-400 hover:text-blue-300"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => deletePattern(pattern.id)}
-                                className="text-red-400 hover:text-red-300"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
+                                                    <div className="flex gap-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedPatterns.has(pattern.id)}
+                            onChange={() => togglePatternSelection(pattern.id)}
+                            className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditPattern(pattern)}
+                            className="text-blue-400 hover:text-blue-300"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deletePattern(pattern.id)}
+                            className="text-red-400 hover:text-red-300"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                           </div>
                         ))}
                     </div>
@@ -2969,13 +3319,22 @@ function EditPatternsPage() {
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedPack(selectedPack === 'unpacked' ? null : 'unpacked')}
-                >
-                  {selectedPack === 'unpacked' ? 'Hide' : 'View'} Patterns
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => selectAllPatternsInPack('unpacked')}
+                  >
+                    Select All Unpacked
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedPack(selectedPack === 'unpacked' ? null : 'unpacked')}
+                  >
+                    {selectedPack === 'unpacked' ? 'Hide' : 'View'} Patterns
+                  </Button>
+                </div>
               </div>
               
               {selectedPack === 'unpacked' && (
@@ -3002,6 +3361,13 @@ function EditPatternsPage() {
                           </div>
                         </div>
                         <div className="flex gap-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedPatterns.has(pattern.id)}
+                            onChange={() => togglePatternSelection(pattern.id)}
+                            className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                            onClick={(e) => e.stopPropagation()}
+                          />
                           <Button
                             variant="ghost"
                             size="sm"
@@ -3107,13 +3473,16 @@ function EditPatternsPage() {
                     <option value="kick">Kick</option>
                     <option value="snare">Snare</option>
                     <option value="hihat">Hi-Hat</option>
+                    <option value="hihat loop">Hi-Hat Loop</option>
                     <option value="clap">Clap</option>
                     <option value="tom">Tom</option>
                     <option value="crash">Crash</option>
                     <option value="ride">Ride</option>
                     <option value="808">808</option>
                     <option value="melody">Melody</option>
+                    <option value="melody loop">Melody Loop</option>
                     <option value="bass">Bass</option>
+                    <option value="bass loop">Bass Loop</option>
                     <option value="chord">Chord</option>
                     <option value="arp">Arpeggio</option>
                     <option value="lead">Lead</option>
@@ -3332,13 +3701,16 @@ function EditPatternsPage() {
                     <option value="kick">Kick</option>
                     <option value="snare">Snare</option>
                     <option value="hihat">Hi-Hat</option>
+                    <option value="hihat loop">Hi-Hat Loop</option>
                     <option value="clap">Clap</option>
                     <option value="tom">Tom</option>
                     <option value="crash">Crash</option>
                     <option value="ride">Ride</option>
                     <option value="808">808</option>
                     <option value="melody">Melody</option>
+                    <option value="melody loop">Melody Loop</option>
                     <option value="bass">Bass</option>
+                    <option value="bass loop">Bass Loop</option>
                     <option value="chord">Chord</option>
                     <option value="arp">Arpeggio</option>
                     <option value="lead">Lead</option>
@@ -3638,13 +4010,16 @@ function EditPatternsPage() {
                     <option value="kick">Kick</option>
                     <option value="snare">Snare</option>
                     <option value="hihat">Hi-Hat</option>
+                    <option value="hihat loop">Hi-Hat Loop</option>
                     <option value="clap">Clap</option>
                     <option value="tom">Tom</option>
                     <option value="crash">Crash</option>
                     <option value="ride">Ride</option>
                     <option value="808">808</option>
                     <option value="melody">Melody</option>
+                    <option value="melody loop">Melody Loop</option>
                     <option value="bass">Bass</option>
+                    <option value="bass loop">Bass Loop</option>
                     <option value="chord">Chord</option>
                     <option value="arp">Arpeggio</option>
                     <option value="lead">Lead</option>
@@ -3731,6 +4106,183 @@ function EditPatternsPage() {
           </Card>
         </div>
       )}
+
+      {/* Mass Edit Modal */}
+      <Dialog open={showMassEditModal} onOpenChange={setShowMassEditModal}>
+        <DialogContent className="bg-[#141414] border-gray-700 text-white max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Mass Edit Selected Patterns
+            </DialogTitle>
+            <div className="text-gray-400 text-sm">
+              Editing {selectedPatterns.size} selected patterns
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Field Selection */}
+            <div>
+              <label className="text-white font-medium mb-3 block">Select Fields to Edit:</label>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {[
+                  { value: 'category', label: 'Category' },
+                  { value: 'pattern_type', label: 'Pattern Type' },
+                  { value: 'tags', label: 'Tags' },
+                  { value: 'bpm', label: 'BPM' },
+                  { value: 'key', label: 'Key' }
+                ].map((field) => (
+                  <Button
+                    key={field.value}
+                    variant={selectedMassEditFields.has(field.value) ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleMassEditFieldToggle(field.value)}
+                    className={`justify-start ${
+                      selectedMassEditFields.has(field.value)
+                        ? 'bg-blue-600 hover:bg-blue-700'
+                        : 'border-gray-600 hover:border-gray-500'
+                    }`}
+                  >
+                    {selectedMassEditFields.has(field.value) && <CheckCircle2 className="w-4 h-4 mr-2" />}
+                    {field.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Edit Values */}
+            {selectedMassEditFields.size > 0 && (
+              <div className="space-y-4">
+                <label className="text-white font-medium">Edit Values:</label>
+                
+                {selectedMassEditFields.has('category') && (
+                  <div>
+                    <label className="text-white text-sm">Category</label>
+                    <Input
+                      placeholder="e.g., Trap, Hip Hop, EDM"
+                      value={massEditValues.category}
+                      onChange={(e) => handleMassEditValueChange('category', e.target.value)}
+                      className="bg-[#2a2a2a] border-gray-600 text-white"
+                    />
+                  </div>
+                )}
+
+                {selectedMassEditFields.has('pattern_type') && (
+                  <div>
+                    <label className="text-white text-sm">Pattern Type</label>
+                    <select
+                      value={massEditValues.pattern_type}
+                      onChange={(e) => handleMassEditValueChange('pattern_type', e.target.value)}
+                      className="w-full p-2 border border-gray-600 rounded-md bg-[#2a2a2a] text-white"
+                    >
+                      <option value="">Select type</option>
+                      <option value="kick">Kick</option>
+                      <option value="snare">Snare</option>
+                      <option value="hihat">Hi-Hat</option>
+                      <option value="hihat loop">Hi-Hat Loop</option>
+                      <option value="clap">Clap</option>
+                      <option value="tom">Tom</option>
+                      <option value="crash">Crash</option>
+                      <option value="ride">Ride</option>
+                      <option value="melody">Melody</option>
+                      <option value="melody loop">Melody Loop</option>
+                      <option value="bass">Bass</option>
+                      <option value="bass loop">Bass Loop</option>
+                      <option value="chord">Chord</option>
+                      <option value="arp">Arpeggio</option>
+                      <option value="lead">Lead</option>
+                      <option value="pad">Pad</option>
+                      <option value="fx">FX</option>
+                      <option value="percussion">Percussion</option>
+                      <option value="vocal">Vocal</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                )}
+
+                {selectedMassEditFields.has('tags') && (
+                  <div>
+                    <label className="text-white text-sm">Tags</label>
+                    <Input
+                      placeholder="comma-separated, e.g., trap, dark, aggressive, 808"
+                      value={massEditValues.tags}
+                      onChange={(e) => handleMassEditValueChange('tags', e.target.value)}
+                      className="bg-[#2a2a2a] border-gray-600 text-white"
+                    />
+                  </div>
+                )}
+
+                {selectedMassEditFields.has('bpm') && (
+                  <div>
+                    <label className="text-white text-sm">BPM</label>
+                    <Input
+                      type="number"
+                      placeholder="e.g., 140"
+                      value={massEditValues.bpm}
+                      onChange={(e) => handleMassEditValueChange('bpm', e.target.value)}
+                      className="bg-[#2a2a2a] border-gray-600 text-white"
+                    />
+                  </div>
+                )}
+
+                {selectedMassEditFields.has('key') && (
+                  <div>
+                    <label className="text-white text-sm">Key</label>
+                    <select
+                      value={massEditValues.key}
+                      onChange={(e) => handleMassEditValueChange('key', e.target.value)}
+                      className="w-full p-2 border border-gray-600 rounded-md bg-[#2a2a2a] text-white"
+                    >
+                      <option value="">Select key</option>
+                      <option value="C">C</option>
+                      <option value="C#">C#</option>
+                      <option value="D">D</option>
+                      <option value="D#">D#</option>
+                      <option value="E">E</option>
+                      <option value="F">F</option>
+                      <option value="F#">F#</option>
+                      <option value="G">G</option>
+                      <option value="G#">G#</option>
+                      <option value="A">A</option>
+                      <option value="A#">A#</option>
+                      <option value="B">B</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Selected Patterns Preview */}
+            <div>
+              <label className="text-white font-medium mb-3 block">Selected Patterns ({selectedPatterns.size}):</label>
+              <div className="max-h-40 overflow-y-auto bg-[#2a2a2a] rounded border border-gray-600 p-3">
+                {allPatterns
+                  .filter(pattern => selectedPatterns.has(pattern.id))
+                  .map((pattern) => (
+                    <div key={pattern.id} className="text-sm text-gray-300 py-1 border-b border-gray-700 last:border-b-0">
+                      {pattern.name}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={resetMassEditForm} disabled={massEditLoading}>
+              Reset
+            </Button>
+            <Button variant="outline" onClick={() => setShowMassEditModal(false)} disabled={massEditLoading}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={applyMassEdit}
+              disabled={massEditLoading || selectedMassEditFields.size === 0}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {massEditLoading ? 'Updating...' : `Update ${selectedPatterns.size} Patterns`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
