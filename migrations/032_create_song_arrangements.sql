@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS song_arrangements (
     bpm INTEGER NOT NULL,
     steps INTEGER NOT NULL,
     transport_key VARCHAR(10),
-    pattern_assignments JSONB NOT NULL, -- Stores track_id -> bar_position -> pattern_id mappings
+    pattern_assignments JSONB NOT NULL, -- Stores track_id to bar_position to pattern_id mappings
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

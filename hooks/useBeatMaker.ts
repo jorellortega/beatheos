@@ -65,7 +65,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const intervalRef = useRef<NodeJS.Timeout | any>(null)
   const samplesRef = useRef<{ [key: string]: Tone.Player }>({})
   const pitchShiftersRef = useRef<{ [key: string]: Tone.PitchShift }>({})
   const playingSamplesRef = useRef<Set<Tone.Player>>(new Set())
@@ -500,18 +500,52 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
   // Restart interval when BPM changes, sequencer data changes, or playback state changes
   useEffect(() => {
     if (!isSequencePlaying) return
+    
+    // Clear any existing interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
+      intervalRef.current = null
     }
-    let step = currentStep
-    const stepDuration = 60 / bpm / 4 // 16th note duration
-    intervalRef.current = setInterval(() => {
-      step = (step + 1) % steps
-      console.log(`[SEQUENCER INTERVAL] Step: ${step} (cycling through 0-${steps-1})`)
-      playStep(step)
-    }, stepDuration * 1000)
+
+    // Use Tone.js Transport for precise timing
+    const setupToneSequencer = async () => {
+      const Tone = await import('tone')
+      
+      // Set the BPM for Tone.js Transport
+      Tone.Transport.bpm.value = bpm
+      
+      // Calculate step duration
+      const stepDuration = 60 / bpm / 4 // 16th note duration
+      
+      // Create a sequence that loops perfectly
+      const sequence = new Tone.Sequence((time, step) => {
+        console.log(`[TONE SEQUENCER] Step: ${step} at time ${time}`)
+        setCurrentStep(step)
+        playStep(step)
+      }, Array.from({ length: steps }, (_, i) => i), stepDuration)
+      
+      // Start the sequence
+      sequence.start(0)
+      Tone.Transport.start()
+      
+      // Store the sequence for cleanup
+      intervalRef.current = sequence as any
+    }
+
+    setupToneSequencer()
+
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      // Cleanup function
+      if (intervalRef.current) {
+        const Tone = require('tone')
+        if (intervalRef.current instanceof Tone.Sequence) {
+          intervalRef.current.stop()
+          intervalRef.current.dispose()
+        } else {
+          clearInterval(intervalRef.current)
+        }
+        intervalRef.current = null
+      }
     }
   }, [bpm, isSequencePlaying, playStep, steps])
 
@@ -533,16 +567,9 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     setIsSequencePlaying(true)
     setCurrentStep(0)
 
-    const stepDuration = 60 / bpm / 4 // 16th note duration
-
-    let step = 0;
-    playStep(step);
-
-    intervalRef.current = setInterval(() => {
-      step = (step + 1) % steps;
-      playStep(step);
-    }, stepDuration * 1000)
-  }, [isSequencePlaying, bpm, tracks, sequencerData, pianoRollData, steps, playStep])
+    // The actual sequencer setup is handled by the useEffect above
+    // This function just starts the playback state
+  }, [isSequencePlaying])
 
   // Function to play piano roll notes independently - TEMPO SYNCED VERSION
   const playPianoRollNotes = useCallback(async () => {
@@ -606,9 +633,16 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     setIsSequencePlaying(false)
     setCurrentStep(0)
     
-    // Stop the sequencer interval
+    // Stop the Tone.js sequence
     if (intervalRef.current) {
-      clearInterval(intervalRef.current)
+      const Tone = require('tone')
+      if (intervalRef.current instanceof Tone.Sequence) {
+        intervalRef.current.stop()
+        intervalRef.current.dispose()
+        console.log('[STOP SEQUENCE] Tone.js Sequence stopped and disposed')
+      } else {
+        clearInterval(intervalRef.current)
+      }
       intervalRef.current = null
     }
     
@@ -650,6 +684,12 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     trackPlayersRef.current = {}
     
     console.log('[STOP SEQUENCE] All samples stopped')
+    
+    // Stop Tone.js Transport
+    import('tone').then(Tone => {
+      Tone.Transport.stop()
+      console.log('[STOP SEQUENCE] Tone.js Transport stopped')
+    }).catch(console.warn)
   }, [])
 
   // Function to update track tempo and recalculate playback rate

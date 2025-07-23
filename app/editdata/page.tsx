@@ -34,6 +34,7 @@ interface AudioLibraryItem {
   genre?: string
   subgenre?: string
   tags?: string[]
+  is_ready?: boolean
   created_at: string
   updated_at: string
 }
@@ -77,11 +78,15 @@ export default function EditData() {
   const [searchFilter, setSearchFilter] = useState('all');
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   
-  // State for pagination
+  // State for pagination and lazy loading
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const itemsPerPage = 20;
+  const [itemsPerPage] = useState(50); // Increased for better lazy loading
+  const [allAudioItems, setAllAudioItems] = useState<AudioLibraryItem[]>([]); // Store all items for packs view
+  const [displayedItems, setDisplayedItems] = useState<AudioLibraryItem[]>([]); // Items currently displayed
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreItems, setHasMoreItems] = useState(true);
   
   // State for packs view
   const [loadingPacks, setLoadingPacks] = useState(false);
@@ -131,7 +136,8 @@ export default function EditData() {
     subgenre: '',
     tags: '',
     pack_id: '',
-    subfolder: ''
+    subfolder: '',
+    is_ready: false
   });
   
   const [editPackForm, setEditPackForm] = useState({
@@ -156,37 +162,84 @@ export default function EditData() {
   const [missingDataFilter, setMissingDataFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [genreFilter, setGenreFilter] = useState('');
+  const [readyFilter, setReadyFilter] = useState('');
+
+  // State for quick edit dropdowns
+  const [quickEditItem, setQuickEditItem] = useState<AudioLibraryItem | null>(null);
+  const [quickEditField, setQuickEditField] = useState<string | null>(null);
+  const [quickEditValue, setQuickEditValue] = useState('');
+  const [showQuickEditDropdown, setShowQuickEditDropdown] = useState(false);
+
+  // State for audio playback
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
+
+  // State for tag editing
+  const [newTagInput, setNewTagInput] = useState('');
+  const [showTagInput, setShowTagInput] = useState(false);
 
   // Load audio library data
   useEffect(() => {
     if (user) {
-      loadAudioData();
+      loadAllAudioItems(); // Load all items for packs view
       loadAudioPacks();
     }
   }, [user]);
 
-  const loadAudioData = async (page: number = 1) => {
+  // Intersection Observer for lazy loading - temporarily disabled for debugging
+  // useEffect(() => {
+  //   if (viewMode !== 'grid' || !hasMoreItems || isLoadingMore) return;
+
+  //   const observer = new IntersectionObserver(
+  //     (entries) => {
+  //       if (entries[0].isIntersecting) {
+  //         loadMoreItems();
+  //       }
+  //     },
+  //     { threshold: 0.1 }
+  //   );
+
+  //   const sentinel = document.getElementById('lazy-load-sentinel');
+  //   if (sentinel) {
+  //     observer.observe(sentinel);
+  //   }
+
+  //   return () => {
+  //     if (sentinel) {
+  //       observer.unobserve(sentinel);
+  //     }
+  //   };
+  // }, [viewMode, hasMoreItems, isLoadingMore]);
+
+  const loadAudioData = async (page: number = 1, append: boolean = false) => {
     if (!user) return;
     
-    setLoadingAudio(true);
+    if (page === 1) {
+      setLoadingAudio(true);
+    } else {
+      setIsLoadingMore(true);
+    }
     setAudioError(null);
     
     try {
       // Calculate offset for pagination
       const offset = (page - 1) * itemsPerPage;
       
-      // Get total count first
-      const { count, error: countError } = await supabase
-        .from('audio_library_items')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+      // Get total count first (only on first page)
+      if (page === 1) {
+        const { count, error: countError } = await supabase
+          .from('audio_library_items')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
 
-      if (countError) throw countError;
+        if (countError) throw countError;
+        
+        setTotalItems(count || 0);
+        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+        setHasMoreItems((count || 0) > itemsPerPage);
+      }
       
-      setTotalItems(count || 0);
-      setTotalPages(Math.ceil((count || 0) / itemsPerPage));
-      
-      // Get paginated data
+      // Get paginated data for grid view
       const { data, error } = await supabase
         .from('audio_library_items')
         .select(`
@@ -209,16 +262,29 @@ export default function EditData() {
         audio_type: item.audio_type || undefined,
         genre: item.genre || undefined,
         subgenre: item.subgenre || undefined,
-        tags: item.tags || undefined
+        tags: item.tags || undefined,
+        is_ready: item.is_ready || false
       }));
       
-      setAudioItems(processedData);
+      if (append) {
+        // Append to existing items for lazy loading
+        setDisplayedItems(prev => [...prev, ...processedData]);
+      } else {
+        // Replace items for new page load
+        setDisplayedItems(processedData);
+      }
+      
+      setAudioItems(processedData); // Keep for compatibility
       setCurrentPage(page);
+      
+      // Check if there are more items to load
+      setHasMoreItems(processedData.length === itemsPerPage);
     } catch (error) {
       console.error('Error loading audio data:', error);
       setAudioError('Failed to load audio data');
     } finally {
       setLoadingAudio(false);
+      setIsLoadingMore(false);
     }
   };
 
@@ -240,6 +306,140 @@ export default function EditData() {
       setAudioPacks(data || []);
     } catch (error) {
       console.error('Error loading audio packs:', error);
+    }
+  };
+
+  // Load more items for lazy loading
+  const loadMoreItems = async () => {
+    if (!user || isLoadingMore || !hasMoreItems) return;
+    
+    const nextPage = Math.ceil(displayedItems.length / itemsPerPage) + 1;
+    await loadAudioData(nextPage, true);
+  };
+
+  // Handle click events properly
+  const handleItemClick = (e: React.MouseEvent, item: AudioLibraryItem) => {
+    e.stopPropagation();
+    console.log('Item clicked:', item.id);
+  };
+
+  // Handle quick edit dropdown
+  const handleQuickEdit = (item: AudioLibraryItem, field: string) => {
+    setQuickEditItem(item);
+    setQuickEditField(field);
+    
+    // For tags, show existing tags as space-separated text
+    if (field === 'tags') {
+      const existingTags = item.tags && item.tags.length > 0 ? item.tags.join(' ') : '';
+      setQuickEditValue(existingTags);
+    } else {
+      setQuickEditValue('');
+    }
+    
+    setShowQuickEditDropdown(true);
+  };
+
+  // Save quick edit
+  const saveQuickEdit = async () => {
+    if (!quickEditItem || !quickEditField || !quickEditValue.trim()) return;
+
+    try {
+      const updateData: any = {};
+      
+      // Handle tags specially - convert space-separated text to array
+      if (quickEditField === 'tags') {
+        updateData[quickEditField] = quickEditValue.trim().split(/\s+/).filter(tag => tag.length > 0);
+      } else {
+        updateData[quickEditField] = quickEditValue.trim();
+      }
+      
+      const { error } = await supabase
+        .from('audio_library_items')
+        .update(updateData)
+        .eq('id', quickEditItem.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setAudioItems(prev => prev.map(item => 
+        item.id === quickEditItem.id 
+          ? { ...item, [quickEditField]: updateData[quickEditField] }
+          : item
+      ));
+      setDisplayedItems(prev => prev.map(item => 
+        item.id === quickEditItem.id 
+          ? { ...item, [quickEditField]: updateData[quickEditField] }
+          : item
+      ));
+
+      setShowQuickEditDropdown(false);
+      setQuickEditItem(null);
+      setQuickEditField(null);
+      setQuickEditValue('');
+    } catch (error) {
+      console.error('Error saving quick edit:', error);
+      alert('Failed to save changes');
+    }
+  };
+
+  // Get dropdown options for different fields
+  const getDropdownOptions = (field: string) => {
+    switch (field) {
+      case 'bpm':
+        return Array.from({ length: 40 }, (_, i) => (i + 60).toString()); // 60-99 BPM
+      case 'key':
+        return ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'Cm', 'C#m', 'Dm', 'D#m', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'A#m', 'Bm'];
+      case 'genre':
+        return ['trap', 'hip-hop', 'house', 'techno', 'dubstep', 'pop', 'rock', 'jazz', 'blues', 'country', 'electronic', 'ambient', 'drum & bass', 'reggae', 'funk', 'soul', 'r&b', 'metal', 'punk', 'folk', 'classical'];
+      case 'subgenre':
+        return ['drill', 'boom bap', 'deep house', 'acid techno', 'melodic dubstep', 'future bass', 'progressive house', 'minimal techno', 'liquid dnb', 'jump up', 'conscious hip-hop', 'trap metal', 'lo-fi', 'chillhop', 'synthwave', 'vaporwave'];
+      case 'audio_type':
+        return ['kick', 'snare', 'hihat', 'bass', 'melody', 'loop', 'vocal', 'fx', 'pad', 'lead', 'pluck', 'arp', 'percussion', 'cymbal', 'tom', 'clap', 'shaker', 'crash'];
+      default:
+        return [];
+    }
+  };
+
+  // Load ALL audio items for packs view (no pagination)
+  const loadAllAudioItems = async () => {
+    if (!user) return;
+    
+    setLoadingAudio(true);
+    
+    try {
+      const { data, error } = await supabase
+        .from('audio_library_items')
+        .select(`
+          *,
+          pack:audio_packs(*)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      // Convert null values to undefined to match interface
+      const processedData = (data || []).map(item => ({
+        ...item,
+        pack_id: item.pack_id || undefined,
+        subfolder: item.subfolder || undefined,
+        bpm: item.bpm || undefined,
+        key: item.key || undefined,
+        audio_type: item.audio_type || undefined,
+        genre: item.genre || undefined,
+        subgenre: item.subgenre || undefined,
+        tags: item.tags || undefined,
+        is_ready: item.is_ready || false
+      }));
+      
+      setAllAudioItems(processedData);
+      setAudioItems(processedData); // Keep for compatibility
+      setDisplayedItems(processedData);
+    } catch (error) {
+      console.error('Error loading all audio data:', error);
+      setAudioError('Failed to load all audio data');
+    } finally {
+      setLoadingAudio(false);
     }
   };
 
@@ -404,7 +604,8 @@ export default function EditData() {
       subgenre: item.subgenre || '',
       tags: item.tags?.join(', ') || '',
       pack_id: item.pack_id || '',
-      subfolder: item.subfolder || ''
+      subfolder: item.subfolder || '',
+      is_ready: item.is_ready || false
     });
     setShowEditAudioModal(true);
   };
@@ -450,6 +651,7 @@ export default function EditData() {
         tags: editForm.tags ? editForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : [],
         pack_id: editForm.pack_id || null,
         subfolder: editForm.subfolder || null,
+        is_ready: editForm.is_ready,
         updated_at: new Date().toISOString()
       };
 
@@ -463,7 +665,18 @@ export default function EditData() {
       // Update local state
       setAudioItems(prev => prev.map(item => 
         item.id === editingItem.id 
-          ? { ...item, ...updateData }
+          ? { 
+              ...item, 
+              ...updateData, 
+              pack_id: updateData.pack_id || undefined, 
+              subfolder: updateData.subfolder || undefined,
+              bpm: updateData.bpm || undefined,
+              key: updateData.key || undefined,
+              audio_type: updateData.audio_type || undefined,
+              genre: updateData.genre || undefined,
+              subgenre: updateData.subgenre || undefined,
+              is_ready: updateData.is_ready
+            }
           : item
       ));
 
@@ -656,16 +869,30 @@ export default function EditData() {
 
   // Filter functions
   const getFilteredAudioItems = (items: AudioLibraryItem[]) => {
-    if (!searchQuery) return items;
+    let filtered = items;
     
-    const query = searchQuery.toLowerCase();
-    return items.filter(item => 
-      item.name.toLowerCase().includes(query) ||
-      item.audio_type?.toLowerCase().includes(query) ||
-      item.genre?.toLowerCase().includes(query) ||
-      item.subgenre?.toLowerCase().includes(query) ||
-      item.tags?.some(tag => tag.toLowerCase().includes(query))
-    );
+    // Apply search query filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(item => 
+        item.name.toLowerCase().includes(query) ||
+        item.audio_type?.toLowerCase().includes(query) ||
+        item.genre?.toLowerCase().includes(query) ||
+        item.subgenre?.toLowerCase().includes(query) ||
+        item.tags?.some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+    
+    // Apply ready status filter
+    if (readyFilter && readyFilter !== 'all') {
+      if (readyFilter === 'ready') {
+        filtered = filtered.filter(item => item.is_ready);
+      } else if (readyFilter === 'not-ready') {
+        filtered = filtered.filter(item => !item.is_ready);
+      }
+    }
+    
+    return filtered;
   };
 
   // Filter packs based on search query
@@ -726,6 +953,57 @@ export default function EditData() {
   const filteredPacks = getFilteredPacks(audioPacks);
   const filteredSubfolders = getFilteredSubfolders(audioPacks.flatMap(pack => pack.subfolders || []));
 
+  // Handle audio play/stop
+  const handleAudioToggle = (item: AudioLibraryItem) => {
+    if (currentlyPlayingId === item.id && currentAudio) {
+      // Stop current audio
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      setCurrentAudio(null);
+      setCurrentlyPlayingId(null);
+    } else {
+      // Stop any currently playing audio first
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+      
+      // Start new audio
+      if (item.file_url) {
+        const audio = new Audio(item.file_url);
+        audio.play().then(() => {
+          setCurrentAudio(audio);
+          setCurrentlyPlayingId(item.id);
+        }).catch(error => {
+          console.error('Error playing audio:', error);
+          alert('Could not play audio file');
+        });
+      } else {
+        alert('No audio file available');
+      }
+    }
+  };
+
+  // Handle adding new tag
+  const addNewTag = () => {
+    if (newTagInput.trim() && quickEditItem) {
+      const currentTags = quickEditItem.tags || [];
+      const updatedTags = [...currentTags, newTagInput.trim()];
+      setQuickEditValue(updatedTags.join(' '));
+      setNewTagInput('');
+      setShowTagInput(false);
+    }
+  };
+
+  // Handle removing tag
+  const removeTag = (tagToRemove: string) => {
+    if (quickEditItem) {
+      const currentTags = quickEditItem.tags || [];
+      const updatedTags = currentTags.filter(tag => tag !== tagToRemove);
+      setQuickEditValue(updatedTags.join(' '));
+    }
+  };
+
   if (!user) {
     return (
       <div className="container mx-auto py-8">
@@ -741,8 +1019,8 @@ export default function EditData() {
     <div className="container mx-auto py-8">
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-center mb-2">Beatheos AI Data Editor</h1>
-        <p className="text-lg text-gray-600 text-center">Manage and edit your audio library, packs, and metadata with AI-powered organization</p>
+        <h1 className="text-4xl font-bold text-center mb-2">📊 Audio Library Data Editor</h1>
+        <p className="text-lg text-gray-600 text-center">Edit metadata, organize files, and manage your audio library - No audio playback, just data management</p>
       </div>
 
       {/* Global Search */}
@@ -780,11 +1058,28 @@ export default function EditData() {
         <div className="flex gap-2">
           <Button 
             variant="outline" 
-            onClick={() => loadAudioData()}
+            onClick={() => {
+              console.log('Refresh button clicked');
+              if (viewMode === 'packs') {
+                loadAllAudioItems();
+              } else {
+                loadAudioData(1, false); // Reset to first page
+              }
+              loadAudioPacks();
+            }}
             disabled={loadingAudio}
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              console.log('Test button clicked');
+              alert('Test button works!');
+            }}
+          >
+            Test Button
           </Button>
         </div>
       </div>
@@ -796,7 +1091,7 @@ export default function EditData() {
           <TabsTrigger value="subfolders">Subfolders</TabsTrigger>
         </TabsList>
 
-                {/* Audio Library Tab */}
+        {/* Audio Library Tab */}
         <TabsContent value="audio" className="space-y-4">
           {/* View Mode Toggle */}
           <div className="flex justify-between items-center">
@@ -804,7 +1099,10 @@ export default function EditData() {
               <Button
                 variant={viewMode === 'grid' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setViewMode('grid')}
+                onClick={() => {
+                  setViewMode('grid');
+                  loadAudioData(1, false); // Load first page for grid view
+                }}
               >
                 <Grid className="h-4 w-4 mr-2" />
                 All Files
@@ -812,7 +1110,10 @@ export default function EditData() {
               <Button
                 variant={viewMode === 'packs' ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setViewMode('packs')}
+                onClick={() => {
+                  setViewMode('packs');
+                  loadAllAudioItems(); // Load all data for packs view
+                }}
               >
                 <Package className="h-4 w-4 mr-2" />
                 Packs
@@ -923,14 +1224,15 @@ export default function EditData() {
                 <div>Loading audio files...</div>
               ) : audioError ? (
                 <div className="text-red-500">{audioError}</div>
-              ) : filteredAudioItems.length === 0 ? (
+              ) : displayedItems.length === 0 ? (
                 <div>No audio files found.</div>
               ) : (
                 <>
                   <div className="text-sm text-gray-400 mb-4">
-                    Page {currentPage} of {Math.ceil(totalItems / itemsPerPage)} - Showing {filteredAudioItems.length} files
+                    Showing {displayedItems.length} of {totalItems} files
+                    {hasMoreItems && <span className="text-blue-500"> - Scroll to load more</span>}
                   </div>
-                  {filteredAudioItems.map(item => (
+                  {displayedItems.map(item => (
                     <Card 
                       key={item.id} 
                       className={`p-6 flex items-center gap-6 cursor-move transition-opacity ${
@@ -950,7 +1252,43 @@ export default function EditData() {
                         {item.type === 'other' && <File className="h-6 w-6 text-gray-400" />}
                       </div>
                       <div className="flex-1">
-                        <h3 className="text-lg font-semibold">{item.name}</h3>
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-lg font-semibold">{item.name}</h3>
+                          <div 
+                            className={`px-3 py-1 rounded-full text-sm font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-105 ${
+                              item.is_ready 
+                                ? 'bg-green-500 text-white shadow-lg hover:bg-green-600' 
+                                : 'bg-red-500 text-white shadow-lg hover:bg-red-600'
+                            }`}
+                            onClick={async () => {
+                              try {
+                                const { error } = await supabase
+                                  .from('audio_library_items')
+                                  .update({ is_ready: !item.is_ready })
+                                  .eq('id', item.id);
+                                
+                                if (error) throw error;
+                                
+                                // Update local state
+                                setAudioItems(prev => prev.map(audioItem => 
+                                  audioItem.id === item.id 
+                                    ? { ...audioItem, is_ready: !item.is_ready }
+                                    : audioItem
+                                ));
+                                setDisplayedItems(prev => prev.map(audioItem => 
+                                  audioItem.id === item.id 
+                                    ? { ...audioItem, is_ready: !item.is_ready }
+                                    : audioItem
+                                ));
+                              } catch (error) {
+                                console.error('Error toggling ready status:', error);
+                                alert('Failed to update ready status');
+                              }
+                            }}
+                          >
+                            {item.is_ready ? 'READY' : 'NOT READY'}
+                          </div>
+                        </div>
                         <p className="text-sm text-gray-400 mb-1">{item.description}</p>
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs text-gray-500 capitalize">{item.type}</span>
@@ -993,85 +1331,213 @@ export default function EditData() {
                               {item.subfolder && ` / ${item.subfolder}`}
                             </Badge>
                           )}
+                          
+                          {/* Missing metadata badges - clickable */}
+                          {!item.bpm && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 cursor-pointer"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleQuickEdit(item, 'bpm');
+                              }}
+                            >
+                              Missing BPM
+                            </Badge>
+                          )}
+                          {!item.key && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-red-50 text-red-700 border-red-200 hover:bg-red-100 cursor-pointer"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleQuickEdit(item, 'key');
+                              }}
+                            >
+                              Missing Key
+                            </Badge>
+                          )}
+                          {!item.genre && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100 cursor-pointer"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleQuickEdit(item, 'genre');
+                              }}
+                            >
+                              Missing Genre
+                            </Badge>
+                          )}
+                          {!item.subgenre && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleQuickEdit(item, 'subgenre');
+                              }}
+                            >
+                              Missing Subgenre
+                            </Badge>
+                          )}
+                          {(!item.tags || item.tags.length === 0) && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 cursor-pointer"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleQuickEdit(item, 'tags');
+                              }}
+                            >
+                              Missing Tags
+                            </Badge>
+                          )}
+                          {!item.audio_type && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleQuickEdit(item, 'audio_type');
+                              }}
+                            >
+                              No Audio Type
+                            </Badge>
+                          )}
+                          {!item.pack_id && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer"
+                            >
+                              No Pack
+                            </Badge>
+                          )}
+                          {!item.subfolder && item.pack_id && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 cursor-pointer"
+                            >
+                              No Subfolder
+                            </Badge>
+                          )}
+                          {!item.description && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-xs bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100 cursor-pointer"
+                            >
+                              No Description
+                            </Badge>
+                          )}
                         </div>
+                        {/* File info instead of audio player */}
                         {item.file_url && (
-                          <audio 
-                            controls 
-                            src={item.file_url} 
-                            className="h-8 mt-2" 
-                            onDragStart={(e) => e.preventDefault()}
-                          />
+                          <div className="text-xs text-gray-500 mt-2">
+                            📁 File: {item.file_url.split('/').pop()}
+                            {item.file_size && ` (${Math.round(item.file_size / 1024)}KB)`}
+                          </div>
                         )}
                       </div>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                        <Button 
+                          variant={item.is_ready ? "default" : "outline"} 
+                          size="default" 
+                          onClick={async () => {
+                            console.log('Ready button clicked for item:', item.id);
+                            try {
+                              const { error } = await supabase
+                                .from('audio_library_items')
+                                .update({ is_ready: !item.is_ready })
+                                .eq('id', item.id);
+                              
+                              if (error) throw error;
+                              
+                              // Update local state
+                              setAudioItems(prev => prev.map(audioItem => 
+                                audioItem.id === item.id 
+                                  ? { ...audioItem, is_ready: !item.is_ready }
+                                  : audioItem
+                              ));
+                              setDisplayedItems(prev => prev.map(audioItem => 
+                                audioItem.id === item.id 
+                                  ? { ...audioItem, is_ready: !item.is_ready }
+                                  : audioItem
+                              ));
+                            } catch (error) {
+                              console.error('Error toggling ready status:', error);
+                              alert('Failed to update ready status');
+                            }
+                          }}
+                          className={`font-bold text-lg px-6 py-3 ${
+                            item.is_ready 
+                              ? "bg-green-600 hover:bg-green-700 text-white shadow-lg" 
+                              : "bg-red-600 hover:bg-red-700 text-white shadow-lg"
+                          }`}
+                        >
+                          {item.is_ready ? <CheckCircle2 className="h-5 w-5 mr-2" /> : <XCircle className="h-5 w-5 mr-2" />}
+                          {item.is_ready ? "MARK AS NOT READY" : "MARK AS READY"}
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => {
+                            console.log('Edit button clicked for item:', item.id);
+                            openEditAudioModal(item);
+                          }}
+                        >
                           <Pencil className="h-4 w-4 mr-2" />Edit
                         </Button>
-                        <Button variant="outline" size="sm" asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          asChild
+                        >
                           <a href={item.file_url} download>Download</a>
                         </Button>
-                        <Button variant="destructive" size="sm" onClick={() => handleDeleteAudio(item.id)}>
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          onClick={() => {
+                            console.log('Delete button clicked for item:', item.id);
+                            handleDeleteAudio(item.id);
+                          }}
+                        >
                           <Trash2 className="h-4 w-4 mr-2" />Delete
                         </Button>
                       </div>
                     </Card>
                   ))}
                   
-                  {/* Pagination Controls */}
-                  {totalPages > 1 && (
-                    <div className="flex justify-center items-center gap-2 mt-6">
-                      <Button
-                        onClick={() => loadAudioData(currentPage - 1)}
-                        disabled={currentPage === 1 || loadingAudio}
-                        variant="outline"
-                        size="sm"
-                        className="px-3 py-1"
-                      >
-                        ← Previous
-                      </Button>
-                      
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                          const pageNum = i + 1;
-                          return (
-                            <Button
-                              key={pageNum}
-                              onClick={() => loadAudioData(pageNum)}
-                              variant={currentPage === pageNum ? "default" : "outline"}
-                              size="sm"
-                              className="px-3 py-1 min-w-[40px]"
-                              disabled={loadingAudio}
-                            >
-                              {pageNum}
-                            </Button>
-                          );
-                        })}
-                        
-                        {totalPages > 5 && (
-                          <>
-                            <span className="text-gray-400">...</span>
-                            <Button
-                              onClick={() => loadAudioData(totalPages)}
-                              variant="outline"
-                              size="sm"
-                              className="px-3 py-1"
-                              disabled={loadingAudio}
-                            >
-                              {totalPages}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                      
-                      <Button
-                        onClick={() => loadAudioData(currentPage + 1)}
-                        disabled={currentPage >= totalPages || loadingAudio}
-                        variant="outline"
-                        size="sm"
-                        className="px-3 py-1"
-                      >
-                        Next →
-                      </Button>
+                  {/* Lazy Loading Sentinel */}
+                  {hasMoreItems && (
+                    <div 
+                      id="lazy-load-sentinel" 
+                      className="flex justify-center items-center py-8"
+                    >
+                      {isLoadingMore ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                          <span className="text-gray-600">Loading more files...</span>
+                        </div>
+                      ) : (
+                        <Button 
+                          onClick={() => {
+                            console.log('Load more button clicked');
+                            loadMoreItems();
+                          }}
+                          variant="outline"
+                          className="text-blue-600 hover:text-blue-700"
+                        >
+                          Load More Files
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Show when all items are loaded */}
+                  {!hasMoreItems && displayedItems.length > 0 && (
+                    <div className="text-center py-4 text-gray-500 text-sm">
+                      All files loaded ({displayedItems.length} total)
                     </div>
                   )}
                 </>
@@ -1341,32 +1807,92 @@ export default function EditData() {
                                              {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-400" />}
                                              {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
                                            </div>
-                                           <div className="flex-1">
-                                             <h5 className="text-sm font-medium">{item.name}</h5>
-                                             <p className="text-xs text-gray-500">{item.audio_type}</p>
-                                           </div>
-                                           <div className="flex gap-1">
-                                             <Button
-                                               variant="outline"
-                                               size="sm"
-                                               onClick={(e) => {
-                                                 e.stopPropagation();
-                                                 openEditAudioModal(item);
-                                               }}
-                                             >
-                                               <Edit3 className="h-3 w-3" />
-                                             </Button>
-                                             <Button
-                                               variant="destructive"
-                                               size="sm"
-                                               onClick={(e) => {
-                                                 e.stopPropagation();
-                                                 handleDeleteAudio(item.id);
-                                               }}
-                                             >
-                                               <Trash2 className="h-3 w-3" />
-                                             </Button>
-                                           </div>
+                                                                                <div className="flex-1">
+                                       <div className="flex items-center gap-2 mb-1">
+                                         <h5 className="text-sm font-medium">{item.name}</h5>
+                                         <div 
+                                           className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-105 ${
+                                             item.is_ready 
+                                               ? 'bg-green-500 text-white shadow-md hover:bg-green-600' 
+                                               : 'bg-red-500 text-white shadow-md hover:bg-red-600'
+                                           }`}
+                                           onClick={async (e) => {
+                                             e.stopPropagation();
+                                             try {
+                                               const { error } = await supabase
+                                                 .from('audio_library_items')
+                                                 .update({ is_ready: !item.is_ready })
+                                                 .eq('id', item.id);
+                                               
+                                               if (error) throw error;
+                                               
+                                               // Update local state
+                                               setAudioItems(prev => prev.map(audioItem => 
+                                                 audioItem.id === item.id 
+                                                   ? { ...audioItem, is_ready: !item.is_ready }
+                                                   : audioItem
+                                               ));
+                                             } catch (error) {
+                                               console.error('Error toggling ready status:', error);
+                                               alert('Failed to update ready status');
+                                             }
+                                           }}
+                                         >
+                                           {item.is_ready ? 'READY' : 'NOT READY'}
+                                         </div>
+                                       </div>
+                                       <p className="text-xs text-gray-500">{item.audio_type}</p>
+                                     </div>
+                                                                                <div className="flex gap-1">
+                                       <Button
+                                         variant={item.is_ready ? "default" : "outline"}
+                                         size="sm"
+                                         onClick={async (e) => {
+                                           e.stopPropagation();
+                                           try {
+                                             const { error } = await supabase
+                                               .from('audio_library_items')
+                                               .update({ is_ready: !item.is_ready })
+                                               .eq('id', item.id);
+                                             
+                                             if (error) throw error;
+                                             
+                                             // Update local state
+                                             setAudioItems(prev => prev.map(audioItem => 
+                                               audioItem.id === item.id 
+                                                 ? { ...audioItem, is_ready: !item.is_ready }
+                                                 : audioItem
+                                             ));
+                                           } catch (error) {
+                                             console.error('Error toggling ready status:', error);
+                                             alert('Failed to update ready status');
+                                           }
+                                         }}
+                                         className={item.is_ready ? "bg-green-600 hover:bg-green-700 text-white h-6" : "h-6"}
+                                       >
+                                         {item.is_ready ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                                       </Button>
+                                       <Button
+                                         variant="outline"
+                                         size="sm"
+                                         onClick={(e) => {
+                                           e.stopPropagation();
+                                           openEditAudioModal(item);
+                                         }}
+                                       >
+                                         <Edit3 className="h-3 w-3" />
+                                       </Button>
+                                       <Button
+                                         variant="destructive"
+                                         size="sm"
+                                         onClick={(e) => {
+                                           e.stopPropagation();
+                                           handleDeleteAudio(item.id);
+                                         }}
+                                       >
+                                         <Trash2 className="h-3 w-3" />
+                                       </Button>
+                                     </div>
                                          </div>
                                        ))}
                                      
@@ -1550,10 +2076,70 @@ export default function EditData() {
                                        {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
                                      </div>
                                      <div className="flex-1">
-                                       <h5 className="text-sm font-medium">{item.name}</h5>
+                                       <div className="flex items-center gap-2 mb-1">
+                                         <h5 className="text-sm font-medium">{item.name}</h5>
+                                         <div 
+                                           className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-105 ${
+                                             item.is_ready 
+                                               ? 'bg-green-500 text-white shadow-md hover:bg-green-600' 
+                                               : 'bg-red-500 text-white shadow-md hover:bg-red-600'
+                                           }`}
+                                           onClick={async (e) => {
+                                             e.stopPropagation();
+                                             try {
+                                               const { error } = await supabase
+                                                 .from('audio_library_items')
+                                                 .update({ is_ready: !item.is_ready })
+                                                 .eq('id', item.id);
+                                               
+                                               if (error) throw error;
+                                               
+                                               // Update local state
+                                               setAudioItems(prev => prev.map(audioItem => 
+                                                 audioItem.id === item.id 
+                                                   ? { ...audioItem, is_ready: !item.is_ready }
+                                                   : audioItem
+                                               ));
+                                             } catch (error) {
+                                               console.error('Error toggling ready status:', error);
+                                               alert('Failed to update ready status');
+                                             }
+                                           }}
+                                         >
+                                           {item.is_ready ? 'READY' : 'NOT READY'}
+                                         </div>
+                                       </div>
                                        <p className="text-xs text-gray-500">{item.audio_type}</p>
                                      </div>
                                      <div className="flex gap-1">
+                                       <Button
+                                         variant={item.is_ready ? "default" : "outline"}
+                                         size="sm"
+                                         onClick={async (e) => {
+                                           e.stopPropagation();
+                                           try {
+                                             const { error } = await supabase
+                                               .from('audio_library_items')
+                                               .update({ is_ready: !item.is_ready })
+                                               .eq('id', item.id);
+                                             
+                                             if (error) throw error;
+                                             
+                                             // Update local state
+                                             setAudioItems(prev => prev.map(audioItem => 
+                                               audioItem.id === item.id 
+                                                 ? { ...audioItem, is_ready: !item.is_ready }
+                                                 : audioItem
+                                             ));
+                                           } catch (error) {
+                                             console.error('Error toggling ready status:', error);
+                                             alert('Failed to update ready status');
+                                           }
+                                         }}
+                                         className={item.is_ready ? "bg-green-600 hover:bg-green-700 text-white h-6" : "h-6"}
+                                       >
+                                         {item.is_ready ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                                       </Button>
                                        <Button
                                          variant="outline"
                                          size="sm"
@@ -1708,180 +2294,6 @@ export default function EditData() {
         </TabsContent>
       </Tabs>
 
-      {/* Edit Audio Modal */}
-      <Dialog open={showEditAudioModal} onOpenChange={setShowEditAudioModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Audio File</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSaveAudio} className="space-y-4">
-            <Input
-              placeholder="Name"
-              value={editForm.name}
-              onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-              required
-            />
-            <Input
-              placeholder="Type (e.g. loop, sample, kit)"
-              value={editForm.type}
-              onChange={e => setEditForm({ ...editForm, type: e.target.value })}
-            />
-            <Input
-              type="number"
-              placeholder="BPM (e.g., 140)"
-              value={editForm.bpm}
-              onChange={e => setEditForm({ ...editForm, bpm: e.target.value })}
-            />
-            <Input
-              placeholder="Key (e.g., C, Am, F#)"
-              value={editForm.key}
-              onChange={e => setEditForm({ ...editForm, key: e.target.value })}
-            />
-            <Input
-              placeholder="Audio Type (e.g., kick, snare, hihat, bass, melody, loop)"
-              value={editForm.audio_type}
-              onChange={e => setEditForm({ ...editForm, audio_type: e.target.value })}
-            />
-            <Input
-              placeholder="Genre (e.g., trap, hip-hop, house, techno, dubstep, pop, rock)"
-              value={editForm.genre}
-              onChange={e => setEditForm({ ...editForm, genre: e.target.value })}
-            />
-            <Input
-              placeholder="Subgenre (e.g., drill, boom bap, deep house, acid techno, melodic dubstep)"
-              value={editForm.subgenre}
-              onChange={e => setEditForm({ ...editForm, subgenre: e.target.value })}
-            />
-            <Input
-              placeholder="Tags (comma-separated, e.g., trap, dark, aggressive, 808)"
-              value={editForm.tags}
-              onChange={e => setEditForm({ ...editForm, tags: e.target.value })}
-            />
-            <Textarea
-              placeholder="Description"
-              value={editForm.description}
-              onChange={e => setEditForm({ ...editForm, description: e.target.value })}
-            />
-            <select
-              value={editForm.pack_id}
-              onChange={e => {
-                setEditForm({ ...editForm, pack_id: e.target.value, subfolder: '' });
-              }}
-              className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
-            >
-              <option value="">No Pack (Individual File)</option>
-              {audioPacks.map(pack => (
-                <option key={pack.id} value={pack.id}>{pack.name}</option>
-              ))}
-            </select>
-            
-            {editForm.pack_id && (
-              <select
-                value={editForm.subfolder}
-                onChange={e => setEditForm({ ...editForm, subfolder: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
-              >
-                <option value="">Root of Pack (No Subfolder)</option>
-                {audioPacks
-                  .find(pack => pack.id === editForm.pack_id)
-                  ?.subfolders?.map(subfolder => (
-                    <option key={subfolder.id} value={subfolder.name}>
-                      📁 {subfolder.name}
-                    </option>
-                  ))}
-              </select>
-            )}
-            
-            <DialogFooter>
-              <Button type="submit" disabled={saving} className="bg-yellow-400 hover:bg-yellow-500 text-black">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Pack Modal */}
-      <Dialog open={showEditPackModal} onOpenChange={setShowEditPackModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Audio Pack</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSavePack} className="space-y-4">
-            <Input
-              placeholder="Pack Name"
-              value={editPackForm.name}
-              onChange={e => setEditPackForm({ ...editPackForm, name: e.target.value })}
-              required
-            />
-            <Textarea
-              placeholder="Description"
-              value={editPackForm.description}
-              onChange={e => setEditPackForm({ ...editPackForm, description: e.target.value })}
-            />
-            <div>
-              <label className="block text-sm font-medium mb-2">Pack Color</label>
-              <input
-                type="color"
-                value={editPackForm.color}
-                onChange={e => setEditPackForm({ ...editPackForm, color: e.target.value })}
-                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit" disabled={saving} className="bg-blue-500 hover:bg-blue-600 text-white">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Subfolder Modal */}
-      <Dialog open={showEditSubfolderModal} onOpenChange={setShowEditSubfolderModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Subfolder</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSaveSubfolder} className="space-y-4">
-            <Input
-              placeholder="Subfolder Name"
-              value={editSubfolderForm.name}
-              onChange={e => setEditSubfolderForm({ ...editSubfolderForm, name: e.target.value })}
-              required
-            />
-            <Textarea
-              placeholder="Description"
-              value={editSubfolderForm.description}
-              onChange={e => setEditSubfolderForm({ ...editSubfolderForm, description: e.target.value })}
-            />
-            <div>
-              <label className="block text-sm font-medium mb-2">Subfolder Color</label>
-              <input
-                type="color"
-                value={editSubfolderForm.color}
-                onChange={e => setEditSubfolderForm({ ...editSubfolderForm, color: e.target.value })}
-                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit" disabled={saving} className="bg-green-500 hover:bg-green-600 text-white">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Advanced Search & Analytics Card */}
       <div className="mt-8">
         <Card className="p-6">
@@ -1912,7 +2324,7 @@ export default function EditData() {
             {/* Audio Library Tab */}
             <TabsContent value="audio" className="space-y-4">
               {/* Data Quality Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                 <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
                   <h4 className="font-medium mb-2 text-blue-900">Total Files</h4>
                   <p className="text-2xl font-bold text-blue-700">{audioItems.length}</p>
@@ -1954,10 +2366,19 @@ export default function EditData() {
                     {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => !item.tags || item.tags.length === 0).length / audioItems.length) * 100)}%` : '0%'}
                   </p>
                 </div>
+                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 rounded-lg border border-emerald-200">
+                  <h4 className="font-medium mb-2 text-emerald-900">Ready Files</h4>
+                  <p className="text-2xl font-bold text-emerald-700">
+                    {audioItems.filter(item => item.is_ready).length}
+                  </p>
+                  <p className="text-xs text-emerald-600 mt-1">
+                    {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => item.is_ready).length / audioItems.length) * 100)}%` : '0%'}
+                  </p>
+                </div>
               </div>
 
               {/* Advanced Search Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <Label htmlFor="missing-data-filter">Missing Data Filter</Label>
                   <Select
@@ -2039,6 +2460,22 @@ export default function EditData() {
                       className="w-20"
                     />
                   </div>
+                </div>
+                <div>
+                  <Label htmlFor="ready-filter">Ready Status</Label>
+                  <Select
+                    value={readyFilter}
+                    onValueChange={setReadyFilter}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Filter by ready status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Files</SelectItem>
+                      <SelectItem value="ready">Ready Files</SelectItem>
+                      <SelectItem value="not-ready">Not Ready Files</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -2143,6 +2580,26 @@ export default function EditData() {
                    className="text-xs bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
                  >
                    Select No File URL
+                 </Button>
+                 <Button
+                   variant="outline"
+                   onClick={() => {
+                     const notReady = audioItems.filter(item => !item.is_ready);
+                     setSelectedFiles(new Set(notReady.map(item => item.id)));
+                   }}
+                   className="text-xs bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100"
+                 >
+                   Select Not Ready
+                 </Button>
+                 <Button
+                   variant="outline"
+                   onClick={() => {
+                     const ready = audioItems.filter(item => item.is_ready);
+                     setSelectedFiles(new Set(ready.map(item => item.id)));
+                   }}
+                   className="text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                 >
+                   Select Ready
                  </Button>
                </div>
             </TabsContent>
@@ -2425,153 +2882,495 @@ export default function EditData() {
                </div>
              </div>
            </div>
-
-           {/* File Display Section */}
-           <div className="mt-6 pt-6 border-t border-gray-200">
-             <div className="flex items-center justify-between mb-4">
-               <h4 className="text-lg font-semibold text-white">Files Found</h4>
-               <div className="flex items-center gap-2">
-                 <span className="text-sm text-gray-500">
-                   {selectedFiles.size > 0 ? `${selectedFiles.size} selected` : 'No files selected'}
-                 </span>
-                 {selectedFiles.size > 0 && (
-                   <>
-                     <Button
-                       variant="ghost"
-                       size="sm"
-                       onClick={() => setSelectedFiles(new Set())}
-                       className="text-xs text-gray-600 hover:text-gray-900"
-                     >
-                       Clear Selection
-                     </Button>
-                     <Button
-                       size="sm"
-                       onClick={openMassEditSelectedModal}
-                       className="text-xs bg-blue-600 text-white hover:bg-blue-700"
-                     >
-                       Mass Edit Selected
-                     </Button>
-                   </>
-                 )}
-               </div>
-             </div>
-
-             {/* File List */}
-             <div className="space-y-1 max-h-96 overflow-y-auto">
-               {audioItems.length === 0 ? (
-                 <div className="text-center py-8 text-gray-500">
-                   No audio files found. Load some data first.
-                 </div>
-               ) : (
-                 audioItems.map(item => (
-                   <div
-                     key={item.id}
-                     className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer group ${
-                       selectedFiles.has(item.id) 
-                         ? 'border-blue-300 bg-blue-50/50' 
-                         : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/30'
-                     }`}
-                     onClick={() => toggleFileSelection(item.id)}
-                   >
-                     {/* File Icon */}
-                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                       selectedFiles.has(item.id) ? 'bg-blue-100' : 'bg-gray-100 group-hover:bg-gray-200'
-                     }`}>
-                       {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-600" />}
-                       {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-600" />}
-                       {item.type === 'loop' && <Music className="h-4 w-4 text-blue-600" />}
-                       {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-600" />}
-                       {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-600" />}
-                       {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-600" />}
-                       {item.type === 'other' && <File className="h-4 w-4 text-gray-600" />}
-                     </div>
-
-                     {/* File Info */}
-                     <div className="flex-1 min-w-0">
-                       <h5 className="font-medium text-white truncate">{item.name}</h5>
-                       <div className="flex items-center gap-2 text-xs text-gray-300 mt-0.5">
-                         <span className="capitalize font-medium">{item.type}</span>
-                         {item.bpm && <span>• {item.bpm} BPM</span>}
-                         {item.key && <span>• {item.key}</span>}
-                         {item.genre && <span>• {item.genre}</span>}
-                         {item.pack && <span>• {item.pack.name}</span>}
-                       </div>
-                       {/* Missing Data Indicators */}
-                       <div className="flex flex-wrap gap-1 mt-1.5">
-                         {!item.bpm && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-yellow-50 text-yellow-700 border-yellow-200">Missing BPM</Badge>}
-                         {!item.key && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-red-50 text-red-700 border-red-200">Missing Key</Badge>}
-                         {!item.genre && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-green-50 text-green-700 border-green-200">Missing Genre</Badge>}
-                         {!item.subgenre && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border-emerald-200">Missing Subgenre</Badge>}
-                         {(!item.tags || item.tags.length === 0) && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-purple-50 text-purple-700 border-purple-200">Missing Tags</Badge>}
-                         {!item.pack_id && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 border-blue-200">No Pack</Badge>}
-                         {!item.subfolder && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-orange-50 text-orange-700 border-orange-200">No Subfolder</Badge>}
-                         {!item.description && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-pink-50 text-pink-700 border-pink-200">No Description</Badge>}
-                         {!item.audio_type && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-200">No Audio Type</Badge>}
-                         {!item.file_url && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-gray-50 text-gray-700 border-gray-200">No File URL</Badge>}
-                       </div>
-                     </div>
-
-                     {/* Audio Player */}
-                     {item.file_url && (
-                       <div className="flex-shrink-0">
-                         <audio 
-                           controls 
-                           src={item.file_url} 
-                           className="h-7 w-28" 
-                           onDragStart={(e) => e.preventDefault()}
-                         />
-                       </div>
-                     )}
-
-                     {/* Action Buttons */}
-                     <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                       <Button
-                         variant="ghost"
-                         size="sm"
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           openEditAudioModal(item);
-                         }}
-                         className="h-7 w-7 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                       >
-                         <Edit3 className="h-3 w-3" />
-                       </Button>
-                       <Button
-                         variant="ghost"
-                         size="sm"
-                         asChild
-                         className="h-7 w-7 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                       >
-                         <a href={item.file_url} download>
-                           <Download className="h-3 w-3" />
-                         </a>
-                       </Button>
-                       <Button
-                         variant="ghost"
-                         size="sm"
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           handleDeleteAudio(item.id);
-                         }}
-                         className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                       >
-                         <Trash2 className="h-3 w-3" />
-                       </Button>
-                     </div>
-                   </div>
-                 ))
-               )}
-             </div>
-
-             {/* No Results Message */}
-             {audioItems.length > 0 && searchQuery && filteredAudioItems.length === 0 && (
-               <div className="text-center py-8 text-gray-500">
-                 No files found matching "{searchQuery}"
-               </div>
-             )}
-           </div>
         </Card>
       </div>
+
+      {/* Files Found Section (moved here from Files tab) */}
+      <div className="mt-8">
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-lg font-semibold text-white">Files Found</h4>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">
+                {selectedFiles.size > 0 ? `${selectedFiles.size} selected` : 'No files selected'}
+              </span>
+              {selectedFiles.size > 0 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedFiles(new Set())}
+                    className="text-xs text-gray-600 hover:text-gray-900"
+                  >
+                    Clear Selection
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={openMassEditSelectedModal}
+                    className="text-xs bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    Mass Edit Selected
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+          {/* File List */}
+          <div className="space-y-1 max-h-96 overflow-y-auto">
+            {audioItems.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No audio files found. Load some data first.
+              </div>
+            ) : (
+              audioItems.map(item => (
+                <div
+                  key={item.id}
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer group ${
+                    selectedFiles.has(item.id) 
+                      ? 'border-blue-300 bg-blue-50/50' 
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/30'
+                  }`}
+                  onClick={() => toggleFileSelection(item.id)}
+                >
+                  {/* File Icon */}
+                  <div 
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${
+                      selectedFiles.has(item.id) ? 'bg-blue-100' : 'bg-gray-100 group-hover:bg-gray-200'
+                    } ${currentlyPlayingId === item.id ? 'bg-green-200' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAudioToggle(item);
+                    }}
+                  >
+                    {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-600" />}
+                    {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-600" />}
+                    {item.type === 'loop' && <Music className="h-4 w-4 text-blue-600" />}
+                    {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-600" />}
+                    {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-600" />}
+                    {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-600" />}
+                    {item.type === 'other' && <File className="h-4 w-4 text-gray-600" />}
+                  </div>
+                  {/* File Info */}
+                  <div className="flex-1 min-w-0">
+                    <h5 className="font-medium text-white truncate">{item.name}</h5>
+                    <div className="flex items-center gap-2 text-xs text-gray-300 mt-0.5">
+                      <span className="capitalize font-medium">{item.type}</span>
+                      {item.bpm && <span>• {item.bpm} BPM</span>}
+                      {item.key && <span>• {item.key}</span>}
+                      {item.genre && <span>• {item.genre}</span>}
+                      {item.subgenre && <span>• {item.subgenre}</span>}
+                      {item.pack && <span>• {item.pack.name}</span>}
+                    </div>
+                    {/* Missing Data Indicators */}
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {!item.bpm && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-yellow-50 text-yellow-700 border-yellow-200 cursor-pointer hover:bg-yellow-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'bpm'); }}>Missing BPM</Badge>}
+                      {!item.key && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-red-50 text-red-700 border-red-200 cursor-pointer hover:bg-red-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'key'); }}>Missing Key</Badge>}
+                      {!item.genre && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-green-50 text-green-700 border-green-200 cursor-pointer hover:bg-green-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'genre'); }}>Missing Genre</Badge>}
+                      {!item.subgenre && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border-emerald-200 cursor-pointer hover:bg-emerald-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'subgenre'); }}>Missing Subgenre</Badge>}
+                      {(!item.tags || item.tags.length === 0) && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-purple-50 text-purple-700 border-purple-200 cursor-pointer hover:bg-purple-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'tags'); }}>Missing Tags</Badge>}
+                      {!item.pack_id && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 border-blue-200 cursor-pointer hover:bg-blue-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'pack_id'); }}>No Pack</Badge>}
+                      {!item.subfolder && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-orange-50 text-orange-700 border-orange-200 cursor-pointer hover:bg-orange-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'subfolder'); }}>No Subfolder</Badge>}
+                      {!item.description && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-pink-50 text-pink-700 border-pink-200 cursor-pointer hover:bg-pink-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'description'); }}>No Description</Badge>}
+                      {!item.audio_type && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-200 cursor-pointer hover:bg-indigo-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'audio_type'); }}>No Audio Type</Badge>}
+                      {!item.file_url && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-gray-50 text-gray-700 border-gray-200 cursor-pointer hover:bg-gray-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'file_url'); }}>No File URL</Badge>}
+                    </div>
+                  </div>
+                  {/* File info instead of audio player */}
+                  {item.file_url && (
+                    <div className="flex-shrink-0 text-xs text-gray-500">
+                      📁 {item.file_url.split('/').pop()}
+                    </div>
+                  )}
+                  {/* Action Buttons */}
+                  <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditAudioModal(item);
+                      }}
+                      className="h-7 w-7 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    >
+                      <Edit3 className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      asChild
+                      className="h-7 w-7 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    >
+                      <a href={item.file_url} download>
+                        <Download className="h-3 w-3" />
+                      </a>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteAudio(item.id);
+                      }}
+                      className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          {/* No Results Message */}
+          {audioItems.length > 0 && searchQuery && filteredAudioItems.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No files found matching "{searchQuery}"
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Edit Audio Modal */}
+      <Dialog open={showEditAudioModal} onOpenChange={setShowEditAudioModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Audio File</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveAudio} className="space-y-4">
+            <Input
+              placeholder="Name"
+              value={editForm.name}
+              onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+              required
+            />
+            <Input
+              placeholder="Type (e.g. loop, sample, kit)"
+              value={editForm.type}
+              onChange={e => setEditForm({ ...editForm, type: e.target.value })}
+            />
+            <Input
+              type="number"
+              placeholder="BPM (e.g., 140)"
+              value={editForm.bpm}
+              onChange={e => setEditForm({ ...editForm, bpm: e.target.value })}
+            />
+            <Input
+              placeholder="Key (e.g., C, Am, F#)"
+              value={editForm.key}
+              onChange={e => setEditForm({ ...editForm, key: e.target.value })}
+            />
+            <Input
+              placeholder="Audio Type (e.g., kick, snare, hihat, bass, melody, loop)"
+              value={editForm.audio_type}
+              onChange={e => setEditForm({ ...editForm, audio_type: e.target.value })}
+            />
+            <Input
+              placeholder="Genre (e.g., trap, hip-hop, house, techno, dubstep, pop, rock)"
+              value={editForm.genre}
+              onChange={e => setEditForm({ ...editForm, genre: e.target.value })}
+            />
+            <Input
+              placeholder="Subgenre (e.g., drill, boom bap, deep house, acid techno, melodic dubstep)"
+              value={editForm.subgenre}
+              onChange={e => setEditForm({ ...editForm, subgenre: e.target.value })}
+            />
+            <Input
+              placeholder="Tags (comma-separated, e.g., trap, dark, aggressive, 808)"
+              value={editForm.tags}
+              onChange={e => setEditForm({ ...editForm, tags: e.target.value })}
+            />
+            <Textarea
+              placeholder="Description"
+              value={editForm.description}
+              onChange={e => setEditForm({ ...editForm, description: e.target.value })}
+            />
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="is_ready"
+                checked={editForm.is_ready}
+                onChange={e => setEditForm({ ...editForm, is_ready: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <Label htmlFor="is_ready">Mark as Ready</Label>
+            </div>
+            <select
+              value={editForm.pack_id}
+              onChange={e => {
+                setEditForm({ ...editForm, pack_id: e.target.value, subfolder: '' });
+              }}
+              className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+            >
+              <option value="">No Pack (Individual File)</option>
+              {audioPacks.map(pack => (
+                <option key={pack.id} value={pack.id}>{pack.name}</option>
+              ))}
+            </select>
+            
+            {editForm.pack_id && (
+              <select
+                value={editForm.subfolder}
+                onChange={e => setEditForm({ ...editForm, subfolder: e.target.value })}
+                className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+              >
+                <option value="">Root of Pack (No Subfolder)</option>
+                {audioPacks
+                  .find(pack => pack.id === editForm.pack_id)
+                  ?.subfolders?.map(subfolder => (
+                    <option key={subfolder.id} value={subfolder.name}>
+                      📁 {subfolder.name}
+                    </option>
+                  ))}
+              </select>
+            )}
+            
+            <DialogFooter>
+              <Button type="submit" disabled={saving} className="bg-yellow-400 hover:bg-yellow-500 text-black">
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Pack Modal */}
+      <Dialog open={showEditPackModal} onOpenChange={setShowEditPackModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Audio Pack</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSavePack} className="space-y-4">
+            <Input
+              placeholder="Pack Name"
+              value={editPackForm.name}
+              onChange={e => setEditPackForm({ ...editPackForm, name: e.target.value })}
+              required
+            />
+            <Textarea
+              placeholder="Description"
+              value={editPackForm.description}
+              onChange={e => setEditPackForm({ ...editPackForm, description: e.target.value })}
+            />
+            <div>
+              <label className="block text-sm font-medium mb-2">Pack Color</label>
+              <input
+                type="color"
+                value={editPackForm.color}
+                onChange={e => setEditPackForm({ ...editPackForm, color: e.target.value })}
+                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={saving} className="bg-blue-500 hover:bg-blue-600 text-white">
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Subfolder Modal */}
+      <Dialog open={showEditSubfolderModal} onOpenChange={setShowEditSubfolderModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Subfolder</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveSubfolder} className="space-y-4">
+            <Input
+              placeholder="Subfolder Name"
+              value={editSubfolderForm.name}
+              onChange={e => setEditSubfolderForm({ ...editSubfolderForm, name: e.target.value })}
+              required
+            />
+            <Textarea
+              placeholder="Description"
+              value={editSubfolderForm.description}
+              onChange={e => setEditSubfolderForm({ ...editSubfolderForm, description: e.target.value })}
+            />
+            <div>
+              <label className="block text-sm font-medium mb-2">Subfolder Color</label>
+              <input
+                type="color"
+                value={editSubfolderForm.color}
+                onChange={e => setEditSubfolderForm({ ...editSubfolderForm, color: e.target.value })}
+                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={saving} className="bg-green-500 hover:bg-green-600 text-white">
+                {saving ? 'Saving...' : 'Save Changes'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Edit Dropdown Modal */}
+      {showQuickEditDropdown && quickEditItem && quickEditField && (
+        <Dialog open={showQuickEditDropdown} onOpenChange={setShowQuickEditDropdown}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Quick Edit {quickEditField.toUpperCase()}</DialogTitle>
+              <div className="text-sm text-gray-400 mt-1 mb-2 font-medium truncate">
+                Editing: {
+                  quickEditItem && quickEditItem.name && quickEditField === 'bpm'
+                    ? (
+                        // Highlight numbers and BPM keywords in the name
+                        <>{
+                          quickEditItem.name
+                            .split(/(\d+|\b(?:BPM|bpm|tempo)\b)/i)
+                            .map((part, i) => {
+                              if (/\d+/.test(part)) {
+                                return (
+                                  <span 
+                                    key={i} 
+                                    className="bg-yellow-300 text-black font-bold px-1 rounded mx-0.5 cursor-pointer hover:bg-yellow-400 transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuickEditValue(part);
+                                      // Auto-save after setting the value
+                                      setTimeout(() => {
+                                        saveQuickEdit();
+                                      }, 100);
+                                    }}
+                                  >
+                                    {part}
+                                  </span>
+                                );
+                              } else if (/\b(?:BPM|bpm|tempo)\b/i.test(part)) {
+                                return <span key={i} className="bg-purple-300 text-black font-bold px-1 rounded mx-0.5">{part}</span>;
+                              } else {
+                                return <span key={i}>{part}</span>;
+                              }
+                            })
+                        }</>
+                      )
+                    : quickEditItem?.name
+                }
+              </div>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="quick-edit-value">Value</Label>
+                <div className="flex gap-2">
+                  {quickEditField === 'tags' ? (
+                    <div className="flex-1 space-y-2">
+                      {/* Existing tags as chips */}
+                      <div className="flex flex-wrap gap-2">
+                        {(quickEditItem?.tags || []).map((tag, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm"
+                          >
+                            <span>{tag}</span>
+                            <button
+                              onClick={() => removeTag(tag)}
+                              className="text-blue-600 hover:text-blue-800 text-xs font-bold"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        
+                        {/* Add new tag button */}
+                        {!showTagInput && (
+                          <button
+                            onClick={() => setShowTagInput(true)}
+                            className="flex items-center gap-1 bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-sm hover:bg-gray-200"
+                          >
+                            <span>+</span>
+                            <span>Add Tag</span>
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* New tag input */}
+                      {showTagInput && (
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Type new tag"
+                            value={newTagInput}
+                            onChange={(e) => setNewTagInput(e.target.value)}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                addNewTag();
+                              }
+                            }}
+                            className="flex-1"
+                            autoFocus
+                          />
+                          <Button
+                            size="sm"
+                            onClick={addNewTag}
+                            disabled={!newTagInput.trim()}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setShowTagInput(false);
+                              setNewTagInput('');
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <Select value={quickEditValue} onValueChange={setQuickEditValue}>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder={`Select ${quickEditField}`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getDropdownOptions(quickEditField).map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        placeholder="Or type custom value"
+                        value={quickEditValue}
+                        onChange={(e) => setQuickEditValue(e.target.value)}
+                        className="flex-1"
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={saveQuickEdit} disabled={!quickEditValue.trim()}>
+                Save
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowQuickEditDropdown(false);
+                  setQuickEditItem(null);
+                  setQuickEditField(null);
+                  setQuickEditValue('');
+                }}
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Mass Edit Modals */}
       {showMassEditModal && massEditPack && massEditSubfolder && (

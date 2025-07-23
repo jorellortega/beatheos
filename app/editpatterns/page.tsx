@@ -698,6 +698,322 @@ function EditPatternsPage() {
   const [patterns, setPatterns] = useState<SavedPattern[]>([])
   const [allPatterns, setAllPatterns] = useState<SavedPattern[]>([]) // For packs view
   const [loading, setLoading] = useState(true)
+  
+  // MIDI Parser Functions - moved to top to avoid hoisting issues
+  const getNoteName = (midiNote: number) => {
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    const octave = Math.floor(midiNote / 12) - 1
+    const noteIndex = midiNote % 12
+    return `${noteNames[noteIndex]}${octave}`
+  }
+  
+  const readVariableLength = (dataView: DataView, offset: number) => {
+    let value = 0
+    let bytesRead = 0
+    
+    while (bytesRead < 4) {
+      const byte = dataView.getUint8(offset + bytesRead)
+      value = (value << 7) | (byte & 0x7F)
+      bytesRead++
+      
+      if ((byte & 0x80) === 0) break
+    }
+    
+    return { value, bytesRead }
+  }
+  
+  const getTrackColor = (index: number) => {
+    const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-gray-500']
+    return colors[index % colors.length]
+  }
+  
+  const getTrackColorByType = (audioType: string) => {
+    const colorMap: { [key: string]: string } = {
+      kick: 'bg-red-500',
+      snare: 'bg-blue-500',
+      hihat: 'bg-green-500',
+      crash: 'bg-yellow-500',
+      tom: 'bg-orange-500',
+      bass: 'bg-purple-500',
+      melody: 'bg-pink-500',
+      lead: 'bg-indigo-500',
+      pad: 'bg-teal-500',
+      arp: 'bg-cyan-500',
+      fx: 'bg-gray-500',
+      vocal: 'bg-rose-500',
+      piano: 'bg-amber-500',
+      synth: 'bg-violet-500',
+      guitar: 'bg-emerald-500',
+      percussion: 'bg-slate-500',
+      other: 'bg-gray-500'
+    }
+    return colorMap[audioType] || 'bg-gray-500'
+  }
+  
+  const parseMIDIFile = (arrayBuffer: ArrayBuffer) => {
+    try {
+        const dataView = new DataView(arrayBuffer)
+      let offset = 0
+      
+      // Check MIDI header
+      const header = String.fromCharCode(...new Uint8Array(arrayBuffer, 0, 4))
+      if (header !== 'MThd') {
+        throw new Error('Invalid MIDI file: Missing MThd header')
+      }
+      
+      console.log('[MIDI PARSER] Valid MIDI header found')
+      console.log('[MIDI PARSER] File size:', arrayBuffer.byteLength, 'bytes')
+      
+      offset += 4
+      const headerLength = dataView.getUint32(offset)
+      offset += 4
+      const format = dataView.getUint16(offset)
+      offset += 2
+      const numTracks = dataView.getUint16(offset)
+      offset += 2
+      const timeDivision = dataView.getUint16(offset)
+      offset += 2
+      
+      console.log('[MIDI PARSER] Header length:', headerLength)
+      console.log('[MIDI PARSER] Format:', format)
+      console.log('[MIDI PARSER] Number of tracks:', numTracks)
+      console.log('[MIDI PARSER] Time division:', timeDivision)
+      
+      // Calculate BPM (assuming 120 BPM if not specified)
+      let bpm = 120
+      let ticksPerBeat = timeDivision
+      
+      const tracks: any[] = []
+      
+      // Parse tracks
+      for (let trackIndex = 0; trackIndex < numTracks; trackIndex++) {
+        if (offset >= arrayBuffer.byteLength) break
+        
+        const trackHeader = String.fromCharCode(...new Uint8Array(arrayBuffer, offset, 4))
+        if (trackHeader !== 'MTrk') {
+          console.warn(`Invalid track header at offset ${offset}: ${trackHeader}`)
+          break
+        }
+        
+        offset += 4
+        const trackLength = dataView.getUint32(offset)
+        offset += 4
+        const trackEnd = offset + trackLength
+        
+        const track = {
+          notes: [] as any[],
+          tempo: 120,
+          name: `Track ${trackIndex + 1}`
+        }
+        
+        let absoluteTime = 0
+        
+        while (offset < trackEnd) {
+          const deltaTime = readVariableLength(dataView, offset)
+          offset += deltaTime.bytesRead
+          absoluteTime += deltaTime.value
+          
+          if (offset >= trackEnd) break
+          
+          const eventType = dataView.getUint8(offset)
+          offset++
+          
+          console.log(`[MIDI PARSER] Track ${trackIndex}, Event: 0x${eventType.toString(16)}, Time: ${absoluteTime}`)
+          
+          if (eventType === 0xFF) {
+            // Meta event
+            const metaType = dataView.getUint8(offset)
+            offset++
+            const metaLength = readVariableLength(dataView, offset)
+            offset += metaLength.bytesRead
+            
+            if (metaType === 0x03) {
+              // Track name
+              const nameBytes = new Uint8Array(arrayBuffer, offset, metaLength.value)
+              // Filter out null bytes and other problematic characters before decoding
+              const cleanBytes = nameBytes.filter(byte => byte !== 0 && byte >= 32 && byte <= 126)
+              if (cleanBytes.length > 0) {
+                track.name = new TextDecoder().decode(cleanBytes)
+              } else {
+                track.name = `Track ${trackIndex + 1}`
+              }
+            } else if (metaType === 0x51) {
+              // Tempo
+              const tempo = (dataView.getUint8(offset) << 16) | 
+                           (dataView.getUint8(offset + 1) << 8) | 
+                           dataView.getUint8(offset + 2)
+              track.tempo = Math.round(60000000 / tempo)
+              if (trackIndex === 0) bpm = track.tempo // Use first track's tempo as global BPM
+            }
+            
+            offset += metaLength.value
+                      } else if (eventType >= 0x80 && eventType <= 0xEF) {
+              // MIDI event
+              const channel = eventType & 0x0F
+              const event = eventType >> 4
+              
+              if (event === 0x9) {
+                // Note On
+                const note = dataView.getUint8(offset)
+                offset++
+                const velocity = dataView.getUint8(offset)
+                offset++
+                
+                console.log(`[MIDI PARSER] Note On: ${note} (${getNoteName(note)}), Velocity: ${velocity}, Channel: ${channel}`)
+                
+                if (velocity > 0) {
+                  track.notes.push({
+                    note: note,
+                    startTime: absoluteTime,
+                    velocity: velocity,
+                    channel: channel
+                  })
+                }
+              } else if (event === 0x8) {
+                // Note Off
+                const note = dataView.getUint8(offset)
+                offset++
+                const velocity = dataView.getUint8(offset)
+                offset++
+                
+                console.log(`[MIDI PARSER] Note Off: ${note} (${getNoteName(note)}), Channel: ${channel}`)
+                
+                // Find corresponding note on and set end time
+                const noteOn = track.notes.find(n => n.note === note && !n.endTime)
+                if (noteOn) {
+                  noteOn.endTime = absoluteTime
+                  noteOn.duration = absoluteTime - noteOn.startTime
+                  console.log(`[MIDI PARSER] Note duration: ${noteOn.duration} ticks`)
+                }
+              } else {
+                // Skip other MIDI events
+                offset += 2
+              }
+            } else {
+              // Skip unknown events
+              offset++
+            }
+        }
+        
+        tracks.push(track)
+      }
+      
+      console.log(`[MIDI PARSER] Successfully parsed MIDI file: ${numTracks} tracks, ${bpm} BPM`)
+      
+      return {
+        format,
+        numTracks,
+        timeDivision,
+        bpm,
+        tracks
+      }
+    } catch (error) {
+      console.error('Error parsing MIDI file:', error)
+      return null
+    }
+  }
+  
+  const convertMIDIToSequencer = (midiData: any) => {
+    console.log('[MIDI CONVERTER] Starting conversion...')
+    console.log('[MIDI CONVERTER] MIDI data:', midiData)
+    
+    const tracks: Track[] = []
+    const sequencerData: { [trackId: number]: boolean[] } = {}
+    
+    // Determine steps based on the longest track
+    let maxSteps = 16
+    // Fix: Use proper time division calculation
+    // MIDI time division is typically 480 ticks per quarter note
+    // For 16th notes, we divide by 4
+    const ticksPerQuarterNote = midiData.timeDivision
+    const ticksPerStep = ticksPerQuarterNote / 4 // 16th notes
+    
+    console.log('[MIDI CONVERTER] Ticks per quarter note:', ticksPerQuarterNote)
+    console.log('[MIDI CONVERTER] Ticks per step (16th note):', ticksPerStep)
+    
+    midiData.tracks.forEach((track: any, trackIndex: number) => {
+      console.log(`[MIDI CONVERTER] Processing track ${trackIndex}:`, track)
+      console.log(`[MIDI CONVERTER] Track ${trackIndex} has ${track.notes.length} notes`)
+      
+      if (track.notes.length === 0) {
+        console.log(`[MIDI CONVERTER] Skipping track ${trackIndex} - no notes`)
+        return
+      }
+      
+      // Calculate track length in steps
+      const maxTime = Math.max(...track.notes.map((n: any) => n.endTime || n.startTime))
+      const trackSteps = Math.max(16, Math.ceil(maxTime / ticksPerStep))
+      maxSteps = Math.max(maxSteps, trackSteps)
+      
+      console.log(`[MIDI CONVERTER] Track ${trackIndex} max time: ${maxTime}, steps: ${trackSteps}`)
+    })
+    
+    // Create tracks and sequencer data
+    midiData.tracks.forEach((track: any, trackIndex: number) => {
+      if (track.notes.length === 0) return
+      
+      const trackId = trackIndex + 1
+      
+      // Calculate the maximum time in the track
+      const maxTime = Math.max(...track.notes.map((n: any) => n.endTime || n.startTime))
+      const trackSteps = Math.max(16, Math.ceil(maxTime / ticksPerStep))
+      
+      console.log(`[MIDI CONVERTER] Creating track ${trackId}`)
+      console.log(`[MIDI CONVERTER] Track max time: ${maxTime} ticks`)
+      console.log(`[MIDI CONVERTER] Track steps: ${trackSteps}`)
+      
+      // Create track
+      const convertedNotes = track.notes.map((note: any) => {
+        // Fix: Ensure proper step calculation
+        const startStep = Math.max(0, Math.floor(note.startTime / ticksPerStep))
+        const duration = Math.max(1, Math.ceil((note.duration || 1) / ticksPerStep))
+        
+        const convertedNote = {
+          id: `${trackId}-${note.note}-${note.startTime}`,
+          note: getNoteName(note.note),
+          startStep: startStep,
+          duration: duration,
+          velocity: note.velocity / 127
+        }
+        console.log(`[MIDI CONVERTER] Converting note:`, note, '->', convertedNote)
+        return convertedNote
+      })
+      
+      tracks.push({
+        id: trackId,
+        name: track.name || `MIDI Track ${trackId}`,
+        audioUrl: null,
+        color: getTrackColor(trackId - 1),
+        midiNotes: convertedNotes
+      })
+      
+      // Create sequencer data based on converted notes
+      const trackSequencerData = new Array(trackSteps).fill(false)
+      convertedNotes.forEach((note: any) => {
+        if (note.startStep < trackSteps) {
+          trackSequencerData[note.startStep] = true
+          console.log(`[MIDI CONVERTER] Setting step ${note.startStep} to true for track ${trackId} (note: ${note.note})`)
+        }
+      })
+      
+      sequencerData[trackId] = trackSequencerData
+      console.log(`[MIDI CONVERTER] Track ${trackId} sequencer data:`, trackSequencerData)
+    })
+    
+    console.log('[MIDI CONVERTER] Final result:', {
+      tracks,
+      sequencerData,
+      steps: maxSteps,
+      bpm: midiData.bpm
+    })
+    
+    return {
+      tracks,
+      sequencerData,
+      steps: maxSteps,
+      bpm: midiData.bpm
+    }
+  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [selectedPatternType, setSelectedPatternType] = useState('all')
@@ -1274,17 +1590,38 @@ function EditPatternsPage() {
             }
           })
           
+          // Sanitize pattern data to prevent database errors
+          const sanitizeString = (str: string) => {
+            if (!str) return str
+            // Remove null characters and other problematic Unicode sequences
+            return str.replace(/\u0000/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+          }
+          
+          const sanitizeTracks = (tracks: any[]) => {
+            return tracks.map(track => ({
+              ...track,
+              name: sanitizeString(track.name),
+              // Sanitize any string properties in the track
+              audio_type: sanitizeString(track.audio_type),
+              key: sanitizeString(track.key),
+              originalKey: sanitizeString(track.originalKey),
+              currentKey: sanitizeString(track.currentKey),
+              // Sanitize tags array
+              tags: track.tags?.map((tag: string) => sanitizeString(tag)).filter(Boolean) || []
+            }))
+          }
+          
           // Save as pattern to saved_patterns table
           const patternData = {
             user_id: user.id,
-            name: patternName,
-            description: `Imported from ${file.name} - ${midiData.tracks.length} tracks, ${midiData.bpm} BPM`,
-            tracks: enhancedTracks,
+            name: sanitizeString(patternName),
+            description: sanitizeString(`Imported from ${file.name} - ${midiData.tracks.length} tracks, ${midiData.bpm} BPM`),
+            tracks: sanitizeTracks(enhancedTracks),
             sequencer_data: sequencerData.sequencerData,
             bpm: midiData.bpm,
             steps: sequencerData.steps,
             pack_id: packId,
-            subfolder: subfolderName,
+            subfolder: subfolderName ? sanitizeString(subfolderName) : null,
             pattern_type: 'imported',
             category: 'imported'
           }
@@ -1299,6 +1636,10 @@ function EditPatternsPage() {
 
           if (dbError) {
             console.error(`Database error saving pattern for ${file.name}:`, dbError)
+            // Try to provide more specific error information
+            if (dbError.message?.includes('Unicode') || dbError.message?.includes('\\u0000')) {
+              console.error('Unicode encoding issue detected. This may be due to invalid characters in the MIDI file.')
+            }
             continue
           }
 
@@ -1568,315 +1909,7 @@ function EditPatternsPage() {
     }
   }
 
-  // MIDI Parser Functions
-    const parseMIDIFile = (arrayBuffer: ArrayBuffer) => {
-    try {
-        const dataView = new DataView(arrayBuffer)
-      let offset = 0
-      
-      // Check MIDI header
-      const header = String.fromCharCode(...new Uint8Array(arrayBuffer, 0, 4))
-      if (header !== 'MThd') {
-        throw new Error('Invalid MIDI file: Missing MThd header')
-      }
-      
-      console.log('[MIDI PARSER] Valid MIDI header found')
-      console.log('[MIDI PARSER] File size:', arrayBuffer.byteLength, 'bytes')
-      
-      offset += 4
-      const headerLength = dataView.getUint32(offset)
-      offset += 4
-      const format = dataView.getUint16(offset)
-      offset += 2
-      const numTracks = dataView.getUint16(offset)
-      offset += 2
-      const timeDivision = dataView.getUint16(offset)
-      offset += 2
-      
-      console.log('[MIDI PARSER] Header length:', headerLength)
-      console.log('[MIDI PARSER] Format:', format)
-      console.log('[MIDI PARSER] Number of tracks:', numTracks)
-      console.log('[MIDI PARSER] Time division:', timeDivision)
-      
-      // Calculate BPM (assuming 120 BPM if not specified)
-      let bpm = 120
-      let ticksPerBeat = timeDivision
-      
-      const tracks: any[] = []
-      
-      // Parse tracks
-      for (let trackIndex = 0; trackIndex < numTracks; trackIndex++) {
-        if (offset >= arrayBuffer.byteLength) break
-        
-        const trackHeader = String.fromCharCode(...new Uint8Array(arrayBuffer, offset, 4))
-        if (trackHeader !== 'MTrk') {
-          console.warn(`Invalid track header at offset ${offset}: ${trackHeader}`)
-          break
-        }
-        
-        offset += 4
-        const trackLength = dataView.getUint32(offset)
-        offset += 4
-        const trackEnd = offset + trackLength
-        
-        const track = {
-          notes: [] as any[],
-          tempo: 120,
-          name: `Track ${trackIndex + 1}`
-        }
-        
-        let absoluteTime = 0
-        
-        while (offset < trackEnd) {
-          const deltaTime = readVariableLength(dataView, offset)
-          offset += deltaTime.bytesRead
-          absoluteTime += deltaTime.value
-          
-          if (offset >= trackEnd) break
-          
-          const eventType = dataView.getUint8(offset)
-          offset++
-          
-          console.log(`[MIDI PARSER] Track ${trackIndex}, Event: 0x${eventType.toString(16)}, Time: ${absoluteTime}`)
-          
-          if (eventType === 0xFF) {
-            // Meta event
-            const metaType = dataView.getUint8(offset)
-            offset++
-            const metaLength = readVariableLength(dataView, offset)
-            offset += metaLength.bytesRead
-            
-            if (metaType === 0x03) {
-              // Track name
-              const nameBytes = new Uint8Array(arrayBuffer, offset, metaLength.value)
-              track.name = new TextDecoder().decode(nameBytes)
-            } else if (metaType === 0x51) {
-              // Tempo
-              const tempo = (dataView.getUint8(offset) << 16) | 
-                           (dataView.getUint8(offset + 1) << 8) | 
-                           dataView.getUint8(offset + 2)
-              track.tempo = Math.round(60000000 / tempo)
-              if (trackIndex === 0) bpm = track.tempo // Use first track's tempo as global BPM
-            }
-            
-            offset += metaLength.value
-                      } else if (eventType >= 0x80 && eventType <= 0xEF) {
-              // MIDI event
-              const channel = eventType & 0x0F
-              const event = eventType >> 4
-              
-              if (event === 0x9) {
-                // Note On
-                const note = dataView.getUint8(offset)
-                offset++
-                const velocity = dataView.getUint8(offset)
-                offset++
-                
-                console.log(`[MIDI PARSER] Note On: ${note} (${getNoteName(note)}), Velocity: ${velocity}, Channel: ${channel}`)
-                
-                if (velocity > 0) {
-                  track.notes.push({
-                    note: note,
-                    startTime: absoluteTime,
-                    velocity: velocity,
-                    channel: channel
-                  })
-                }
-              } else if (event === 0x8) {
-                // Note Off
-                const note = dataView.getUint8(offset)
-                offset++
-                const velocity = dataView.getUint8(offset)
-                offset++
-                
-                console.log(`[MIDI PARSER] Note Off: ${note} (${getNoteName(note)}), Channel: ${channel}`)
-                
-                // Find corresponding note on and set end time
-                const noteOn = track.notes.find(n => n.note === note && !n.endTime)
-                if (noteOn) {
-                  noteOn.endTime = absoluteTime
-                  noteOn.duration = absoluteTime - noteOn.startTime
-                  console.log(`[MIDI PARSER] Note duration: ${noteOn.duration} ticks`)
-                }
-              } else {
-                // Skip other MIDI events
-                offset += 2
-              }
-            } else {
-              // Skip unknown events
-              offset++
-            }
-        }
-        
-        tracks.push(track)
-      }
-      
-      console.log(`[MIDI PARSER] Successfully parsed MIDI file: ${numTracks} tracks, ${bpm} BPM`)
-      
-      return {
-        format,
-        numTracks,
-        timeDivision,
-        bpm,
-        tracks
-      }
-    } catch (error) {
-      console.error('Error parsing MIDI file:', error)
-      return null
-    }
-  }
-  
-  const readVariableLength = (dataView: DataView, offset: number) => {
-    let value = 0
-    let bytesRead = 0
-    
-    while (bytesRead < 4) {
-      const byte = dataView.getUint8(offset + bytesRead)
-      value = (value << 7) | (byte & 0x7F)
-      bytesRead++
-      
-      if ((byte & 0x80) === 0) break
-    }
-    
-    return { value, bytesRead }
-  }
-  
-  const convertMIDIToSequencer = (midiData: any) => {
-    console.log('[MIDI CONVERTER] Starting conversion...')
-    console.log('[MIDI CONVERTER] MIDI data:', midiData)
-    
-    const tracks: Track[] = []
-    const sequencerData: { [trackId: number]: boolean[] } = {}
-    
-    // Determine steps based on the longest track
-    let maxSteps = 16
-    // Fix: Use proper time division calculation
-    // MIDI time division is typically 480 ticks per quarter note
-    // For 16th notes, we divide by 4
-    const ticksPerQuarterNote = midiData.timeDivision
-    const ticksPerStep = ticksPerQuarterNote / 4 // 16th notes
-    
-    console.log('[MIDI CONVERTER] Ticks per quarter note:', ticksPerQuarterNote)
-    console.log('[MIDI CONVERTER] Ticks per step (16th note):', ticksPerStep)
-    
-    midiData.tracks.forEach((track: any, trackIndex: number) => {
-      console.log(`[MIDI CONVERTER] Processing track ${trackIndex}:`, track)
-      console.log(`[MIDI CONVERTER] Track ${trackIndex} has ${track.notes.length} notes`)
-      
-      if (track.notes.length === 0) {
-        console.log(`[MIDI CONVERTER] Skipping track ${trackIndex} - no notes`)
-        return
-      }
-      
-      // Calculate track length in steps
-      const maxTime = Math.max(...track.notes.map((n: any) => n.endTime || n.startTime))
-      const trackSteps = Math.max(16, Math.ceil(maxTime / ticksPerStep))
-      maxSteps = Math.max(maxSteps, trackSteps)
-      
-      console.log(`[MIDI CONVERTER] Track ${trackIndex} max time: ${maxTime}, steps: ${trackSteps}`)
-    })
-    
-    // Create tracks and sequencer data
-    midiData.tracks.forEach((track: any, trackIndex: number) => {
-      if (track.notes.length === 0) return
-      
-      const trackId = trackIndex + 1
-      
-      // Calculate the maximum time in the track
-      const maxTime = Math.max(...track.notes.map((n: any) => n.endTime || n.startTime))
-      const trackSteps = Math.max(16, Math.ceil(maxTime / ticksPerStep))
-      
-      console.log(`[MIDI CONVERTER] Creating track ${trackId}`)
-      console.log(`[MIDI CONVERTER] Track max time: ${maxTime} ticks`)
-      console.log(`[MIDI CONVERTER] Track steps: ${trackSteps}`)
-      
-      // Create track
-      const convertedNotes = track.notes.map((note: any) => {
-        // Fix: Ensure proper step calculation
-        const startStep = Math.max(0, Math.floor(note.startTime / ticksPerStep))
-        const duration = Math.max(1, Math.ceil((note.duration || 1) / ticksPerStep))
-        
-        const convertedNote = {
-          id: `${trackId}-${note.note}-${note.startTime}`,
-          note: getNoteName(note.note),
-          startStep: startStep,
-          duration: duration,
-          velocity: note.velocity / 127
-        }
-        console.log(`[MIDI CONVERTER] Converting note:`, note, '->', convertedNote)
-        return convertedNote
-      })
-      
-      tracks.push({
-        id: trackId,
-        name: track.name || `MIDI Track ${trackId}`,
-        audioUrl: null,
-        color: getTrackColor(trackIndex),
-        midiNotes: convertedNotes
-      })
-      
-      // Create sequencer data based on converted notes
-      const trackSequencerData = new Array(trackSteps).fill(false)
-      convertedNotes.forEach((note: any) => {
-        if (note.startStep < trackSteps) {
-          trackSequencerData[note.startStep] = true
-          console.log(`[MIDI CONVERTER] Setting step ${note.startStep} to true for track ${trackId} (note: ${note.note})`)
-        }
-      })
-      
-      sequencerData[trackId] = trackSequencerData
-      console.log(`[MIDI CONVERTER] Track ${trackId} sequencer data:`, trackSequencerData)
-    })
-    
-    console.log('[MIDI CONVERTER] Final result:', {
-      tracks,
-      sequencerData,
-      steps: maxSteps,
-      bpm: midiData.bpm
-    })
-    
-    return {
-      tracks,
-      sequencerData,
-      steps: maxSteps,
-      bpm: midiData.bpm
-    }
-  }
-  
-  const getTrackColor = (index: number) => {
-    const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-gray-500']
-    return colors[index % colors.length]
-  }
-  
-  const getTrackColorByType = (audioType: string) => {
-    const colorMap: { [key: string]: string } = {
-      kick: 'bg-red-500',
-      snare: 'bg-blue-500',
-      hihat: 'bg-green-500',
-      crash: 'bg-yellow-500',
-      tom: 'bg-orange-500',
-      bass: 'bg-purple-500',
-      melody: 'bg-pink-500',
-      lead: 'bg-indigo-500',
-      pad: 'bg-teal-500',
-      arp: 'bg-cyan-500',
-      fx: 'bg-gray-500',
-      vocal: 'bg-rose-500',
-      piano: 'bg-amber-500',
-      synth: 'bg-violet-500',
-      guitar: 'bg-emerald-500',
-      percussion: 'bg-slate-500',
-      other: 'bg-gray-500'
-    }
-    return colorMap[audioType] || 'bg-gray-500'
-  }
-  
-  const getNoteName = (midiNote: number) => {
-    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-    const octave = Math.floor(midiNote / 12) - 1
-    const noteIndex = midiNote % 12
-    return `${noteNames[noteIndex]}${octave}`
-  }
+
 
   const savePreviewPattern = async () => {
     if (!previewPattern) return

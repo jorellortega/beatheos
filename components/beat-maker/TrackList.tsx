@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
-import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Brain, Piano, Lock, Unlock, Copy, X, Save, FolderOpen } from 'lucide-react'
+import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Brain, Piano, Lock, Unlock, Copy, X, Save, FolderOpen, Upload } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
 import { StockSoundSelector } from './StockSoundSelector'
@@ -67,37 +67,61 @@ const PianoRoll = ({
   const originalKeyIndex = CHROMATIC_SCALE.indexOf(originalKey)
   const currentKeyIndex = (originalKeyIndex + currentPitchShift) % 12
   
-  // Piano key layout: white keys and their positions
-  const whiteKeys = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
-  const blackKeys = ['C#', 'D#', '', 'F#', 'G#', 'A#', ''] // Empty strings for gaps
+  // Create multiple octaves for a fuller piano
+  const octaves = [3, 4, 5] // C3, C4, C5
+  const allKeys: { key: string, octave: number, pitchShift: number }[] = []
   
-  const getKeyType = (key: string) => whiteKeys.includes(key) ? 'white' : 'black'
+  octaves.forEach(octave => {
+    CHROMATIC_SCALE.forEach(key => {
+      // Calculate the absolute pitch shift from original key to this key in this octave
+      const keyIndex = CHROMATIC_SCALE.indexOf(key)
+      let pitchShift = keyIndex - originalKeyIndex
+      
+      // Add octave difference
+      const octaveDiff = octave - 4 // Assuming original key is in octave 4
+      pitchShift += octaveDiff * 12
+      
+      allKeys.push({ key, octave, pitchShift })
+    })
+  })
   
-  const getPitchShiftForKey = (key: string) => {
+  // Filter to show a reasonable range (2 octaves worth of keys)
+  const displayKeys = allKeys.filter((_, index) => index >= 12 && index < 36) // Show middle 2 octaves
+  
+  const getPitchShiftForKey = (key: string, octave: number) => {
     const keyIndex = CHROMATIC_SCALE.indexOf(key)
     let pitchShift = keyIndex - originalKeyIndex
     
-    // Wrap to -6 to +6 range (closest path)
-    if (pitchShift > 6) pitchShift -= 12
-    if (pitchShift < -6) pitchShift += 12
+    // Add octave difference
+    const octaveDiff = octave - 4 // Assuming original key is in octave 4
+    pitchShift += octaveDiff * 12
     
     return pitchShift
   }
 
+  const isWhiteKey = (key: string) => ['C', 'D', 'E', 'F', 'G', 'A', 'B'].includes(key)
+  
+  const getCurrentKey = (key: string, octave: number) => {
+    const pitchShift = getPitchShiftForKey(key, octave)
+    return Math.abs(pitchShift - currentPitchShift) < 0.1 // Allow for small floating point differences
+  }
+
   return (
-    <div className="relative w-full h-12 bg-gray-900 rounded border border-gray-600 overflow-hidden">
+    <div className="relative w-full h-16 bg-gray-900 rounded border border-gray-600 overflow-hidden">
+      {/* Piano keys container */}
+      <div className="flex h-full relative">
       {/* White keys */}
       <div className="flex h-full">
-        {whiteKeys.map((key, index) => {
-          const pitchShift = getPitchShiftForKey(key)
-          const isOriginal = key === originalKey
-          const isCurrent = CHROMATIC_SCALE.indexOf(key) === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+          {displayKeys.filter(k => isWhiteKey(k.key)).map((keyData, index) => {
+            const { key, octave, pitchShift } = keyData
+            const isOriginal = key === originalKey && octave === 4
+            const isCurrent = getCurrentKey(key, octave)
           
           return (
             <button
-              key={key}
+                key={`${key}${octave}`}
               onClick={() => onKeySelect(pitchShift)}
-              className={`w-7 h-full border-r border-gray-300 relative transition-all duration-150 shadow-sm ${
+                className={`w-6 h-full border-r border-gray-300 relative transition-all duration-150 shadow-sm ${
                 isOriginal 
                   ? 'bg-yellow-400 hover:bg-yellow-300 border-yellow-500' 
                   : isCurrent 
@@ -111,137 +135,77 @@ const PianoRoll = ({
                     ? 'linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%)' 
                     : 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)'
               }}
-              title={`${key} (${pitchShift > 0 ? '+' : ''}${pitchShift})`}
+                title={`${key}${octave} (${pitchShift > 0 ? '+' : ''}${pitchShift})`}
             >
               <span className={`absolute bottom-0.5 left-1/2 transform -translate-x-1/2 text-xs font-semibold ${
                 isOriginal || isCurrent ? 'text-black' : 'text-gray-700'
               }`}>
                 {key}
               </span>
+                {octave !== 4 && (
+                  <span className={`absolute top-0.5 left-1/2 transform -translate-x-1/2 text-xs ${
+                    isOriginal || isCurrent ? 'text-black' : 'text-gray-500'
+                  }`}>
+                    {octave}
+                  </span>
+                )}
             </button>
           )
         })}
       </div>
 
       {/* Black keys */}
-      <div className="absolute top-0 left-0 w-full h-7 flex">
-        {/* C# */}
-        <div className="w-3.5"></div>
+        <div className="absolute top-0 left-0 w-full h-10 flex">
+          {displayKeys.filter(k => !isWhiteKey(k.key)).map((keyData, index) => {
+            const { key, octave, pitchShift } = keyData
+            const isOriginal = key === originalKey && octave === 4
+            const isCurrent = getCurrentKey(key, octave)
+            
+            // Calculate position for black keys
+            const whiteKeyIndex = displayKeys.filter(k => isWhiteKey(k.key)).findIndex(wk => {
+              const whiteKeyPos = CHROMATIC_SCALE.indexOf(wk.key)
+              const blackKeyPos = CHROMATIC_SCALE.indexOf(key)
+              return whiteKeyPos < blackKeyPos && 
+                     (displayKeys.filter(k => isWhiteKey(k.key)).findIndex(wk2 => 
+                       CHROMATIC_SCALE.indexOf(wk2.key) > blackKeyPos
+                     ) === -1 || 
+                     displayKeys.filter(k => isWhiteKey(k.key)).findIndex(wk2 => 
+                       CHROMATIC_SCALE.indexOf(wk2.key) > blackKeyPos
+                     ) > displayKeys.filter(k => isWhiteKey(k.key)).findIndex(wk3 => 
+                       CHROMATIC_SCALE.indexOf(wk3.key) > whiteKeyPos
+                     ))
+            })
+            
+            if (whiteKeyIndex === -1) return null
+            
+            const leftOffset = whiteKeyIndex * 24 + (key === 'C#' || key === 'F#' ? 18 : 12) // Adjust positioning
+            
+            return (
         <button
-          onClick={() => onKeySelect(getPitchShiftForKey('C#'))}
-          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
-            originalKey === 'C#' 
+                key={`${key}${octave}`}
+                onClick={() => onKeySelect(pitchShift)}
+                className={`w-3 h-full rounded-b shadow-md transition-all duration-150 absolute ${
+                  isOriginal 
               ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
-              : CHROMATIC_SCALE.indexOf('C#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                    : isCurrent 
                 ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
                 : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
           }`}
           style={{
-            background: originalKey === 'C#' 
+                  left: `${leftOffset}px`,
+                  background: isOriginal 
               ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
-              : CHROMATIC_SCALE.indexOf('C#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
+                    : isCurrent 
                 ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
                 : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
           }}
-          title={`C# (${getPitchShiftForKey('C#') > 0 ? '+' : ''}${getPitchShiftForKey('C#')})`}
+                title={`${key}${octave} (${pitchShift > 0 ? '+' : ''}${pitchShift})`}
         >
           <span className="text-xs font-semibold text-white">♯</span>
         </button>
-        
-        {/* D# */}
-        <div className="w-3"></div>
-        <button
-          onClick={() => onKeySelect(getPitchShiftForKey('D#'))}
-          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
-            originalKey === 'D#' 
-              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
-              : CHROMATIC_SCALE.indexOf('D#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
-                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
-          }`}
-          style={{
-            background: originalKey === 'D#' 
-              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
-              : CHROMATIC_SCALE.indexOf('D#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
-                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
-          }}
-          title={`D# (${getPitchShiftForKey('D#') > 0 ? '+' : ''}${getPitchShiftForKey('D#')})`}
-        >
-          <span className="text-xs font-semibold text-white">♯</span>
-        </button>
-        
-        {/* Gap for E */}
-        <div className="w-7"></div>
-        
-        {/* F# */}
-        <div className="w-3.5"></div>
-        <button
-          onClick={() => onKeySelect(getPitchShiftForKey('F#'))}
-          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
-            originalKey === 'F#' 
-              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
-              : CHROMATIC_SCALE.indexOf('F#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
-                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
-          }`}
-          style={{
-            background: originalKey === 'F#' 
-              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
-              : CHROMATIC_SCALE.indexOf('F#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
-                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
-          }}
-          title={`F# (${getPitchShiftForKey('F#') > 0 ? '+' : ''}${getPitchShiftForKey('F#')})`}
-        >
-          <span className="text-xs font-semibold text-white">♯</span>
-        </button>
-        
-        {/* G# */}
-        <div className="w-3"></div>
-        <button
-          onClick={() => onKeySelect(getPitchShiftForKey('G#'))}
-          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
-            originalKey === 'G#' 
-              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
-              : CHROMATIC_SCALE.indexOf('G#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
-                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
-          }`}
-          style={{
-            background: originalKey === 'G#' 
-              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
-              : CHROMATIC_SCALE.indexOf('G#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
-                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
-          }}
-          title={`G# (${getPitchShiftForKey('G#') > 0 ? '+' : ''}${getPitchShiftForKey('G#')})`}
-        >
-          <span className="text-xs font-semibold text-white">♯</span>
-        </button>
-        
-        {/* A# */}
-        <div className="w-3"></div>
-        <button
-          onClick={() => onKeySelect(getPitchShiftForKey('A#'))}
-          className={`w-4 h-full rounded-b shadow-md transition-all duration-150 ${
-            originalKey === 'A#' 
-              ? 'bg-yellow-600 hover:bg-yellow-500 border border-yellow-700' 
-              : CHROMATIC_SCALE.indexOf('A#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'bg-blue-600 hover:bg-blue-500 border border-blue-700' 
-                : 'bg-gray-800 hover:bg-gray-700 border border-gray-900'
-          }`}
-          style={{
-            background: originalKey === 'A#' 
-              ? 'linear-gradient(180deg, #d97706 0%, #92400e 100%)' 
-              : CHROMATIC_SCALE.indexOf('A#') === (currentKeyIndex < 0 ? currentKeyIndex + 12 : currentKeyIndex)
-                ? 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)' 
-                : 'linear-gradient(180deg, #374151 0%, #1f2937 100%)'
-          }}
-          title={`A# (${getPitchShiftForKey('A#') > 0 ? '+' : ''}${getPitchShiftForKey('A#')})`}
-        >
-          <span className="text-xs font-semibold text-white">♯</span>
-        </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -256,6 +220,8 @@ interface TrackListProps {
   onRemoveTrack: (trackId: number) => void
   onReorderTracks?: (newOrder: Track[]) => void
   onDirectAudioDrop?: (trackId: number, file: File) => void
+  onCreateCustomSampleTrack?: (file: File) => void
+  onEditTrack?: (track: Track) => void
   onTrackTempoChange?: (trackId: number, newBpm: number, originalBpm?: number) => void
   onTrackPitchChange?: (trackId: number, pitchShift: number, originalKey?: string, currentKey?: string) => void
   onShuffleAudio?: (trackId: number) => void
@@ -269,11 +235,13 @@ interface TrackListProps {
   onToggleTrackLock?: (trackId: number) => void
   onToggleTrackMute?: (trackId: number) => void
   onQuantizeLoop?: (track: any) => void
+  onSwitchTrackType?: (trackId: number) => void
+  onDuplicateTrackEmpty?: (trackId: number) => void
   transportKey?: string
   melodyLoopMode?: 'transport-dominates' | 'melody-dominates'
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, transportKey, melodyLoopMode }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, transportKey, melodyLoopMode }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [draggedKey, setDraggedKey] = useState<string | null>(null)
@@ -489,7 +457,8 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     'Bass': ['Bass', 'Sub', '808'],
     'Loops': ['Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop', 'Percussion Loop', 'Snare Loop', 'Kick Loop', 'Hihat Loop', 'Clap Loop', 'Crash Loop', 'Ride Loop', 'Tom Loop', 'Lead Loop', 'Pad Loop', 'Arp Loop', 'Chord Loop', 'FX Loop', 'Ambient Loop', 'Break', 'Fill', 'Transition'],
     'Effects': ['FX', 'Vocal', 'Sample'],
-    'Technical': ['MIDI', 'Patch', 'Preset']
+    'Technical': ['MIDI', 'Patch', 'Preset'],
+    'Custom': ['Custom Sample']
   }
 
   const categoryIcons = {
@@ -497,7 +466,8 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     'Bass': '🎸',
     'Loops': '🔄',
     'Effects': '🎛️',
-    'Technical': '⚙️'
+    'Technical': '⚙️',
+    'Custom': '🎵'
   }
 
   const categoryColors = {
@@ -505,7 +475,8 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     'Bass': 'text-orange-400',
     'Loops': 'text-purple-400',
     'Effects': 'text-cyan-400',
-    'Technical': 'text-blue-400'
+    'Technical': 'text-blue-400',
+    'Custom': 'text-pink-400'
   }
 
   const handleCategoryClick = (category: string) => {
@@ -514,8 +485,22 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   }
 
   const handleTrackTypeSelect = (trackType: string) => {
-    // Call the existing addTrackByType function from the parent component
-    onAddTrack(trackType)
+    if (trackType === 'Custom Sample') {
+      // For Custom Sample, we need to trigger a file input
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'audio/*'
+      input.onchange = (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0]
+        if (file && onCreateCustomSampleTrack) {
+          onCreateCustomSampleTrack(file)
+        }
+      }
+      input.click()
+    } else {
+      // Call the existing addTrackByType function from the parent component
+      onAddTrack(trackType)
+    }
     setShowCategoryModal(false)
   }
 
@@ -629,6 +614,45 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                   <span>Add {category}</span>
                 </Button>
               ))}
+            </div>
+
+            {/* Custom Sample Drop Zone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                e.currentTarget.classList.add('border-pink-500', 'bg-pink-500/10')
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                e.currentTarget.classList.remove('border-pink-500', 'bg-pink-500/10')
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                e.currentTarget.classList.remove('border-pink-500', 'bg-pink-500/10')
+                
+                const files = e.dataTransfer.files
+                if (files.length > 0 && onCreateCustomSampleTrack) {
+                  const file = files[0]
+                  if (file.type.startsWith('audio/')) {
+                    onCreateCustomSampleTrack(file)
+                  } else {
+                    alert('Please drop an audio file to create a custom sample track')
+                  }
+                }
+              }}
+              className="border-2 border-dashed border-gray-600 rounded-lg p-4 text-center transition-all duration-200 hover:border-gray-500 hover:bg-gray-800/20"
+            >
+              <div className="flex flex-col items-center gap-2">
+                <Upload className="w-6 h-6 text-gray-400" />
+                <div className="text-sm text-gray-400">
+                  <span className="font-medium">Drop audio file here</span>
+                  <br />
+                  <span className="text-xs">to create a Custom Sample track</span>
+                </div>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -895,6 +919,30 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                           </Button>
                         )}
                         
+                        {/* Switch track type button - show for Snare/Clap and Hi-Hat/Cymbal tracks */}
+                        {onSwitchTrackType && (track.name === 'Snare' || track.name === 'Clap') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onSwitchTrackType(track.id)}
+                            className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                            title={`Switch to ${track.name === 'Snare' ? 'Clap' : 'Snare'}`}
+                          >
+                            S/C
+                          </Button>
+                        )}
+                        {onSwitchTrackType && (track.name === 'Hi-Hat' || track.name === 'Cymbal') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onSwitchTrackType(track.id)}
+                            className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                            title={`Switch to ${track.name === 'Hi-Hat' ? 'Cymbal' : 'Hi-Hat'}`}
+                          >
+                            H/C
+                          </Button>
+                        )}
+                        
                         {/* Duplicate with Shuffle button - show for tracks with audio */}
                         {track.audioUrl && onDuplicateWithShuffle && [
                           // Loops (primary target for this feature)
@@ -916,6 +964,19 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                             title={`Duplicate ${track.name} with shuffle (same key, different audio)`}
                           >
                             <Copy className="w-3 h-3" />
+                          </Button>
+                        )}
+                        
+                        {/* Duplicate Empty button - show for all tracks */}
+                        {onDuplicateTrackEmpty && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onDuplicateTrackEmpty(track.id)}
+                            className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                            title={`Duplicate ${track.name} as empty track`}
+                          >
+                            D
                           </Button>
                         )}
                         {/* Tempo controls toggle - only show if audio is loaded */}
@@ -951,6 +1012,19 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         >
                           {track.audioUrl ? 'Change' : 'Select Audio'}
                         </Button>
+                        
+                        {/* Edit button for Custom Sample tracks */}
+                        {track.name.startsWith('Custom Sample') && onEditTrack && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onEditTrack(track)}
+                            className="text-xs text-pink-400 hover:text-pink-300 hover:bg-pink-900/20"
+                            title="Edit track metadata (BPM, key, audio type, tags)"
+                          >
+                            <Edit className="w-3 h-3" />
+                          </Button>
+                        )}
 
                       </>
                     )}
