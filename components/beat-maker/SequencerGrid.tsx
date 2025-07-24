@@ -33,6 +33,10 @@ interface SequencerGridProps {
   genres?: any[]
   subgenres?: string[]
   onGenreChange?: (genreId: string) => void
+  showWaveforms?: boolean // New prop for waveform visibility
+  onToggleWaveforms?: () => void // New prop for waveform toggle function
+  trackWaveformStates?: {[trackId: number]: boolean} // Individual track waveform visibility
+  onToggleTrackWaveform?: (trackId: number) => void // Toggle individual track waveform
 }
 
 export function SequencerGrid({
@@ -58,7 +62,11 @@ export function SequencerGrid({
   onShuffleAllPatterns,
   genres = [],
   subgenres = [],
-  onGenreChange
+  onGenreChange,
+  showWaveforms = false, // Default to false for better performance
+  onToggleWaveforms,
+  trackWaveformStates = {},
+  onToggleTrackWaveform
 }: SequencerGridProps) {
   
   const [patternName, setPatternName] = useState('')
@@ -197,6 +205,23 @@ export function SequencerGrid({
             </Button>
             
             <Button
+              variant={showWaveforms ? "default" : "outline"}
+              size="sm"
+              onClick={onToggleWaveforms}
+              className={`${
+                showWaveforms 
+                  ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+              }`}
+              title={showWaveforms ? "Waveforms are ON - shows audio visualizations (slower)" : "Waveforms are OFF - faster performance (no visualizations)"}
+            >
+              <div className="w-4 h-4 mr-1 flex items-center justify-center">
+                <div className="w-3 h-2 bg-current rounded-sm"></div>
+              </div>
+              {showWaveforms ? 'Waveforms ON' : 'Waveforms OFF'}
+            </Button>
+            
+            <Button
               variant="outline"
               size="sm"
               onClick={onClearAllPatterns}
@@ -327,25 +352,28 @@ export function SequencerGrid({
               <div key={track.id}>
                 {/* Waveform for tracks with custom samples - moved above sequencer pattern */}
                 {track.audioUrl && track.audioUrl !== 'undefined' && (
-                  <div className="flex mb-2">
-                    <div className="w-56 flex-shrink-0"></div>
-                    <div className="flex-1">
-                      <TrackWaveform 
-                        audioUrl={track.audioUrl}
-                        trackColor={track.color}
-                        height={60}
-                        width={steps * stepWidth}
-                        bpm={bpm}
-                        steps={steps}
-                        currentStep={currentStep}
-                        activeSteps={sequencerData[track.id] || []}
-                      />
+                  (trackWaveformStates[track.id] !== undefined ? trackWaveformStates[track.id] : showWaveforms) && (
+                    <div className="flex mb-2">
+                      <div className="w-56 flex-shrink-0"></div>
+                      <div className="flex-1">
+                        <TrackWaveform 
+                          audioUrl={track.audioUrl}
+                          trackColor={track.color}
+                          height={60}
+                          width={steps * stepWidth}
+                          bpm={bpm}
+                          steps={steps}
+                          currentStep={currentStep}
+                          activeSteps={sequencerData[track.id] || []}
+                          isVisible={true}
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )
                 )}
                 
-                <div className="flex mb-3">
-                  <div className="w-56 flex-shrink-0 flex flex-col px-2 py-1">
+                <div className={`flex ${track.id === tracks[0].id ? 'mt-4' : ''}`}>
+                  <div className="w-56 flex-shrink-0 flex flex-col px-2 py-0">
                     <div className="flex items-center gap-2 h-6">
                       <div 
                         className={`w-3 h-3 rounded-full ${track.color} mr-2 cursor-pointer transition-all duration-200 hover:scale-110 ${
@@ -430,6 +458,22 @@ export function SequencerGrid({
                             >
                               <Piano className="w-3 h-3 mr-2" />
                               Piano Roll {pianoRollData[track.id]?.length > 0 ? `(${pianoRollData[track.id].length} notes)` : ''}
+                            </DropdownMenuItem>
+                          )}
+                          
+                          {track.audioUrl && (
+                            <DropdownMenuItem
+                              onClick={() => onToggleTrackWaveform?.(track.id)}
+                              className={`cursor-pointer ${
+                                trackWaveformStates[track.id] 
+                                  ? 'text-green-300 bg-green-900/30' 
+                                  : 'text-green-400 hover:text-green-300 hover:bg-green-900/20'
+                              }`}
+                            >
+                              <div className="w-3 h-3 mr-2 flex items-center justify-center">
+                                <div className="w-2 h-1 bg-current rounded-sm"></div>
+                              </div>
+                              Waveform {trackWaveformStates[track.id] ? 'ON' : 'OFF'}
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>

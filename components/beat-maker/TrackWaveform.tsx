@@ -9,6 +9,7 @@ interface TrackWaveformProps {
   steps: number;
   currentStep?: number;
   activeSteps?: boolean[];
+  isVisible?: boolean; // New prop to control visibility
 }
 
 export function TrackWaveform({ 
@@ -19,31 +20,63 @@ export function TrackWaveform({
   bpm, 
   steps, 
   currentStep = 0,
-  activeSteps = []
+  activeSteps = [],
+  isVisible = true // Default to visible for backward compatibility
 }: TrackWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [waveformData, setWaveformData] = useState<number[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Calculate step timing
   const stepDuration = (60 / bpm) / 4; // 16th note duration in seconds
   const totalDuration = stepDuration * steps;
 
   useEffect(() => {
-    if (!audioUrl || !canvasRef.current) return;
+    // Only load waveform if visible and we have an audio URL
+    if (!audioUrl || !canvasRef.current || !isVisible) return;
+
+    // Prevent multiple simultaneous loads
+    if (isLoading) return;
 
     const loadAudioWaveform = async () => {
+      setIsLoading(true);
       try {
         // Create audio context
         if (!audioContextRef.current) {
           audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         }
 
-        // Fetch and decode audio
+        // Check if audio context is suspended and resume if needed
+        if (audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume();
+        }
+
+        // Fetch and decode audio with better error handling
         const response = await fetch(audioUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+        if (arrayBuffer.byteLength === 0) {
+          throw new Error('Empty audio file');
+        }
+
+        // Use a promise-based decodeAudioData for better error handling
+        const audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
+          if (!audioContextRef.current) {
+            reject(new Error('Audio context not available'));
+            return;
+          }
+          
+          audioContextRef.current.decodeAudioData(
+            arrayBuffer,
+            (buffer) => resolve(buffer),
+            (error) => reject(new Error(`Audio decode failed: ${error}`))
+          );
+        });
 
         // Get audio data
         const channelData = audioBuffer.getChannelData(0); // Use first channel
@@ -75,26 +108,35 @@ export function TrackWaveform({
         setWaveformData(waveformSamples);
         setIsLoaded(true);
       } catch (error) {
-        console.error('Error loading audio waveform:', error);
+        console.warn(`Error loading audio waveform for ${audioUrl}:`, error);
         // Fallback to simple pattern if audio loading fails
         const fallbackData = Array.from({ length: width }, (_, i) => 
           Math.random() * 0.3 + 0.1
         );
         setWaveformData(fallbackData);
         setIsLoaded(true);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     loadAudioWaveform();
 
     return () => {
-      // Cleanup audio context
+      // Cleanup audio context more safely
       if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
+        try {
+          if (audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close();
+          }
+        } catch (error) {
+          console.warn('Error closing audio context:', error);
+        } finally {
+          audioContextRef.current = null;
+        }
       }
     };
-  }, [audioUrl, width]);
+  }, [audioUrl, width, isVisible]); // Added isVisible to dependencies
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -202,6 +244,29 @@ export function TrackWaveform({
     }
 
   }, [waveformData, width, height, steps, currentStep, trackColor, activeSteps]);
+
+  // Show loading state when not visible or loading
+  if (!isVisible) {
+    return (
+      <div 
+        className="flex items-center justify-center text-gray-400 text-xs bg-gray-800 rounded-sm"
+        style={{ width: `${width}px`, height: `${height}px` }}
+      >
+        Hidden
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div 
+        className="flex items-center justify-center text-blue-400 text-xs bg-gray-800 rounded-sm"
+        style={{ width: `${width}px`, height: `${height}px` }}
+      >
+        Loading...
+      </div>
+    );
+  }
 
   if (!audioUrl) {
     return (

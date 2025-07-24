@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import { Fader } from '@/components/ui/fader'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -231,7 +232,8 @@ export default function BeatMakerPage() {
     clearAllPatterns,
     clearTrackPattern,
     clearPianoRollData,
-    debugPianoRollPlayback
+    debugPianoRollPlayback,
+    samplesRef
   } = useBeatMaker(tracks, steps, bpm)
 
   // Custom playStep function that includes MIDI playback
@@ -495,6 +497,9 @@ export default function BeatMakerPage() {
     effects: { reverb: number, delay: number }
   }}>({})
 
+  // Master volume state
+  const [masterVolume, setMasterVolume] = useState(0.8)
+
   // Transport inline editing states
   const [editingBpm, setEditingBpm] = useState(false)
   const [editingPosition, setEditingPosition] = useState(false)
@@ -521,6 +526,23 @@ export default function BeatMakerPage() {
       }
     })
   }, [tracks, mixerSettings])
+
+  // Apply mixer settings to audio players when they're created
+  useEffect(() => {
+    tracks.forEach(track => {
+      const trackSettings = mixerSettings[track.id]
+      if (trackSettings && samplesRef?.current?.[track.id]) {
+        const player = samplesRef.current[track.id]
+        if (player && player.volume) {
+          // Apply volume setting
+          const volumeDb = trackSettings.mute ? -Infinity : 
+            (trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume))
+          player.volume.value = volumeDb
+          console.log(`[MIXER INIT] Applied volume ${trackSettings.volume} (${volumeDb.toFixed(2)}dB) to track ${track.id}`)
+        }
+      }
+    })
+  }, [tracks, mixerSettings, samplesRef])
 
   // Monitor songPatternAssignments state changes
   useEffect(() => {
@@ -738,6 +760,15 @@ export default function BeatMakerPage() {
               const precisePlaybackRate = Math.round(track.playbackRate * 10000) / 10000
               player.playbackRate = precisePlaybackRate
               console.log(`[SONG INIT] Track ${track.name} playback rate: ${precisePlaybackRate} (${track.currentBpm}/${track.originalBpm})`)
+            }
+            
+            // Apply mixer volume settings
+            const trackSettings = mixerSettings[track.id]
+            if (trackSettings && player.volume) {
+              const volumeDb = trackSettings.mute ? -Infinity : 
+                (trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume))
+              player.volume.value = volumeDb
+              console.log(`[SONG INIT] Applied volume ${trackSettings.volume} (${volumeDb.toFixed(2)}dB) to song track ${track.id}`)
             }
             
             songPlaybackRef.current.players[track.id] = player
@@ -1784,6 +1815,76 @@ export default function BeatMakerPage() {
         [setting]: value
       }
     }))
+
+    // Apply volume changes to audio players in real-time
+    if (setting === 'volume') {
+      const trackSettings = mixerSettings[trackId]
+      const isMuted = trackSettings?.mute || false
+      
+      if (!isMuted) {
+        // Calculate combined volume (track volume * master volume)
+        const combinedVolume = value * masterVolume
+        const volumeDb = combinedVolume === 0 ? -Infinity : 20 * Math.log10(combinedVolume)
+        
+        // Update regular sequencer players
+        if (samplesRef?.current?.[trackId]) {
+          const player = samplesRef.current[trackId]
+          if (player && player.volume) {
+            player.volume.value = volumeDb
+            console.log(`[MIXER] Set track ${trackId} volume to ${value} (combined: ${combinedVolume}, ${volumeDb.toFixed(2)}dB)`)
+          }
+        }
+
+        // Update song arrangement players
+        if (songPlaybackRef.current?.players?.[trackId]) {
+          const player = songPlaybackRef.current.players[trackId]
+          if (player && player.volume) {
+            player.volume.value = volumeDb
+            console.log(`[MIXER] Set song track ${trackId} volume to ${value} (combined: ${combinedVolume}, ${volumeDb.toFixed(2)}dB)`)
+          }
+        }
+      }
+    }
+
+    // Apply mute changes to audio players in real-time
+    if (setting === 'mute') {
+      if (samplesRef?.current?.[trackId]) {
+        const player = samplesRef.current[trackId]
+        if (player && player.volume) {
+          if (value) {
+            // Mute: set volume to -Infinity
+            player.volume.value = -Infinity
+            console.log(`[MIXER] Muted track ${trackId}`)
+          } else {
+            // Unmute: restore volume from mixer settings
+            const trackSettings = mixerSettings[trackId]
+            if (trackSettings) {
+              const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
+              player.volume.value = volumeDb
+              console.log(`[MIXER] Unmuted track ${trackId}, restored volume to ${trackSettings.volume}`)
+            }
+          }
+        }
+      }
+
+      // Update song arrangement players
+      if (songPlaybackRef.current?.players?.[trackId]) {
+        const player = songPlaybackRef.current.players[trackId]
+        if (player && player.volume) {
+          if (value) {
+            player.volume.value = -Infinity
+            console.log(`[MIXER] Muted song track ${trackId}`)
+          } else {
+            const trackSettings = mixerSettings[trackId]
+            if (trackSettings) {
+              const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
+              player.volume.value = volumeDb
+              console.log(`[MIXER] Unmuted song track ${trackId}, restored volume to ${trackSettings.volume}`)
+            }
+          }
+        }
+      }
+    }
   }
 
 
@@ -1817,6 +1918,39 @@ export default function BeatMakerPage() {
   const toggleTrackMute = (trackId: number) => {
     const currentMute = mixerSettings[trackId]?.mute || false
     updateMixerSetting(trackId, 'mute', !currentMute)
+  }
+
+  // Master volume control function
+  const handleMasterVolumeChange = (value: number) => {
+    setMasterVolume(value)
+    
+    // Apply master volume to all tracks
+    tracks.forEach(track => {
+      const trackSettings = mixerSettings[track.id]
+      if (trackSettings && !trackSettings.mute) {
+        // Calculate combined volume (track volume * master volume)
+        const combinedVolume = trackSettings.volume * value
+        const volumeDb = combinedVolume === 0 ? -Infinity : 20 * Math.log10(combinedVolume)
+        
+        // Update regular sequencer players
+        if (samplesRef?.current?.[track.id]) {
+          const player = samplesRef.current[track.id]
+          if (player && player.volume) {
+            player.volume.value = volumeDb
+          }
+        }
+        
+        // Update song arrangement players
+        if (songPlaybackRef.current?.players?.[track.id]) {
+          const player = songPlaybackRef.current.players[track.id]
+          if (player && player.volume) {
+            player.volume.value = volumeDb
+          }
+        }
+      }
+    })
+    
+    console.log(`[MIXER] Set master volume to ${value} (${(20 * Math.log10(value)).toFixed(2)}dB)`)
   }
 
   // Color mapping for pattern blocks
@@ -2736,6 +2870,19 @@ export default function BeatMakerPage() {
     }
     
     setTracks(prev => [...prev, newTrack])
+    
+    // Check if this is a Loop track and automatically activate the first step
+    const isLoopTrack = trackType.toLowerCase().includes('loop')
+    if (isLoopTrack) {
+      // Initialize sequencer data for the new loop track with first step active
+      const stepPattern = new Array(steps).fill(false)
+      stepPattern[0] = true // Activate first step
+      setSequencerDataFromSession(prev => ({
+        ...prev,
+        [newTrackId]: stepPattern
+      }))
+      console.log(`[LOOP TRACK] Auto-activated first step for new ${trackType} track`)
+    }
   }
 
   // Function to remove a track
@@ -2843,421 +2990,18 @@ export default function BeatMakerPage() {
         return
       }
 
-      // Fetch audio files of the specific type using the new audio_type system
-      let audioFiles: any[] = []
+      // Use the same shuffle tracking system as "shuffle all" for consistency
+      console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
       
-      // Build query with genre filtering if a genre is selected
-      // Try to include files with BPM and key metadata first, but fall back if needed
-      let query = supabase
-        .from('audio_library_items')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('audio_type', audioType)
-        .eq('is_ready', true) // Only include ready audio files
-      
-      // Add pack filter if packs are selected and locked
-      if (selectedPacks.length > 0 && isPackLocked) {
-        const packIds = selectedPacks.map(pack => pack.id)
-        query = query.in('pack_id', packIds)
-        console.log(`[DEBUG] Filtering by locked packs: ${selectedPacks.map(p => p.name).join(', ')} (${packIds.join(', ')})`)
-      }
-      
-      // Flexible genre/subgenre filtering - handle both combinations
-      if (selectedGenre && selectedGenre.name && isGenreLocked && selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-        // When both genre and subgenre are selected, try both combinations
-        console.log(`[DEBUG] Flexible filtering for: ${selectedGenre.name} + ${selectedSubgenre.trim()}`)
-        
-        // Try combination 1: genre=selectedGenre AND subgenre=selectedSubgenre
-        let query1 = supabase
-          .from('audio_library_items')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('audio_type', audioType)
-          .eq('is_ready', true) // Only include ready audio files
-          .eq('genre', selectedGenre.name)
-          .ilike('subgenre', selectedSubgenre.trim())
-        
-        // Add pack filter if locked
-        if (selectedPacks.length > 0 && isPackLocked) {
-          const packIds = selectedPacks.map(pack => pack.id)
-          query1 = query1.in('pack_id', packIds)
-        }
-        
-        console.log(`[DEBUG] Query 1: genre="${selectedGenre.name}" AND subgenre ILIKE "${selectedSubgenre.trim()}"`)
-        const { data: files1, error: error1 } = await query1
-        
-        // Try combination 2: genre=selectedSubgenre AND subgenre=selectedGenre (swapped)
-        let query2 = supabase
-          .from('audio_library_items')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('audio_type', audioType)
-          .eq('is_ready', true) // Only include ready audio files
-          .eq('genre', selectedSubgenre.trim())
-          .ilike('subgenre', selectedGenre.name)
-        
-        // Add pack filter if locked
-        if (selectedPacks.length > 0 && isPackLocked) {
-          const packIds = selectedPacks.map(pack => pack.id)
-          query2 = query2.in('pack_id', packIds)
-        }
-        
-        console.log(`[DEBUG] Query 2: genre="${selectedSubgenre.trim()}" AND subgenre ILIKE "${selectedGenre.name}"`)
-        const { data: files2, error: error2 } = await query2
-        
-        // Combine results
-        const allFiles = [...(files1 || []), ...(files2 || [])]
-        
-        console.log(`[DEBUG] Found ${files1?.length || 0} files with ${selectedGenre.name} + ${selectedSubgenre.trim()}`)
-        if (files1 && files1.length > 0) {
-          console.log(`[DEBUG] Files from query 1:`, files1.map(f => ({ name: f.name, genre: f.genre, subgenre: f.subgenre })))
-        }
-        
-        console.log(`[DEBUG] Found ${files2?.length || 0} files with ${selectedSubgenre.trim()} + ${selectedGenre.name}`)
-        if (files2 && files2.length > 0) {
-          console.log(`[DEBUG] Files from query 2:`, files2.map(f => ({ name: f.name, genre: f.genre, subgenre: f.subgenre })))
-        }
-        
-        console.log(`[DEBUG] Total files found: ${allFiles.length}`)
-        
-        if (allFiles.length > 0) {
-          // Filter files to prioritize those with BPM and key metadata
-          const filesWithMetadata = allFiles.filter(f => f.bpm && f.key && f.bpm !== '' && f.key !== '')
-          console.log(`[DEBUG] Found ${filesWithMetadata.length} files with BPM and key metadata`)
-          
-          if (filesWithMetadata.length > 0) {
-            // Use files with metadata
-            audioFiles = filesWithMetadata
-            console.log(`[DEBUG] Using files with metadata:`, filesWithMetadata.slice(0, 3).map(f => ({ 
-              name: f.name, 
-              bpm: f.bpm,
-              key: f.key,
-              genre: f.genre, 
-              subgenre: f.subgenre,
-              audio_type: f.audio_type
-            })))
-          } else {
-            // Fall back to all files if none have metadata
-            console.log(`[DEBUG] No files with metadata found, using all files`)
-            audioFiles = allFiles
-            console.log(`[DEBUG] Sample files found:`, allFiles.slice(0, 3).map(f => ({ 
-              name: f.name, 
-              bpm: f.bpm || 'none',
-              key: f.key || 'none',
-              genre: f.genre, 
-              subgenre: f.subgenre,
-              audio_type: f.audio_type,
-              pack_id: f.pack_id
-            })))
-          }
-        } else {
-          // Debug: Check what files exist with the genre/subgenre combination regardless of audio_type
-          console.log(`[DEBUG] No files found with audio_type="${audioType}", checking all files with genre/subgenre combination...`)
-          
-          let debugQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_ready', true) // Only include ready audio files
-            .eq('genre', selectedGenre.name)
-            .ilike('subgenre', selectedSubgenre.trim())
-          
-          const { data: debugFiles, error: debugError } = await debugQuery
-          
-          console.log(`[DEBUG] Found ${debugFiles?.length || 0} files with genre="${selectedGenre.name}" AND subgenre ILIKE "${selectedSubgenre.trim()}" (any audio_type)`)
-          if (debugFiles && debugFiles.length > 0) {
-            console.log(`[DEBUG] Available files:`, debugFiles.map(f => ({ name: f.name, genre: f.genre, subgenre: f.subgenre, audio_type: f.audio_type })))
-          }
-        }
-        
-
-      } else {
-        // Single filter logic (only genre, subgenre, or pack)
-      if (selectedGenre && selectedGenre.name && isGenreLocked) {
-        query = query.eq('genre', selectedGenre.name)
-        console.log(`[DEBUG] Filtering by locked genre: ${selectedGenre.name}`)
-      }
-      
-      if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-          query = query.ilike('subgenre', selectedSubgenre.trim())
-          console.log(`[DEBUG] Filtering by locked subgenre (case-insensitive): ${selectedSubgenre.trim()}`)
-        }
-        
-        // Pack filtering is already applied above, but let's add debug info
-        if (selectedPacks.length > 0 && isPackLocked) {
-          console.log(`[DEBUG] Pack filter already applied: ${selectedPacks.map(p => p.name).join(', ')} (${selectedPacks.map(p => p.id).join(', ')})`)
-          
-          // Debug: Check what files exist with just these packs
-          let packDebugQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_ready', true) // Only include ready audio files
-            .in('pack_id', selectedPacks.map(p => p.id))
-          
-          const { data: packDebugFiles, error: packDebugError } = await packDebugQuery
-          
-          console.log(`[DEBUG] Found ${packDebugFiles?.length || 0} files in packs "${selectedPacks.map(p => p.name).join(', ')}" (any audio_type)`)
-          if (packDebugFiles && packDebugFiles.length > 0) {
-            console.log(`[DEBUG] Pack files:`, packDebugFiles.slice(0, 5).map(f => ({ 
-              name: f.name, 
-              audio_type: f.audio_type,
-              pack_id: f.pack_id
-            })))
-          }
-      }
-      
-      const { data: typeFiles, error: typeError } = await query
-      
-      console.log(`[DEBUG] Found ${typeFiles?.length || 0} files with audio_type: ${audioType}`)
-      
-      // Filter files to prioritize those with BPM and key metadata
-      if (typeFiles && typeFiles.length > 0) {
-        // First, try to get files with both BPM and key
-        const filesWithMetadata = typeFiles.filter(f => f.bpm && f.key && f.bpm !== '' && f.key !== '')
-        console.log(`[DEBUG] Found ${filesWithMetadata.length} files with BPM and key metadata`)
-        
-        if (filesWithMetadata.length > 0) {
-          // Use files with metadata
-          audioFiles = [...audioFiles, ...filesWithMetadata]
-          console.log(`[DEBUG] Using files with metadata:`, filesWithMetadata.slice(0, 3).map(f => ({ 
-            name: f.name, 
-            bpm: f.bpm,
-            key: f.key,
-            genre: f.genre, 
-            subgenre: f.subgenre,
-            audio_type: f.audio_type
-          })))
-        } else {
-          // Fall back to all files if none have metadata
-          console.log(`[DEBUG] No files with metadata found, using all files`)
-          audioFiles = [...audioFiles, ...typeFiles]
-          console.log(`[DEBUG] Sample files found:`, typeFiles.slice(0, 3).map(f => ({ 
-            name: f.name, 
-            bpm: f.bpm || 'none',
-            key: f.key || 'none',
-            genre: f.genre, 
-            subgenre: f.subgenre,
-            audio_type: f.audio_type,
-            pack_id: f.pack_id
-          })))
-        }
-      }
-      }
-      
-      // Debug: Log the current filter state
-      console.log(`[DEBUG] Current filters - Genre: ${selectedGenre?.name || 'none'}, Subgenre: ${selectedSubgenre || 'none'}, GenreLocked: ${isGenreLocked}, SubgenreLocked: ${isSubgenreLocked}`)
-      console.log(`[DEBUG] BPM/Key filtering: Prioritizing files with BPM and key metadata, falling back to all files if needed`)
-      
-      // If no exact matches, try to get files by name containing the type (fallback)
-      if (audioFiles.length === 0) {
-        let fallbackQuery = supabase
-          .from('audio_library_items')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('is_ready', true) // Only include ready audio files
-          .ilike('name', `%${audioType.toLowerCase()}%`)
-        
-        // Add genre filter if a genre is selected and locked
-        if (selectedGenre && selectedGenre.name && isGenreLocked) {
-          fallbackQuery = fallbackQuery.eq('genre', selectedGenre.name)
-        }
-        
-        // Add subgenre filter if a subgenre is selected and locked
-        if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-          fallbackQuery = fallbackQuery.ilike('subgenre', selectedSubgenre.trim())
-        }
-        
-        const { data: nameFiles, error: nameError } = await fallbackQuery
-        
-        console.log(`[DEBUG] Found ${nameFiles?.length || 0} files with name containing: ${audioType}`)
-        if (nameFiles) {
-          audioFiles = [...audioFiles, ...nameFiles]
-        }
-      }
-      
-      // Special handling for Hi-Hat to search for multiple variations
-      if ((audioType === 'Hihat' || audioType === 'Hi-Hat') && audioFiles.length === 0) {
-        const hiHatVariations = ['Hihat', 'Hi-Hat', 'Hi Hat', 'hihat', 'hi-hat', 'hi hat']
-        for (const variation of hiHatVariations) {
-          let hiHatQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_ready', true) // Only include ready audio files
-            .eq('audio_type', variation)
-          
-          // Add genre filter if a genre is selected and locked
-          if (selectedGenre && selectedGenre.name && isGenreLocked) {
-            hiHatQuery = hiHatQuery.eq('genre', selectedGenre.name)
-          }
-          
-          // Add subgenre filter if a subgenre is selected and locked
-          if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-            hiHatQuery = hiHatQuery.ilike('subgenre', selectedSubgenre.trim())
-          }
-          
-          const { data: variationFiles, error: variationError } = await hiHatQuery
-          
-          if (variationFiles) {
-            audioFiles = [...audioFiles, ...variationFiles]
-          }
-        }
-        
-        // Also try a broader search if still no results
-        if (audioFiles.length === 0) {
-          console.log('[DEBUG] No hi-hat files found with exact audio_type, trying broader search...')
-          let broaderQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_ready', true) // Only include ready audio files
-            .or('name.ilike.%hihat%,name.ilike.%hi-hat%,name.ilike.%hi hat%')
-          
-          // Add genre filter if a genre is selected and locked
-          if (selectedGenre && selectedGenre.name && isGenreLocked) {
-            broaderQuery = broaderQuery.eq('genre', selectedGenre.name)
-          }
-          
-          // Add subgenre filter if a subgenre is selected and locked
-          if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
-            broaderQuery = broaderQuery.ilike('subgenre', selectedSubgenre.trim())
-          }
-          
-          const { data: broaderFiles, error: broaderError } = await broaderQuery
-          
-          if (broaderFiles) {
-            audioFiles = [...audioFiles, ...broaderFiles]
-            console.log(`[DEBUG] Found ${broaderFiles.length} hi-hat files with broader search`)
-          }
-        }
-      }
-      
-      // Remove duplicates based on id
-      audioFiles = audioFiles.filter((file, index, self) => 
-        index === self.findIndex(f => f.id === file.id)
-      )
-
-      // Apply tempo tolerance filtering to prevent excessive time-stretching
-      if (audioFiles.length > 0) {
-        const tempoTolerance = 5 // ±5 BPM tolerance
-        const transportTempo = bpm
-        
-        console.log(`[TEMPO FILTER] Transport tempo: ${transportTempo} BPM, tolerance: ±${tempoTolerance} BPM`)
-        console.log(`[TEMPO FILTER] Checking ${audioFiles.length} audio files for tempo compatibility`)
-        
-        // First, try to find files with exact tempo matches
-        const exactMatches = audioFiles.filter(file => {
-          const fileBpm = parseFloat(file.bpm) || 0
-          return fileBpm > 0 && Math.abs(fileBpm - transportTempo) === 0
-        })
-        
-        if (exactMatches.length > 0) {
-          console.log(`[TEMPO FILTER] Found ${exactMatches.length} files with exact tempo match (${transportTempo} BPM)`)
-          audioFiles = exactMatches
-        } else {
-          // Fall back to files within tolerance range
-          const toleranceMatches = audioFiles.filter(file => {
-            const fileBpm = parseFloat(file.bpm) || 0
-            return fileBpm > 0 && Math.abs(fileBpm - transportTempo) <= tempoTolerance
-          })
-          
-          if (toleranceMatches.length > 0) {
-            console.log(`[TEMPO FILTER] Found ${toleranceMatches.length} files within tolerance range (${transportTempo - tempoTolerance}-${transportTempo + tempoTolerance} BPM)`)
-            audioFiles = toleranceMatches
-          } else {
-            console.log(`[TEMPO FILTER] No files found within tempo tolerance. Rejecting all files to prevent excessive time-stretching.`)
-            console.log(`[TEMPO FILTER] Transport: ${transportTempo} BPM, tolerance: ±${tempoTolerance} BPM, required range: ${transportTempo - tempoTolerance}-${transportTempo + tempoTolerance} BPM`)
-            // Reject all files if none match tempo criteria - no fallback to prevent audio quality issues
-            audioFiles = []
-          }
-        }
-        
-        // Log sample of filtered files
-        if (audioFiles.length > 0) {
-          console.log(`[TEMPO FILTER] Sample filtered files:`, audioFiles.slice(0, 3).map(f => ({
-            name: f.name,
-            bpm: f.bpm,
-            tempoDiff: Math.abs((parseFloat(f.bpm) || 0) - transportTempo)
-          })))
-        }
-      }
-      
-
+      // Get batch of audio files using the tracking system
+      const audioFiles = await getShuffleAudioBatch(user, audioType)
 
       if (!audioFiles || audioFiles.length === 0) {
-        console.log(`No ${audioType} audio files found with current filters`)
-        
-        // Check if both genre and subgenre are locked
-        const bothLocked = selectedGenre && selectedGenre.name && isGenreLocked && selectedSubgenre && isSubgenreLocked
-        
-        if (bothLocked) {
-          console.log(`[STRICT MODE] Both genre and subgenre are locked - no fallback allowed`)
-          console.log(`[STRICT MODE] Required: genre="${selectedGenre.name}" AND subgenre="${selectedSubgenre.trim()}"`)
-          
-          // Let's check what files exist with these exact requirements
-          let strictQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_ready', true) // Only include ready audio files
-            .eq('genre', selectedGenre.name)
-            .ilike('subgenre', selectedSubgenre.trim())
-          
-          const { data: strictFiles, error: strictError } = await strictQuery
-          
-          console.log(`[STRICT MODE] Found ${strictFiles?.length || 0} files with exact genre="${selectedGenre.name}" AND subgenre="${selectedSubgenre.trim()}"`)
-          
-          if (strictFiles && strictFiles.length > 0) {
-            console.log(`[STRICT MODE] Available files:`, strictFiles.map(f => ({ 
-              name: f.name, 
-              genre: f.genre, 
-              subgenre: f.subgenre, 
-              audio_type: f.audio_type 
-            })))
-            
-            // Filter by audio_type
-            const typeFiles = strictFiles.filter(f => f.audio_type === audioType)
-            console.log(`[STRICT MODE] Of those, ${typeFiles.length} have audio_type="${audioType}"`)
-            
-            if (typeFiles.length > 0) {
-              audioFiles = typeFiles
-            } else {
-              console.log(`[STRICT MODE] No files with audio_type="${audioType}" found - cannot shuffle this track type`)
+        console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
         return
-      }
-          } else {
-            console.log(`[STRICT MODE] No files found with exact genre/subgenre combination - cannot shuffle`)
-            return
-          }
-        } else {
-          // Only use fallback if NOT both genre and subgenre are locked
-          console.log(`[FALLBACK] Trying with no genre/subgenre filters (not both locked)`)
-          let noFilterQuery = supabase
-            .from('audio_library_items')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('audio_type', audioType)
-            .eq('is_ready', true) // Only include ready audio files
-          
-          const { data: noFilterFiles, error: noFilterError } = await noFilterQuery
-          
-          if (noFilterFiles && noFilterFiles.length > 0) {
-            console.log(`[FALLBACK] Found ${noFilterFiles.length} files with no genre filters`)
-            audioFiles = noFilterFiles
-          } else {
-            console.log(`[FALLBACK] No files found with no genre filters`)
-          }
-        }
-        
-        // If still no files, give up
-      if (!audioFiles || audioFiles.length === 0) {
-          console.log(`No ${audioType} audio files found in your library with current filter requirements`)
-        return
-        }
       }
 
-      // Randomly select one audio file
+      // Randomly select one from the batch
       const randomIndex = Math.floor(Math.random() * audioFiles.length)
       const selectedAudio = audioFiles[randomIndex]
 
@@ -3270,6 +3014,9 @@ export default function BeatMakerPage() {
       let pitchShift = 0
       let playbackRate = 1.0
       
+      // Check if this is a drum track (should not be pitch-shifted)
+      const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
+      
       if (isBpmLocked || isKeyLocked) {
         // Transport is partially or fully locked - adapt tracks accordingly
         if (isBpmLocked) {
@@ -3280,7 +3027,8 @@ export default function BeatMakerPage() {
           }
         }
         
-        if (isKeyLocked) {
+        if (isKeyLocked && !isDrumTrack) {
+          // Only apply key matching for non-drum tracks
           finalKey = transportKey
           // Calculate pitch shift needed to match transport key
           if (selectedAudio.key && transportKey) {
@@ -3295,9 +3043,18 @@ export default function BeatMakerPage() {
               if (pitchShift < -6) pitchShift += 12
             }
           }
+        } else if (isKeyLocked && isDrumTrack) {
+          // For drum tracks, keep original key even when key is locked
+          finalKey = selectedAudio.key || 'C'
+          pitchShift = 0
+          console.log(`[DRUM TRACK] ${track.name} keeps original key (no pitch shift): ${selectedAudio.key}`)
         }
         
+        if (isDrumTrack) {
+          console.log(`[DRUM TRACK] ${track.name} adapts to Transport BPM only: ${selectedAudio.bpm}BPM -> ${finalBpm}BPM (rate: ${playbackRate.toFixed(2)}, no pitch shift)`)
+        } else {
         console.log(`[TRANSPORT LOCKED] Track adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${finalBpm}BPM ${finalKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
+        }
       } else if (track.name === 'Melody Loop') {
         // Transport not locked - special handling for Melody Loop tracks
         if (melodyLoopMode === 'transport-dominates') {
@@ -3778,24 +3535,32 @@ export default function BeatMakerPage() {
   // Helper function to manage shuffle tracking
   const getShuffleAudioBatch = async (user: any, audioType: string) => {
     try {
-      // If shuffle tracker is disabled, get random files without tracking
+      // If shuffle tracker is disabled, get random files from entire table without tracking
       if (!isShuffleTrackerEnabled) {
-        console.log(`[SHUFFLE TRACKER] Tracker disabled - getting random files for ${audioType}`)
+        console.log(`[SHUFFLE TRACKER] Tracker disabled - getting random files from entire table for ${audioType}`)
         
         let query = supabase
           .from('audio_library_items')
           .select('*')
           .eq('user_id', user.id)
           .eq('audio_type', audioType)
-          .order('created_at', { ascending: false })
-          .limit(10)
         
         if (isReadyCheckEnabled) {
           query = query.eq('is_ready', true)
         }
         
-        const { data: randomFiles } = await query
-        return randomFiles || []
+        const { data: allFiles } = await query
+        
+        if (!allFiles || allFiles.length === 0) {
+          return []
+        }
+        
+        // Shuffle the entire array and return first 10
+        const shuffledFiles = allFiles.sort(() => Math.random() - 0.5)
+        const randomFiles = shuffledFiles.slice(0, 10)
+        
+        console.log(`[SHUFFLE TRACKER] Found ${allFiles.length} total files, returning ${randomFiles.length} random files`)
+        return randomFiles
       }
 
       // Shuffle tracker is enabled - use tracking logic
@@ -4120,6 +3885,9 @@ export default function BeatMakerPage() {
           let pitchShift = 0
           let playbackRate = 1.0
           
+          // Check if this is a drum track (should not be pitch-shifted)
+          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
+          
           if (isBpmLocked || isKeyLocked) {
             // Transport is partially or fully locked - adapt tracks accordingly
             if (isBpmLocked) {
@@ -4130,7 +3898,8 @@ export default function BeatMakerPage() {
               }
             }
             
-            if (isKeyLocked) {
+            if (isKeyLocked && !isDrumTrack) {
+              // Only apply key matching for non-drum tracks
               finalKey = transportKey
               // Calculate pitch shift needed to match transport key
               if (selectedAudio.key && transportKey) {
@@ -4145,6 +3914,10 @@ export default function BeatMakerPage() {
                   if (pitchShift < -6) pitchShift += 12
                 }
               }
+            } else if (isKeyLocked && isDrumTrack) {
+              // For drum tracks, keep original key even when key is locked
+              finalKey = selectedAudio.key || 'C'
+              pitchShift = 0
             }
           } else if (track.name === 'Melody Loop') {
             // Transport not locked - special handling for Melody Loop tracks
@@ -5168,6 +4941,8 @@ export default function BeatMakerPage() {
   const [isReadyCheckEnabled, setIsReadyCheckEnabled] = useState(false)
   const [isShuffleTrackerEnabled, setIsShuffleTrackerEnabled] = useState(false)
   const [isReadyCheckLocked, setIsReadyCheckLocked] = useState(false)
+  const [showWaveforms, setShowWaveforms] = useState(false) // New state for waveform visibility
+  const [trackWaveformStates, setTrackWaveformStates] = useState<{[trackId: number]: boolean}>({}) // Individual track waveform states
   const [melodyLoopMode, setMelodyLoopMode] = useState<'transport-dominates' | 'melody-dominates'>('transport-dominates')
 
   // Pattern management state
@@ -5904,6 +5679,13 @@ export default function BeatMakerPage() {
   const handleTogglePackLock = () => {
     console.log(`[DEBUG] Toggling pack lock from ${isPackLocked} to ${!isPackLocked}`)
     setIsPackLocked(!isPackLocked)
+  }
+
+  const handleToggleTrackWaveform = (trackId: number) => {
+    setTrackWaveformStates(prev => ({
+      ...prev,
+      [trackId]: !prev[trackId]
+    }))
   }
 
   // Handle quantization
@@ -6701,7 +6483,7 @@ export default function BeatMakerPage() {
       <Card className="!bg-[#141414] border-gray-700">
         <CardHeader>
           <div className="flex items-center gap-3">
-            <CardTitle className="text-white">Transport</CardTitle>
+          <CardTitle className="text-white">Transport</CardTitle>
             <Badge 
               variant="outline" 
               className="text-xs px-2 py-1 bg-gray-800/50 border-gray-600 text-gray-300"
@@ -7128,15 +6910,15 @@ export default function BeatMakerPage() {
                 {selectedPacks.length > 0 ? (
                   <div className="flex items-center gap-1 flex-wrap">
                     {selectedPacks.map((pack) => (
-                      <Badge 
+                    <Badge 
                         key={pack.id}
-                        variant="secondary" 
-                        className="bg-green-100 text-green-800 border-green-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setShowPackDialog(true)}
+                      variant="secondary" 
+                      className="bg-green-100 text-green-800 border-green-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => setShowPackDialog(true)}
                         title="Click to change packs"
-                      >
+                    >
                         {pack.name}
-                      </Badge>
+                    </Badge>
                     ))}
                     <Button
                       variant="ghost"
@@ -7333,6 +7115,10 @@ export default function BeatMakerPage() {
             genres={genres}
             subgenres={subgenres}
             onGenreChange={loadSubgenres}
+            showWaveforms={showWaveforms}
+            onToggleWaveforms={() => setShowWaveforms(!showWaveforms)}
+            trackWaveformStates={trackWaveformStates}
+            onToggleTrackWaveform={handleToggleTrackWaveform}
           />
         </div>
       </div>
@@ -8041,108 +7827,11 @@ export default function BeatMakerPage() {
                         </div>
                       </div>
 
-                      {/* VU Meter */}
-                      <div className="mb-4">
-                        <div className="text-gray-400 text-xs mb-2 text-center">LEVEL</div>
-                        <VUMeter 
-                          level={audioLevels[track.id] || 0} 
-                          peak={peakLevels[track.id] || 0} 
-                          height={60}
-                        />
-                        <div className="text-gray-500 text-xs text-center mt-1">
-                          {Math.round((audioLevels[track.id] || 0) * 100)}%
-                        </div>
-                      </div>
 
-                      {/* EQ Section */}
-                      <div className="mb-4">
-                        <div className="text-gray-400 text-xs mb-2 text-center">EQ</div>
-                        {/* High */}
-                        <div className="mb-2">
-                          <div className="text-gray-500 text-xs mb-1">HIGH</div>
-                          <Slider
-                            value={[settings.eq.high]}
-                            onValueChange={(value) => updateEQ(track.id, 'high', value[0])}
-                            min={-12}
-                            max={12}
-                            step={0.1}
-                            orientation="vertical"
-                            className="h-12"
-                          />
-                          <div className="text-gray-500 text-xs text-center mt-1">
-                            {settings.eq.high.toFixed(1)}
-                          </div>
-                        </div>
-                        {/* Mid */}
-                        <div className="mb-2">
-                          <div className="text-gray-500 text-xs mb-1">MID</div>
-                          <Slider
-                            value={[settings.eq.mid]}
-                            onValueChange={(value) => updateEQ(track.id, 'mid', value[0])}
-                            min={-12}
-                            max={12}
-                            step={0.1}
-                            orientation="vertical"
-                            className="h-12"
-                          />
-                          <div className="text-gray-500 text-xs text-center mt-1">
-                            {settings.eq.mid.toFixed(1)}
-                          </div>
-                        </div>
-                        {/* Low */}
-                        <div className="mb-2">
-                          <div className="text-gray-500 text-xs mb-1">LOW</div>
-                          <Slider
-                            value={[settings.eq.low]}
-                            onValueChange={(value) => updateEQ(track.id, 'low', value[0])}
-                            min={-12}
-                            max={12}
-                            step={0.1}
-                            orientation="vertical"
-                            className="h-12"
-                          />
-                          <div className="text-gray-500 text-xs text-center mt-1">
-                            {settings.eq.low.toFixed(1)}
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Effects Section */}
-                      <div className="mb-4">
-                        <div className="text-gray-400 text-xs mb-2 text-center">FX</div>
-                        {/* Reverb */}
-                        <div className="mb-2">
-                          <div className="text-gray-500 text-xs mb-1">REV</div>
-                          <Slider
-                            value={[settings.effects.reverb]}
-                            onValueChange={(value) => updateEffect(track.id, 'reverb', value[0])}
-                            min={0}
-                            max={100}
-                            step={1}
-                            orientation="vertical"
-                            className="h-8"
-                          />
-                          <div className="text-gray-500 text-xs text-center mt-1">
-                            {settings.effects.reverb}
-                          </div>
-                        </div>
-                        {/* Delay */}
-                        <div className="mb-2">
-                          <div className="text-gray-500 text-xs mb-1">DLY</div>
-                          <Slider
-                            value={[settings.effects.delay]}
-                            onValueChange={(value) => updateEffect(track.id, 'delay', value[0])}
-                            min={0}
-                            max={100}
-                            step={1}
-                            orientation="vertical"
-                            className="h-8"
-                          />
-                          <div className="text-gray-500 text-xs text-center mt-1">
-                            {settings.effects.delay}
-                          </div>
-                        </div>
-                      </div>
+
+
+
 
                       {/* Pan Control */}
                       <div className="mb-4">
@@ -8183,19 +7872,17 @@ export default function BeatMakerPage() {
                       {/* Volume Fader */}
                       <div className="mb-2">
                         <div className="text-gray-400 text-xs mb-2 text-center">VOLUME</div>
-                        <div className="h-32 flex justify-center">
-                          <Slider
-                            value={[settings.volume]}
-                            onValueChange={(value) => updateMixerSetting(track.id, 'volume', value[0])}
+                        <div className="flex justify-center">
+                          <Fader
+                            value={settings.volume}
+                            onValueChange={(value) => updateMixerSetting(track.id, 'volume', value)}
                             min={0}
                             max={1}
                             step={0.01}
-                            orientation="vertical"
-                            className="h-full"
+                            height={128}
+                            level={audioLevels[track.id] || 0}
+                            peak={peakLevels[track.id] || 0}
                           />
-                        </div>
-                        <div className="text-gray-500 text-xs text-center mt-2">
-                          {Math.round(settings.volume * 100)}%
                         </div>
                       </div>
                     </div>
@@ -8210,43 +7897,25 @@ export default function BeatMakerPage() {
                     <div className="text-gray-500 text-xs">OUT</div>
                   </div>
 
-                  {/* Master VU Meter */}
-                  <div className="mb-4">
-                    <div className="text-gray-400 text-xs mb-2 text-center">MASTER</div>
-                    <VUMeter 
-                      level={masterLevel} 
-                      peak={masterPeak} 
-                      height={60}
-                    />
-                    <div className="text-gray-500 text-xs text-center mt-1">
-                      {Math.round(masterLevel * 100)}%
-                    </div>
-                  </div>
 
-                  {/* Master EQ */}
-                  <div className="mb-4">
-                    <div className="text-gray-400 text-xs mb-2 text-center">MASTER EQ</div>
-                    <div className="space-y-2">
-                      <Slider value={[0]} min={-12} max={12} step={0.1} orientation="vertical" className="h-8" />
-                      <Slider value={[0]} min={-12} max={12} step={0.1} orientation="vertical" className="h-8" />
-                      <Slider value={[0]} min={-12} max={12} step={0.1} orientation="vertical" className="h-8" />
-                    </div>
-                  </div>
+
+
 
                   {/* Master Volume */}
                   <div className="mb-2">
                     <div className="text-gray-400 text-xs mb-2 text-center">MASTER</div>
-                    <div className="h-32 flex justify-center">
-                      <Slider
-                        value={[0.8]}
+                    <div className="flex justify-center">
+                      <Fader
+                        value={masterVolume}
+                        onValueChange={handleMasterVolumeChange}
                         min={0}
                         max={1}
                         step={0.01}
-                        orientation="vertical"
-                        className="h-full"
+                        height={128}
+                        level={masterLevel}
+                        peak={masterPeak}
                       />
                     </div>
-                    <div className="text-gray-500 text-xs text-center mt-2">80%</div>
                   </div>
                 </div>
               </div>
@@ -8260,7 +7929,7 @@ export default function BeatMakerPage() {
                   </Button>
                   <div className="flex items-center gap-2">
                     <span className="text-gray-400 text-sm">Master Volume:</span>
-                    <span className="text-white text-sm font-mono">80%</span>
+                    <span className="text-white text-sm font-mono">{Math.round(masterVolume * 100)}%</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-gray-400 text-sm">Active Tracks:</span>

@@ -993,6 +993,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     clearAllPatterns,
     clearTrackPattern,
     clearPianoRollData,
-    debugPianoRollPlayback
+    debugPianoRollPlayback,
+    samplesRef
   }
 } 
