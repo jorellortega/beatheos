@@ -72,18 +72,9 @@ export default function BeatMakerPage() {
   const [bpmRange, setBpmRange] = useState<[number, number]>([70, 165])
   const [showBpmRangeControls, setShowBpmRangeControls] = useState(false)
   
-  const [tracks, setTracks] = useState<Track[]>([
-    { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
-    { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
-    { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
-    { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
-    { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
-    { id: 6, name: 'Kick', audioUrl: null, color: 'bg-orange-500' },
-    { id: 7, name: 'Snare', audioUrl: null, color: 'bg-pink-500' },
-    { id: 8, name: 'Hi-Hat', audioUrl: null, color: 'bg-indigo-500' },
-  ])
+  const [tracks, setTracks] = useState<Track[]>([])
   const [isAutoMode, setIsAutoMode] = useState(false) // Auto mode is on by default when no template is loaded
-  const [steps, setSteps] = useState(16)
+  const [steps, setSteps] = useState(64)
   
   // Initialize sequencer with first step active for each track when in auto mode
   useEffect(() => {
@@ -2771,7 +2762,7 @@ export default function BeatMakerPage() {
       console.log(`[DEBUG] Current state - selectedSubgenre:`, selectedSubgenre)
       console.log(`[DEBUG] Current state - isGenreLocked:`, isGenreLocked)
       console.log(`[DEBUG] Current state - isSubgenreLocked:`, isSubgenreLocked)
-      console.log(`[DEBUG] Current state - selectedPack:`, selectedPack)
+      console.log(`[DEBUG] Current state - selectedPacks:`, selectedPacks)
       console.log(`[DEBUG] Current state - isPackLocked:`, isPackLocked)
 
       // Get current user
@@ -2864,10 +2855,11 @@ export default function BeatMakerPage() {
         .eq('audio_type', audioType)
         .eq('is_ready', true) // Only include ready audio files
       
-      // Add pack filter if a pack is selected and locked
-      if (selectedPack && selectedPack.id && isPackLocked) {
-        query = query.eq('pack_id', selectedPack.id)
-        console.log(`[DEBUG] Filtering by locked pack: ${selectedPack.name} (${selectedPack.id})`)
+      // Add pack filter if packs are selected and locked
+      if (selectedPacks.length > 0 && isPackLocked) {
+        const packIds = selectedPacks.map(pack => pack.id)
+        query = query.in('pack_id', packIds)
+        console.log(`[DEBUG] Filtering by locked packs: ${selectedPacks.map(p => p.name).join(', ')} (${packIds.join(', ')})`)
       }
       
       // Flexible genre/subgenre filtering - handle both combinations
@@ -2886,8 +2878,9 @@ export default function BeatMakerPage() {
           .ilike('subgenre', selectedSubgenre.trim())
         
         // Add pack filter if locked
-        if (selectedPack && selectedPack.id && isPackLocked) {
-          query1 = query1.eq('pack_id', selectedPack.id)
+        if (selectedPacks.length > 0 && isPackLocked) {
+          const packIds = selectedPacks.map(pack => pack.id)
+          query1 = query1.in('pack_id', packIds)
         }
         
         console.log(`[DEBUG] Query 1: genre="${selectedGenre.name}" AND subgenre ILIKE "${selectedSubgenre.trim()}"`)
@@ -2904,8 +2897,9 @@ export default function BeatMakerPage() {
           .ilike('subgenre', selectedGenre.name)
         
         // Add pack filter if locked
-        if (selectedPack && selectedPack.id && isPackLocked) {
-          query2 = query2.eq('pack_id', selectedPack.id)
+        if (selectedPacks.length > 0 && isPackLocked) {
+          const packIds = selectedPacks.map(pack => pack.id)
+          query2 = query2.in('pack_id', packIds)
         }
         
         console.log(`[DEBUG] Query 2: genre="${selectedSubgenre.trim()}" AND subgenre ILIKE "${selectedGenre.name}"`)
@@ -2990,20 +2984,20 @@ export default function BeatMakerPage() {
         }
         
         // Pack filtering is already applied above, but let's add debug info
-        if (selectedPack && selectedPack.id && isPackLocked) {
-          console.log(`[DEBUG] Pack filter already applied: ${selectedPack.name} (${selectedPack.id})`)
+        if (selectedPacks.length > 0 && isPackLocked) {
+          console.log(`[DEBUG] Pack filter already applied: ${selectedPacks.map(p => p.name).join(', ')} (${selectedPacks.map(p => p.id).join(', ')})`)
           
-          // Debug: Check what files exist with just this pack
+          // Debug: Check what files exist with just these packs
           let packDebugQuery = supabase
             .from('audio_library_items')
             .select('*')
             .eq('user_id', user.id)
             .eq('is_ready', true) // Only include ready audio files
-            .eq('pack_id', selectedPack.id)
+            .in('pack_id', selectedPacks.map(p => p.id))
           
           const { data: packDebugFiles, error: packDebugError } = await packDebugQuery
           
-          console.log(`[DEBUG] Found ${packDebugFiles?.length || 0} files in pack "${selectedPack.name}" (any audio_type)`)
+          console.log(`[DEBUG] Found ${packDebugFiles?.length || 0} files in packs "${selectedPacks.map(p => p.name).join(', ')}" (any audio_type)`)
           if (packDebugFiles && packDebugFiles.length > 0) {
             console.log(`[DEBUG] Pack files:`, packDebugFiles.slice(0, 5).map(f => ({ 
               name: f.name, 
@@ -3754,6 +3748,7 @@ export default function BeatMakerPage() {
       console.log('[DEBUG] Not ready files count:', notReadyFiles.length)
       console.log('[DEBUG] Ready check enabled:', isReadyCheckEnabled)
       console.log('[DEBUG] Shuffle tracker enabled:', isShuffleTrackerEnabled)
+      console.log('[DEBUG] Selected packs:', selectedPacks.map(p => p.name))
       
       // Check for Trap + LA specifically
       if (selectedGenre?.name === 'Trap' && selectedSubgenre === 'LA') {
@@ -5004,7 +4999,7 @@ export default function BeatMakerPage() {
   const [isGenreLocked, setIsGenreLocked] = useState<boolean>(false)
   const [isSubgenreLocked, setIsSubgenreLocked] = useState<boolean>(false)
   const [audioPacks, setAudioPacks] = useState<any[]>([])
-  const [selectedPack, setSelectedPack] = useState<any>(null)
+  const [selectedPacks, setSelectedPacks] = useState<any[]>([])
   const [isPackLocked, setIsPackLocked] = useState<boolean>(false)
   const [availableSubgenres, setAvailableSubgenres] = useState<string[]>([])
   const [genreSubgenres, setGenreSubgenres] = useState<{[key: string]: string[]}>({})
@@ -6705,7 +6700,16 @@ export default function BeatMakerPage() {
       {/* Transport Controls */}
       <Card className="!bg-[#141414] border-gray-700">
         <CardHeader>
-          <CardTitle className="text-white">Transport</CardTitle>
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-white">Transport</CardTitle>
+            <Badge 
+              variant="outline" 
+              className="text-xs px-2 py-1 bg-gray-800/50 border-gray-600 text-gray-300"
+              title="Default mode - all features disabled"
+            >
+              Default Mode
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4">
@@ -7120,17 +7124,20 @@ export default function BeatMakerPage() {
 
               {/* Pack Display */}
               <div className="flex items-center gap-2">
-                <span className="text-white text-sm">Pack:</span>
-                {selectedPack ? (
-                  <div className="flex items-center gap-1">
-                    <Badge 
-                      variant="secondary" 
-                      className="bg-green-100 text-green-800 border-green-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => setShowPackDialog(true)}
-                      title="Click to change pack"
-                    >
-                      {selectedPack.name}
-                    </Badge>
+                <span className="text-white text-sm">Packs:</span>
+                {selectedPacks.length > 0 ? (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {selectedPacks.map((pack) => (
+                      <Badge 
+                        key={pack.id}
+                        variant="secondary" 
+                        className="bg-green-100 text-green-800 border-green-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => setShowPackDialog(true)}
+                        title="Click to change packs"
+                      >
+                        {pack.name}
+                      </Badge>
+                    ))}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -7140,7 +7147,7 @@ export default function BeatMakerPage() {
                           ? 'text-yellow-400 hover:text-yellow-300' 
                           : 'text-gray-400 hover:text-gray-300'
                       }`}
-                      title={isPackLocked ? "Unlock pack (will shuffle)" : "Lock pack (won't shuffle)"}
+                      title={isPackLocked ? "Unlock packs (will shuffle)" : "Lock packs (won't shuffle)"}
                     >
                       {isPackLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                     </Button>
@@ -7152,7 +7159,7 @@ export default function BeatMakerPage() {
                     onClick={() => setShowPackDialog(true)}
                     className="text-green-400 border-green-400 hover:bg-green-400 hover:text-black"
                   >
-                    Select Pack
+                    Select Packs
                   </Button>
                 )}
               </div>
@@ -9715,10 +9722,10 @@ export default function BeatMakerPage() {
         <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-white">
-              Select Audio Pack
+              Select Audio Packs
             </DialogTitle>
             <DialogDescription className="text-gray-400">
-              Choose an audio pack to filter shuffle sounds from.
+              Choose one or more audio packs to filter shuffle sounds from. Click packs to toggle selection.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -9734,8 +9741,15 @@ export default function BeatMakerPage() {
                     key={pack.id}
                     className="flex items-center justify-between p-3 bg-[#2a2a2a] rounded border border-gray-600 hover:border-gray-500 transition-colors cursor-pointer"
                     onClick={() => {
-                      setSelectedPack(pack)
-                      setShowPackDialog(false)
+                      // Toggle pack selection
+                      setSelectedPacks(prev => {
+                        const isSelected = prev.some(p => p.id === pack.id)
+                        if (isSelected) {
+                          return prev.filter(p => p.id !== pack.id)
+                        } else {
+                          return [...prev, pack]
+                        }
+                      })
                     }}
                   >
                     <div className="flex-1">
@@ -9748,7 +9762,7 @@ export default function BeatMakerPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {selectedPack?.id === pack.id && (
+                      {selectedPacks.some(p => p.id === pack.id) && (
                         <Badge variant="secondary" className="bg-green-400 text-black">
                           Selected
                         </Badge>
@@ -9764,9 +9778,16 @@ export default function BeatMakerPage() {
               Cancel
             </Button>
             <Button 
+              variant="default"
+              onClick={() => setShowPackDialog(false)}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              Done
+            </Button>
+            <Button 
               variant="outline"
               onClick={() => {
-                setSelectedPack(null)
+                setSelectedPacks([])
                 setShowPackDialog(false)
               }}
               className="text-red-400 hover:text-red-300 hover:bg-red-900/20"

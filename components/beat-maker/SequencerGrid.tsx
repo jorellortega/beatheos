@@ -325,6 +325,25 @@ export function SequencerGrid({
 
             {tracks.map((track) => (
               <div key={track.id}>
+                {/* Waveform for tracks with custom samples - moved above sequencer pattern */}
+                {track.audioUrl && track.audioUrl !== 'undefined' && (
+                  <div className="flex mb-2">
+                    <div className="w-56 flex-shrink-0"></div>
+                    <div className="flex-1">
+                      <TrackWaveform 
+                        audioUrl={track.audioUrl}
+                        trackColor={track.color}
+                        height={60}
+                        width={steps * stepWidth}
+                        bpm={bpm}
+                        steps={steps}
+                        currentStep={currentStep}
+                        activeSteps={sequencerData[track.id] || []}
+                      />
+                    </div>
+                  </div>
+                )}
+                
                 <div className="flex mb-3">
                   <div className="w-56 flex-shrink-0 flex flex-col px-2 py-1">
                     <div className="flex items-center gap-2 h-6">
@@ -463,25 +482,6 @@ export function SequencerGrid({
                     )
                   })}
                 </div>
-                
-                {/* Waveform for tracks with custom samples */}
-                {track.audioUrl && track.audioUrl !== 'undefined' && (
-                  <div className="flex mb-2">
-                    <div className="w-56 flex-shrink-0"></div>
-                    <div className="flex-1">
-                      <TrackWaveform 
-                        audioUrl={track.audioUrl}
-                        trackColor={track.color}
-                        height={60}
-                        width={steps * stepWidth}
-                        bpm={bpm}
-                        steps={steps}
-                        currentStep={currentStep}
-                        activeSteps={sequencerData[track.id] || []}
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
           </div>
