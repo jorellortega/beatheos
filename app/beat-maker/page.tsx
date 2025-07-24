@@ -78,8 +78,11 @@ export default function BeatMakerPage() {
     { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
     { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
     { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
+    { id: 6, name: 'Kick', audioUrl: null, color: 'bg-orange-500' },
+    { id: 7, name: 'Snare', audioUrl: null, color: 'bg-pink-500' },
+    { id: 8, name: 'Hi-Hat', audioUrl: null, color: 'bg-indigo-500' },
   ])
-  const [isAutoMode, setIsAutoMode] = useState(true) // Auto mode is on by default when no template is loaded
+  const [isAutoMode, setIsAutoMode] = useState(false) // Auto mode is on by default when no template is loaded
   const [steps, setSteps] = useState(16)
   
   // Initialize sequencer with first step active for each track when in auto mode
@@ -3716,7 +3719,7 @@ export default function BeatMakerPage() {
       // Check what's in the audio_library_items table
       const { data: allFiles } = await supabase
         .from('audio_library_items')
-        .select('name, genre, subgenre, audio_type')
+        .select('name, genre, subgenre, audio_type, is_ready')
         .eq('user_id', user.id)
         .limit(50)
       
@@ -3728,6 +3731,29 @@ export default function BeatMakerPage() {
       
       console.log('[DEBUG] Genres in audio files:', audioGenres)
       console.log('[DEBUG] Subgenres in audio files:', audioSubgenres)
+      
+      // Check for kick files specifically
+      console.log('\n=== KICK FILES ANALYSIS ===')
+      const kickFiles = allFiles?.filter(f => f.audio_type === 'Kick') || []
+      console.log('[DEBUG] Kick files (audio_type="Kick"):', kickFiles)
+      console.log('[DEBUG] Kick files count:', kickFiles.length)
+      
+      const readyKickFiles = kickFiles.filter(f => f.is_ready)
+      console.log('[DEBUG] Ready kick files:', readyKickFiles)
+      console.log('[DEBUG] Ready kick files count:', readyKickFiles.length)
+      
+      // Check for files with "kick" in name
+      const kickNameFiles = allFiles?.filter(f => f.name?.toLowerCase().includes('kick')) || []
+      console.log('[DEBUG] Files with "kick" in name:', kickNameFiles)
+      console.log('[DEBUG] Files with "kick" in name count:', kickNameFiles.length)
+      
+      // Check ready check status
+      const readyFiles = allFiles?.filter(f => f.is_ready) || []
+      const notReadyFiles = allFiles?.filter(f => !f.is_ready) || []
+      console.log('[DEBUG] Ready files count:', readyFiles.length)
+      console.log('[DEBUG] Not ready files count:', notReadyFiles.length)
+      console.log('[DEBUG] Ready check enabled:', isReadyCheckEnabled)
+      console.log('[DEBUG] Shuffle tracker enabled:', isShuffleTrackerEnabled)
       
       // Check for Trap + LA specifically
       if (selectedGenre?.name === 'Trap' && selectedSubgenre === 'LA') {
@@ -3757,6 +3783,29 @@ export default function BeatMakerPage() {
   // Helper function to manage shuffle tracking
   const getShuffleAudioBatch = async (user: any, audioType: string) => {
     try {
+      // If shuffle tracker is disabled, get random files without tracking
+      if (!isShuffleTrackerEnabled) {
+        console.log(`[SHUFFLE TRACKER] Tracker disabled - getting random files for ${audioType}`)
+        
+        let query = supabase
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('audio_type', audioType)
+          .order('created_at', { ascending: false })
+          .limit(10)
+        
+        if (isReadyCheckEnabled) {
+          query = query.eq('is_ready', true)
+        }
+        
+        const { data: randomFiles } = await query
+        return randomFiles || []
+      }
+
+      // Shuffle tracker is enabled - use tracking logic
+      console.log(`[SHUFFLE TRACKER] Tracker enabled - using tracking for ${audioType}`)
+      
       // First, check if we need to reset the tracker (all sounds have been used)
       let totalAudioQuery = supabase
         .from('audio_library_items')
@@ -3867,23 +3916,26 @@ export default function BeatMakerPage() {
 
       // Handle track loading based on auto mode
       if (isAutoMode) {
-        // Auto mode ON: Load loop tracks
-        const defaultTrackNames = ['Melody Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', '808 Loop']
+        // Auto mode ON: Load loop tracks + drum tracks for comprehensive shuffling
+        const defaultTrackNames = ['Melody Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', '808 Loop', 'Kick', 'Snare', 'Hi-Hat']
         const currentTrackNames = tracks.map(t => t.name)
         
         // Check if any default tracks are missing
         const missingTracks = defaultTrackNames.filter(name => !currentTrackNames.includes(name))
         
         if (missingTracks.length > 0) {
-          console.log(`[AUTO MODE ON] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default loop tracks.`)
+          console.log(`[AUTO MODE ON] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default tracks with loops + drums.`)
           
-          // Reset to default loop tracks
+          // Reset to default tracks including both loops and drums
           const defaultTracks: Track[] = [
             { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
             { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
             { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
             { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
             { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
+            { id: 6, name: 'Kick', audioUrl: null, color: 'bg-orange-500' },
+            { id: 7, name: 'Snare', audioUrl: null, color: 'bg-pink-500' },
+            { id: 8, name: 'Hi-Hat', audioUrl: null, color: 'bg-indigo-500' },
           ]
           
           setTracks(defaultTracks)
@@ -5118,7 +5170,8 @@ export default function BeatMakerPage() {
   // Transport lock states
   const [isBpmLocked, setIsBpmLocked] = useState(false)
   const [isKeyLocked, setIsKeyLocked] = useState(false)
-  const [isReadyCheckEnabled, setIsReadyCheckEnabled] = useState(true)
+  const [isReadyCheckEnabled, setIsReadyCheckEnabled] = useState(false)
+  const [isShuffleTrackerEnabled, setIsShuffleTrackerEnabled] = useState(false)
   const [isReadyCheckLocked, setIsReadyCheckLocked] = useState(false)
   const [melodyLoopMode, setMelodyLoopMode] = useState<'transport-dominates' | 'melody-dominates'>('transport-dominates')
 
@@ -6736,11 +6789,26 @@ export default function BeatMakerPage() {
                   onClick={handleClearShuffleTracker}
                   variant="outline"
                   size="sm"
-                  className="bg-purple-600 text-white hover:bg-purple-700 border-purple-500"
-                  title="Clear shuffle tracker - reset which audio files have been used"
+                  disabled={!isShuffleTrackerEnabled}
+                  className={`${
+                    isShuffleTrackerEnabled 
+                      ? 'bg-purple-600 text-white hover:bg-purple-700 border-purple-500' 
+                      : 'bg-gray-600 text-gray-400 border-gray-500 opacity-50 cursor-not-allowed'
+                  }`}
+                  title={isShuffleTrackerEnabled ? "Clear shuffle tracker - reset which audio files have been used" : "Shuffle tracker is disabled"}
                 >
                   <RotateCcw className="w-4 h-4 mr-1" />
                   Clear Tracker
+                </Button>
+                <Button
+                  onClick={debugAudioLibraryData}
+                  variant="outline"
+                  size="sm"
+                  className="bg-gray-600 text-white hover:bg-gray-700 border-gray-500"
+                  title="Debug audio library data - check kick files and ready status"
+                >
+                  <Bug className="w-4 h-4 mr-1" />
+                  Debug
                 </Button>
               </div>
 
@@ -6912,6 +6980,37 @@ export default function BeatMakerPage() {
                       title="Only ready files will be loaded"
                     >
                       Ready Only
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              
+              {/* Shuffle Tracker Controls */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-white">
+                  Shuffle Tracker:
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={isShuffleTrackerEnabled ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setIsShuffleTrackerEnabled(!isShuffleTrackerEnabled)}
+                    className={`${
+                      isShuffleTrackerEnabled 
+                        ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={isShuffleTrackerEnabled ? "Shuffle Tracker is ON - tracks which files have been used to ensure variety" : "Shuffle Tracker is OFF - random selection without tracking"}
+                  >
+                    {isShuffleTrackerEnabled ? 'ON' : 'OFF'}
+                  </Button>
+                  {isShuffleTrackerEnabled && (
+                    <Badge 
+                      variant="secondary" 
+                      className="min-w-[60px] text-center bg-blue-400/20 border-blue-400 text-blue-300 text-xs"
+                      title="Tracks which files have been used to ensure variety"
+                    >
+                      Tracking
                     </Badge>
                   )}
                 </div>
