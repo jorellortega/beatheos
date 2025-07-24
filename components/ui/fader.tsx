@@ -114,7 +114,7 @@ export function Fader({
       {/* Fader Track with VU Meter */}
       <div className="absolute left-1/2 transform -translate-x-1/2 w-3 bg-gray-800 rounded-full h-full border border-gray-600">
         {/* VU Meter Background */}
-        <div className="absolute inset-0 bg-gradient-to-t from-green-500 via-yellow-500 to-red-500 rounded-full opacity-10"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-yellow-400 via-yellow-400 to-red-500 rounded-full opacity-10"></div>
         
         {/* VU Meter Level Bar */}
         {level > 0 && (
@@ -122,9 +122,9 @@ export function Fader({
             className="absolute bottom-0 left-0 right-0 rounded-full transition-all duration-75"
             style={{
               height: `${level * 100}%`,
-              background: level > 0.8 ? 'linear-gradient(to top, #ef4444, #f59e0b)' : 
-                         level > 0.6 ? 'linear-gradient(to top, #f59e0b, #22c55e)' : 
-                         'linear-gradient(to top, #22c55e, #22c55e)',
+              background: level > 0.8 ? 'linear-gradient(to top, #ef4444, #fbbf24)' : 
+                         level > 0.6 ? 'linear-gradient(to top, #fbbf24, #fbbf24)' : 
+                         'linear-gradient(to top, #fbbf24, #fbbf24)',
               opacity: 0.7
             }}
           />

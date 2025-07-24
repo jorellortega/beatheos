@@ -80,6 +80,32 @@ export function SequencerGrid({
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
   const [stepWidth, setStepWidth] = useState(48)
 
+  // Function to get track display name with icons
+  const getTrackDisplayName = (trackName: string) => {
+    if (trackName.includes(' Loop')) {
+      const baseName = trackName.replace(' Loop', '')
+      const loopIcon = '🔄'
+      
+      // Add specific icons for different loop types
+      if (baseName === 'Melody') return `${loopIcon} Melody`
+      if (baseName === 'Drum') return `${loopIcon} Drum`
+      if (baseName === 'Hihat') return `${loopIcon} Hihat`
+      if (baseName === 'Percussion') return `${loopIcon} Perc`
+      if (baseName === '808') return `${loopIcon} 808`
+      if (baseName === 'Bass') return `${loopIcon} Bass`
+      if (baseName === 'Piano') return `${loopIcon} Piano`
+      if (baseName === 'Guitar') return `${loopIcon} Guitar`
+      if (baseName === 'Synth') return `${loopIcon} Synth`
+      if (baseName === 'Vocal') return `${loopIcon} Vocal`
+      
+      // Default for other loop types
+      return `${loopIcon} ${baseName}`
+    }
+    
+    // For non-loop tracks, return the original name
+    return trackName
+  }
+
   const handleSavePattern = () => {
     if (!patternName.trim()) {
       alert('Please enter a pattern name')
@@ -380,7 +406,9 @@ export function SequencerGrid({
                           trackMuteStates?.[track.id] ? 'opacity-50 ring-2 ring-gray-400' : ''
                         }`}
                         onClick={() => onToggleTrackMute?.(track.id)}
-                        title={trackMuteStates?.[track.id] ? 'Click to unmute' : 'Click to mute'}
+                        title={
+                          trackMuteStates?.[track.id] ? 'Click to unmute' : 'Click to mute'
+                        }
                       ></div>
                       {track.name === 'MIDI' ? (
                         <Piano className="w-3 h-3 text-gray-300 mr-1" />
@@ -394,7 +422,7 @@ export function SequencerGrid({
                         onClick={() => toggleNameExpansion(track.id)}
                         title={expandedNames[track.id] ? 'Click to collapse' : 'Click to see full name'}
                       >
-                        {track.name}
+                        {getTrackDisplayName(track.name)}
                       </span>
                     </div>
                     
@@ -404,7 +432,7 @@ export function SequencerGrid({
                         size="sm"
                         onClick={() => onShuffleTrackPattern?.(track.id)}
                         className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
-                        title={`AI ${track.name} Pattern`}
+                        title={`AI ${getTrackDisplayName(track.name)} Pattern`}
                       >
                         <Brain className="w-3 h-3" />
                       </Button>
@@ -414,7 +442,7 @@ export function SequencerGrid({
                         size="sm"
                         onClick={() => onClearTrackPattern?.(track.id)}
                         className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                        title={`Reset ${track.name} Pattern`}
+                        title={`Reset ${getTrackDisplayName(track.name)} Pattern`}
                       >
                         <div className="w-3 h-3 flex items-center justify-center">
                           <div className="w-2 h-2 border border-current rounded-sm"></div>

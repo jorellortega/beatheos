@@ -1,4 +1,4 @@
--- Add additional metadata columns to audio_library_items for better audio file organization
+ -- Add additional metadata columns to audio_library_items for better audio file organization
 
 -- Instrument type for categorizing specific instruments
 ALTER TABLE audio_library_items 

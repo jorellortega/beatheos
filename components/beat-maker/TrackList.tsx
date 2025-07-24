@@ -266,6 +266,32 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   // Stock sound selector state
   const [showStockSoundSelector, setShowStockSoundSelector] = useState<{trackId: number | null}>({trackId: null})
 
+  // Function to get track display name with icons
+  const getTrackDisplayName = (trackName: string) => {
+    if (trackName.includes(' Loop')) {
+      const baseName = trackName.replace(' Loop', '')
+      const loopIcon = '🔄'
+      
+      // Add specific icons for different loop types
+      if (baseName === 'Melody') return `${loopIcon} Melody`
+      if (baseName === 'Drum') return `${loopIcon} Drum`
+      if (baseName === 'Hihat') return `${loopIcon} Hihat`
+      if (baseName === 'Percussion') return `${loopIcon} Perc`
+      if (baseName === '808') return `${loopIcon} 808`
+      if (baseName === 'Bass') return `${loopIcon} Bass`
+      if (baseName === 'Piano') return `${loopIcon} Piano`
+      if (baseName === 'Guitar') return `${loopIcon} Guitar`
+      if (baseName === 'Synth') return `${loopIcon} Synth`
+      if (baseName === 'Vocal') return `${loopIcon} Vocal`
+      
+      // Default for other loop types
+      return `${loopIcon} ${baseName}`
+    }
+    
+    // For non-loop tracks, return the original name
+    return trackName
+  }
+
   const handleDragStart = (e: React.DragEvent, track: Track) => {
     setDraggedTrack(track)
     e.dataTransfer.effectAllowed = 'move'
@@ -708,15 +734,15 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                       <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
                     )}
                     <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
-                    <span className="text-white font-medium">{track.name}</span>
+                    <span className="text-white font-medium">{getTrackDisplayName(track.name)}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     {sequencerData[track.id]?.[currentStep] ? (
                       <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
                     ) : track.mute ? (
-                      <VolumeX className="w-4 h-4 text-gray-400" />
+                      <div className="w-4 h-4 text-red-400 font-bold text-xs flex items-center justify-center">M</div>
                     ) : (
-                      <Volume2 className="w-4 h-4 text-green-400" />
+                      <div className="w-4 h-4 text-green-400 font-bold text-xs flex items-center justify-center">M</div>
                     )}
                   </div>
                 </div>
@@ -797,29 +823,36 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                           </Badge>
                         )}
                         {track.key && (
-                          <Badge 
-                            variant="outline" 
-                            className={`text-xs cursor-pointer transition-colors ${
-                              draggedKey === track.key && draggedKeyTrackId === track.id
-                                ? 'bg-blue-600 text-white shadow-lg scale-110'
-                                : 'hover:bg-gray-600'
-                            }`}
-                            onClick={() => onSetTransportKey?.(track.key!)}
-                            onMouseDown={(e) => {
-                              // Start drag operation for key transfer
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setDraggedKey(track.key!)
-                              setDraggedKeyTrackId(track.id)
-                              setDragLinePosition({ x: e.clientX, y: e.clientY })
-                            }}
-                            title={`Click to set transport key to ${track.key}. Click and drag to copy key to another track.`}
-                          >
-                            {track.key}
-                          </Badge>
+                          <div className="relative">
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs cursor-pointer transition-colors ${
+                                draggedKey === track.key && draggedKeyTrackId === track.id
+                                  ? 'bg-blue-600 text-white shadow-lg scale-110'
+                                  : 'hover:bg-gray-600'
+                              }`}
+                              onClick={() => onSetTransportKey?.(track.key!)}
+                              onMouseDown={(e) => {
+                                // Start drag operation for key transfer
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setDraggedKey(track.key!)
+                                setDraggedKeyTrackId(track.id)
+                                setDragLinePosition({ x: e.clientX, y: e.clientY })
+                              }}
+                              title={`Click to set transport key to ${track.key}. Click and drag to copy key to another track.${track.isRelativeKey ? ' (Relative key)' : ''}`}
+                            >
+                              {track.key}
+                            </Badge>
+                            {track.isRelativeKey && (
+                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 text-black text-[8px] font-bold rounded-full flex items-center justify-center border border-gray-800">
+                                R
+                              </div>
+                            )}
+                          </div>
                         )}
                         {track.audio_type && (
-                          <Badge variant="outline" className="text-xs">{track.audio_type}</Badge>
+                          <Badge variant="outline" className="text-xs">{getTrackDisplayName(track.audio_type)}</Badge>
                         )}
                         {track.tags && track.tags.length > 0 && (
                           <div className="flex items-center gap-1">
@@ -885,14 +918,14 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                             variant="ghost"
                             size="sm"
                             onClick={() => onToggleTrackMute(track.id)}
-                            className={`text-xs transition-colors ${
+                            className={`text-xs transition-colors font-bold ${
                               track.mute 
                                 ? 'text-red-400 hover:text-red-300 hover:bg-red-900/20' 
                                 : 'text-gray-400 hover:text-gray-300 hover:bg-gray-900/20'
                             }`}
                             title={track.mute ? 'Unmute track' : 'Mute track'}
                           >
-                            {track.mute ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                            M
                           </Button>
                         )}
                         {/* Shuffle button - show for all track types that support shuffle */}
@@ -907,13 +940,13 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                           'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
                           // Effects & Technical
                           'FX', 'Vocal', 'Sample', 'MIDI', 'Patch', 'Preset'
-                        ].includes(track.name) && (
+                        ].some(trackType => track.name.includes(trackType)) && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => onShuffleAudio(track.id)}
                             className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
-                            title={`AI ${track.name} samples`}
+                            title={`AI ${getTrackDisplayName(track.name)} samples`}
                           >
                             <Brain className="w-3 h-3" />
                           </Button>
@@ -961,7 +994,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                             size="sm"
                             onClick={() => onDuplicateWithShuffle(track.id)}
                             className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
-                            title={`Duplicate ${track.name} with shuffle (same key, different audio)`}
+                            title={`Duplicate ${getTrackDisplayName(track.name)} with shuffle (same key, different audio)`}
                           >
                             <Copy className="w-3 h-3" />
                           </Button>
@@ -974,7 +1007,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                             size="sm"
                             onClick={() => onDuplicateTrackEmpty(track.id)}
                             className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
-                            title={`Duplicate ${track.name} as empty track`}
+                            title={`Duplicate ${getTrackDisplayName(track.name)} as empty track`}
                           >
                             D
                           </Button>

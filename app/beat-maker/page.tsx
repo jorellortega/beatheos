@@ -75,6 +75,8 @@ export default function BeatMakerPage() {
   
   const [tracks, setTracks] = useState<Track[]>([])
   const [isAutoMode, setIsAutoMode] = useState(false) // Auto mode is on by default when no template is loaded
+  const [isBpmToleranceEnabled, setIsBpmToleranceEnabled] = useState(false) // ±10 BPM tolerance rule
+  const [timeStretchMode, setTimeStretchMode] = useState<'resampling' | 'flex-time'>('resampling') // RM vs FT mode
   const [steps, setSteps] = useState(64)
   
   // Initialize sequencer with first step active for each track when in auto mode
@@ -452,7 +454,33 @@ export default function BeatMakerPage() {
     setCurrentSequencerPatterns(prev => prev.filter(p => p.id !== patternId))
   }
   
-  // Function to get just the track type name (first word)
+  // Function to get track display name with icons
+  const getTrackDisplayName = (trackName: string) => {
+    if (trackName.includes(' Loop')) {
+      const baseName = trackName.replace(' Loop', '')
+      const loopIcon = '🔄'
+      
+      // Add specific icons for different loop types
+      if (baseName === 'Melody') return `${loopIcon} Melody`
+      if (baseName === 'Drum') return `${loopIcon} Drum`
+      if (baseName === 'Hihat') return `${loopIcon} Hihat`
+      if (baseName === 'Percussion') return `${loopIcon} Perc`
+      if (baseName === '808') return `${loopIcon} 808`
+      if (baseName === 'Bass') return `${loopIcon} Bass`
+      if (baseName === 'Piano') return `${loopIcon} Piano`
+      if (baseName === 'Guitar') return `${loopIcon} Guitar`
+      if (baseName === 'Synth') return `${loopIcon} Synth`
+      if (baseName === 'Vocal') return `${loopIcon} Vocal`
+      
+      // Default for other loop types
+      return `${loopIcon} ${baseName}`
+    }
+    
+    // For non-loop tracks, return the original name
+    return trackName
+  }
+
+  // Function to get just the track type name (first word) - for backward compatibility
   const getTrackTypeName = (trackName: string) => {
     // Handle common track name patterns
     if (trackName.toLowerCase().includes('hi-hat') || trackName.toLowerCase().includes('hihat')) {
@@ -1885,6 +1913,99 @@ export default function BeatMakerPage() {
         }
       }
     }
+
+    // Apply solo changes to audio players in real-time
+    if (setting === 'solo') {
+      // Use setTimeout to ensure the state is updated before applying solo logic
+      setTimeout(() => {
+        // Get all tracks that are currently soloed using the updated state
+        const currentMixerSettings = mixerSettings
+        const soloedTracks = Object.entries(currentMixerSettings)
+          .filter(([id, settings]) => settings.solo)
+          .map(([id]) => parseInt(id))
+        
+        console.log(`[MIXER] Solo state changed for track ${trackId}, value: ${value}`)
+        console.log(`[MIXER] Current soloed tracks:`, soloedTracks)
+        
+        // If this track is being soloed, mute all other tracks
+        if (value) {
+          console.log(`[MIXER] Solo enabled for track ${trackId}`)
+          
+          // Mute all tracks except the soloed one
+          tracks.forEach(track => {
+            if (track.id !== trackId) {
+              // Update sequencer players
+              if (samplesRef?.current?.[track.id]) {
+                const player = samplesRef.current[track.id]
+                if (player && player.volume) {
+                  player.volume.value = -Infinity
+                  console.log(`[MIXER] Muted track ${track.id} due to solo on track ${trackId}`)
+                }
+              }
+              
+              // Update song arrangement players
+              if (songPlaybackRef.current?.players?.[track.id]) {
+                const player = songPlaybackRef.current.players[track.id]
+                if (player && player.volume) {
+                  player.volume.value = -Infinity
+                  console.log(`[MIXER] Muted song track ${track.id} due to solo on track ${trackId}`)
+                }
+              }
+            }
+          })
+          
+          // Restore volume for the soloed track
+          const trackSettings = currentMixerSettings[trackId]
+          if (trackSettings) {
+            const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
+            
+            if (samplesRef?.current?.[trackId]) {
+              const player = samplesRef.current[trackId]
+              if (player && player.volume) {
+                player.volume.value = volumeDb
+                console.log(`[MIXER] Restored volume for soloed track ${trackId}: ${trackSettings.volume}`)
+              }
+            }
+            
+            if (songPlaybackRef.current?.players?.[trackId]) {
+              const player = songPlaybackRef.current.players[trackId]
+              if (player && player.volume) {
+                player.volume.value = volumeDb
+                console.log(`[MIXER] Restored volume for soloed song track ${trackId}: ${trackSettings.volume}`)
+              }
+            }
+          }
+        } else {
+          // Solo disabled - restore all tracks to their original state
+          console.log(`[MIXER] Solo disabled for track ${trackId}`)
+          
+          tracks.forEach(track => {
+            const trackSettings = currentMixerSettings[track.id]
+            if (trackSettings && !trackSettings.mute) {
+              const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
+              
+              // Update sequencer players
+              if (samplesRef?.current?.[track.id]) {
+                const player = samplesRef.current[track.id]
+                if (player && player.volume) {
+                  player.volume.value = volumeDb
+                  console.log(`[MIXER] Restored volume for track ${track.id}: ${trackSettings.volume}`)
+                }
+              }
+              
+              // Update song arrangement players
+              if (songPlaybackRef.current?.players?.[track.id]) {
+                const player = songPlaybackRef.current.players[track.id]
+                if (player && player.volume) {
+                  player.volume.value = volumeDb
+                  console.log(`[MIXER] Restored volume for song track ${track.id}: ${trackSettings.volume}`)
+                }
+              }
+            }
+          })
+        }
+      }, 0)
+    }
   }
 
 
@@ -1985,12 +2106,12 @@ export default function BeatMakerPage() {
             const isActive = level >= segmentLevel
             const isPeak = peak >= segmentLevel
             
-            // Color coding: green (0-60%), yellow (60-85%), red (85-100%)
+            // Color coding: yellow (0-60%), yellow (60-85%), red (85-100%)
             let color = 'bg-gray-800'
             if (isActive || isPeak) {
               if (segmentLevel > 0.85) color = 'bg-red-500'
               else if (segmentLevel > 0.6) color = 'bg-yellow-500'
-              else color = 'bg-green-500'
+              else color = 'bg-yellow-500'
             }
             
             // Peak indicator styling
@@ -2495,8 +2616,8 @@ export default function BeatMakerPage() {
     setEditingBpm(true)
   }
 
-  const handleBpmSave = () => {
-    const newBpm = parseFloat(bpmInputValue)
+  // Function to handle BPM changes (used by both text input and slider)
+  const handleBpmChange = (newBpm: number) => {
     if (newBpm >= 60 && newBpm <= 200) {
       setBpm(newBpm)
       
@@ -2523,35 +2644,61 @@ export default function BeatMakerPage() {
         }, 100)
       }
       
-      // Synchronize all tracks when transport BPM changes
+      // Synchronize loop tracks when transport BPM changes
       // BUT respect M-T/T-M mode - only sync tracks in T-M mode
+      console.log(`[TRANSPORT BPM] Current melody loop mode: ${melodyLoopMode}`)
+      console.log(`[TRANSPORT BPM] Available tracks:`, tracks.map(t => ({ id: t.id, name: t.name, hasAudio: !!t.audioUrl, originalBpm: t.originalBpm })))
+      
       if (melodyLoopMode === 'transport-dominates') {
-        console.log(`[TRANSPORT BPM] T-M mode: Syncing all tracks to new BPM: ${newBpm}`)
+        console.log(`[TRANSPORT BPM] T-M mode: Syncing loop tracks to new BPM: ${newBpm}`)
+        let updatedTracks = 0
+        
         tracks.forEach(track => {
-          if (track.audioUrl && track.originalBpm) {
+          // Only update loop tracks (tracks with "Loop" in their name)
+          if (track.audioUrl && track.originalBpm && track.name.toLowerCase().includes('loop')) {
+            console.log(`[TRANSPORT BPM] Updating loop track: ${track.name} (ID: ${track.id})`)
+            console.log(`[TRANSPORT BPM] Original BPM: ${track.originalBpm}, New BPM: ${newBpm}`)
+            
             // Recalculate playback rate for this track
             const newPlaybackRate = newBpm / track.originalBpm
             const precisePlaybackRate = Math.round(newPlaybackRate * 10000) / 10000
             
-            // Update track state
+            console.log(`[TRANSPORT BPM] New playback rate: ${precisePlaybackRate}`)
+            console.log(`[TRANSPORT BPM] Time stretch mode: ${timeStretchMode}`)
+            console.log(`[TRANSPORT BPM] ${timeStretchMode === 'resampling' ? 'RM: Changing pitch & speed' : 'FT: Changing speed only, keeping original pitch'}`)
+            
+            // Update track state based on time stretch mode
             setTracks(prev => prev.map(t => 
               t.id === track.id ? { 
                 ...t, 
                 currentBpm: newBpm,
-                playbackRate: precisePlaybackRate
+                playbackRate: precisePlaybackRate,
+                // In flex-time mode, keep pitch shift at 0 to maintain original pitch
+                // In resampling mode, pitch shift will be calculated based on playback rate
+                pitchShift: timeStretchMode === 'flex-time' ? 0 : t.pitchShift
               } : t
             ))
             
+            updatedTracks++
+            
             // Force reload with new playback rate
             setTimeout(() => {
+              console.log(`[TRANSPORT BPM] Force reloading track ${track.id}`)
               forceReloadTrackSamples(track.id)
             }, 50 * track.id) // Stagger reloads to prevent conflicts
           }
         })
+        
+        console.log(`[TRANSPORT BPM] Updated ${updatedTracks} loop tracks`)
       } else {
         console.log(`[TRANSPORT BPM] M-T mode: Skipping track sync - Melody Loop controls transport`)
       }
     }
+  }
+
+  const handleBpmSave = () => {
+    const newBpm = parseFloat(bpmInputValue)
+    handleBpmChange(newBpm)
     setEditingBpm(false)
   }
 
@@ -2576,6 +2723,52 @@ export default function BeatMakerPage() {
   const handlePositionCancel = () => {
     setEditingPosition(false)
     setPositionInputValue('')
+  }
+
+  // Reset all audio samples - useful when tracks don't play properly
+  const handleResetAllAudio = async () => {
+    console.log('[AUDIO RESET] Starting reset of all track samples...')
+    
+    // Stop any current playback
+    if (songPlayback.isPlaying) {
+      setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+      if (songPlaybackRef.current.sequence) {
+        songPlaybackRef.current.sequence.stop()
+        songPlaybackRef.current.sequence.dispose()
+        songPlaybackRef.current.sequence = null
+      }
+    }
+    
+    // Reset transport position
+    setCurrentStep(0)
+    
+    // Force reload all tracks with audio
+    const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
+    console.log(`[AUDIO RESET] Found ${tracksWithAudio.length} tracks with audio to reset`)
+    
+    for (let i = 0; i < tracksWithAudio.length; i++) {
+      const track = tracksWithAudio[i]
+      console.log(`[AUDIO RESET] Reloading track ${track.id}: ${track.name}`)
+      
+      // Stagger the reloads to prevent conflicts
+      setTimeout(async () => {
+        try {
+          await forceReloadTrackSamples(track.id)
+          console.log(`[AUDIO RESET] Successfully reloaded track ${track.id}`)
+        } catch (error) {
+          console.error(`[AUDIO RESET] Error reloading track ${track.id}:`, error)
+        }
+      }, i * 100) // 100ms delay between each track
+    }
+    
+    // Reset Tone.js Transport
+    import('tone').then(Tone => {
+      Tone.Transport.stop()
+      Tone.Transport.position = 0
+      console.log('[AUDIO RESET] Tone.js Transport reset')
+    }).catch(console.warn)
+    
+    console.log('[AUDIO RESET] Audio reset complete')
   }
 
   const handleTransportKeyEdit = () => {
@@ -2661,7 +2854,13 @@ export default function BeatMakerPage() {
         query = query.eq('audio_type', originalTrack.audio_type)
       }
       
-      if (originalTrack.key) {
+      // Add key filtering with relative keys if we're in T-M mode
+      if (originalTrack.key && melodyLoopMode === 'transport-dominates') {
+        const relativeKeys = getRelativeKeys(originalTrack.key)
+        console.log(`[DUPLICATE KEY FILTER] Filtering by relative keys: ${relativeKeys.join(', ')}`)
+        query = query.in('key', relativeKeys)
+      } else if (originalTrack.key) {
+        // Fallback to exact key match if not in T-M mode
         query = query.eq('key', originalTrack.key)
       }
       
@@ -2687,7 +2886,7 @@ export default function BeatMakerPage() {
       // Apply tempo tolerance filtering to prevent excessive time-stretching
       let filteredAudio = shuffledAudio || []
       if (filteredAudio.length > 0) {
-        const tempoTolerance = 5 // ±5 BPM tolerance
+        const tempoTolerance = 10 // ±10 BPM tolerance
         const transportTempo = bpm
         
         console.log(`[DUPLICATE TEMPO FILTER] Transport tempo: ${transportTempo} BPM, tolerance: ±${tempoTolerance} BPM`)
@@ -2827,7 +3026,7 @@ export default function BeatMakerPage() {
       const duplicateTrack: Track = {
         ...originalTrack,
         id: newTrackId,
-        name: `${originalTrack.name} (Shuffle)`,
+        name: `${originalTrack.name} 🔄`,
         audioUrl: randomAudio.file_url,
         audioName: randomAudio.name,
         bpm: randomAudio.bpm,
@@ -2841,6 +3040,19 @@ export default function BeatMakerPage() {
 
     // Add the duplicate track
     setTracks(prev => [...prev, duplicateTrack])
+    
+    // Check if this is a Loop track and automatically activate the first step
+    const isLoopTrack = duplicateTrack.name.toLowerCase().includes('loop')
+    if (isLoopTrack) {
+      // Initialize sequencer data for the new loop track with first step active
+      const stepPattern = new Array(steps).fill(false)
+      stepPattern[0] = true // Activate first step
+      setSequencerDataFromSession(prev => ({
+        ...prev,
+        [newTrackId]: stepPattern
+      }))
+      console.log(`[LOOP TRACK] Auto-activated first step for duplicated ${duplicateTrack.name} track`)
+    }
     
     console.log(`Duplicated track ${originalTrack.name} with shuffled audio: ${randomAudio.name}`)
   }
@@ -2993,8 +3205,9 @@ export default function BeatMakerPage() {
       // Use the same shuffle tracking system as "shuffle all" for consistency
       console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
       
-      // Get batch of audio files using the tracking system
-      const audioFiles = await getShuffleAudioBatch(user, audioType)
+      // Get batch of audio files using the tracking system with key filtering and BPM filtering
+      // Apply BPM filtering only when BPM tolerance is enabled
+      const audioFiles = await getShuffleAudioBatch(user, audioType, transportKey, selectedGenre, selectedSubgenre, bpm, isBpmToleranceEnabled)
 
       if (!audioFiles || audioFiles.length === 0) {
         console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
@@ -3155,6 +3368,9 @@ export default function BeatMakerPage() {
         console.log(`[NORMAL] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
       }
       
+      // Check if this is a relative key (not exact match with transport key)
+      const isRelativeKey = transportKey && selectedAudio.key && selectedAudio.key !== transportKey
+      
       setTracks(prev => prev.map(t => 
         t.id === trackId ? { 
           ...t, 
@@ -3172,7 +3388,9 @@ export default function BeatMakerPage() {
           bpm: selectedAudio.bpm,
           key: selectedAudio.key,
           audio_type: selectedAudio.audio_type,
-          tags: selectedAudio.tags
+          tags: selectedAudio.tags,
+          // Store relative key indicator
+          isRelativeKey: isRelativeKey
         } : t
       ))
 
@@ -3532,8 +3750,66 @@ export default function BeatMakerPage() {
     }
   }
 
-  // Helper function to manage shuffle tracking
-  const getShuffleAudioBatch = async (user: any, audioType: string) => {
+  // Helper function to get relative keys for a given key
+  const getRelativeKeys = (key: string): string[] => {
+    const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    
+    // Parse the key to get the root note and whether it's minor
+    const isMinor = key.toLowerCase().includes('m') || key.toLowerCase().includes('minor')
+    const rootNote = key.replace(/[mM]|inor?/g, '').trim()
+    
+    const rootIndex = chromaticScale.indexOf(rootNote)
+    if (rootIndex === -1) {
+      console.warn(`[KEY FILTER] Unknown root note: ${rootNote}`)
+      return [key] // Return original key if we can't parse it
+    }
+    
+    const relativeKeys: string[] = [key] // Always include the original key
+    
+    if (isMinor) {
+      // For minor keys, add relative major (3 semitones up)
+      const relativeMajorIndex = (rootIndex + 3) % 12
+      const relativeMajor = chromaticScale[relativeMajorIndex]
+      relativeKeys.push(relativeMajor)
+      
+      // Add parallel major (same root note, major)
+      relativeKeys.push(rootNote)
+      
+      // Add dominant (7 semitones up from minor root)
+      const dominantIndex = (rootIndex + 7) % 12
+      const dominant = chromaticScale[dominantIndex]
+      relativeKeys.push(dominant)
+      
+      // Add subdominant (5 semitones up from minor root)
+      const subdominantIndex = (rootIndex + 5) % 12
+      const subdominant = chromaticScale[subdominantIndex]
+      relativeKeys.push(subdominant)
+    } else {
+      // For major keys, add relative minor (3 semitones down)
+      const relativeMinorIndex = (rootIndex - 3 + 12) % 12
+      const relativeMinor = chromaticScale[relativeMinorIndex] + 'm'
+      relativeKeys.push(relativeMinor)
+      
+      // Add parallel minor (same root note, minor)
+      relativeKeys.push(rootNote + 'm')
+      
+      // Add dominant (7 semitones up from major root)
+      const dominantIndex = (rootIndex + 7) % 12
+      const dominant = chromaticScale[dominantIndex]
+      relativeKeys.push(dominant)
+      
+      // Add subdominant (5 semitones up from major root)
+      const subdominantIndex = (rootIndex + 5) % 12
+      const subdominant = chromaticScale[subdominantIndex]
+      relativeKeys.push(subdominant)
+    }
+    
+    console.log(`[KEY FILTER] Relative keys for ${key}:`, relativeKeys)
+    return relativeKeys
+  }
+
+  // Helper function to manage shuffle tracking with key filtering
+  const getShuffleAudioBatch = async (user: any, audioType: string, transportKey?: string, selectedGenre?: any, selectedSubgenre?: string, transportBpm?: number, applyBpmFilter?: boolean) => {
     try {
       // If shuffle tracker is disabled, get random files from entire table without tracking
       if (!isShuffleTrackerEnabled) {
@@ -3549,21 +3825,106 @@ export default function BeatMakerPage() {
           query = query.eq('is_ready', true)
         }
         
+        // Add genre filtering if genre is selected
+        if (selectedGenre && selectedGenre.name && selectedGenre.name !== 'none') {
+          query = query.eq('genre', selectedGenre.name)
+          console.log(`[GENRE FILTER] Filtering by genre: ${selectedGenre.name}`)
+          
+          // Add subgenre filtering if subgenre is selected
+          if (selectedSubgenre && selectedSubgenre !== 'none') {
+            query = query.eq('subgenre', selectedSubgenre)
+            console.log(`[SUBGENRE FILTER] Filtering by subgenre: ${selectedSubgenre}`)
+          }
+        }
+        
+        // Add BPM filtering if transport BPM is provided and BPM filter is enabled (auto mode shuffle all)
+        if (applyBpmFilter && transportBpm) {
+          const bpmTolerance = 10 // ±10 BPM tolerance
+          const minBpm = transportBpm - bpmTolerance
+          const maxBpm = transportBpm + bpmTolerance
+          
+          console.log(`[BPM FILTER] Filtering by BPM range: ${minBpm}-${maxBpm} (transport: ${transportBpm} ±${bpmTolerance})`)
+          
+          // Filter by BPM range
+          query = query.gte('bpm', minBpm).lte('bpm', maxBpm)
+        }
+        
+        // Add key filtering if transport key is provided and we're in T-M mode
+        if (transportKey && melodyLoopMode === 'transport-dominates') {
+          const relativeKeys = getRelativeKeys(transportKey)
+          console.log(`[KEY FILTER] Filtering by keys: ${relativeKeys.join(', ')}`)
+          
+          // Filter by key column first
+          query = query.in('key', relativeKeys)
+          
+          // If no results from key column, try key_signature column as fallback
+          const { data: keyFilteredFiles } = await query
+          if (!keyFilteredFiles || keyFilteredFiles.length === 0) {
+            console.log(`[KEY FILTER] No files found with key column, trying key_signature fallback`)
+            
+            // Reset query and try key_signature
+            query = supabase
+              .from('audio_library_items')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('audio_type', audioType)
+            
+            if (isReadyCheckEnabled) {
+              query = query.eq('is_ready', true)
+            }
+            
+            // Add genre filtering to fallback query
+            if (selectedGenre && selectedGenre.name && selectedGenre.name !== 'none') {
+              query = query.eq('genre', selectedGenre.name)
+              
+              if (selectedSubgenre && selectedSubgenre !== 'none') {
+                query = query.eq('subgenre', selectedSubgenre)
+              }
+            }
+            
+            // Add BPM filtering to fallback query
+            if (applyBpmFilter && transportBpm) {
+              const bpmTolerance = 10
+              const minBpm = transportBpm - bpmTolerance
+              const maxBpm = transportBpm + bpmTolerance
+              query = query.gte('bpm', minBpm).lte('bpm', maxBpm)
+            }
+            
+            // Map keys to key_signature format
+            const keySignatureFilters = relativeKeys.map(key => {
+              const isMinor = key.toLowerCase().includes('m') || key.toLowerCase().includes('minor')
+              const rootNote = key.replace(/[mM]|inor?/g, '').trim()
+              return isMinor ? `${rootNote} minor` : `${rootNote} major`
+            })
+            
+            query = query.in('key_signature', keySignatureFilters)
+            console.log(`[KEY FILTER] Trying key_signature filters: ${keySignatureFilters.join(', ')}`)
+          }
+        }
+        
         const { data: allFiles } = await query
         
         if (!allFiles || allFiles.length === 0) {
+          console.log(`[KEY FILTER] No files found with key filtering for ${audioType}`)
           return []
         }
         
-        // Shuffle the entire array and return first 10
+        // Shuffle the entire array and apply limitation based on toggle
         const shuffledFiles = allFiles.sort(() => Math.random() - 0.5)
-        const randomFiles = shuffledFiles.slice(0, 10)
         
-        console.log(`[SHUFFLE TRACKER] Found ${allFiles.length} total files, returning ${randomFiles.length} random files`)
-        return randomFiles
+        if (isShuffleLimitEnabled) {
+          // Apply 10 file limitation when enabled
+          const limitedFiles = shuffledFiles.slice(0, 10)
+          console.log(`[SHUFFLE LIMIT] Limit enabled - Found ${allFiles.length} total files, returning ${limitedFiles.length} limited files`)
+          return limitedFiles
+        } else {
+          // No limitation when disabled
+          console.log(`[SHUFFLE LIMIT] Limit disabled - Found ${allFiles.length} total files, returning all shuffled files`)
+          return shuffledFiles
+        }
       }
 
-      // Shuffle tracker is enabled - use tracking logic
+      // Shuffle tracker is enabled - use tracking logic with key filtering
       console.log(`[SHUFFLE TRACKER] Tracker enabled - using tracking for ${audioType}`)
       
       // First, check if we need to reset the tracker (all sounds have been used)
@@ -3575,6 +3936,22 @@ export default function BeatMakerPage() {
       if (isReadyCheckEnabled) {
         totalAudioQuery = totalAudioQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
       }
+      
+      // Add genre filtering to total count query
+      if (selectedGenre && selectedGenre.name && selectedGenre.name !== 'none') {
+        totalAudioQuery = totalAudioQuery.eq('genre', selectedGenre.name)
+        
+        if (selectedSubgenre && selectedSubgenre !== 'none') {
+          totalAudioQuery = totalAudioQuery.eq('subgenre', selectedSubgenre)
+        }
+      }
+      
+      // Add key filtering to total count query
+      if (transportKey && melodyLoopMode === 'transport-dominates') {
+        const relativeKeys = getRelativeKeys(transportKey)
+        totalAudioQuery = totalAudioQuery.in('key', relativeKeys)
+      }
+      
       const { data: totalAudioFiles } = await totalAudioQuery
 
       const { data: trackedFiles } = await supabase
@@ -3594,8 +3971,11 @@ export default function BeatMakerPage() {
           .eq('user_id', user.id)
       }
 
-      // Get 10 audio files that haven't been loaded yet
-      // 5 from the top (oldest) and 5 from the bottom (newest) of created_at order
+      // Get audio files that haven't been loaded yet
+      // When limit is enabled: 5 from the top (oldest) and 5 from the bottom (newest) of created_at order
+      // When limit is disabled: Get all available files
+      const limitCount = isShuffleLimitEnabled ? 5 : 1000 // Large number when limit disabled
+      
       let topFilesQuery = supabase
         .from('audio_library_items')
         .select('*')
@@ -3603,10 +3983,25 @@ export default function BeatMakerPage() {
         .eq('audio_type', audioType)
         .not('id', 'in', `(${trackedFiles?.map(t => t.audio_id).join(',') || '00000000-0000-0000-0000-000000000000'})`)
         .order('created_at', { ascending: true })
-        .limit(5)
+        .limit(isShuffleLimitEnabled ? limitCount : 1000)
       if (isReadyCheckEnabled) {
         topFilesQuery = topFilesQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
       }
+      
+      // Add key filtering to top files query
+      if (transportKey && melodyLoopMode === 'transport-dominates') {
+        const relativeKeys = getRelativeKeys(transportKey)
+        topFilesQuery = topFilesQuery.in('key', relativeKeys)
+      }
+      
+      // Add BPM filtering to top files query
+      if (applyBpmFilter && transportBpm) {
+        const bpmTolerance = 10
+        const minBpm = transportBpm - bpmTolerance
+        const maxBpm = transportBpm + bpmTolerance
+        topFilesQuery = topFilesQuery.gte('bpm', minBpm).lte('bpm', maxBpm)
+      }
+      
       const { data: topFiles } = await topFilesQuery
 
       let bottomFilesQuery = supabase
@@ -3616,10 +4011,25 @@ export default function BeatMakerPage() {
         .eq('audio_type', audioType)
         .not('id', 'in', `(${trackedFiles?.map(t => t.audio_id).join(',') || '00000000-0000-0000-0000-000000000000'})`)
         .order('created_at', { ascending: false })
-        .limit(5)
+        .limit(isShuffleLimitEnabled ? limitCount : 1000)
       if (isReadyCheckEnabled) {
         bottomFilesQuery = bottomFilesQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
       }
+      
+      // Add key filtering to bottom files query
+      if (transportKey && melodyLoopMode === 'transport-dominates') {
+        const relativeKeys = getRelativeKeys(transportKey)
+        bottomFilesQuery = bottomFilesQuery.in('key', relativeKeys)
+      }
+      
+      // Add BPM filtering to bottom files query
+      if (applyBpmFilter && transportBpm) {
+        const bpmTolerance = 10
+        const minBpm = transportBpm - bpmTolerance
+        const maxBpm = transportBpm + bpmTolerance
+        bottomFilesQuery = bottomFilesQuery.gte('bpm', minBpm).lte('bpm', maxBpm)
+      }
+      
       const { data: bottomFiles } = await bottomFilesQuery
 
       // Combine and remove duplicates
@@ -3676,26 +4086,23 @@ export default function BeatMakerPage() {
 
       // Handle track loading based on auto mode
       if (isAutoMode) {
-        // Auto mode ON: Load loop tracks + drum tracks for comprehensive shuffling
-        const defaultTrackNames = ['Melody Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', '808 Loop', 'Kick', 'Snare', 'Hi-Hat']
+        // Auto mode ON: Load only loop tracks (not drum tracks)
+        const defaultTrackNames = ['Melody Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', '808 Loop']
         const currentTrackNames = tracks.map(t => t.name)
         
         // Check if any default tracks are missing
         const missingTracks = defaultTrackNames.filter(name => !currentTrackNames.includes(name))
         
         if (missingTracks.length > 0) {
-          console.log(`[AUTO MODE ON] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default tracks with loops + drums.`)
+          console.log(`[AUTO MODE ON] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default loop tracks only.`)
           
-          // Reset to default tracks including both loops and drums
+          // Reset to default tracks - only loop tracks (no drum tracks)
           const defaultTracks: Track[] = [
             { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
             { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
             { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
             { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
             { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
-            { id: 6, name: 'Kick', audioUrl: null, color: 'bg-orange-500' },
-            { id: 7, name: 'Snare', audioUrl: null, color: 'bg-pink-500' },
-            { id: 8, name: 'Hi-Hat', audioUrl: null, color: 'bg-indigo-500' },
           ]
           
           setTracks(defaultTracks)
@@ -3797,7 +4204,7 @@ export default function BeatMakerPage() {
         // Melodic
         'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
         // Loops
-        'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+        'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
         // Effects & Technical
         'FX', 'Vocal', 'Sample', 'MIDI', 'Patch', 'Preset'
       ].includes(track.name) && !track.locked)
@@ -3832,6 +4239,8 @@ export default function BeatMakerPage() {
         'Piano Loop': 'Piano Loop',
         '808 Loop': '808 Loop',
         'Drum Loop': 'Drum Loop',
+        'Hihat Loop': 'Hihat Loop',
+        'Percussion Loop': 'Percussion Loop',
         'Bass Loop': 'Bass Loop',
         'Vocal Loop': 'Vocal Loop',
         'Guitar Loop': 'Guitar Loop',
@@ -3864,8 +4273,13 @@ export default function BeatMakerPage() {
 
           console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
           
-          // Get batch of audio files using the tracking system
-          const audioFiles = await getShuffleAudioBatch(user, audioType)
+          // Check if this track should be filtered by key (skip drum-related loops)
+          const shouldFilterByKey = !['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
+          const keyToUse = shouldFilterByKey ? transportKey : undefined
+          
+          // Get batch of audio files using the tracking system with conditional key filtering and BPM filtering
+          // Apply BPM filtering only when BPM tolerance is enabled
+          const audioFiles = await getShuffleAudioBatch(user, audioType, keyToUse, selectedGenre, selectedSubgenre, bpm, isBpmToleranceEnabled)
           
           if (audioFiles.length === 0) {
             console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
@@ -3884,6 +4298,11 @@ export default function BeatMakerPage() {
           let finalKey = selectedAudio.key || 'C'
           let pitchShift = 0
           let playbackRate = 1.0
+          
+          // Check if this is a relative key (not exact match with transport key)
+          // Only mark as relative key if it's not a drum-related loop
+          const isDrumLoop = ['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
+          const isRelativeKey = !isDrumLoop && transportKey && selectedAudio.key && selectedAudio.key !== transportKey
           
           // Check if this is a drum track (should not be pitch-shifted)
           const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
@@ -3967,27 +4386,35 @@ export default function BeatMakerPage() {
             }
           } else if (track.name.includes(' Loop')) {
             // Transport not locked - handle other loop tracks (Drum Loop, Hihat Loop, Percussion Loop, 808 Loop, etc.)
-            // These should adapt to transport tempo and key like Melody Loop in transport-dominates mode
-            finalBpm = bpm
-            finalKey = transportKey
-            
-            // Calculate playback rate to match transport tempo
-            if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-              playbackRate = bpm / selectedAudio.bpm
-            }
-            
-            // Calculate pitch shift needed to match transport key
-            if (selectedAudio.key && transportKey) {
-              const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-              const originalIndex = chromaticScale.indexOf(selectedAudio.key)
-              const targetIndex = chromaticScale.indexOf(transportKey)
+            if (melodyLoopMode === 'transport-dominates') {
+              // T-M mode: Loop tracks adapt to transport tempo and key
+              finalBpm = bpm
+              finalKey = transportKey
               
-              if (originalIndex !== -1 && targetIndex !== -1) {
-                pitchShift = targetIndex - originalIndex
-                // Handle octave wrapping
-                if (pitchShift > 6) pitchShift -= 12
-                if (pitchShift < -6) pitchShift += 12
+              // Calculate playback rate to match transport tempo
+              if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+                playbackRate = bpm / selectedAudio.bpm
               }
+              
+              // Calculate pitch shift needed to match transport key
+              if (selectedAudio.key && transportKey) {
+                const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+                const originalIndex = chromaticScale.indexOf(selectedAudio.key)
+                const targetIndex = chromaticScale.indexOf(transportKey)
+                
+                if (originalIndex !== -1 && targetIndex !== -1) {
+                  pitchShift = targetIndex - originalIndex
+                  // Handle octave wrapping
+                  if (pitchShift > 6) pitchShift -= 12
+                  if (pitchShift < -6) pitchShift += 12
+                }
+              }
+            } else {
+              // M-T mode: Loop tracks use their original BPM and key, transport adapts to them
+              finalBpm = selectedAudio.bpm || 120
+              finalKey = selectedAudio.key || 'C'
+              playbackRate = 1.0
+              pitchShift = 0
             }
           } else {
             // Transport not locked and not a loop track - use original audio BPM and key
@@ -4014,7 +4441,9 @@ export default function BeatMakerPage() {
               bpm: selectedAudio.bpm,
               key: selectedAudio.key,
               audio_type: selectedAudio.audio_type,
-              tags: selectedAudio.tags
+              tags: selectedAudio.tags,
+              // Store relative key indicator
+              isRelativeKey: isRelativeKey
             } : t
           ))
 
@@ -4120,19 +4549,50 @@ export default function BeatMakerPage() {
         return newSequencerData
       })
 
-      // Update BPM based on genre tempo range (unless BPM is locked)
-      // BUT respect M-T mode - if Melody Loop dominates, don't override the BPM set by individual track shuffles
+      // Update BPM based on loop tracks when in T-M mode (Transport-Melody)
+      // In T-M mode, transport should adapt to loop tracks' BPM
       console.log(`[SHUFFLE DEBUG] Current melodyLoopMode: ${melodyLoopMode}`)
       console.log(`[SHUFFLE DEBUG] melodyLoopMode === 'transport-dominates': ${melodyLoopMode === 'transport-dominates'}`)
       
       if (!isBpmLocked) {
-        // Only set genre-based BPM if we're in T-M mode (Transport dominates)
-        // In M-T mode, the Melody Loop's original BPM should control the transport
         if (melodyLoopMode === 'transport-dominates') {
-          setBpm(newBpm)
-          console.log(`[SHUFFLE] Updated BPM to ${newBpm} based on genre tempo range (T-M mode)`)
+          // T-M mode: Transport should adapt to loop tracks' BPM
+          // Find loop tracks and use their BPM to set transport
+          const loopTracks = tracks.filter(track => 
+            track.name === 'Melody Loop' || 
+            track.name === 'Drum Loop' || 
+            track.name === 'Hihat Loop' || 
+            track.name === 'Percussion Loop' || 
+            track.name === '808 Loop'
+          )
+          
+          if (loopTracks.length > 0) {
+            // Use the first loop track's ORIGINAL BPM (not currentBpm which might be adapted)
+            const loopTrackBpm = loopTracks[0].originalBpm || 120
+            setBpm(loopTrackBpm)
+            console.log(`[SHUFFLE] Updated transport BPM to ${loopTrackBpm} based on loop track original BPM (T-M mode)`)
+            
+            // Now update all loop tracks to match the transport BPM
+            setTracks(prev => prev.map(track => {
+              if (track.name === 'Melody Loop' || track.name.includes(' Loop')) {
+                const originalBpm = track.originalBpm || 120
+                const playbackRate = loopTrackBpm / originalBpm
+                return {
+                  ...track,
+                  currentBpm: loopTrackBpm,
+                  playbackRate: playbackRate
+                }
+              }
+              return track
+            }))
+          } else {
+            // Fallback to genre-based BPM if no loop tracks found
+            setBpm(newBpm)
+            console.log(`[SHUFFLE] No loop tracks found, updated BPM to ${newBpm} based on genre tempo range (T-M mode)`)
+          }
         } else {
-          console.log(`[SHUFFLE] Skipping genre BPM update - M-T mode active, Melody Loop controls transport BPM`)
+          // M-T mode: Melody Loop controls transport BPM (already handled in individual track shuffling)
+          console.log(`[SHUFFLE] M-T mode active, Melody Loop controls transport BPM`)
         }
       } else {
         // Restore BPM if locked
@@ -4140,10 +4600,41 @@ export default function BeatMakerPage() {
         console.log('BPM locked - restored BPM setting')
       }
       
-      // Restore Key if locked
-      if (isKeyLocked && originalKey !== null) {
-        setTransportKey(originalKey)
-        console.log('Key locked - restored Key setting')
+      // Update Key based on loop tracks when auto mode is on
+      if (!isKeyLocked) {
+        if (melodyLoopMode === 'transport-dominates') {
+          // T-M mode: Transport should adapt to loop tracks' key
+          // Find loop tracks and use their key to set transport
+          const loopTracks = tracks.filter(track => 
+            track.name === 'Melody Loop' || 
+            track.name === 'Drum Loop' || 
+            track.name === 'Hihat Loop' || 
+            track.name === 'Percussion Loop' || 
+            track.name === '808 Loop'
+          )
+          
+          if (loopTracks.length > 0) {
+            // Use the first loop track's ORIGINAL key (not currentKey which might be adapted)
+            const loopTrackKey = loopTracks[0].originalKey || 'C'
+            setTransportKey(loopTrackKey)
+            console.log(`[SHUFFLE] Updated transport key to ${loopTrackKey} based on loop track original key (T-M mode)`)
+          } else {
+            // Fallback to a random key if no loop tracks found
+            const randomKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            const randomKey = randomKeys[Math.floor(Math.random() * randomKeys.length)]
+            setTransportKey(randomKey)
+            console.log(`[SHUFFLE] No loop tracks found, updated key to ${randomKey} (T-M mode)`)
+          }
+        } else {
+          // M-T mode: Melody Loop controls transport key (already handled in individual track shuffling)
+          console.log(`[SHUFFLE] M-T mode active, Melody Loop controls transport key`)
+        }
+      } else {
+        // Restore Key if locked
+        if (originalKey !== null) {
+          setTransportKey(originalKey)
+          console.log('Key locked - restored Key setting')
+        }
       }
 
       // Restore genre/subgenre settings if locked
@@ -4940,6 +5431,7 @@ export default function BeatMakerPage() {
   const [isKeyLocked, setIsKeyLocked] = useState(false)
   const [isReadyCheckEnabled, setIsReadyCheckEnabled] = useState(false)
   const [isShuffleTrackerEnabled, setIsShuffleTrackerEnabled] = useState(false)
+  const [isShuffleLimitEnabled, setIsShuffleLimitEnabled] = useState(false) // Separate toggle for 10 file limitation
   const [isReadyCheckLocked, setIsReadyCheckLocked] = useState(false)
   const [showWaveforms, setShowWaveforms] = useState(false) // New state for waveform visibility
   const [trackWaveformStates, setTrackWaveformStates] = useState<{[trackId: number]: boolean}>({}) // Individual track waveform states
@@ -6480,7 +6972,7 @@ export default function BeatMakerPage() {
         <TabsContent value="sequencer" className="space-y-6 mt-6">
 
       {/* Transport Controls */}
-      <Card className="!bg-[#141414] border-gray-700">
+      <Card className="!bg-[#141414] border-gray-700 relative">
         <CardHeader>
           <div className="flex items-center gap-3">
           <CardTitle className="text-white">Transport</CardTitle>
@@ -6561,6 +7053,32 @@ export default function BeatMakerPage() {
                   <Settings className="w-4 h-4 mr-1" />
                   Auto
                 </Button>
+                
+                {/* ±10 BPM Tolerance Indicator */}
+                <button
+                  onClick={() => setIsBpmToleranceEnabled(!isBpmToleranceEnabled)}
+                  className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
+                    isBpmToleranceEnabled 
+                      ? 'text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30' 
+                      : 'text-gray-400 bg-gray-800/40 border border-gray-600/60'
+                  }`}
+                  title={`±10 BPM tolerance: ${isBpmToleranceEnabled ? 'ON' : 'OFF'} - Click to toggle`}
+                >
+                  ±10
+                </button>
+                
+                {/* Time Stretch Mode Toggle (RM/FT) */}
+                <button
+                  onClick={() => setTimeStretchMode(timeStretchMode === 'resampling' ? 'flex-time' : 'resampling')}
+                  className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
+                    timeStretchMode === 'resampling'
+                      ? 'text-orange-300 bg-orange-900/40 border border-orange-500/60 shadow-lg shadow-orange-500/30' 
+                      : 'text-blue-300 bg-blue-900/40 border border-blue-500/60 shadow-lg shadow-blue-500/30'
+                  }`}
+                  title={`Time stretch mode: ${timeStretchMode === 'resampling' ? 'RM (Resampling - changes pitch & speed)' : 'FT (Flex Time - changes speed only)'} - Click to toggle`}
+                >
+                  {timeStretchMode === 'resampling' ? 'RM' : 'FT'}
+                </button>
                 <Button
                   onClick={openSaveSessionDialog}
                   variant="outline"
@@ -6595,6 +7113,16 @@ export default function BeatMakerPage() {
                 >
                   <Bug className="w-4 h-4 mr-1" />
                   Debug
+                </Button>
+                <Button
+                  onClick={handleResetAllAudio}
+                  variant="outline"
+                  size="sm"
+                  className="bg-red-600 text-white hover:bg-red-700 border-red-500"
+                  title="Reset all audio samples - useful when tracks don't play properly"
+                >
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  Reset Audio
                 </Button>
               </div>
 
@@ -6652,7 +7180,7 @@ export default function BeatMakerPage() {
                 }`}>
                   <Slider
                     value={[bpm]}
-                    onValueChange={(value) => setBpm(value[0])}
+                    onValueChange={(value) => handleBpmChange(value[0])}
                     min={60}
                     max={200}
                     step={1}
@@ -6797,6 +7325,37 @@ export default function BeatMakerPage() {
                       title="Tracks which files have been used to ensure variety"
                     >
                       Tracking
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              
+              {/* Shuffle Limit Controls */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-white">
+                  Shuffle Limit:
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={isShuffleLimitEnabled ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setIsShuffleLimitEnabled(!isShuffleLimitEnabled)}
+                    className={`${
+                      isShuffleLimitEnabled 
+                        ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={isShuffleLimitEnabled ? "Shuffle Limit is ON - limits to 10 files for faster loading" : "Shuffle Limit is OFF - loads all available files"}
+                  >
+                    {isShuffleLimitEnabled ? 'ON' : 'OFF'}
+                  </Button>
+                  {isShuffleLimitEnabled && (
+                    <Badge 
+                      variant="secondary" 
+                      className="min-w-[60px] text-center bg-green-400/20 border-green-400 text-green-300 text-xs"
+                      title="Limits shuffle to 10 files for faster loading"
+                    >
+                      Limited
                     </Badge>
                   )}
                 </div>
@@ -7447,7 +8006,7 @@ export default function BeatMakerPage() {
                           <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
                           <div className="flex flex-col">
                             <div className="text-white text-xs font-medium truncate">
-                              {getTrackTypeName(track.name)}
+                              {getTrackDisplayName(track.name)}
                             </div>
                             <div className={`text-xs ${track.audioUrl ? 'text-green-500' : 'text-gray-500'}`}>
                               {track.audioUrl ? 'LOADED' : 'EMPTY'}
@@ -7507,7 +8066,7 @@ export default function BeatMakerPage() {
                                     assignPatternToTrack(track.id, i, null)
                                   }
                                 }}
-                                title={`Bar ${i + 1} - ${track.name} ${assignedPattern ? `(${assignedPattern.name}, ${assignedPattern.steps || 16} steps${assignedPattern.trackKey ? `, Key: ${assignedPattern.trackKey}` : ''}${assignedPattern.trackBpm && assignedPattern.trackBpm !== assignedPattern.bpm ? `, Track BPM: ${assignedPattern.trackBpm}` : ''})` : '(No Pattern)'} - ${selectedPatternForPlacement ? 'Click to assign pattern' : 'Click to remove pattern'}`}
+                                title={`Bar ${i + 1} - ${getTrackDisplayName(track.name)} ${assignedPattern ? `(${assignedPattern.name}, ${assignedPattern.steps || 16} steps${assignedPattern.trackKey ? `, Key: ${assignedPattern.trackKey}` : ''}${assignedPattern.trackBpm && assignedPattern.trackBpm !== assignedPattern.bpm ? `, Track BPM: ${assignedPattern.trackBpm}` : ''})` : '(No Pattern)'} - ${selectedPatternForPlacement ? 'Click to assign pattern' : 'Click to remove pattern'}`}
                               >
                                 {assignedPattern && (
                                   <div className="absolute inset-0 p-1">
@@ -7766,6 +8325,17 @@ export default function BeatMakerPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-gray-400 text-sm">Tempo:</span>
                       <span className="text-white text-sm font-mono">{bpm} BPM</span>
+                      {/* Debug: Always show the symbol to test visibility */}
+                      <span 
+                        className={`text-xs font-bold px-1.5 py-0.5 rounded transition-all duration-300 ${
+                          isAutoMode 
+                            ? 'text-yellow-300 bg-yellow-900/30 border border-yellow-500/50 shadow-lg shadow-yellow-500/20 animate-pulse' 
+                            : 'text-gray-400 bg-gray-800/30 border border-gray-600/50'
+                        }`}
+                        title={`±10 BPM tolerance - Auto Mode: ${isAutoMode ? 'ON' : 'OFF'}`}
+                      >
+                        ±10
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-gray-400 text-sm">Active Bars:</span>
@@ -7791,6 +8361,20 @@ export default function BeatMakerPage() {
                 </div>
               </div>
             </CardContent>
+            
+            {/* ±10 BPM Tolerance Indicator - Bottom Right */}
+            <div className="absolute bottom-4 right-4 z-10">
+              <span 
+                className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 ${
+                  isAutoMode 
+                    ? 'text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30 animate-pulse' 
+                    : 'text-gray-400 bg-gray-800/40 border border-gray-600/60'
+                }`}
+                title={`±10 BPM tolerance - Auto Mode: ${isAutoMode ? 'ON' : 'OFF'}`}
+              >
+                ±10
+              </span>
+            </div>
           </Card>
         </TabsContent>
 
@@ -7816,7 +8400,7 @@ export default function BeatMakerPage() {
                         <div className={`w-4 h-4 rounded-full ${track.color} mx-auto mb-1 ${
                           isPlaying && sequencerData[track.id]?.[currentStep] ? 'animate-pulse' : ''
                         }`}></div>
-                        <div className="text-white text-xs font-medium truncate">{track.name}</div>
+                        <div className="text-white text-xs font-medium truncate">{getTrackDisplayName(track.name)}</div>
                         <div className={`text-xs ${
                           !track.audioUrl ? 'text-gray-500' :
                           isPlaying && sequencerData[track.id]?.[currentStep] ? 'text-green-500' :
@@ -7862,7 +8446,7 @@ export default function BeatMakerPage() {
                         <Button
                           size="sm"
                           variant={settings.solo ? "default" : "outline"}
-                          className="w-full h-6 text-xs"
+                          className={`w-full h-6 text-xs ${settings.solo ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}
                           onClick={() => updateMixerSetting(track.id, 'solo', !settings.solo)}
                         >
                           SOLO

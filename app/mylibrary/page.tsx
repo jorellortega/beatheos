@@ -218,30 +218,21 @@ export default function MyLibrary() {
     setSelectedFiles(newSelected);
   };
   
-  // Select all files in current pack root
-  const selectAllInPackRoot = (packId: string) => {
-    const packRootFiles = audioItems.filter(item => item.pack_id === packId && !item.subfolder);
-    const newSelected = new Set(selectedFiles);
-    packRootFiles.forEach(file => newSelected.add(file.id));
-    setSelectedFiles(newSelected);
-  };
-  
-  // Clear selection
-  const clearSelection = () => {
-    setSelectedFiles(new Set());
-    setShowMoveMenu(false);
-  };
-  
-  // Move selected files to subfolder
-  const moveSelectedFiles = async (targetSubfolder: string, targetPackId: string) => {
+  // Move selected files to subfolder or pack
+  const moveSelectedFiles = async (targetSubfolder: string | null, targetPackId: string | null) => {
     if (!user || selectedFiles.size === 0) return;
     
     try {
+      console.log(`Moving ${selectedFiles.size} files to pack: ${targetPackId}, subfolder: ${targetSubfolder}`);
+      
       // Update all selected files in database
       for (const fileId of selectedFiles) {
         const { error } = await supabase
           .from('audio_library_items')
-          .update({ subfolder: targetSubfolder })
+          .update({ 
+            pack_id: targetPackId,
+            subfolder: targetSubfolder 
+          })
           .eq('id', fileId);
           
         if (error) {
@@ -253,11 +244,27 @@ export default function MyLibrary() {
       // Update local state
       setAudioItems(audioItems.map(item => 
         selectedFiles.has(item.id) 
-          ? { ...item, subfolder: targetSubfolder }
+          ? { 
+              ...item, 
+              pack_id: targetPackId || undefined,
+              subfolder: targetSubfolder || undefined,
+              pack: targetPackId ? item.pack : undefined  // Clear pack info if moving to unpacked
+            }
           : item
       ));
       
-      console.log(`Moved ${selectedFiles.size} files to ${targetSubfolder}`);
+      setAllAudioItems(allAudioItems.map(item => 
+        selectedFiles.has(item.id) 
+          ? { 
+              ...item, 
+              pack_id: targetPackId || undefined,
+              subfolder: targetSubfolder || undefined,
+              pack: targetPackId ? item.pack : undefined  // Clear pack info if moving to unpacked
+            }
+          : item
+      ));
+      
+      console.log(`Successfully moved ${selectedFiles.size} files`);
       clearSelection();
       
     } catch (error) {
@@ -265,6 +272,40 @@ export default function MyLibrary() {
     }
   };
 
+  // Select all files in current pack root
+  const selectAllInPackRoot = (packId: string) => {
+    const packRootFiles = allAudioItems.filter(item => item.pack_id === packId && !item.subfolder);
+    const newSelected = new Set(selectedFiles);
+    packRootFiles.forEach(file => newSelected.add(file.id));
+    setSelectedFiles(newSelected);
+    console.log(`Selected ${packRootFiles.length} files in pack root`);
+  };
+
+  // Select all files in a specific subfolder
+  const selectAllInSubfolder = (packId: string, subfolderName: string) => {
+    const subfolderFiles = allAudioItems.filter(item => 
+      item.pack_id === packId && item.subfolder === subfolderName
+    );
+    const newSelected = new Set(selectedFiles);
+    subfolderFiles.forEach(file => newSelected.add(file.id));
+    setSelectedFiles(newSelected);
+    console.log(`Selected ${subfolderFiles.length} files in subfolder ${subfolderName}`);
+  };
+
+  // Select all files across all packs and subfolders
+  const selectAllFiles = () => {
+    const newSelected = new Set(selectedFiles);
+    allAudioItems.forEach(file => newSelected.add(file.id));
+    setSelectedFiles(newSelected);
+    console.log(`Selected all ${allAudioItems.length} files`);
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedFiles(new Set());
+    setShowMoveMenu(false);
+  };
+  
   // Modal state for creating a new album
   const [showAlbumModal, setShowAlbumModal] = useState(false);
   const [newAlbum, setNewAlbum] = useState({
@@ -979,9 +1020,115 @@ export default function MyLibrary() {
   // Open edit modal for audio file
   function openEditAudioModal(item: AudioLibraryItem) {
     setEditingAudio(item);
+    
+    // Extract BPM and Key from filename if they exist and current values are empty
+    let extractedBpm = item.bpm?.toString() || '';
+    let extractedKey = item.key || '';
+    
+    // Try to extract BPM and Key from filename
+    const filename = item.name;
+    
+    // Better BPM extraction - prioritize explicit BPM indicators first
+    const bpmPatterns = [
+      /(\d{2,4}\s*bpm)/i,  // 130bpm, 130 bpm, 130BPM, etc.
+      /(bpm\s*\d{2,4})/i,  // bpm130, bpm 130, BPM 130, etc.
+    ];
+    
+    let bpmMatch = null;
+    for (const pattern of bpmPatterns) {
+      bpmMatch = filename.match(pattern);
+      if (bpmMatch) break;
+    }
+    
+    // If no explicit BPM pattern found, try to find the best BPM candidate
+    if (!bpmMatch) {
+      // Find all numbers between 60-200 that could be BPM
+      const allBpmCandidates = [];
+      const bpmCandidateRegex = /[_\s]?(6[0-9]|[7-9]\d|1[0-9]\d|200)[_\s]?/g;
+      let match;
+      
+      while ((match = bpmCandidateRegex.exec(filename)) !== null) {
+        const [fullMatch] = match;
+        const bpmNumber = fullMatch.replace(/[_\s]/g, '');
+        const number = parseInt(bpmNumber);
+        
+        // Check if this number is likely to be BPM by looking at surrounding context
+        const beforeMatch = filename.substring(Math.max(0, match.index - 10), match.index);
+        const afterMatch = filename.substring(match.index + fullMatch.length, match.index + fullMatch.length + 10);
+        
+        // Prioritize numbers that are:
+        // 1. Standalone (surrounded by spaces/underscores)
+        // 2. Not part of other identifiers (like "91V")
+        // 3. In positions where BPM typically appears
+        
+        let priority = 0;
+        if (fullMatch.match(/^[_\s]\d+[_\s]$/)) {
+          priority = 3; // Highest priority: _70_ or " 70 "
+        } else if (fullMatch.match(/^[_\s]\d+$/) || fullMatch.match(/^\d+[_\s]$/)) {
+          priority = 2; // High priority: _70 or 70_
+        } else if (!beforeMatch.match(/[A-Za-z]$/) && !afterMatch.match(/^[A-Za-z]/)) {
+          priority = 1; // Medium priority: not part of word
+        } else {
+          priority = 0; // Low priority: part of word like "91V"
+        }
+        
+        allBpmCandidates.push({
+          text: fullMatch,
+          value: number,
+          priority
+        });
+      }
+      
+      // Sort by priority and take the highest priority match
+      if (allBpmCandidates.length > 0) {
+        allBpmCandidates.sort((a, b) => b.priority - a.priority);
+        bpmMatch = allBpmCandidates[0];
+      }
+    }
+    
+    // Better Key extraction - try multiple patterns
+    const keyPatterns = [
+      /\b([A-G][#b]?m?)\b/g,  // C, C#, Cb, Am, A#m, etc.
+      /\b([A-G][#b]?\s*major)\b/gi,  // C major, F# major, etc.
+      /\b([A-G][#b]?\s*minor)\b/gi,  // A minor, D# minor, etc.
+      /\b([A-G][#b]?maj)\b/gi,  // Emaj, Cmaj, F#maj, etc.
+      /\b([A-G][#b]?min)\b/gi,  // Emin, Amin, D#min, etc.
+      /\b([A-G][#b]?m)\b/gi,  // Em, Am, C#m, etc.
+      /\b([A-G][#b]?M)\b/g,  // EM, AM, C#M, etc.
+      /[_\s]([A-G][#b]?)[_\s]/g,  // _A_, _C#_, _Bb_ etc. (keys surrounded by underscores or spaces)
+      /[_\s]([A-G][#b]?min)[_\s]/gi,  // _Fmin_, _Amin_, etc. (minor keys with underscores)
+      /[_\s]([A-G][#b]?maj)[_\s]/gi,  // _Fmaj_, _Amaj_, etc. (major keys with underscores)
+      /[_\s]([A-G][#b]?m)[_\s]/gi,  // _Am_, _Em_, _Cm_ etc. (minor keys with m suffix and underscores)
+      /([A-G][#b]?)(?=\.[a-zA-Z0-9]+$)/g,  // A#.wav, C.wav, etc. (keys right before file extension)
+      /_([A-G][#b]?)(?=\.[a-zA-Z0-9]+$)/g,  // _A#.wav, _C.wav, etc. (keys with underscore before file extension)
+    ];
+    
+    let keyMatch = null;
+    for (const pattern of keyPatterns) {
+      const match = filename.match(pattern);
+      if (match) {
+        keyMatch = match;
+        break;
+      }
+    }
+    
+    if (!extractedBpm && bpmMatch) {
+      if ('text' in bpmMatch) {
+        extractedBpm = bpmMatch.text.replace(/\D/g, '');
+      } else {
+        extractedBpm = bpmMatch[0].replace(/\D/g, '');
+      }
+    }
+    
+    if (!extractedKey && keyMatch) {
+      // For patterns with capture groups, use the captured group
+      // For patterns without capture groups, use the full match
+      extractedKey = keyMatch[1] || keyMatch[0].replace(/\s*(major|minor)/i, '').replace(/\s+/g, '');
+    }
+    
     setEditAudioForm({
-      bpm: item.bpm?.toString() || '',
-      key: item.key || '',
+      bpm: extractedBpm,
+      key: extractedKey,
       audio_type: item.audio_type || '',
       genre: item.genre || '',
       subgenre: item.subgenre || '',
@@ -1205,11 +1352,7 @@ export default function MyLibrary() {
     setShowMassEditSelectedModal(true)
   }
 
-  function selectAllFiles() {
-    const newSelected = new Set(selectedFiles)
-    allAudioItems.forEach(file => newSelected.add(file.id))
-    setSelectedFiles(newSelected)
-  }
+  // This function is now defined above with better functionality
 
   function selectAllSearchResults() {
     if (!searchQuery.trim()) return;
@@ -1218,12 +1361,8 @@ export default function MyLibrary() {
     console.log('[DEBUG] Search query:', searchQuery);
     console.log('[DEBUG] Search filter:', searchFilter);
     
-    // Get the current context - are we in a pack root or subfolder?
-    const currentContext = 'global'; // For now, let's make it clear this selects ALL matching files
-    
     const searchResults = getFilteredAudioItems(allAudioItems);
     console.log('[DEBUG] Total search results found:', searchResults?.length || 0);
-    console.log('[DEBUG] Search results:', searchResults?.map(f => ({ id: f.id, name: f.name, pack: f.pack_id, subfolder: f.subfolder })) || []);
     
     const newSelected = new Set(selectedFiles);
     searchResults?.forEach(file => newSelected.add(file.id));
@@ -2882,29 +3021,73 @@ export default function MyLibrary() {
                                     {/* Subfolder Selection Controls */}
                                     {getFilteredAudioItems(allAudioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length > 0 && (
                                       <div className="flex items-center gap-2 ml-4 mb-2">
-                                        {selectedFiles.size > 0 && (
-                                          <>
-                                            <span className="text-xs text-yellow-600">
-                                              {selectedFiles.size} selected
-                                            </span>
-                                            <Button 
-                                              variant="outline" 
-                                              size="sm" 
-                                              onClick={clearSelection}
-                                              className="text-xs h-6"
-                                            >
-                                              Clear
-                                            </Button>
-                                            <Button 
-                                              variant="outline" 
-                                              size="sm" 
-                                              onClick={openMassEditSelectedModal}
-                                              className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
-                                            >
-                                              Mass Edit
-                                            </Button>
-                                          </>
-                                        )}
+                                                                            {selectedFiles.size > 0 && (
+                                      <>
+                                        <span className="text-xs text-yellow-600">
+                                          {selectedFiles.size} selected
+                                        </span>
+                                        <div className="flex gap-1">
+                                          <select
+                                            className="text-xs p-1 rounded border bg-yellow-100 text-black"
+                                            value=""
+                                            onChange={(e) => {
+                                              if (e.target.value) {
+                                                moveSelectedFiles(e.target.value, pack.id);
+                                              }
+                                            }}
+                                          >
+                                            <option value="">Move to subfolder...</option>
+                                            {pack.subfolders?.filter(sf => sf.name !== subfolder.name).map(sf => (
+                                              <option key={sf.id} value={sf.name}>
+                                                {sf.name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <select
+                                            className="text-xs p-1 rounded border bg-blue-100 text-black"
+                                            value=""
+                                            onChange={(e) => {
+                                              if (e.target.value) {
+                                                const [targetPackId, targetSubfolder] = e.target.value.split('|');
+                                                moveSelectedFiles(targetSubfolder || null, targetPackId);
+                                              }
+                                            }}
+                                          >
+                                            <option value="">Move to pack...</option>
+                                            <option value={`${pack.id}|`}>📦 {pack.name} (root)</option>
+                                            {audioPacks.filter(p => p.id !== pack.id).map(targetPack => (
+                                              <option key={targetPack.id} value={`${targetPack.id}|`}>
+                                                📦 {targetPack.name} (root)
+                                              </option>
+                                            ))}
+                                            {audioPacks.filter(p => p.id !== pack.id).map(targetPack => 
+                                              targetPack.subfolders?.map(sf => (
+                                                <option key={`${targetPack.id}-${sf.name}`} value={`${targetPack.id}|${sf.name}`}>
+                                                  📦 {targetPack.name} / 📁 {sf.name}
+                                                </option>
+                                              ))
+                                            ).flat()}
+                                            <option value="|">📁 Unpacked Files</option>
+                                          </select>
+                                        </div>
+                                        <Button 
+                                          variant="outline" 
+                                          size="sm" 
+                                          onClick={clearSelection}
+                                          className="text-xs h-6"
+                                        >
+                                          Clear
+                                        </Button>
+                                        <Button 
+                                          variant="outline" 
+                                          size="sm" 
+                                          onClick={openMassEditSelectedModal}
+                                          className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
+                                        >
+                                          Mass Edit
+                                        </Button>
+                                      </>
+                                    )}
                                         <Button 
                                           variant="outline" 
                                           size="sm" 
@@ -3101,22 +3284,49 @@ export default function MyLibrary() {
                                     <span className="text-xs text-yellow-600">
                                       {selectedFiles.size} selected
                                     </span>
-                                    <select
-                                      className="text-xs p-1 rounded border bg-yellow-100 text-black"
-                                      value=""
-                                      onChange={(e) => {
-                                        if (e.target.value) {
-                                          moveSelectedFiles(e.target.value, pack.id);
-                                        }
-                                      }}
-                                    >
-                                      <option value="">Move to subfolder...</option>
-                                      {pack.subfolders?.map(subfolder => (
-                                        <option key={subfolder.id} value={subfolder.name}>
-                                          {subfolder.name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    <div className="flex gap-1">
+                                      <select
+                                        className="text-xs p-1 rounded border bg-yellow-100 text-black"
+                                        value=""
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            moveSelectedFiles(e.target.value, pack.id);
+                                          }
+                                        }}
+                                      >
+                                        <option value="">Move to subfolder...</option>
+                                        {pack.subfolders?.map(subfolder => (
+                                          <option key={subfolder.id} value={subfolder.name}>
+                                            {subfolder.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <select
+                                        className="text-xs p-1 rounded border bg-blue-100 text-black"
+                                        value=""
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            const [targetPackId, targetSubfolder] = e.target.value.split('|');
+                                            moveSelectedFiles(targetSubfolder || null, targetPackId);
+                                          }
+                                        }}
+                                      >
+                                        <option value="">Move to pack...</option>
+                                        {audioPacks.filter(p => p.id !== pack.id).map(targetPack => (
+                                          <option key={targetPack.id} value={`${targetPack.id}|`}>
+                                            📦 {targetPack.name} (root)
+                                          </option>
+                                        ))}
+                                        {audioPacks.filter(p => p.id !== pack.id).map(targetPack => 
+                                          targetPack.subfolders?.map(subfolder => (
+                                            <option key={`${targetPack.id}-${subfolder.name}`} value={`${targetPack.id}|${subfolder.name}`}>
+                                              📦 {targetPack.name} / 📁 {subfolder.name}
+                                            </option>
+                                          ))
+                                        ).flat()}
+                                        <option value="|">📁 Unpacked Files</option>
+                                      </select>
+                                    </div>
                                     <Button 
                                       variant="outline" 
                                       size="sm" 
@@ -3308,17 +3518,90 @@ export default function MyLibrary() {
                   
                   {selectedPack === 'unpacked' && (
                     <div className="mt-4 space-y-3 border-t pt-4">
-                                              {getFilteredAudioItems(allAudioItems.filter(item => !item.pack_id))
-                          .map(item => (
+                      {/* Unpacked Files Selection Controls */}
+                      {getFilteredAudioItems(allAudioItems.filter(item => !item.pack_id)).length > 0 && (
+                        <div className="flex items-center gap-2 mb-3">
+                          {selectedFiles.size > 0 && (
+                            <>
+                              <span className="text-xs text-yellow-600">
+                                {selectedFiles.size} selected
+                              </span>
+                              <select
+                                className="text-xs p-1 rounded border bg-blue-100 text-black"
+                                value=""
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    const [targetPackId, targetSubfolder] = e.target.value.split('|');
+                                    moveSelectedFiles(targetSubfolder || null, targetPackId);
+                                  }
+                                }}
+                              >
+                                <option value="">Move to pack...</option>
+                                {audioPacks.map(targetPack => (
+                                  <option key={targetPack.id} value={`${targetPack.id}|`}>
+                                    📦 {targetPack.name} (root)
+                                  </option>
+                                ))}
+                                {audioPacks.map(targetPack => 
+                                  targetPack.subfolders?.map(subfolder => (
+                                    <option key={`${targetPack.id}-${subfolder.name}`} value={`${targetPack.id}|${subfolder.name}`}>
+                                      📦 {targetPack.name} / 📁 {subfolder.name}
+                                    </option>
+                                  ))
+                                ).flat()}
+                              </select>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={clearSelection}
+                                className="text-xs h-6"
+                              >
+                                Clear
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={openMassEditSelectedModal}
+                                className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
+                              >
+                                Mass Edit
+                              </Button>
+                            </>
+                          )}
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => {
+                              const unpackedFiles = getFilteredAudioItems(allAudioItems.filter(item => !item.pack_id));
+                              const newSelected = new Set(selectedFiles);
+                              unpackedFiles.forEach(file => newSelected.add(file.id));
+                              setSelectedFiles(newSelected);
+                            }}
+                            className="text-xs h-6"
+                          >
+                            Select All
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {getFilteredAudioItems(allAudioItems.filter(item => !item.pack_id))
+                        .map(item => (
                             <div 
                               key={item.id} 
                               className={`flex items-center gap-4 p-3 bg-black rounded-lg cursor-move transition-opacity ${
-                                draggedItem?.id === item.id ? 'opacity-50' : ''
-                              }`}
-                              draggable
-                              onDragStart={(e) => handleDragStart(e, item)}
+                                selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
+                              } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
+                              draggable={!selectedFiles.has(item.id)}
+                              onDragStart={(e) => selectedFiles.has(item.id) ? e.preventDefault() : handleDragStart(e, item)}
                               onDragEnd={handleDragEnd}
                             >
+                              <input
+                                type="checkbox"
+                                checked={selectedFiles.has(item.id)}
+                                onChange={() => toggleFileSelection(item.id)}
+                                className="w-4 h-4 text-yellow-400 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500"
+                                onClick={(e) => e.stopPropagation()}
+                              />
                             <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
                               {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-400" />}
                               {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-400" />}

@@ -33,6 +33,8 @@ export interface Track {
   // Loop properties for quantization
   loopStartTime?: number
   loopEndTime?: number
+  // Relative key indicator for visual feedback
+  isRelativeKey?: boolean
 }
 
 export interface MidiNote {

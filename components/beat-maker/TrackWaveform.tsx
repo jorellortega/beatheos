@@ -127,12 +127,12 @@ export function TrackWaveform({
       if (audioContextRef.current) {
         try {
           if (audioContextRef.current.state !== 'closed') {
-            audioContextRef.current.close();
+        audioContextRef.current.close();
           }
         } catch (error) {
           console.warn('Error closing audio context:', error);
         } finally {
-          audioContextRef.current = null;
+        audioContextRef.current = null;
         }
       }
     };

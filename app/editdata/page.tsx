@@ -468,7 +468,7 @@ export default function EditData() {
   function highlightMusicInfoInFileName(name: string, onBpmClick?: (bpm: number) => void, onKeyClick?: (key: string) => void) {
     const highlights: Array<{text: string, type: 'bpm' | 'bpm-fallback' | 'key', value: string | number, start: number, end: number}> = []
     
-    // Find all BPM patterns first
+    // Find all BPM patterns first - prioritize explicit BPM indicators
     const bpmPatterns = [
       /(\d{2,4}\s*bpm)/i,  // 130bpm, 130 bpm, 130BPM, etc.
       /(bpm\s*\d{2,4})/i,  // bpm130, bpm 130, BPM 130, etc.
@@ -491,22 +491,65 @@ export default function EditData() {
       }
     }
     
-    // If no BPM pattern found, try fallback: highlight any number between 60-200 that might be BPM
+    // If no explicit BPM pattern found, try to find potential BPM numbers
     if (highlights.length === 0) {
-      const bpmFallbackRegex = /[_\s]?(6[0-9]|[7-9]\d|1[0-9]\d|200)[_\s]?/
-      const fallbackMatch = name.match(bpmFallbackRegex)
-      if (fallbackMatch) {
-        const [fullMatch] = fallbackMatch
+      // Find all numbers between 60-200 that could be BPM
+      const allBpmCandidates = []
+      const bpmCandidateRegex = /[_\s]?(6[0-9]|[7-9]\d|1[0-9]\d|200)[_\s]?/g
+      let match
+      
+      while ((match = bpmCandidateRegex.exec(name)) !== null) {
+        const [fullMatch] = match
         const bpmNumber = fullMatch.replace(/[_\s]/g, '')
         const number = parseInt(bpmNumber)
-        const start = name.indexOf(fullMatch)
-        highlights.push({
+        
+        // Check if this number is likely to be BPM by looking at surrounding context
+        const beforeMatch = name.substring(Math.max(0, match.index - 10), match.index)
+        const afterMatch = name.substring(match.index + fullMatch.length, match.index + fullMatch.length + 10)
+        
+        // Prioritize numbers that are:
+        // 1. Standalone (surrounded by spaces/underscores)
+        // 2. Not part of other identifiers (like "91V")
+        // 3. In positions where BPM typically appears
+        
+        let priority = 0
+        if (fullMatch.match(/^[_\s]\d+[_\s]$/)) {
+          priority = 3 // Highest priority: _70_ or " 70 "
+        } else if (fullMatch.match(/^[_\s]\d+$/) || fullMatch.match(/^\d+[_\s]$/)) {
+          priority = 2 // High priority: _70 or 70_
+        } else if (!beforeMatch.match(/[A-Za-z]$/) && !afterMatch.match(/^[A-Za-z]/)) {
+          priority = 1 // Medium priority: not part of word
+        } else {
+          priority = 0 // Low priority: part of word like "91V"
+        }
+        
+        allBpmCandidates.push({
           text: fullMatch,
-          type: 'bpm-fallback',
           value: number,
-          start,
-          end: start + fullMatch.length
+          start: match.index,
+          end: match.index + fullMatch.length,
+          priority
         })
+      }
+      
+      // Sort by priority and take the highest priority match
+      if (allBpmCandidates.length > 0) {
+        allBpmCandidates.sort((a, b) => b.priority - a.priority)
+        const bestMatch = allBpmCandidates[0]
+        
+        highlights.push({
+          text: bestMatch.text,
+          type: 'bpm-fallback',
+          value: bestMatch.value,
+          start: bestMatch.start,
+          end: bestMatch.end
+        })
+        
+        // If there are multiple candidates with the same priority, add them as alternatives
+        const samePriorityCandidates = allBpmCandidates.filter(c => c.priority === bestMatch.priority)
+        if (samePriorityCandidates.length > 1) {
+          console.log(`Multiple BPM candidates found: ${samePriorityCandidates.map(c => c.value).join(', ')}`)
+        }
       }
     }
     
@@ -524,13 +567,22 @@ export default function EditData() {
       /[_\s]([A-G][#b]?maj)[_\s]/gi,  // _Fmaj_, _Amaj_, etc. (major keys with underscores)
       /[_\s]([A-G][#b]?min)(?=\.[a-zA-Z0-9]+$)/gi,  // _Fmin.wav, _Amin.mp3, etc. (minor keys before file extension)
       /[_\s]([A-G][#b]?maj)(?=\.[a-zA-Z0-9]+$)/gi,  // _Fmaj.wav, _Amaj.mp3, etc. (major keys before file extension)
+      /[_\s]([A-G][#b]?m)[_\s]/gi,  // _Am_, _Em_, _Cm_ etc. (minor keys with m suffix and underscores)
+      /[_\s]([A-G][#b]?m)(?=\.[a-zA-Z0-9]+$)/gi,  // _Am.wav, _Em.mp3, etc. (minor keys with m suffix before file extension)
+      /([A-G][#b]?)(?=\.[a-zA-Z0-9]+$)/g,  // A#.wav, C.wav, etc. (keys right before file extension)
+      /_([A-G][#b]?)(?=\.[a-zA-Z0-9]+$)/g,  // _A#.wav, _C.wav, etc. (keys with underscore before file extension)
     ]
     
     for (const pattern of keyPatterns) {
       let match
       while ((match = pattern.exec(name)) !== null) {
         const keyText = match[0]
-        const keyValue = keyText.replace(/\s*(major|minor)/i, '').replace(/\s+/g, '')
+        // For patterns with capture groups (like _F#_), use the captured group
+        // For patterns without capture groups, use the full match
+        const keyValue = match[1] || keyText.replace(/\s*(major|minor)/i, '').replace(/\s+/g, '')
+        
+
+        
         highlights.push({
           text: keyText,
           type: 'key',
