@@ -2523,7 +2523,10 @@ export default function BeatMakerPage() {
       }
 
       // Build query based on available data
-      let query = supabase.from('audio_library_items').select('*').eq('user_id', currentUser.id).eq('is_ready', true) // Only include ready audio files
+      let query = supabase.from('audio_library_items').select('*').eq('user_id', currentUser.id)
+      if (isReadyCheckEnabled) {
+        query = query.eq('is_ready', true) // Only include ready audio files when ready check is enabled
+      }
       
       // Add filters only if the data exists
       if (originalTrack.audio_type) {
@@ -2609,7 +2612,9 @@ export default function BeatMakerPage() {
             .select('*')
             .eq('user_id', currentUser.id)
             .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
-            .eq('is_ready', true) // Only include ready audio files
+          if (isReadyCheckEnabled) {
+            fallbackQuery = fallbackQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
+          }
           
           // Add genre filter if a genre is selected and locked
           if (selectedGenre && selectedGenre.name && isGenreLocked) {
@@ -2644,7 +2649,9 @@ export default function BeatMakerPage() {
           .select('*')
           .eq('user_id', currentUser.id)
           .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
-          .eq('is_ready', true) // Only include ready audio files
+          if (isReadyCheckEnabled) {
+            noFilterQuery = noFilterQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
+          }
         
           const { data: noFilterAudio, error: noFilterError } = await noFilterQuery.limit(10)
         
@@ -3751,12 +3758,15 @@ export default function BeatMakerPage() {
   const getShuffleAudioBatch = async (user: any, audioType: string) => {
     try {
       // First, check if we need to reset the tracker (all sounds have been used)
-      const { data: totalAudioFiles } = await supabase
+      let totalAudioQuery = supabase
         .from('audio_library_items')
         .select('id')
         .eq('user_id', user.id)
         .eq('audio_type', audioType)
-        .eq('is_ready', true) // Only include ready audio files
+      if (isReadyCheckEnabled) {
+        totalAudioQuery = totalAudioQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
+      }
+      const { data: totalAudioFiles } = await totalAudioQuery
 
       const { data: trackedFiles } = await supabase
         .from('audio_shuffle_tracker')
@@ -3777,25 +3787,31 @@ export default function BeatMakerPage() {
 
       // Get 10 audio files that haven't been loaded yet
       // 5 from the top (oldest) and 5 from the bottom (newest) of created_at order
-      const { data: topFiles } = await supabase
+      let topFilesQuery = supabase
         .from('audio_library_items')
         .select('*')
         .eq('user_id', user.id)
         .eq('audio_type', audioType)
-        .eq('is_ready', true) // Only include ready audio files
         .not('id', 'in', `(${trackedFiles?.map(t => t.audio_id).join(',') || '00000000-0000-0000-0000-000000000000'})`)
         .order('created_at', { ascending: true })
         .limit(5)
+      if (isReadyCheckEnabled) {
+        topFilesQuery = topFilesQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
+      }
+      const { data: topFiles } = await topFilesQuery
 
-      const { data: bottomFiles } = await supabase
+      let bottomFilesQuery = supabase
         .from('audio_library_items')
         .select('*')
         .eq('user_id', user.id)
         .eq('audio_type', audioType)
-        .eq('is_ready', true) // Only include ready audio files
         .not('id', 'in', `(${trackedFiles?.map(t => t.audio_id).join(',') || '00000000-0000-0000-0000-000000000000'})`)
         .order('created_at', { ascending: false })
         .limit(5)
+      if (isReadyCheckEnabled) {
+        bottomFilesQuery = bottomFilesQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
+      }
+      const { data: bottomFiles } = await bottomFilesQuery
 
       // Combine and remove duplicates
       const allFiles = [...(topFiles || []), ...(bottomFiles || [])]
@@ -4940,6 +4956,7 @@ export default function BeatMakerPage() {
   const [isPackLocked, setIsPackLocked] = useState<boolean>(false)
   const [availableSubgenres, setAvailableSubgenres] = useState<string[]>([])
   const [genreSubgenres, setGenreSubgenres] = useState<{[key: string]: string[]}>({})
+  const [genreSubgenresData, setGenreSubgenresData] = useState<any[]>([])
   const [genreTemplates, setGenreTemplates] = useState<any[]>([])
   const [showGenreDialog, setShowGenreDialog] = useState(false)
   const [showGenreTemplateDialog, setShowGenreTemplateDialog] = useState(false)
@@ -4959,6 +4976,14 @@ export default function BeatMakerPage() {
   const [newGenreSubgenres, setNewGenreSubgenres] = useState<string[]>([])
   const [newSubgenreInput, setNewSubgenreInput] = useState('')
   const [isCreatingGenre, setIsCreatingGenre] = useState(false)
+  
+  // Genre editing state
+  const [editingGenre, setEditingGenre] = useState<any>(null)
+  const [editingSubgenre, setEditingSubgenre] = useState<any>(null)
+  const [showEditGenreDialog, setShowEditGenreDialog] = useState(false)
+  const [showEditSubgenreDialog, setShowEditSubgenreDialog] = useState(false)
+  const [showSubgenreManagerDialog, setShowSubgenreManagerDialog] = useState(false)
+  const [selectedGenreForSubgenreManager, setSelectedGenreForSubgenreManager] = useState<any>(null)
   
   // Subgenre editing state
   const [editingSubgenres, setEditingSubgenres] = useState<{[genreId: string]: boolean}>({})
@@ -5093,6 +5118,8 @@ export default function BeatMakerPage() {
   // Transport lock states
   const [isBpmLocked, setIsBpmLocked] = useState(false)
   const [isKeyLocked, setIsKeyLocked] = useState(false)
+  const [isReadyCheckEnabled, setIsReadyCheckEnabled] = useState(true)
+  const [isReadyCheckLocked, setIsReadyCheckLocked] = useState(false)
   const [melodyLoopMode, setMelodyLoopMode] = useState<'transport-dominates' | 'melody-dominates'>('transport-dominates')
 
   // Pattern management state
@@ -5408,7 +5435,7 @@ export default function BeatMakerPage() {
     try {
       const { data, error } = await supabase
         .from('genre_subgenres')
-        .select('genre, subgenre')
+        .select('genre, subgenre, bpm_range_min, bpm_range_max, default_bpm')
         .order('genre, subgenre')
       
       if (error) {
@@ -5426,6 +5453,7 @@ export default function BeatMakerPage() {
       })
       
       setGenreSubgenres(subgenresByGenre)
+      setGenreSubgenresData(data || [])
       console.log('Loaded subgenres for all genres:', subgenresByGenre)
     } catch (error) {
       console.error('Error loading all subgenres:', error)
@@ -5498,6 +5526,54 @@ export default function BeatMakerPage() {
       } catch (error) {
         console.warn('Error getting subgenre tempo range:', error)
       }
+    }
+  }
+
+  // Update genre tempo range
+  const handleUpdateGenre = async (genre: any) => {
+    try {
+      const { error } = await supabase
+        .from('genres')
+        .update({
+          bpm_range_min: genre.bpm_range_min,
+          bpm_range_max: genre.bpm_range_max,
+          default_bpm: genre.default_bpm
+        })
+        .eq('id', genre.id)
+      
+      if (error) throw error
+      
+      setShowEditGenreDialog(false)
+      setEditingGenre(null)
+      loadGenres() // Refresh genres
+    } catch (error) {
+      console.error('Error updating genre:', error)
+      alert('Failed to update genre')
+    }
+  }
+
+  // Update subgenre tempo range
+  const handleUpdateSubgenre = async (subgenre: any) => {
+    try {
+      const { error } = await supabase
+        .from('genre_subgenres')
+        .update({
+          bpm_range_min: subgenre.bpm_range_min,
+          bpm_range_max: subgenre.bpm_range_max,
+          default_bpm: subgenre.default_bpm
+        })
+        .eq('genre', subgenre.genre)
+        .eq('subgenre', subgenre.subgenre)
+      
+      if (error) throw error
+      
+      setShowEditSubgenreDialog(false)
+      setEditingSubgenre(null)
+      loadGenres() // Refresh genres
+      loadAllGenreSubgenres() // Refresh subgenre data
+    } catch (error) {
+      console.error('Error updating subgenre:', error)
+      alert('Failed to update subgenre')
     }
   }
 
@@ -5857,6 +5933,8 @@ export default function BeatMakerPage() {
     // Reset transport locks
     setIsBpmLocked(false)
     setIsKeyLocked(false)
+    setIsReadyCheckEnabled(true)
+    setIsReadyCheckLocked(false)
     
     console.log('Cleared all data - fresh start!')
   }
@@ -6787,6 +6865,56 @@ export default function BeatMakerPage() {
                     {transportKey}
                   </Badge>
                 )}
+              </div>
+              
+              {/* Ready Check Controls */}
+              <div className="flex items-center gap-2">
+                <span 
+                  className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
+                    isReadyCheckLocked 
+                      ? 'bg-yellow-400 text-black hover:bg-yellow-300' 
+                      : 'text-white hover:text-yellow-400 hover:bg-yellow-400/20'
+                  }`}
+                  onClick={() => setIsReadyCheckLocked(!isReadyCheckLocked)}
+                  title={isReadyCheckLocked ? "Click to unlock Ready Check" : "Click to lock Ready Check"}
+                >
+                  Ready Check:
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={isReadyCheckEnabled ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => !isReadyCheckLocked && setIsReadyCheckEnabled(!isReadyCheckEnabled)}
+                    disabled={isReadyCheckLocked}
+                    className={`${
+                      isReadyCheckEnabled 
+                        ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    } ${
+                      isReadyCheckLocked ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                    title={isReadyCheckLocked ? "Ready Check is locked" : (isReadyCheckEnabled ? "Ready Check is ON - Click to turn OFF" : "Ready Check is OFF - Click to turn ON")}
+                  >
+                    {isReadyCheckEnabled ? 'ON' : 'OFF'}
+                  </Button>
+                  <Badge 
+                    variant="secondary" 
+                    className={`min-w-[40px] text-center ${
+                      isReadyCheckLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
+                    }`}
+                  >
+                    {isReadyCheckLocked ? '🔒' : '🔓'}
+                  </Badge>
+                  {isReadyCheckEnabled && (
+                    <Badge 
+                      variant="secondary" 
+                      className="min-w-[60px] text-center bg-green-400/20 border-green-400 text-green-300 text-xs"
+                      title="Only ready files will be loaded"
+                    >
+                      Ready Only
+                    </Badge>
+                  )}
+                </div>
               </div>
               
               {/* BPM Range Controls for Shuffle All */}
@@ -8667,25 +8795,59 @@ export default function BeatMakerPage() {
                           <span>BPM: {genre.default_bpm}</span>
                           <span>Key: {genre.default_key}</span>
                           <span>Steps: {genre.default_steps}</span>
+                          <span>Tempo Range: {genre.bpm_range_min}-{genre.bpm_range_max}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-6 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingGenre(genre)
+                              setShowEditGenreDialog(true)
+                            }}
+                          >
+                            Edit Tempo
+                          </Button>
                         </div>
                           <div className="mt-2">
                           <div className="flex items-center justify-between mb-1">
                             <div className="text-xs text-gray-500">Subgenres:</div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-xs h-6 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (editingSubgenres[genre.id]) {
-                                  stopEditingSubgenres(genre.id)
-                                } else {
-                                  startEditingSubgenres(genre.id)
-                                }
-                              }}
-                            >
-                              {editingSubgenres[genre.id] ? 'Cancel' : 'Edit'}
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-6 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 border-blue-600"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  // Show all subgenres for editing
+                                  if (genreSubgenres[genre.name] && genreSubgenres[genre.name].length > 0) {
+                                    // Open a dialog to show all subgenres with edit buttons
+                                    setShowSubgenreManagerDialog(true)
+                                    setSelectedGenreForSubgenreManager(genre)
+                                  }
+                                }}
+                                title="Manage all subgenres"
+                              >
+                                Manage
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-xs h-6 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (editingSubgenres[genre.id]) {
+                                    stopEditingSubgenres(genre.id)
+                                  } else {
+                                    startEditingSubgenres(genre.id)
+                                  }
+                                }}
+                              >
+                                {editingSubgenres[genre.id] ? 'Cancel' : 'Add'}
+                              </Button>
+                            </div>
                           </div>
                           
                           {editingSubgenres[genre.id] ? (
@@ -8722,6 +8884,24 @@ export default function BeatMakerPage() {
                                     className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
                                   >
                                     <span>{subgenre}</span>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-xs h-5 px-1 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 border-blue-600"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        // Find the subgenre data and open edit dialog
+                                        const subgenreData = genreSubgenresData.find(s => s.genre === genre.name && s.subgenre === subgenre)
+                                        if (subgenreData) {
+                                          setEditingSubgenre(subgenreData)
+                                          setShowEditSubgenreDialog(true)
+                                        }
+                                      }}
+                                      disabled={isSavingSubgenres}
+                                      title="Edit tempo"
+                                    >
+                                      Edit
+                                    </Button>
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -8739,20 +8919,42 @@ export default function BeatMakerPage() {
                           ) : (
                             // View mode
                             genreSubgenres[genre.name] && genreSubgenres[genre.name].length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {genreSubgenres[genre.name].slice(0, 3).map((subgenre, index) => (
-                                <span
-                                  key={index}
-                                  className="px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
-                                >
-                                  {subgenre}
-                                </span>
-                              ))}
-                              {genreSubgenres[genre.name].length > 3 && (
-                                <span className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded border border-gray-600">
-                                  +{genreSubgenres[genre.name].length - 3} more
-                                </span>
-                              )}
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap gap-1">
+                                {genreSubgenres[genre.name].slice(0, 3).map((subgenre, index) => (
+                                  <div
+                                    key={index}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-900/50 text-blue-300 rounded border border-blue-700"
+                                  >
+                                    <span>{subgenre}</span>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-xs h-5 px-1 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 border-blue-600"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        // Find the subgenre data and open edit dialog
+                                        const subgenreData = genreSubgenresData.find(s => s.genre === genre.name && s.subgenre === subgenre)
+                                        if (subgenreData) {
+                                          setEditingSubgenre(subgenreData)
+                                          setShowEditSubgenreDialog(true)
+                                        }
+                                      }}
+                                      title="Edit tempo"
+                                    >
+                                      Edit
+                                    </Button>
+                                  </div>
+                                ))}
+                                {genreSubgenres[genre.name].length > 3 && (
+                                  <span className="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded border border-gray-600">
+                                    +{genreSubgenres[genre.name].length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Click "Edit" on any subgenre to modify its tempo range
+                              </div>
                             </div>
                             ) : (
                               <div className="text-xs text-gray-500 italic">No subgenres</div>
@@ -9567,6 +9769,181 @@ export default function BeatMakerPage() {
               </DialogFooter>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Genre Tempo Dialog */}
+      <Dialog open={showEditGenreDialog} onOpenChange={setShowEditGenreDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Edit Genre Tempo: {editingGenre?.name}
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Update the tempo range and default BPM for this genre.
+            </DialogDescription>
+          </DialogHeader>
+          {editingGenre && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="edit-genre-min-bpm" className="text-white">Min BPM</Label>
+                  <Input
+                    id="edit-genre-min-bpm"
+                    type="number"
+                    value={editingGenre.bpm_range_min}
+                    onChange={(e) => setEditingGenre({...editingGenre, bpm_range_min: parseInt(e.target.value)})}
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-genre-max-bpm" className="text-white">Max BPM</Label>
+                  <Input
+                    id="edit-genre-max-bpm"
+                    type="number"
+                    value={editingGenre.bpm_range_max}
+                    onChange={(e) => setEditingGenre({...editingGenre, bpm_range_max: parseInt(e.target.value)})}
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-genre-default-bpm" className="text-white">Default BPM</Label>
+                  <Input
+                    id="edit-genre-default-bpm"
+                    type="number"
+                    value={editingGenre.default_bpm}
+                    onChange={(e) => setEditingGenre({...editingGenre, default_bpm: parseInt(e.target.value)})}
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditGenreDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => handleUpdateGenre(editingGenre)}>
+              <Save className="w-4 h-4 mr-2" />
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Subgenre Tempo Dialog */}
+      <Dialog open={showEditSubgenreDialog} onOpenChange={setShowEditSubgenreDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Edit Subgenre Tempo: {editingSubgenre?.subgenre}
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Update the tempo range and default BPM for this subgenre.
+            </DialogDescription>
+          </DialogHeader>
+          {editingSubgenre && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label htmlFor="edit-subgenre-min-bpm" className="text-white">Min BPM</Label>
+                  <Input
+                    id="edit-subgenre-min-bpm"
+                    type="number"
+                    value={editingSubgenre.bpm_range_min}
+                    onChange={(e) => setEditingSubgenre({...editingSubgenre, bpm_range_min: parseInt(e.target.value)})}
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-subgenre-max-bpm" className="text-white">Max BPM</Label>
+                  <Input
+                    id="edit-subgenre-max-bpm"
+                    type="number"
+                    value={editingSubgenre.bpm_range_max}
+                    onChange={(e) => setEditingSubgenre({...editingSubgenre, bpm_range_max: parseInt(e.target.value)})}
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-subgenre-default-bpm" className="text-white">Default BPM</Label>
+                  <Input
+                    id="edit-subgenre-default-bpm"
+                    type="number"
+                    value={editingSubgenre.default_bpm}
+                    onChange={(e) => setEditingSubgenre({...editingSubgenre, default_bpm: parseInt(e.target.value)})}
+                    className="bg-[#2a2a2a] border-gray-600 text-white"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditSubgenreDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => handleUpdateSubgenre(editingSubgenre)}>
+              <Save className="w-4 h-4 mr-2" />
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Subgenre Manager Dialog */}
+      <Dialog open={showSubgenreManagerDialog} onOpenChange={setShowSubgenreManagerDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Manage Subgenres: {selectedGenreForSubgenreManager?.name}
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Edit tempo ranges for all subgenres in this genre.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedGenreForSubgenreManager && (
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              {(genreSubgenres[selectedGenreForSubgenreManager.name] || []).map((subgenre, index) => {
+                const subgenreData = genreSubgenresData.find(s => s.genre === selectedGenreForSubgenreManager.name && s.subgenre === subgenre)
+                return (
+                  <div key={index} className="flex items-center gap-4 p-3 bg-[#2a2a2a] rounded-lg border border-gray-600">
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-white">{subgenre}</h4>
+                      {subgenreData && (
+                        <p className="text-sm text-gray-400">
+                          Tempo Range: {subgenreData.bpm_range_min}-{subgenreData.bpm_range_max} | Default: {subgenreData.default_bpm}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 border-blue-600"
+                      onClick={() => {
+                        if (subgenreData) {
+                          setEditingSubgenre(subgenreData)
+                          setShowEditSubgenreDialog(true)
+                          setShowSubgenreManagerDialog(false)
+                        }
+                      }}
+                    >
+                      Edit Tempo
+                    </Button>
+                  </div>
+                )
+              })}
+              {(genreSubgenres[selectedGenreForSubgenreManager.name] || []).length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  <p>No subgenres found for this genre.</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSubgenreManagerDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

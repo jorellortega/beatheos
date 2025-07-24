@@ -1,23 +1,41 @@
 "use client"
 
-import { useState, useEffect } from 'react'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Edit3, Settings, RefreshCw, ChevronDown, ChevronRight, X, Download } from 'lucide-react'
-import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
-import { MassEditSelectedFilesModal } from '@/components/MassEditSelectedFilesModal'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import Link from 'next/link'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabaseClient'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { 
+  Search, 
+  Filter, 
+  Edit, 
+  Save, 
+  X, 
+  Plus, 
+  Music, 
+  FileAudio, 
+  Package,
+  Grid,
+  List,
+  Download,
+  Trash2,
+  CheckCircle,
+  Clock,
+  Star,
+  Tag,
+  Settings,
+  Play,
+  Square
+} from 'lucide-react'
+import AudioWaveformEditor from '@/components/AudioWaveformEditor'
 
-// Types for audio library data
 interface AudioLibraryItem {
   id: string
   name: string
@@ -33,10 +51,22 @@ interface AudioLibraryItem {
   audio_type?: string
   genre?: string
   subgenre?: string
+  additional_subgenres?: string[]
   tags?: string[]
   is_ready?: boolean
-  created_at: string
-  updated_at: string
+  instrument_type?: string
+  mood?: string
+  energy_level?: number
+  complexity?: number
+  tempo_category?: string
+  key_signature?: string
+  time_signature?: string
+  duration?: number
+  sample_rate?: number
+  bit_depth?: number
+  license_type?: string
+  is_new?: boolean
+  distribution_type?: string
 }
 
 interface AudioPack {
@@ -63,3349 +93,1303 @@ interface AudioSubfolder {
 }
 
 export default function EditData() {
-  const { user } = useAuth();
+  const { user } = useAuth()
+  const [audioItems, setAudioItems] = useState<AudioLibraryItem[]>([])
+  const [audioPacks, setAudioPacks] = useState<AudioPack[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedPack, setSelectedPack] = useState<string>('all')
+  const [selectedGenre, setSelectedGenre] = useState<string>('all')
+  const [selectedAudioType, setSelectedAudioType] = useState<string>('all')
+  const [selectedDistributionType, setSelectedDistributionType] = useState<string>('all')
+  const [showNewOnly, setShowNewOnly] = useState(false)
+  const [showReadyOnly, setShowReadyOnly] = useState(false)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [sortBy, setSortBy] = useState<string>('name')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   
-  // State for audio library data
-  const [audioItems, setAudioItems] = useState<AudioLibraryItem[]>([]);
-  const [audioPacks, setAudioPacks] = useState<AudioPack[]>([]);
-  const [loadingAudio, setLoadingAudio] = useState(false);
-  const [audioError, setAudioError] = useState<string | null>(null);
-  
-  // State for editing
-  const [selectedTab, setSelectedTab] = useState('audio');
-  const [viewMode, setViewMode] = useState<'grid' | 'packs'>('packs');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchFilter, setSearchFilter] = useState('all');
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  
-  // State for pagination and lazy loading
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-  const [itemsPerPage] = useState(50); // Increased for better lazy loading
-  const [allAudioItems, setAllAudioItems] = useState<AudioLibraryItem[]>([]); // Store all items for packs view
-  const [displayedItems, setDisplayedItems] = useState<AudioLibraryItem[]>([]); // Items currently displayed
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreItems, setHasMoreItems] = useState(true);
-  
-  // State for packs view
-  const [loadingPacks, setLoadingPacks] = useState(false);
-  const [packError, setPackError] = useState<string | null>(null);
-  const [selectedPack, setSelectedPack] = useState<string | null>(null);
-  const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set());
-  
-  // State for drag and drop
-  const [draggedItem, setDraggedItem] = useState<AudioLibraryItem | null>(null);
-  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
-  const [showDragDialog, setShowDragDialog] = useState(false);
-  const [dragDialogInfo, setDragDialogInfo] = useState<any>(null);
-  
-  // State for upload progress
-  const [uploadProgress, setUploadProgress] = useState({
-    isUploading: false,
-    currentFile: '',
-    currentIndex: 0,
-    totalFiles: 0,
-    completedFiles: [] as string[]
-  });
-  
-  // State for mass edit modals
-  const [showMassEditModal, setShowMassEditModal] = useState(false);
-  const [showMassEditSelectedModal, setShowMassEditSelectedModal] = useState(false);
-  const [massEditPack, setMassEditPack] = useState<AudioPack | null>(null);
-  const [massEditSubfolder, setMassEditSubfolder] = useState<AudioSubfolder | null>(null);
-  
-  // State for modals
-  const [showEditAudioModal, setShowEditAudioModal] = useState(false);
-  const [showEditPackModal, setShowEditPackModal] = useState(false);
-  const [showEditSubfolderModal, setShowEditSubfolderModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<AudioLibraryItem | null>(null);
-  const [editingPack, setEditingPack] = useState<AudioPack | null>(null);
-  const [editingSubfolder, setEditingSubfolder] = useState<AudioSubfolder | null>(null);
-  
-  // State for forms
-  const [editForm, setEditForm] = useState({
-    name: '',
-    type: '',
-    description: '',
-    bpm: '',
-    key: '',
-    audio_type: '',
-    genre: '',
-    subgenre: '',
-    tags: '',
-    pack_id: '',
-    subfolder: '',
-    is_ready: false
-  });
-  
-  const [editPackForm, setEditPackForm] = useState({
-    name: '',
-    description: '',
-    color: '#3b82f6'
-  });
-  
-  const [editSubfolderForm, setEditSubfolderForm] = useState({
-    name: '',
-    description: '',
-    color: '#10b981',
-    pack_id: ''
-  });
-  
-  // State for operations
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  
-  // State for advanced search filters
-  const [bpmRange, setBpmRange] = useState({ min: '', max: '' });
-  const [missingDataFilter, setMissingDataFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [genreFilter, setGenreFilter] = useState('');
-  const [readyFilter, setReadyFilter] = useState('');
+  // Edit modal state
+  const [editingItem, setEditingItem] = useState<AudioLibraryItem | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [currentEditIndex, setCurrentEditIndex] = useState<number>(0)
+  const [editMode, setEditMode] = useState<'sequential' | 'shuffle'>('sequential')
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // State for quick edit dropdowns
-  const [quickEditItem, setQuickEditItem] = useState<AudioLibraryItem | null>(null);
-  const [quickEditField, setQuickEditField] = useState<string | null>(null);
-  const [quickEditValue, setQuickEditValue] = useState('');
-  const [showQuickEditDropdown, setShowQuickEditDropdown] = useState(false);
+  // Bulk edit state
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false)
+  const [bulkEditField, setBulkEditField] = useState<string>('')
+  const [bulkEditValue, setBulkEditValue] = useState<string>('')
+  const [bulkEditing, setBulkEditing] = useState(false)
 
-  // State for audio playback
-  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
-  const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
-
-  // State for tag editing
-  const [newTagInput, setNewTagInput] = useState('');
-  const [showTagInput, setShowTagInput] = useState(false);
-
-  // Load audio library data
+  // Load data on mount
   useEffect(() => {
     if (user) {
-      loadAllAudioItems(); // Load all items for packs view
-      loadAudioPacks();
+      loadAudioData()
+      loadAudioPacks()
     }
-  }, [user]);
+  }, [user])
 
-  // Intersection Observer for lazy loading - temporarily disabled for debugging
-  // useEffect(() => {
-  //   if (viewMode !== 'grid' || !hasMoreItems || isLoadingMore) return;
-
-  //   const observer = new IntersectionObserver(
-  //     (entries) => {
-  //       if (entries[0].isIntersecting) {
-  //         loadMoreItems();
-  //       }
-  //     },
-  //     { threshold: 0.1 }
-  //   );
-
-  //   const sentinel = document.getElementById('lazy-load-sentinel');
-  //   if (sentinel) {
-  //     observer.observe(sentinel);
-  //   }
-
-  //   return () => {
-  //     if (sentinel) {
-  //       observer.unobserve(sentinel);
-  //     }
-  //   };
-  // }, [viewMode, hasMoreItems, isLoadingMore]);
-
-  const loadAudioData = async (page: number = 1, append: boolean = false) => {
-    if (!user) return;
-    
-    if (page === 1) {
-      setLoadingAudio(true);
-    } else {
-      setIsLoadingMore(true);
-    }
-    setAudioError(null);
-    
-    try {
-      // Calculate offset for pagination
-      const offset = (page - 1) * itemsPerPage;
-      
-      // Get total count first (only on first page)
-      if (page === 1) {
-        const { count, error: countError } = await supabase
-          .from('audio_library_items')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id);
-
-        if (countError) throw countError;
-        
-        setTotalItems(count || 0);
-        setTotalPages(Math.ceil((count || 0) / itemsPerPage));
-        setHasMoreItems((count || 0) > itemsPerPage);
+  useEffect(() => {
+    // Stop audio when modal closes or file changes
+    if (!showEditModal || !editingItem?.file_url) {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+        setIsPlayingPreview(false)
       }
-      
-      // Get paginated data for grid view
+    }
+    // Clean up on unmount
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+        setIsPlayingPreview(false)
+      }
+    }
+  }, [showEditModal, editingItem?.file_url])
+
+  const loadAudioData = async () => {
+    if (!user) return
+    
+    setLoading(true)
+    try {
       const { data, error } = await supabase
         .from('audio_library_items')
         .select(`
           *,
-          pack:audio_packs(*)
+          pack:audio_packs(name, color)
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .range(offset, offset + itemsPerPage - 1);
 
-      if (error) throw error;
-      
-      // Convert null values to undefined to match interface
-      const processedData = (data || []).map(item => ({
-        ...item,
-        pack_id: item.pack_id || undefined,
-        subfolder: item.subfolder || undefined,
-        bpm: item.bpm || undefined,
-        key: item.key || undefined,
-        audio_type: item.audio_type || undefined,
-        genre: item.genre || undefined,
-        subgenre: item.subgenre || undefined,
-        tags: item.tags || undefined,
-        is_ready: item.is_ready || false
-      }));
-      
-      if (append) {
-        // Append to existing items for lazy loading
-        setDisplayedItems(prev => [...prev, ...processedData]);
-      } else {
-        // Replace items for new page load
-        setDisplayedItems(processedData);
-      }
-      
-      setAudioItems(processedData); // Keep for compatibility
-      setCurrentPage(page);
-      
-      // Check if there are more items to load
-      setHasMoreItems(processedData.length === itemsPerPage);
+      if (error) throw error
+      setAudioItems(data || [])
     } catch (error) {
-      console.error('Error loading audio data:', error);
-      setAudioError('Failed to load audio data');
+      console.error('Error loading audio data:', error)
     } finally {
-      setLoadingAudio(false);
-      setIsLoadingMore(false);
+      setLoading(false)
     }
-  };
-
-  const loadAudioPacks = async () => {
-    if (!user) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('audio_packs')
-        .select(`
-          *,
-          subfolders:audio_subfolders(*)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      
-      setAudioPacks(data || []);
-    } catch (error) {
-      console.error('Error loading audio packs:', error);
-    }
-  };
-
-  // Load more items for lazy loading
-  const loadMoreItems = async () => {
-    if (!user || isLoadingMore || !hasMoreItems) return;
-    
-    const nextPage = Math.ceil(displayedItems.length / itemsPerPage) + 1;
-    await loadAudioData(nextPage, true);
-  };
-
-  // Handle click events properly
-  const handleItemClick = (e: React.MouseEvent, item: AudioLibraryItem) => {
-    e.stopPropagation();
-    console.log('Item clicked:', item.id);
-  };
-
-  // Handle quick edit dropdown
-  const handleQuickEdit = (item: AudioLibraryItem, field: string) => {
-    setQuickEditItem(item);
-    setQuickEditField(field);
-    
-    // For tags, show existing tags as space-separated text
-    if (field === 'tags') {
-      const existingTags = item.tags && item.tags.length > 0 ? item.tags.join(' ') : '';
-      setQuickEditValue(existingTags);
-    } else {
-      setQuickEditValue('');
-    }
-    
-    setShowQuickEditDropdown(true);
-  };
-
-  // Save quick edit
-  const saveQuickEdit = async () => {
-    if (!quickEditItem || !quickEditField || !quickEditValue.trim()) return;
-
-    try {
-      const updateData: any = {};
-      
-      // Handle tags specially - convert space-separated text to array
-      if (quickEditField === 'tags') {
-        updateData[quickEditField] = quickEditValue.trim().split(/\s+/).filter(tag => tag.length > 0);
-      } else {
-        updateData[quickEditField] = quickEditValue.trim();
-      }
-      
-      const { error } = await supabase
-        .from('audio_library_items')
-        .update(updateData)
-        .eq('id', quickEditItem.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioItems(prev => prev.map(item => 
-        item.id === quickEditItem.id 
-          ? { ...item, [quickEditField]: updateData[quickEditField] }
-          : item
-      ));
-      setDisplayedItems(prev => prev.map(item => 
-        item.id === quickEditItem.id 
-          ? { ...item, [quickEditField]: updateData[quickEditField] }
-          : item
-      ));
-
-      setShowQuickEditDropdown(false);
-      setQuickEditItem(null);
-      setQuickEditField(null);
-      setQuickEditValue('');
-    } catch (error) {
-      console.error('Error saving quick edit:', error);
-      alert('Failed to save changes');
-    }
-  };
-
-  // Get dropdown options for different fields
-  const getDropdownOptions = (field: string) => {
-    switch (field) {
-      case 'bpm':
-        return Array.from({ length: 40 }, (_, i) => (i + 60).toString()); // 60-99 BPM
-      case 'key':
-        return ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'Cm', 'C#m', 'Dm', 'D#m', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'A#m', 'Bm'];
-      case 'genre':
-        return ['trap', 'hip-hop', 'house', 'techno', 'dubstep', 'pop', 'rock', 'jazz', 'blues', 'country', 'electronic', 'ambient', 'drum & bass', 'reggae', 'funk', 'soul', 'r&b', 'metal', 'punk', 'folk', 'classical'];
-      case 'subgenre':
-        return ['drill', 'boom bap', 'deep house', 'acid techno', 'melodic dubstep', 'future bass', 'progressive house', 'minimal techno', 'liquid dnb', 'jump up', 'conscious hip-hop', 'trap metal', 'lo-fi', 'chillhop', 'synthwave', 'vaporwave'];
-      case 'audio_type':
-        return ['kick', 'snare', 'hihat', 'bass', 'melody', 'loop', 'vocal', 'fx', 'pad', 'lead', 'pluck', 'arp', 'percussion', 'cymbal', 'tom', 'clap', 'shaker', 'crash'];
-      default:
-        return [];
-    }
-  };
-
-  // Load ALL audio items for packs view (no pagination)
-  const loadAllAudioItems = async () => {
-    if (!user) return;
-    
-    setLoadingAudio(true);
-    
-    try {
-      const { data, error } = await supabase
-        .from('audio_library_items')
-        .select(`
-          *,
-          pack:audio_packs(*)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      
-      // Convert null values to undefined to match interface
-      const processedData = (data || []).map(item => ({
-        ...item,
-        pack_id: item.pack_id || undefined,
-        subfolder: item.subfolder || undefined,
-        bpm: item.bpm || undefined,
-        key: item.key || undefined,
-        audio_type: item.audio_type || undefined,
-        genre: item.genre || undefined,
-        subgenre: item.subgenre || undefined,
-        tags: item.tags || undefined,
-        is_ready: item.is_ready || false
-      }));
-      
-      setAllAudioItems(processedData);
-      setAudioItems(processedData); // Keep for compatibility
-      setDisplayedItems(processedData);
-    } catch (error) {
-      console.error('Error loading all audio data:', error);
-      setAudioError('Failed to load all audio data');
-    } finally {
-      setLoadingAudio(false);
-    }
-  };
-
-  // File selection functions
-  const toggleFileSelection = (fileId: string) => {
-    const newSelection = new Set(selectedFiles);
-    if (newSelection.has(fileId)) {
-      newSelection.delete(fileId);
-    } else {
-      newSelection.add(fileId);
-    }
-    setSelectedFiles(newSelection);
-  };
-
-  const clearSelection = () => {
-    setSelectedFiles(new Set());
-  };
-
-  const selectAllFiles = () => {
-    const allFileIds = new Set(audioItems.map(item => item.id));
-    setSelectedFiles(allFileIds);
-  };
-
-  const selectAllSearchResults = () => {
-    const searchResultIds = new Set(filteredAudioItems.map(item => item.id));
-    setSelectedFiles(searchResultIds);
-  };
-
-  const selectVisibleSearchResults = (packId?: string, subfolderName?: string) => {
-    const visibleItems = audioItems.filter(item => {
-      if (packId && item.pack_id !== packId) return false;
-      if (subfolderName && item.subfolder !== subfolderName) return false;
-      return true;
-    });
-    const visibleIds = new Set(visibleItems.map(item => item.id));
-    setSelectedFiles(visibleIds);
-  };
-
-  const moveSelectedFiles = async (targetSubfolder: string, targetPackId: string) => {
-    if (selectedFiles.size === 0) return;
-
-    try {
-      const { error } = await supabase
-        .from('audio_library_items')
-        .update({
-          pack_id: targetPackId,
-          subfolder: targetSubfolder
-        })
-        .in('id', Array.from(selectedFiles));
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioItems(prev => prev.map(item => 
-        selectedFiles.has(item.id) 
-          ? { ...item, pack_id: targetPackId, subfolder: targetSubfolder }
-          : item
-      ));
-
-      setSelectedFiles(new Set());
-    } catch (error) {
-      console.error('Error moving files:', error);
-      alert('Failed to move files');
-    }
-  };
-
-  // Drag and drop functions
-  const handleDragStart = (e: React.DragEvent, item: AudioLibraryItem) => {
-    setDraggedItem(item);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragEnd = () => {
-    setDraggedItem(null);
-    setIsDraggingFiles(false);
-    setDragOverTarget(null);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDragEnter = (target: string) => {
-    setDragOverTarget(target);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setDragOverTarget(null);
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent, targetSubfolder: string | null, targetPackId: string | null) => {
-    e.preventDefault();
-    
-    setIsDraggingFiles(false);
-    setDragOverTarget(null);
-    setShowDragDialog(false);
-    setDragDialogInfo(null);
-
-    if (!draggedItem) return;
-
-    try {
-      const updateData = {
-        pack_id: targetPackId,
-        subfolder: targetSubfolder
-      };
-      
-      const { error } = await supabase
-        .from('audio_library_items')
-        .update(updateData)
-        .eq('id', draggedItem.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioItems(prev => prev.map(item => 
-        item.id === draggedItem.id 
-          ? { ...item, pack_id: targetPackId || undefined, subfolder: targetSubfolder || undefined }
-          : item
-      ));
-
-      setDraggedItem(null);
-    } catch (error) {
-      console.error('Error moving file:', error);
-    }
-  };
-
-  const toggleSubfolder = (subfolderId: string) => {
-    const newExpanded = new Set(expandedSubfolders);
-    if (newExpanded.has(subfolderId)) {
-      newExpanded.delete(subfolderId);
-    } else {
-      newExpanded.add(subfolderId);
-    }
-    setExpandedSubfolders(newExpanded);
-  };
-
-  // Mass edit functions
-  const openMassEditModal = (pack: AudioPack, subfolder: AudioSubfolder) => {
-    setMassEditPack(pack);
-    setMassEditSubfolder(subfolder);
-    setShowMassEditModal(true);
-  };
-
-  const openMassEditSelectedModal = () => {
-    setShowMassEditSelectedModal(true);
-  };
-
-  // Edit functions
-  const openEditAudioModal = (item: AudioLibraryItem) => {
-    setEditingItem(item);
-    setEditForm({
-      name: item.name || '',
-      type: item.type || '',
-      description: item.description || '',
-      bpm: item.bpm?.toString() || '',
-      key: item.key || '',
-      audio_type: item.audio_type || '',
-      genre: item.genre || '',
-      subgenre: item.subgenre || '',
-      tags: item.tags?.join(', ') || '',
-      pack_id: item.pack_id || '',
-      subfolder: item.subfolder || '',
-      is_ready: item.is_ready || false
-    });
-    setShowEditAudioModal(true);
-  };
-
-  const openEditPackModal = (pack: AudioPack) => {
-    setEditingPack(pack);
-    setEditPackForm({
-      name: pack.name || '',
-      description: pack.description || '',
-      color: pack.color || '#3b82f6'
-    });
-    setShowEditPackModal(true);
-  };
-
-  const openEditSubfolderModal = (subfolder: AudioSubfolder) => {
-    setEditingSubfolder(subfolder);
-    setEditSubfolderForm({
-      name: subfolder.name || '',
-      description: subfolder.description || '',
-      color: subfolder.color || '#10b981',
-      pack_id: subfolder.pack_id || ''
-    });
-    setShowEditSubfolderModal(true);
-  };
-
-  // Save functions
-  const handleSaveAudio = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingItem || !user) return;
-
-    setSaving(true);
-    
-    try {
-      const updateData = {
-        name: editForm.name,
-        type: editForm.type,
-        description: editForm.description,
-        bpm: editForm.bpm ? parseInt(editForm.bpm) : null,
-        key: editForm.key,
-        audio_type: editForm.audio_type,
-        genre: editForm.genre,
-        subgenre: editForm.subgenre,
-        tags: editForm.tags ? editForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : [],
-        pack_id: editForm.pack_id || null,
-        subfolder: editForm.subfolder || null,
-        is_ready: editForm.is_ready,
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase
-        .from('audio_library_items')
-        .update(updateData)
-        .eq('id', editingItem.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioItems(prev => prev.map(item => 
-        item.id === editingItem.id 
-          ? { 
-              ...item, 
-              ...updateData, 
-              pack_id: updateData.pack_id || undefined, 
-              subfolder: updateData.subfolder || undefined,
-              bpm: updateData.bpm || undefined,
-              key: updateData.key || undefined,
-              audio_type: updateData.audio_type || undefined,
-              genre: updateData.genre || undefined,
-              subgenre: updateData.subgenre || undefined,
-              is_ready: updateData.is_ready
-            }
-          : item
-      ));
-
-      setShowEditAudioModal(false);
-      setEditingItem(null);
-    } catch (error) {
-      console.error('Error saving audio item:', error);
-      alert('Failed to save changes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSavePack = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingPack || !user) return;
-
-    setSaving(true);
-    
-    try {
-      const updateData = {
-        name: editPackForm.name,
-        description: editPackForm.description,
-        color: editPackForm.color,
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase
-        .from('audio_packs')
-        .update(updateData)
-        .eq('id', editingPack.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioPacks(prev => prev.map(pack => 
-        pack.id === editingPack.id 
-          ? { ...pack, ...updateData }
-          : pack
-      ));
-
-      setShowEditPackModal(false);
-      setEditingPack(null);
-    } catch (error) {
-      console.error('Error saving pack:', error);
-      alert('Failed to save changes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveSubfolder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingSubfolder || !user) return;
-
-    setSaving(true);
-    
-    try {
-      const updateData = {
-        name: editSubfolderForm.name,
-        description: editSubfolderForm.description,
-        color: editSubfolderForm.color,
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase
-        .from('audio_subfolders')
-        .update(updateData)
-        .eq('id', editingSubfolder.id);
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioPacks(prev => prev.map(pack => ({
-        ...pack,
-        subfolders: pack.subfolders?.map(subfolder => 
-          subfolder.id === editingSubfolder.id 
-            ? { ...subfolder, ...updateData }
-            : subfolder
-        )
-      })));
-
-      setShowEditSubfolderModal(false);
-      setEditingSubfolder(null);
-    } catch (error) {
-      console.error('Error saving subfolder:', error);
-      alert('Failed to save changes');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Delete functions
-  const handleDeleteAudio = async (itemId: string) => {
-    if (!confirm('Are you sure you want to delete this audio item?')) return;
-
-    setDeleting(true);
-    
-    try {
-      const { error } = await supabase
-        .from('audio_library_items')
-        .delete()
-        .eq('id', itemId);
-
-      if (error) throw error;
-
-      // Update local state
-      setAudioItems(prev => prev.filter(item => item.id !== itemId));
-    } catch (error) {
-      console.error('Error deleting audio item:', error);
-      alert('Failed to delete item');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleDeletePack = async (packId: string) => {
-    if (!confirm('Are you sure you want to delete this pack? This will also delete all subfolders and move all files to unpacked.')) return;
-
-    setDeleting(true);
-    
-    try {
-      // Move all files in this pack to unpacked
-      const { error: updateError } = await supabase
-        .from('audio_library_items')
-        .update({ pack_id: null, subfolder: null })
-        .eq('pack_id', packId);
-
-      if (updateError) throw updateError;
-
-      // Delete subfolders
-      const { error: subfolderError } = await supabase
-        .from('audio_subfolders')
-        .delete()
-        .eq('pack_id', packId);
-
-      if (subfolderError) throw subfolderError;
-
-      // Delete pack
-      const { error: packError } = await supabase
-        .from('audio_packs')
-        .delete()
-        .eq('id', packId);
-
-      if (packError) throw packError;
-
-      // Refresh data
-      await loadAudioData();
-      await loadAudioPacks();
-    } catch (error) {
-      console.error('Error deleting pack:', error);
-      alert('Failed to delete pack');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleDeleteSubfolder = async (subfolderId: string) => {
-    if (!confirm('Are you sure you want to delete this subfolder? Files will be moved to the pack root.')) return;
-
-    setDeleting(true);
-    
-    try {
-      // Move all files in this subfolder to pack root
-      const { error: updateError } = await supabase
-        .from('audio_library_items')
-        .update({ subfolder: null })
-        .eq('subfolder', subfolderId);
-
-      if (updateError) throw updateError;
-
-      // Delete subfolder
-      const { error: subfolderError } = await supabase
-        .from('audio_subfolders')
-        .delete()
-        .eq('id', subfolderId);
-
-      if (subfolderError) throw subfolderError;
-
-      // Refresh data
-      await loadAudioData();
-      await loadAudioPacks();
-    } catch (error) {
-      console.error('Error deleting subfolder:', error);
-      alert('Failed to delete subfolder');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  // Filter functions
-  const getFilteredAudioItems = (items: AudioLibraryItem[]) => {
-    let filtered = items;
-    
-    // Apply search query filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(item => 
-        item.name.toLowerCase().includes(query) ||
-        item.audio_type?.toLowerCase().includes(query) ||
-        item.genre?.toLowerCase().includes(query) ||
-        item.subgenre?.toLowerCase().includes(query) ||
-        item.tags?.some(tag => tag.toLowerCase().includes(query))
-      );
-    }
-    
-    // Apply ready status filter
-    if (readyFilter && readyFilter !== 'all') {
-      if (readyFilter === 'ready') {
-        filtered = filtered.filter(item => item.is_ready);
-      } else if (readyFilter === 'not-ready') {
-        filtered = filtered.filter(item => !item.is_ready);
-      }
-    }
-    
-    return filtered;
-  };
-
-  // Filter packs based on search query
-  const getFilteredPacks = (packs: AudioPack[]) => {
-    if (!searchQuery) return packs;
-    
-    const query = searchQuery.toLowerCase();
-    return packs.filter(pack => 
-      pack.name.toLowerCase().includes(query) ||
-      pack.description?.toLowerCase().includes(query) ||
-      // Also include packs that contain matching audio items
-      audioItems.some(item => 
-        item.pack_id === pack.id && 
-        (item.name.toLowerCase().includes(query) ||
-         item.audio_type?.toLowerCase().includes(query) ||
-         item.genre?.toLowerCase().includes(query) ||
-         item.subgenre?.toLowerCase().includes(query) ||
-         item.tags?.some(tag => tag.toLowerCase().includes(query)))
-      )
-    );
-  };
-
-  // Filter subfolders based on search query
-  const getFilteredSubfolders = (subfolders: AudioSubfolder[]) => {
-    if (!searchQuery) return subfolders;
-    
-    const query = searchQuery.toLowerCase();
-    return subfolders.filter(subfolder => 
-      subfolder.name.toLowerCase().includes(query) ||
-      subfolder.description?.toLowerCase().includes(query) ||
-      // Also include subfolders that contain matching audio items
-      audioItems.some(item => 
-        item.pack_id === subfolder.pack_id && 
-        item.subfolder === subfolder.name &&
-        (item.name.toLowerCase().includes(query) ||
-         item.audio_type?.toLowerCase().includes(query) ||
-         item.genre?.toLowerCase().includes(query) ||
-         item.subgenre?.toLowerCase().includes(query) ||
-         item.tags?.some(tag => tag.toLowerCase().includes(query)))
-      )
-    );
-  };
-
-  // Handle search with pagination
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    if (query) {
-      // For search, we need to load all items to filter client-side
-      // This is a limitation of the current approach
-      setCurrentPage(1);
-    } else {
-      // Reset to first page when clearing search
-      await loadAudioData(1);
-    }
-  };
-
-  const filteredAudioItems = getFilteredAudioItems(audioItems);
-  const filteredPacks = getFilteredPacks(audioPacks);
-  const filteredSubfolders = getFilteredSubfolders(audioPacks.flatMap(pack => pack.subfolders || []));
-
-  // Handle audio play/stop
-  const handleAudioToggle = (item: AudioLibraryItem) => {
-    if (currentlyPlayingId === item.id && currentAudio) {
-      // Stop current audio
-      currentAudio.pause();
-      currentAudio.currentTime = 0;
-      setCurrentAudio(null);
-      setCurrentlyPlayingId(null);
-    } else {
-      // Stop any currently playing audio first
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      }
-      
-      // Start new audio
-      if (item.file_url) {
-        const audio = new Audio(item.file_url);
-        audio.play().then(() => {
-          setCurrentAudio(audio);
-          setCurrentlyPlayingId(item.id);
-        }).catch(error => {
-          console.error('Error playing audio:', error);
-          alert('Could not play audio file');
-        });
-      } else {
-        alert('No audio file available');
-      }
-    }
-  };
-
-  // Handle adding new tag
-  const addNewTag = () => {
-    if (newTagInput.trim() && quickEditItem) {
-      const currentTags = quickEditItem.tags || [];
-      const updatedTags = [...currentTags, newTagInput.trim()];
-      setQuickEditValue(updatedTags.join(' '));
-      setNewTagInput('');
-      setShowTagInput(false);
-    }
-  };
-
-  // Handle removing tag
-  const removeTag = (tagToRemove: string) => {
-    if (quickEditItem) {
-      const currentTags = quickEditItem.tags || [];
-      const updatedTags = currentTags.filter(tag => tag !== tagToRemove);
-      setQuickEditValue(updatedTags.join(' '));
-    }
-  };
-
-  if (!user) {
-    return (
-      <div className="container mx-auto py-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Edit Data</h1>
-          <p>Please log in to access the edit data page.</p>
-        </div>
-      </div>
-    );
   }
 
-  return (
-    <div className="container mx-auto py-8">
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-center mb-2">📊 Audio Library Data Editor</h1>
-        <p className="text-lg text-gray-600 text-center">Edit metadata, organize files, and manage your audio library - No audio playback, just data management</p>
+  const loadAudioPacks = async () => {
+    if (!user) return
+    
+    try {
+      const { data, error } = await supabase
+        .from('audio_packs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('name')
+
+      if (error) throw error
+      setAudioPacks(data || [])
+    } catch (error) {
+      console.error('Error loading audio packs:', error)
+    }
+  }
+
+  // Filter and sort audio items
+  const getFilteredAndSortedItems = () => {
+    let filtered = audioItems.filter(item => {
+      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           item.genre?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           item.subgenre?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           item.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+      
+      const matchesPack = selectedPack === 'all' || item.pack_id === selectedPack
+      const matchesGenre = selectedGenre === 'all' || item.genre === selectedGenre
+      const matchesAudioType = selectedAudioType === 'all' || item.audio_type === selectedAudioType
+      const matchesDistribution = selectedDistributionType === 'all' || item.distribution_type === selectedDistributionType
+      const matchesNew = !showNewOnly || item.is_new
+      const matchesReady = !showReadyOnly || item.is_ready
+
+      return matchesSearch && matchesPack && matchesGenre && matchesAudioType && matchesDistribution && matchesNew && matchesReady
+    })
+
+    // Sort items
+    filtered.sort((a, b) => {
+      let aValue: any = a[sortBy as keyof AudioLibraryItem]
+      let bValue: any = b[sortBy as keyof AudioLibraryItem]
+      
+      if (typeof aValue === 'string') aValue = aValue.toLowerCase()
+      if (typeof bValue === 'string') bValue = bValue.toLowerCase()
+      
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return filtered
+  }
+
+  const handleEditItem = async (e: React.FormEvent, shouldNavigate: boolean = false) => {
+    e.preventDefault()
+    console.log('🔍 handleEditItem called with shouldNavigate:', shouldNavigate)
+    if (!editingItem || !user) return
+
+    setSaving(true)
+    setEditError(null)
+
+    try {
+      const updateData = {
+        name: editingItem.name,
+        type: editingItem.type,
+        description: editingItem.description || null,
+        bpm: editingItem.bpm || null,
+        key: editingItem.key || null,
+        audio_type: editingItem.audio_type || null,
+        genre: editingItem.genre || null,
+        subgenre: editingItem.subgenre || null,
+        additional_subgenres: editingItem.additional_subgenres?.length ? editingItem.additional_subgenres : null,
+        tags: editingItem.tags?.length ? editingItem.tags : null,
+        is_ready: editingItem.is_ready || false,
+        instrument_type: editingItem.instrument_type || null,
+        mood: editingItem.mood || null,
+        energy_level: editingItem.energy_level || null,
+        complexity: editingItem.complexity || null,
+        tempo_category: editingItem.tempo_category || null,
+        key_signature: editingItem.key_signature || null,
+        time_signature: editingItem.time_signature || null,
+        duration: editingItem.duration || null,
+        sample_rate: editingItem.sample_rate || null,
+        bit_depth: editingItem.bit_depth || null,
+        license_type: editingItem.license_type || null,
+        is_new: editingItem.is_new || false,
+        distribution_type: editingItem.distribution_type || 'private'
+      }
+      
+      const { error } = await supabase
+        .from('audio_library_items')
+        .update(updateData)
+        .eq('id', editingItem.id)
+
+      if (error) throw error
+
+      // Update local state
+      setAudioItems(prev => prev.map(item => 
+        item.id === editingItem.id ? { ...item, ...updateData } : item
+      ))
+
+      // Only navigate if explicitly requested
+      if (shouldNavigate) {
+        navigateToNextItem()
+      }
+    } catch (error) {
+      console.error('Error updating item:', error)
+      setEditError('Failed to update item')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const navigateToNextItem = () => {
+    console.log('🔍 navigateToNextItem called - this should not happen automatically!')
+    console.trace('Navigation stack trace:')
+    
+    const filteredItems = getFilteredAndSortedItems()
+    if (filteredItems.length === 0) {
+      setShowEditModal(false)
+      setEditingItem(null)
+      return
+    }
+
+    let nextIndex: number
+    if (editMode === 'shuffle') {
+      // Get random index different from current
+      const availableIndices = filteredItems
+        .map((_, index) => index)
+        .filter(index => index !== currentEditIndex)
+      
+      if (availableIndices.length === 0) {
+        // If only one item, close modal
+        setShowEditModal(false)
+        setEditingItem(null)
+        return
+      }
+      
+      nextIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)]
+    } else {
+      // Sequential navigation
+      nextIndex = (currentEditIndex + 1) % filteredItems.length
+    }
+
+    setCurrentEditIndex(nextIndex)
+    setEditingItem(filteredItems[nextIndex])
+  }
+
+  const navigateToPreviousItem = () => {
+    const filteredItems = getFilteredAndSortedItems()
+    if (filteredItems.length === 0) {
+      setShowEditModal(false)
+      setEditingItem(null)
+      return
+    }
+
+    let prevIndex: number
+    if (editMode === 'shuffle') {
+      // Get random index different from current
+      const availableIndices = filteredItems
+        .map((_, index) => index)
+        .filter(index => index !== currentEditIndex)
+      
+      if (availableIndices.length === 0) {
+        // If only one item, close modal
+        setShowEditModal(false)
+        setEditingItem(null)
+        return
+      }
+      
+      prevIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)]
+    } else {
+      // Sequential navigation
+      prevIndex = currentEditIndex === 0 ? filteredItems.length - 1 : currentEditIndex - 1
+    }
+
+    setCurrentEditIndex(prevIndex)
+    setEditingItem(filteredItems[prevIndex])
+  }
+
+  const openEditModal = (item: AudioLibraryItem) => {
+    const filteredItems = getFilteredAndSortedItems()
+    const itemIndex = filteredItems.findIndex(filteredItem => filteredItem.id === item.id)
+    
+    setCurrentEditIndex(itemIndex >= 0 ? itemIndex : 0)
+    setEditingItem(item)
+    setShowEditModal(true)
+  }
+
+  const handleBulkEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (selectedItems.size === 0 || !bulkEditField || !user) return
+
+    setBulkEditing(true)
+    try {
+      const updateData: any = {}
+      
+      // Handle different field types
+      if (bulkEditField === 'is_ready' || bulkEditField === 'is_new') {
+        updateData[bulkEditField] = bulkEditValue === 'true'
+      } else if (bulkEditField === 'energy_level' || bulkEditField === 'complexity' || bulkEditField === 'bpm' || bulkEditField === 'sample_rate' || bulkEditField === 'bit_depth') {
+        updateData[bulkEditField] = parseInt(bulkEditValue) || null
+      } else if (bulkEditField === 'duration') {
+        updateData[bulkEditField] = parseFloat(bulkEditValue) || null
+      } else if (bulkEditField === 'tags') {
+        updateData[bulkEditField] = bulkEditValue.split(',').map((tag: string) => tag.trim()).filter((tag: string) => tag.length > 0)
+      } else if (bulkEditField === 'additional_subgenres') {
+        updateData[bulkEditField] = bulkEditValue.split(',').map((subgenre: string) => subgenre.trim()).filter((subgenre: string) => subgenre.length > 0)
+      } else {
+        updateData[bulkEditField] = bulkEditValue || null
+      }
+      
+      const { error } = await supabase
+        .from('audio_library_items')
+        .update(updateData)
+        .in('id', Array.from(selectedItems))
+
+      if (error) throw error
+
+      // Update local state
+      setAudioItems(prev => prev.map(item => 
+        selectedItems.has(item.id) ? { ...item, ...updateData } : item
+      ))
+
+      setShowBulkEditModal(false)
+      setSelectedItems(new Set())
+      setBulkEditField('')
+      setBulkEditValue('')
+    } catch (error) {
+      console.error('Error bulk updating items:', error)
+    } finally {
+      setBulkEditing(false)
+    }
+  }
+
+  const toggleItemSelection = (itemId: string) => {
+    const newSelected = new Set(selectedItems)
+    if (newSelected.has(itemId)) {
+      newSelected.delete(itemId)
+    } else {
+      newSelected.add(itemId)
+    }
+    setSelectedItems(newSelected)
+  }
+
+  const selectAll = () => {
+    const filteredItems = getFilteredAndSortedItems()
+    setSelectedItems(new Set(filteredItems.map(item => item.id)))
+  }
+
+  const clearSelection = () => {
+    setSelectedItems(new Set())
+  }
+
+  const getUniqueValues = (field: keyof AudioLibraryItem) => {
+    const values = new Set(audioItems.map(item => item[field]).filter(Boolean))
+    return Array.from(values).sort()
+  }
+
+  const filteredItems = getFilteredAndSortedItems()
+
+  const handlePlayPreview = () => {
+    if (!editingItem?.file_url) return
+    if (!audioRef.current) {
+      audioRef.current = new window.Audio(editingItem.file_url)
+      audioRef.current.onended = () => setIsPlayingPreview(false)
+    } else {
+      audioRef.current.src = editingItem.file_url
+    }
+    audioRef.current.currentTime = 0
+    audioRef.current.play()
+    setIsPlayingPreview(true)
+  }
+
+  const handleStopPreview = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+      setIsPlayingPreview(false)
+    }
+  }
+
+  const handleTogglePreview = () => {
+    if (isPlayingPreview) {
+      handleStopPreview()
+    } else {
+      handlePlayPreview()
+    }
+  }
+
+  // Helper to highlight BPM and Key in file name
+  function highlightMusicInfoInFileName(name: string, onBpmClick?: (bpm: number) => void, onKeyClick?: (key: string) => void) {
+    const highlights: Array<{text: string, type: 'bpm' | 'bpm-fallback' | 'key', value: string | number, start: number, end: number}> = []
+    
+    // Find all BPM patterns first
+    const bpmPatterns = [
+      /(\d{2,4}\s*bpm)/i,  // 130bpm, 130 bpm, 130BPM, etc.
+      /(bpm\s*\d{2,4})/i,  // bpm130, bpm 130, BPM 130, etc.
+    ]
+    
+    for (const pattern of bpmPatterns) {
+      const match = name.match(pattern)
+      if (match) {
+        const [bpmText] = match
+        const bpmNumber = parseInt(bpmText.replace(/\D/g, ''))
+        const start = name.indexOf(bpmText)
+        highlights.push({
+          text: bpmText,
+          type: 'bpm',
+          value: bpmNumber,
+          start,
+          end: start + bpmText.length
+        })
+        break
+      }
+    }
+    
+    // If no BPM pattern found, try fallback: highlight any number between 60-200 that might be BPM
+    if (highlights.length === 0) {
+      const bpmFallbackRegex = /[_\s]?(6[0-9]|[7-9]\d|1[0-9]\d|200)[_\s]?/
+      const fallbackMatch = name.match(bpmFallbackRegex)
+      if (fallbackMatch) {
+        const [fullMatch] = fallbackMatch
+        const bpmNumber = fullMatch.replace(/[_\s]/g, '')
+        const number = parseInt(bpmNumber)
+        const start = name.indexOf(fullMatch)
+        highlights.push({
+          text: fullMatch,
+          type: 'bpm-fallback',
+          value: number,
+          start,
+          end: start + fullMatch.length
+        })
+      }
+    }
+    
+    // Find all key patterns
+    const keyPatterns = [
+      /\b([A-G][#b]?m?)\b/g,  // C, C#, Cb, Am, A#m, etc.
+      /\b([A-G][#b]?\s*major)\b/gi,  // C major, F# major, etc.
+      /\b([A-G][#b]?\s*minor)\b/gi,  // A minor, D# minor, etc.
+      /\b([A-G][#b]?maj)\b/gi,  // Emaj, Cmaj, F#maj, etc.
+      /\b([A-G][#b]?min)\b/gi,  // Emin, Amin, D#min, etc.
+      /\b([A-G][#b]?m)\b/gi,  // Em, Am, C#m, etc.
+      /\b([A-G][#b]?M)\b/g,  // EM, AM, C#M, etc.
+      /[_\s]([A-G][#b]?)[_\s]/g,  // _A_, _C#_, _Bb_ etc. (keys surrounded by underscores or spaces)
+      /[_\s]([A-G][#b]?min)[_\s]/gi,  // _Fmin_, _Amin_, etc. (minor keys with underscores)
+      /[_\s]([A-G][#b]?maj)[_\s]/gi,  // _Fmaj_, _Amaj_, etc. (major keys with underscores)
+      /[_\s]([A-G][#b]?min)(?=\.[a-zA-Z0-9]+$)/gi,  // _Fmin.wav, _Amin.mp3, etc. (minor keys before file extension)
+      /[_\s]([A-G][#b]?maj)(?=\.[a-zA-Z0-9]+$)/gi,  // _Fmaj.wav, _Amaj.mp3, etc. (major keys before file extension)
+    ]
+    
+    for (const pattern of keyPatterns) {
+      let match
+      while ((match = pattern.exec(name)) !== null) {
+        const keyText = match[0]
+        const keyValue = keyText.replace(/\s*(major|minor)/i, '').replace(/\s+/g, '')
+        highlights.push({
+          text: keyText,
+          type: 'key',
+          value: keyValue,
+          start: match.index,
+          end: match.index + keyText.length
+        })
+      }
+    }
+    
+    // Sort highlights by start position
+    highlights.sort((a, b) => a.start - b.start)
+    
+    // Build the JSX with highlights
+    let lastIndex = 0
+    const elements: JSX.Element[] = []
+    
+    highlights.forEach((highlight) => {
+      // Add text before highlight
+      if (highlight.start > lastIndex) {
+        elements.push(<span key={`text-${lastIndex}`}>{name.slice(lastIndex, highlight.start)}</span>)
+      }
+      
+      // Add highlighted element
+      const className = highlight.type === 'bpm' 
+        ? "bg-yellow-300 text-black font-bold px-1 rounded cursor-pointer hover:bg-yellow-400 transition-colors"
+        : highlight.type === 'bpm-fallback'
+        ? "bg-orange-300 text-black font-semibold px-1 rounded cursor-pointer hover:bg-orange-400 transition-colors"
+        : "bg-blue-300 text-black font-bold px-1 rounded cursor-pointer hover:bg-blue-400 transition-colors"
+      
+      const title = highlight.type.startsWith('bpm') 
+        ? "Click to insert BPM into form"
+        : "Click to insert Key into form"
+      
+      const onClick = highlight.type.startsWith('bpm')
+        ? () => onBpmClick?.(highlight.value as number)
+        : () => onKeyClick?.(highlight.value as string)
+      
+      elements.push(
+        <span 
+          key={`highlight-${highlight.start}`}
+          className={className}
+          onClick={onClick}
+          title={title}
+        >
+          {highlight.text}
+        </span>
+      )
+      
+      lastIndex = highlight.end
+    })
+    
+    // Add remaining text
+    if (lastIndex < name.length) {
+      elements.push(<span key={`text-${lastIndex}`}>{name.slice(lastIndex)}</span>)
+    }
+    
+    return elements.length > 0 ? <>{elements}</> : name
+  }
+
+  const handleBpmFromNameClick = (bpm: number) => {
+    if (editingItem) {
+      setEditingItem({ ...editingItem, bpm })
+    }
+  }
+
+  const handleKeyFromNameClick = (key: string) => {
+    if (editingItem) {
+      setEditingItem({ ...editingItem, key })
+    }
+  }
+
+    return (
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Audio Library Manager</h1>
+          <p className="text-gray-600 mt-2">Manage and edit your audio files with advanced metadata</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            onClick={() => {
+              if (filteredItems.length > 0) openEditModal(filteredItems[0])
+            }}
+            disabled={filteredItems.length === 0}
+            className="flex items-center gap-2"
+            title="Start editing files"
+          >
+            <Edit className="w-4 h-4" />
+            Start Editing
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+          >
+            {viewMode === 'grid' ? <List className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
+          </Button>
+          {selectedItems.size > 0 && (
+            <Button onClick={() => setShowBulkEditModal(true)}>
+              <Edit className="w-4 h-4 mr-2" />
+              Bulk Edit ({selectedItems.size})
+            </Button>
+          )}
+      </div>
       </div>
 
-      {/* Global Search */}
-      <div className="mb-6">
-        <div className="max-w-2xl mx-auto">
+      {/* Filters */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Filter className="w-5 h-5" />
+            Filters & Search
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <Label>Search</Label>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search all audio files, packs, and subfolders..."
+                  placeholder="Search files..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-3 text-lg border-2 focus:border-blue-500"
-            />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
+                  className="pl-10"
+                />
           </div>
-          {searchQuery && (
-            <div className="mt-2 text-sm text-gray-600 text-center">
-              Searching for "{searchQuery}" across all data...
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-2xl font-semibold">Edit Data</h2>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={() => {
-              console.log('Refresh button clicked');
-              if (viewMode === 'packs') {
-                loadAllAudioItems();
-              } else {
-                loadAudioData(1, false); // Reset to first page
-              }
-              loadAudioPacks();
-            }}
-            disabled={loadingAudio}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={() => {
-              console.log('Test button clicked');
-              alert('Test button works!');
-            }}
-          >
-            Test Button
-          </Button>
-        </div>
-      </div>
-
-      <Tabs defaultValue={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="audio">Audio Library</TabsTrigger>
-          <TabsTrigger value="packs">Packs</TabsTrigger>
-          <TabsTrigger value="subfolders">Subfolders</TabsTrigger>
-        </TabsList>
-
-        {/* Audio Library Tab */}
-        <TabsContent value="audio" className="space-y-4">
-          {/* View Mode Toggle */}
-          <div className="flex justify-between items-center">
-            <div className="flex gap-2">
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setViewMode('grid');
-                  loadAudioData(1, false); // Load first page for grid view
-                }}
-              >
-                <Grid className="h-4 w-4 mr-2" />
-                All Files
-              </Button>
-              <Button
-                variant={viewMode === 'packs' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setViewMode('packs');
-                  loadAllAudioItems(); // Load all data for packs view
-                }}
-              >
-                <Package className="h-4 w-4 mr-2" />
-                Packs
-              </Button>
             </div>
             
-            {/* Global Selection Controls */}
-            {viewMode === 'packs' && audioItems.length > 0 && (
-              <div className="flex items-center gap-2">
-                {selectedFiles.size > 0 && (
-                  <>
-                    <span className="text-sm text-yellow-600 font-medium">
-                      {selectedFiles.size} files selected
+            <div>
+              <Label>Pack</Label>
+              <Select value={selectedPack} onValueChange={setSelectedPack}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Packs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Packs</SelectItem>
+                  {audioPacks.map(pack => (
+                    <SelectItem key={pack.id} value={pack.id}>{pack.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+        </div>
+
+            <div>
+              <Label>Genre</Label>
+              <Select value={selectedGenre} onValueChange={setSelectedGenre}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Genres" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Genres</SelectItem>
+                  {getUniqueValues('genre').map(genre => (
+                    <SelectItem key={genre} value={genre}>{genre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+      </div>
+
+            <div>
+              <Label>Audio Type</Label>
+              <Select value={selectedAudioType} onValueChange={setSelectedAudioType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {getUniqueValues('audio_type').map(type => (
+                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+        </div>
+      </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <Label>Distribution Type</Label>
+              <Select value={selectedDistributionType} onValueChange={setSelectedDistributionType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Distribution Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Distribution Types</SelectItem>
+                  <SelectItem value="private">Private</SelectItem>
+                  <SelectItem value="public">Public</SelectItem>
+                  <SelectItem value="commercial">Commercial</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Sort By</Label>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Name</SelectItem>
+                  <SelectItem value="created_at">Date Added</SelectItem>
+                  <SelectItem value="bpm">BPM</SelectItem>
+                  <SelectItem value="genre">Genre</SelectItem>
+                  <SelectItem value="energy_level">Energy Level</SelectItem>
+                  <SelectItem value="complexity">Complexity</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label>Sort Order</Label>
+              <Select value={sortOrder} onValueChange={(value: 'asc' | 'desc') => setSortOrder(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">Ascending</SelectItem>
+                  <SelectItem value="desc">Descending</SelectItem>
+                </SelectContent>
+              </Select>
+              </div>
+
+            <div className="flex items-center gap-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="showNewOnly"
+                  checked={showNewOnly}
+                  onChange={(e) => setShowNewOnly(e.target.checked)}
+                  className="rounded"
+                />
+                <Label htmlFor="showNewOnly">New Only</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="showReadyOnly"
+                  checked={showReadyOnly}
+                  onChange={(e) => setShowReadyOnly(e.target.checked)}
+                  className="rounded"
+                />
+                <Label htmlFor="showReadyOnly">Ready Only</Label>
+              </div>
+              </div>
+          </div>
+
+          {selectedItems.size > 0 && (
+            <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+              <span className="text-sm text-blue-700">
+                {selectedItems.size} item(s) selected
                     </span>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={clearSelection}
-                      className="text-xs h-8"
-                    >
-                      Clear
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={openMassEditSelectedModal}
-                      className="text-xs h-8 bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      Mass Edit
-                    </Button>
-                  </>
-                )}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={selectAllFiles}
-                  className="text-xs h-8"
-                >
-                  Select All Files
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={selectAll}>
+                  Select All
                 </Button>
-                {searchQuery && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={selectAllSearchResults}
-                    className="text-xs h-8 bg-green-600 text-white hover:bg-green-700"
-                  >
-                    Select All Matching Files
-                  </Button>
-                )}
-              </div>
-            )}
-            
-            {draggedItem && (
-              <div className="text-sm text-blue-600 font-medium">
-                📁 Drag "{draggedItem.name}" to organize it into a folder
-              </div>
-            )}
-            {isDraggingFiles && (
-              <div className="text-sm text-green-600 font-medium">
-                📤 Drag audio files from your computer to upload them directly into folders
-              </div>
-            )}
-            {dragOverTarget && (
-              <div className="text-sm text-green-600 font-medium">
-                🎯 Drop zone active: {dragOverTarget.replace(/.*-/, '')}
-                {isDraggingFiles ? ' (Upload files here)' : ' (Move existing file here)'}
-              </div>
-            )}
-          </div>
-
-          {/* Upload Progress Indicator */}
-          {uploadProgress.isUploading && (
-            <div className="bg-yellow-900 border border-yellow-500 rounded-lg p-4 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-6 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-white font-medium">Uploading Files...</span>
-                    <span className="text-black text-sm font-medium">
-                      {uploadProgress.currentIndex} / {uploadProgress.totalFiles}
-                    </span>
+                <Button variant="outline" size="sm" onClick={clearSelection}>
+                  Clear Selection
+                </Button>
                   </div>
-                  <div className="text-sm text-black font-medium mb-2">
-                    Current: {uploadProgress.currentFile}
-                  </div>
-                  <div className="w-full bg-yellow-800 rounded-full h-2">
-                    <div 
-                      className="bg-yellow-400 h-2 rounded-full transition-all duration-300"
-                      style={{ 
-                        width: `${(uploadProgress.currentIndex / uploadProgress.totalFiles) * 100}%` 
-                      }}
-                    ></div>
-                  </div>
-                  {uploadProgress.completedFiles.length > 0 && (
-                    <div className="mt-2 text-xs text-black font-medium">
-                      ✅ Completed: {uploadProgress.completedFiles.join(', ')}
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-          )}
+        </CardContent>
+      </Card>
 
-          {viewMode === 'grid' && (
-            <div className="space-y-4">
-              {loadingAudio ? (
-                <div>Loading audio files...</div>
-              ) : audioError ? (
-                <div className="text-red-500">{audioError}</div>
-              ) : displayedItems.length === 0 ? (
-                <div>No audio files found.</div>
-              ) : (
-                <>
-                  <div className="text-sm text-gray-400 mb-4">
-                    Showing {displayedItems.length} of {totalItems} files
-                    {hasMoreItems && <span className="text-blue-500"> - Scroll to load more</span>}
-                  </div>
-                  {displayedItems.map(item => (
-                    <Card 
-                      key={item.id} 
-                      className={`p-6 flex items-center gap-6 cursor-move transition-opacity ${
-                        draggedItem?.id === item.id ? 'opacity-50' : ''
-                      }`}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, item)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
-                        {item.type === 'midi' && <Piano className="h-6 w-6 text-yellow-400" />}
-                        {item.type === 'soundkit' && <Drum className="h-6 w-6 text-red-400" />}
-                        {item.type === 'loop' && <Music className="h-6 w-6 text-blue-400" />}
-                        {item.type === 'patch' && <Music2 className="h-6 w-6 text-green-400" />}
-                        {item.type === 'sample' && <FileAudio className="h-6 w-6 text-purple-400" />}
-                        {item.type === 'clip' && <FileMusic className="h-6 w-6 text-pink-400" />}
-                        {item.type === 'other' && <File className="h-6 w-6 text-gray-400" />}
-                      </div>
+      {/* Results */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-600">
+          Showing {filteredItems.length} of {audioItems.length} items
+        </p>
+                </div>
+
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading audio files...</p>
+              </div>
+      ) : filteredItems.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-12">
+            <FileAudio className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">No audio files found matching your criteria</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' : 'space-y-2'}>
+          {filteredItems.map(item => (
+            <Card key={item.id} className={`${viewMode === 'list' ? 'flex' : ''} hover:shadow-md transition-shadow`}>
+              <CardContent className={`${viewMode === 'list' ? 'flex-1 flex items-center gap-4' : 'p-4'}`}>
+                {viewMode === 'list' && (
+                  <input
+                    type="checkbox"
+                    checked={selectedItems.has(item.id)}
+                    onChange={() => toggleItemSelection(item.id)}
+                    className="rounded"
+                  />
+                )}
+                
+                <div className={`${viewMode === 'list' ? 'flex-1' : ''} space-y-3`}>
+                  <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold">{item.name}</h3>
-                          <div 
-                            className={`px-3 py-1 rounded-full text-sm font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-105 ${
-                              item.is_ready 
-                                ? 'bg-green-500 text-white shadow-lg hover:bg-green-600' 
-                                : 'bg-red-500 text-white shadow-lg hover:bg-red-600'
-                            }`}
-                            onClick={async () => {
-                              try {
-                                const { error } = await supabase
-                                  .from('audio_library_items')
-                                  .update({ is_ready: !item.is_ready })
-                                  .eq('id', item.id);
-                                
-                                if (error) throw error;
-                                
-                                // Update local state
-                                setAudioItems(prev => prev.map(audioItem => 
-                                  audioItem.id === item.id 
-                                    ? { ...audioItem, is_ready: !item.is_ready }
-                                    : audioItem
-                                ));
-                                setDisplayedItems(prev => prev.map(audioItem => 
-                                  audioItem.id === item.id 
-                                    ? { ...audioItem, is_ready: !item.is_ready }
-                                    : audioItem
-                                ));
-                              } catch (error) {
-                                console.error('Error toggling ready status:', error);
-                                alert('Failed to update ready status');
-                              }
-                            }}
-                          >
-                            {item.is_ready ? 'READY' : 'NOT READY'}
+                      <h3 className="font-semibold text-lg truncate">{item.name}</h3>
+                      <p className="text-sm text-gray-600 truncate">{item.description}</p>
                           </div>
-                        </div>
-                        <p className="text-sm text-gray-400 mb-1">{item.description}</p>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs text-gray-500 capitalize">{item.type}</span>
-                          {item.bpm && (
-                            <Badge variant="secondary" className="text-xs">
-                              {item.bpm} BPM
-                            </Badge>
-                          )}
-                          {item.key && (
-                            <Badge variant="secondary" className="text-xs">
-                              {item.key}
-                            </Badge>
-                          )}
-                          {item.audio_type && (
-                            <Badge variant="outline" className="text-xs">
-                              {item.audio_type}
-                            </Badge>
-                          )}
-                          {item.tags && item.tags.length > 0 && (
+                    {viewMode === 'grid' && (
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.has(item.id)}
+                        onChange={() => toggleItemSelection(item.id)}
+                        className="rounded ml-2"
+                      />
+                    )}
+                  </div>
+
                             <div className="flex flex-wrap gap-1">
-                              {item.tags.slice(0, 3).map((tag, index) => (
-                                <Badge key={index} variant="secondary" className="text-xs">
-                                  {tag}
-                                </Badge>
-                              ))}
-                              {item.tags.length > 3 && (
+                    {item.genre && (
                                 <Badge variant="secondary" className="text-xs">
-                                  +{item.tags.length - 3}
+                        {item.genre}
                                 </Badge>
                               )}
-                            </div>
-                          )}
-                          {item.pack && (
-                            <Badge 
-                              variant="outline" 
-                              style={{ borderColor: item.pack.color, color: item.pack.color }}
-                              className="text-xs"
-                            >
-                              {item.pack.name}
-                              {item.subfolder && ` / ${item.subfolder}`}
+                    {item.subgenre && (
+                      <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                        {item.subgenre}
                             </Badge>
                           )}
-                          
-                          {/* Missing metadata badges - clickable */}
-                          {!item.bpm && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 cursor-pointer"
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleQuickEdit(item, 'bpm');
-                              }}
-                            >
-                              Missing BPM
+                    {item.is_new && (
+                      <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">
+                        <Star className="w-3 h-3 mr-1" />
+                        New
                             </Badge>
                           )}
-                          {!item.key && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-red-50 text-red-700 border-red-200 hover:bg-red-100 cursor-pointer"
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleQuickEdit(item, 'key');
-                              }}
-                            >
-                              Missing Key
+                    {item.is_ready && (
+                      <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Ready
                             </Badge>
                           )}
-                          {!item.genre && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100 cursor-pointer"
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleQuickEdit(item, 'genre');
-                              }}
-                            >
-                              Missing Genre
-                            </Badge>
-                          )}
-                          {!item.subgenre && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer"
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleQuickEdit(item, 'subgenre');
-                              }}
-                            >
-                              Missing Subgenre
-                            </Badge>
-                          )}
-                          {(!item.tags || item.tags.length === 0) && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 cursor-pointer"
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleQuickEdit(item, 'tags');
-                              }}
-                            >
-                              Missing Tags
-                            </Badge>
-                          )}
-                          {!item.audio_type && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 cursor-pointer"
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleQuickEdit(item, 'audio_type');
-                              }}
-                            >
-                              No Audio Type
-                            </Badge>
-                          )}
-                          {!item.pack_id && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 cursor-pointer"
-                            >
-                              No Pack
-                            </Badge>
-                          )}
-                          {!item.subfolder && item.pack_id && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 cursor-pointer"
-                            >
-                              No Subfolder
-                            </Badge>
-                          )}
-                          {!item.description && (
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100 cursor-pointer"
-                            >
-                              No Description
+                    {item.distribution_type && (
+                      <Badge variant="secondary" className={`text-xs ${
+                        item.distribution_type === 'public' ? 'bg-green-100 text-green-800' :
+                        item.distribution_type === 'commercial' ? 'bg-purple-100 text-purple-800' :
+                        item.distribution_type === 'other' ? 'bg-gray-100 text-gray-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {item.distribution_type}
                             </Badge>
                           )}
                         </div>
-                        {/* File info instead of audio player */}
-                        {item.file_url && (
-                          <div className="text-xs text-gray-500 mt-2">
-                            📁 File: {item.file_url.split('/').pop()}
-                            {item.file_size && ` (${Math.round(item.file_size / 1024)}KB)`}
+
+                  <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                    {item.bpm && <span>BPM: {item.bpm}</span>}
+                    {item.key && <span>Key: {item.key}</span>}
+                    {item.energy_level && <span>Energy: {item.energy_level}/10</span>}
+                    {item.complexity && <span>Complexity: {item.complexity}/10</span>}
                           </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
+
+                  <div className="flex items-center gap-2">
                         <Button 
-                          variant={item.is_ready ? "default" : "outline"} 
-                          size="default" 
-                          onClick={async () => {
-                            console.log('Ready button clicked for item:', item.id);
-                            try {
-                              const { error } = await supabase
-                                .from('audio_library_items')
-                                .update({ is_ready: !item.is_ready })
-                                .eq('id', item.id);
-                              
-                              if (error) throw error;
-                              
-                              // Update local state
-                              setAudioItems(prev => prev.map(audioItem => 
-                                audioItem.id === item.id 
-                                  ? { ...audioItem, is_ready: !item.is_ready }
-                                  : audioItem
-                              ));
-                              setDisplayedItems(prev => prev.map(audioItem => 
-                                audioItem.id === item.id 
-                                  ? { ...audioItem, is_ready: !item.is_ready }
-                                  : audioItem
-                              ));
-                            } catch (error) {
-                              console.error('Error toggling ready status:', error);
-                              alert('Failed to update ready status');
-                            }
-                          }}
-                          className={`font-bold text-lg px-6 py-3 ${
-                            item.is_ready 
-                              ? "bg-green-600 hover:bg-green-700 text-white shadow-lg" 
-                              : "bg-red-600 hover:bg-red-700 text-white shadow-lg"
-                          }`}
-                        >
-                          {item.is_ready ? <CheckCircle2 className="h-5 w-5 mr-2" /> : <XCircle className="h-5 w-5 mr-2" />}
-                          {item.is_ready ? "MARK AS NOT READY" : "MARK AS READY"}
-                        </Button>
-                        <Button 
+                          size="sm" 
                           variant="outline" 
-                          size="sm" 
-                          onClick={() => {
-                            console.log('Edit button clicked for item:', item.id);
-                            openEditAudioModal(item);
-                          }}
+                      onClick={() => openEditModal(item)}
                         >
-                          <Pencil className="h-4 w-4 mr-2" />Edit
+                      <Edit className="w-4 h-4 mr-1" />
+                      Edit
                         </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          asChild
-                        >
-                          <a href={item.file_url} download>Download</a>
+                    {item.file_url && (
+                      <Button size="sm" variant="outline" asChild>
+                        <a href={item.file_url} download>
+                          <Download className="w-4 h-4" />
+                        </a>
                         </Button>
-                        <Button 
-                          variant="destructive" 
-                          size="sm" 
-                          onClick={() => {
-                            console.log('Delete button clicked for item:', item.id);
-                            handleDeleteAudio(item.id);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />Delete
-                        </Button>
+                    )}
                       </div>
+                </div>
+              </CardContent>
                     </Card>
                   ))}
-                  
-                  {/* Lazy Loading Sentinel */}
-                  {hasMoreItems && (
-                    <div 
-                      id="lazy-load-sentinel" 
-                      className="flex justify-center items-center py-8"
-                    >
-                      {isLoadingMore ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                          <span className="text-gray-600">Loading more files...</span>
                         </div>
-                      ) : (
+      )}
+
+      {/* Edit Modal */}
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-3">
+                Edit Audio File: {editingItem?.name ? highlightMusicInfoInFileName(editingItem.name, handleBpmFromNameClick, handleKeyFromNameClick) : ''}
+                {editingItem?.file_url && (
                         <Button 
-                          onClick={() => {
-                            console.log('Load more button clicked');
-                            loadMoreItems();
-                          }}
+                    type="button"
+                    size="icon"
                           variant="outline"
-                          className="text-blue-600 hover:text-blue-700"
+                    onClick={handleTogglePreview}
+                    className="ml-2"
+                    title={isPlayingPreview ? 'Stop Preview' : 'Play Preview'}
                         >
-                          Load More Files
+                    {isPlayingPreview ? <Square className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                         </Button>
                       )}
+              </DialogTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">
+                  {currentEditIndex + 1} of {getFilteredAndSortedItems().length}
+                </span>
+                <Select value={editMode} onValueChange={(value: 'sequential' | 'shuffle') => setEditMode(value)}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sequential">Sequential</SelectItem>
+                    <SelectItem value="shuffle">Shuffle</SelectItem>
+                  </SelectContent>
+                </Select>
                     </div>
-                  )}
-                  
-                  {/* Show when all items are loaded */}
-                  {!hasMoreItems && displayedItems.length > 0 && (
-                    <div className="text-center py-4 text-gray-500 text-sm">
-                      All files loaded ({displayedItems.length} total)
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+          </DialogHeader>
+          {editingItem && (
+            <div className="space-y-6">
+              <Tabs defaultValue="basic" className="w-full">
+                <TabsList className="grid w-full grid-cols-5">
+                  <TabsTrigger value="basic">Basic Info</TabsTrigger>
+                  <TabsTrigger value="musical">Musical</TabsTrigger>
+                  <TabsTrigger value="metadata">Metadata</TabsTrigger>
+                  <TabsTrigger value="advanced">Advanced</TabsTrigger>
+                  <TabsTrigger value="waveform">Waveform</TabsTrigger>
+                </TabsList>
 
-          {viewMode === 'packs' && (
-            <div className="space-y-4">
-              {loadingPacks ? (
-                <div>Loading packs...</div>
-              ) : packError ? (
-                <div className="text-red-500">{packError}</div>
-              ) : filteredPacks.length === 0 ? (
+                <TabsContent value="basic" className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                 <div>
-                  {searchQuery ? `No packs found matching "${searchQuery}"` : 'No packs found. Create your first pack to organize your sounds!'}
-                </div>
-              ) : (
-                filteredPacks.map(pack => (
-                  <Card key={pack.id} className="p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-4">
-                        <div 
-                          className="w-12 h-12 rounded-full flex items-center justify-center"
-                          style={{ backgroundColor: pack.color + '20', border: `2px solid ${pack.color}` }}
-                        >
-                          <Package className="h-6 w-6" style={{ color: pack.color }} />
+                      <Label>Name</Label>
+                      <Input
+                        value={editingItem.name}
+                        onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
+                        required
+                      />
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold">{pack.name}</h3>
-                          <p className="text-sm text-gray-400">{pack.description}</p>
-                          <p className="text-xs text-gray-500">
-                            {audioItems.filter(item => item.pack_id === pack.id).length} items
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedPack(selectedPack === pack.id ? null : pack.id)}
-                        >
-                          {selectedPack === pack.id ? 'Hide' : 'View'} Files
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEditPackModal(pack)}
-                          className="bg-blue-500 hover:bg-blue-600 text-white border-blue-500"
-                        >
-                          <Edit3 className="h-4 w-4 mr-1" />
-                          Edit Pack
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => {
-                            setEditSubfolderForm({ ...editSubfolderForm, pack_id: pack.id });
-                            setShowEditSubfolderModal(true);
-                          }}
-                        >
-                          <Folder className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="destructive" 
-                          size="sm" 
-                          onClick={() => handleDeletePack(pack.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {selectedPack === pack.id && (
-                      <div className="mt-4 space-y-3 border-t pt-4">
-                        {/* Show subfolders */}
-                        {pack.subfolders && pack.subfolders.length > 0 && (
-                          <div className="space-y-2">
-                            {pack.subfolders.map(subfolder => (
-                              <div 
-                                key={subfolder.id} 
-                                className={`border border-gray-200 rounded-lg transition-colors ${
-                                  dragOverTarget === `${pack.id}-${subfolder.name}` 
-                                    ? isDraggingFiles 
-                                      ? 'bg-yellow-100 border-yellow-400 border-2' 
-                                      : 'bg-yellow-100 border-yellow-400 border-2' 
-                                    : isDraggingFiles
-                                      ? 'border-dashed border-yellow-300'
-                                      : ''
-                                }`}
-                                onDragOver={handleDragOver}
-                                onDragEnter={() => handleDragEnter(`${pack.id}-${subfolder.name}`)}
-                                onDragLeave={handleDragLeave}
-                                onDrop={(e) => handleDrop(e, subfolder.name, pack.id)}
-                              >
-                                <div 
-                                  className="flex items-center gap-3 p-3 cursor-pointer rounded-t-lg"
-                                  style={{ 
-                                    backgroundColor: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
-                                      ? '#FCD34D' 
-                                      : '#141414' 
-                                  }}
-                                  onClick={() => toggleSubfolder(subfolder.id)}
-                                >
-                                  <div 
-                                    className="w-8 h-8 rounded-full flex items-center justify-center"
-                                    style={{ backgroundColor: subfolder.color + '20', border: `1px solid ${subfolder.color}` }}
-                                  >
-                                    <Folder className="h-4 w-4" style={{ color: subfolder.color }} />
-                                  </div>
-                                  <div className="flex-1">
-                                    <h4 
-                                      className="font-medium"
-                                      style={{ 
-                                        color: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
-                                          ? '#000000' 
-                                          : '#FFFFFF' 
-                                      }}
-                                    >
-                                      📁 {subfolder.name}
-                                      {isDraggingFiles && ' (Upload here)'}
-                                    </h4>
-                                    <p 
-                                      className="text-xs"
-                                      style={{ 
-                                        color: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
-                                          ? '#374151' 
-                                          : '#6B7280' 
-                                      }}
-                                    >
-                                      {subfolder.description}
-                                    </p>
-                                    <p 
-                                      className="text-xs"
-                                      style={{ 
-                                        color: dragOverTarget === `${pack.id}-${subfolder.name}` && isDraggingFiles 
-                                          ? '#374151' 
-                                          : '#9CA3AF' 
-                                      }}
-                                    >
-                                      {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length} files
-                                    </p>
-                                  </div>
-                                  <div className="flex gap-1">
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openMassEditModal(pack, subfolder);
-                                      }}
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </Button>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteSubfolder(subfolder.id);
-                                      }}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                
-                                {expandedSubfolders.has(subfolder.id) && (
-                                  <div className="px-3 pb-3 pt-4 space-y-2">
-                                    {/* Subfolder Search Bar */}
-                                    <div className="flex items-center gap-2 mb-3 p-2 bg-gray-50 rounded border">
-                                      <div className="relative flex-1">
-                                        <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Label>Type</Label>
                                         <Input
-                                          placeholder={`Search in ${subfolder.name}...`}
-                                          value={searchQuery}
-                                          onChange={(e) => setSearchQuery(e.target.value)}
-                                          className="pl-8 bg-white border-gray-300 text-sm text-black"
+                        value={editingItem.type}
+                        onChange={(e) => setEditingItem({...editingItem, type: e.target.value})}
                                         />
                                       </div>
-                                      {searchQuery && (
-                                        <>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => selectVisibleSearchResults(pack.id, subfolder.name)}
-                                            className="h-7 px-2 text-xs bg-green-600 text-white hover:bg-green-700"
-                                          >
-                                            Select All
-                                          </Button>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setSearchQuery('')}
-                                            className="h-7 px-2 text-xs"
-                                          >
-                                            Clear
-                                          </Button>
-                                        </>
-                                      )}
                                     </div>
-                                    {searchQuery && (
-                                      <div className="text-xs text-gray-600 mb-2">
-                                        Found {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length} files matching "{searchQuery}"
+                  
+                  <div>
+                    <Label>Description</Label>
+                    <Textarea
+                      value={editingItem.description || ''}
+                      onChange={(e) => setEditingItem({...editingItem, description: e.target.value})}
+                      rows={3}
+                    />
                                       </div>
-                                    )}
-                                    
-                                    {/* Subfolder Selection Controls */}
-                                    {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length > 0 && (
-                                      <div className="flex items-center gap-2 ml-4 mb-2">
-                                        {selectedFiles.size > 0 && (
-                                          <>
-                                            <span className="text-xs text-yellow-600">
-                                              {selectedFiles.size} selected
-                                            </span>
-                                            <Button 
-                                              variant="outline" 
-                                              size="sm" 
-                                              onClick={clearSelection}
-                                              className="text-xs h-6"
-                                            >
-                                              Clear
-                                            </Button>
-                                            <Button 
-                                              variant="outline" 
-                                              size="sm" 
-                                              onClick={openMassEditSelectedModal}
-                                              className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
-                                            >
-                                              Mass Edit
-                                            </Button>
-                                          </>
-                                        )}
-                                        <Button 
-                                          variant="outline" 
-                                          size="sm" 
-                                          onClick={() => {
-                                            const subfolderFiles = getFilteredAudioItems(audioItems.filter(item => 
-                                              item.pack_id === pack.id && item.subfolder === subfolder.name
-                                            ))
-                                            const newSelected = new Set(selectedFiles)
-                                            subfolderFiles.forEach(file => newSelected.add(file.id))
-                                            setSelectedFiles(newSelected)
-                                          }}
-                                          className="text-xs h-6"
-                                        >
-                                          Select All
-                                        </Button>
-                                      </div>
-                                    )}
-                                    
-                                                                         {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name))
-                                       .map(item => (
-                                         <div 
-                                           key={item.id} 
-                                           className={`flex items-center gap-3 py-2 px-2 rounded transition-colors ${
-                                             selectedFiles.has(item.id) ? 'bg-blue-50 border border-blue-200' : ''
-                                           }`}
-                                           onClick={() => toggleFileSelection(item.id)}
-                                         >
-                                           <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
-                                             {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-400" />}
-                                             {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-400" />}
-                                             {item.type === 'loop' && <Music className="h-4 w-4 text-blue-400" />}
-                                             {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-400" />}
-                                             {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-400" />}
-                                             {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-400" />}
-                                             {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="is_ready"
+                        checked={editingItem.is_ready || false}
+                        onChange={(e) => setEditingItem({...editingItem, is_ready: e.target.checked})}
+                        className="rounded"
+                      />
+                      <Label htmlFor="is_ready">Mark as Ready</Label>
                                            </div>
-                                                                                <div className="flex-1">
-                                       <div className="flex items-center gap-2 mb-1">
-                                         <h5 className="text-sm font-medium">{item.name}</h5>
-                                         <div 
-                                           className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-105 ${
-                                             item.is_ready 
-                                               ? 'bg-green-500 text-white shadow-md hover:bg-green-600' 
-                                               : 'bg-red-500 text-white shadow-md hover:bg-red-600'
-                                           }`}
-                                           onClick={async (e) => {
-                                             e.stopPropagation();
-                                             try {
-                                               const { error } = await supabase
-                                                 .from('audio_library_items')
-                                                 .update({ is_ready: !item.is_ready })
-                                                 .eq('id', item.id);
-                                               
-                                               if (error) throw error;
-                                               
-                                               // Update local state
-                                               setAudioItems(prev => prev.map(audioItem => 
-                                                 audioItem.id === item.id 
-                                                   ? { ...audioItem, is_ready: !item.is_ready }
-                                                   : audioItem
-                                               ));
-                                             } catch (error) {
-                                               console.error('Error toggling ready status:', error);
-                                               alert('Failed to update ready status');
-                                             }
-                                           }}
-                                         >
-                                           {item.is_ready ? 'READY' : 'NOT READY'}
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="is_new"
+                        checked={editingItem.is_new || false}
+                        onChange={(e) => setEditingItem({...editingItem, is_new: e.target.checked})}
+                        className="rounded"
+                      />
+                      <Label htmlFor="is_new">Mark as New</Label>
                                          </div>
                                        </div>
-                                       <p className="text-xs text-gray-500">{item.audio_type}</p>
+                </TabsContent>
+
+                <TabsContent value="musical" className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>BPM</Label>
+                      <Input
+                        type="number"
+                        value={editingItem.bpm || ''}
+                        onChange={(e) => setEditingItem({...editingItem, bpm: parseInt(e.target.value) || null})}
+                      />
                                      </div>
-                                                                                <div className="flex gap-1">
-                                       <Button
-                                         variant={item.is_ready ? "default" : "outline"}
-                                         size="sm"
-                                         onClick={async (e) => {
-                                           e.stopPropagation();
-                                           try {
-                                             const { error } = await supabase
-                                               .from('audio_library_items')
-                                               .update({ is_ready: !item.is_ready })
-                                               .eq('id', item.id);
-                                             
-                                             if (error) throw error;
-                                             
-                                             // Update local state
-                                             setAudioItems(prev => prev.map(audioItem => 
-                                               audioItem.id === item.id 
-                                                 ? { ...audioItem, is_ready: !item.is_ready }
-                                                 : audioItem
-                                             ));
-                                           } catch (error) {
-                                             console.error('Error toggling ready status:', error);
-                                             alert('Failed to update ready status');
-                                           }
-                                         }}
-                                         className={item.is_ready ? "bg-green-600 hover:bg-green-700 text-white h-6" : "h-6"}
-                                       >
-                                         {item.is_ready ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                                       </Button>
-                                       <Button
-                                         variant="outline"
-                                         size="sm"
-                                         onClick={(e) => {
-                                           e.stopPropagation();
-                                           openEditAudioModal(item);
-                                         }}
-                                       >
-                                         <Edit3 className="h-3 w-3" />
-                                       </Button>
-                                       <Button
-                                         variant="destructive"
-                                         size="sm"
-                                         onClick={(e) => {
-                                           e.stopPropagation();
-                                           handleDeleteAudio(item.id);
-                                         }}
-                                       >
-                                         <Trash2 className="h-3 w-3" />
-                                       </Button>
-                                     </div>
+                    <div>
+                      <Label>Key</Label>
+                      <Input
+                        value={editingItem.key || ''}
+                        onChange={(e) => setEditingItem({...editingItem, key: e.target.value})}
+                      />
                                          </div>
-                                       ))}
-                                     
-                                     {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)).length === 0 && (
-                                       <div className="text-center py-4 text-gray-500 text-sm">
-                                         {searchQuery ? 'No files match your search.' : 'No files in this folder yet.'}
                                        </div>
-                                     )}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        
-                                                 {/* Show files in pack root */}
-                         <div 
-                           className={`border border-gray-200 rounded-lg transition-colors ${
-                             dragOverTarget === `${pack.id}-root` 
-                               ? isDraggingFiles 
-                                 ? 'bg-yellow-100 border-yellow-400 border-2' 
-                                 : 'bg-yellow-100 border-yellow-400 border-2' 
-                               : isDraggingFiles
-                                 ? 'border-dashed border-yellow-300'
-                                 : ''
-                           }`}
-                           onDragOver={handleDragOver}
-                           onDragEnter={() => handleDragEnter(`${pack.id}-root`)}
-                           onDragLeave={handleDragLeave}
-                           onDrop={(e) => handleDrop(e, null, pack.id)}
-                         >
-                           <div 
-                             className="flex items-center gap-3 p-3 cursor-pointer rounded-lg"
-                             style={{ 
-                               backgroundColor: dragOverTarget === `${pack.id}-root` && isDraggingFiles 
-                                 ? '#FCD34D' 
-                                 : '#141414' 
-                             }}
-                             onClick={() => toggleSubfolder(`${pack.id}-root`)}
-                           >
-                             <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
-                               <Package className="h-4 w-4 text-gray-400" />
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Key Signature</Label>
+                      <Input
+                        value={editingItem.key_signature || ''}
+                        onChange={(e) => setEditingItem({...editingItem, key_signature: e.target.value})}
+                        placeholder="e.g., C major, A minor"
+                      />
                              </div>
-                             <div className="flex-1">
-                               <h4 
-                                 className="font-medium"
-                                 style={{ 
-                                   color: dragOverTarget === `${pack.id}-root` && isDraggingFiles 
-                                     ? '#000000' 
-                                     : '#FFFFFF' 
-                                 }}
-                               >
-                                 📦 Pack Root
-                                 {isDraggingFiles && ' (Upload here)'}
-                               </h4>
-                               <p 
-                                 className="text-xs"
-                                 style={{ 
-                                   color: dragOverTarget === `${pack.id}-root` && isDraggingFiles 
-                                     ? '#374151' 
-                                     : '#6B7280' 
-                                 }}
-                               >
-                                 {audioItems.filter(item => item.pack_id === pack.id && !item.subfolder).length} files
-                               </p>
-                             </div>
-                             <div className="flex gap-1">
-                               <Button 
-                                 variant="ghost" 
-                                 size="sm" 
-                                 onClick={(e) => {
-                                   e.stopPropagation();
-                                   toggleSubfolder(`${pack.id}-root`);
-                                 }}
-                               >
-                                 <Pencil className="h-3 w-3" />
-                               </Button>
+                    <div>
+                      <Label>Time Signature</Label>
+                      <Input
+                        value={editingItem.time_signature || ''}
+                        onChange={(e) => setEditingItem({...editingItem, time_signature: e.target.value})}
+                        placeholder="e.g., 4/4, 3/4"
+                      />
                              </div>
                            </div>
                            
-                           {expandedSubfolders.has(`${pack.id}-root`) && (
-                             <div className="px-3 pb-3 pt-4 space-y-2">
-                               {/* Pack Root Search Bar */}
-                               <div className="flex items-center gap-2 mb-3 p-2 bg-gray-50 rounded border">
-                                 <div className="relative flex-1">
-                                   <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Genre</Label>
                                    <Input
-                                     placeholder="Search root files..."
-                                     value={searchQuery}
-                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                     className="pl-8 bg-white border-gray-300 text-sm text-black"
+                        value={editingItem.genre || ''}
+                        onChange={(e) => setEditingItem({...editingItem, genre: e.target.value})}
                                    />
                                  </div>
-                                 {searchQuery && (
-                                   <>
-                                     <Button
-                                       variant="outline"
-                                       size="sm"
-                                       onClick={() => selectVisibleSearchResults(pack.id)}
-                                       className="h-7 px-2 text-xs bg-green-600 text-white hover:bg-green-700"
-                                     >
-                                       Select All
-                                     </Button>
-                                     <Button
-                                       variant="outline"
-                                       size="sm"
-                                       onClick={() => setSearchQuery('')}
-                                       className="h-7 px-2 text-xs"
-                                     >
-                                       Clear
-                                     </Button>
-                                   </>
-                                 )}
+                    <div>
+                      <Label>Subgenre</Label>
+                      <Input
+                        value={editingItem.subgenre || ''}
+                        onChange={(e) => setEditingItem({...editingItem, subgenre: e.target.value})}
+                      />
                                </div>
-                               {searchQuery && (
-                                 <div className="text-xs text-gray-600 mb-2">
-                                   Found {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length} root files matching "{searchQuery}"
                                  </div>
-                               )}
-                               
-                               {/* Pack Root Selection Controls */}
-                               {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length > 0 && (
-                                 <div className="flex items-center gap-2 ml-4 mb-2">
-                                   {selectedFiles.size > 0 && (
-                                     <>
-                                       <span className="text-xs text-yellow-600">
-                                         {selectedFiles.size} selected
-                                       </span>
-                                       <Button 
-                                         variant="outline" 
-                                         size="sm" 
-                                         onClick={clearSelection}
-                                         className="text-xs h-6"
-                                       >
-                                         Clear
-                                       </Button>
-                                       <Button 
-                                         variant="outline" 
-                                         size="sm" 
-                                         onClick={openMassEditSelectedModal}
-                                         className="text-xs h-6 bg-blue-600 text-white hover:bg-blue-700"
-                                       >
-                                         Mass Edit
-                                       </Button>
-                                     </>
-                                   )}
-                                   <Button 
-                                     variant="outline" 
-                                     size="sm" 
-                                     onClick={() => {
-                                       const rootFiles = getFilteredAudioItems(audioItems.filter(item => 
-                                         item.pack_id === pack.id && !item.subfolder
-                                       ))
-                                       const newSelected = new Set(selectedFiles)
-                                       rootFiles.forEach(file => newSelected.add(file.id))
-                                       setSelectedFiles(newSelected)
-                                     }}
-                                     className="text-xs h-6"
-                                   >
-                                     Select All
-                                   </Button>
+
+                  <div>
+                    <Label>Additional Subgenres (comma-separated)</Label>
+                    <Input
+                      value={editingItem.additional_subgenres?.join(', ') || ''}
+                      onChange={(e) => setEditingItem({
+                        ...editingItem, 
+                        additional_subgenres: e.target.value.split(',').map(s => s.trim()).filter(s => s.length > 0)
+                      })}
+                      placeholder="drill, dark trap, melodic"
+                    />
                                  </div>
-                               )}
-                               
-                               {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && !item.subfolder))
-                                 .map(item => (
-                                   <div 
-                                     key={item.id} 
-                                     className={`flex items-center gap-3 py-2 px-2 rounded transition-colors ${
-                                       selectedFiles.has(item.id) ? 'bg-blue-50 border border-blue-200' : ''
-                                     }`}
-                                     onClick={() => toggleFileSelection(item.id)}
-                                   >
-                                     <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center">
-                                       {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-400" />}
-                                       {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-400" />}
-                                       {item.type === 'loop' && <Music className="h-4 w-4 text-blue-400" />}
-                                       {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-400" />}
-                                       {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-400" />}
-                                       {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-400" />}
-                                       {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
+
+                  <div>
+                    <Label>Tags (comma-separated)</Label>
+                    <Input
+                      value={editingItem.tags?.join(', ') || ''}
+                      onChange={(e) => setEditingItem({
+                        ...editingItem, 
+                        tags: e.target.value.split(',').map(s => s.trim()).filter(s => s.length > 0)
+                      })}
+                      placeholder="trap, dark, aggressive, 808"
+                    />
                                      </div>
-                                     <div className="flex-1">
-                                       <div className="flex items-center gap-2 mb-1">
-                                         <h5 className="text-sm font-medium">{item.name}</h5>
-                                         <div 
-                                           className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide cursor-pointer transition-all hover:scale-105 ${
-                                             item.is_ready 
-                                               ? 'bg-green-500 text-white shadow-md hover:bg-green-600' 
-                                               : 'bg-red-500 text-white shadow-md hover:bg-red-600'
-                                           }`}
-                                           onClick={async (e) => {
-                                             e.stopPropagation();
-                                             try {
-                                               const { error } = await supabase
-                                                 .from('audio_library_items')
-                                                 .update({ is_ready: !item.is_ready })
-                                                 .eq('id', item.id);
-                                               
-                                               if (error) throw error;
-                                               
-                                               // Update local state
-                                               setAudioItems(prev => prev.map(audioItem => 
-                                                 audioItem.id === item.id 
-                                                   ? { ...audioItem, is_ready: !item.is_ready }
-                                                   : audioItem
-                                               ));
-                                             } catch (error) {
-                                               console.error('Error toggling ready status:', error);
-                                               alert('Failed to update ready status');
-                                             }
-                                           }}
-                                         >
-                                           {item.is_ready ? 'READY' : 'NOT READY'}
-                                         </div>
-                                       </div>
-                                       <p className="text-xs text-gray-500">{item.audio_type}</p>
-                                     </div>
-                                     <div className="flex gap-1">
-                                       <Button
-                                         variant={item.is_ready ? "default" : "outline"}
-                                         size="sm"
-                                         onClick={async (e) => {
-                                           e.stopPropagation();
-                                           try {
-                                             const { error } = await supabase
-                                               .from('audio_library_items')
-                                               .update({ is_ready: !item.is_ready })
-                                               .eq('id', item.id);
-                                             
-                                             if (error) throw error;
-                                             
-                                             // Update local state
-                                             setAudioItems(prev => prev.map(audioItem => 
-                                               audioItem.id === item.id 
-                                                 ? { ...audioItem, is_ready: !item.is_ready }
-                                                 : audioItem
-                                             ));
-                                           } catch (error) {
-                                             console.error('Error toggling ready status:', error);
-                                             alert('Failed to update ready status');
-                                           }
-                                         }}
-                                         className={item.is_ready ? "bg-green-600 hover:bg-green-700 text-white h-6" : "h-6"}
-                                       >
-                                         {item.is_ready ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                                       </Button>
-                                       <Button
-                                         variant="outline"
-                                         size="sm"
-                                         onClick={(e) => {
-                                           e.stopPropagation();
-                                           openEditAudioModal(item);
-                                         }}
-                                       >
-                                         <Edit3 className="h-3 w-3" />
-                                       </Button>
-                                       <Button
-                                         variant="destructive"
-                                         size="sm"
-                                         onClick={(e) => {
-                                           e.stopPropagation();
-                                           handleDeleteAudio(item.id);
-                                         }}
-                                       >
-                                         <Trash2 className="h-3 w-3" />
-                                       </Button>
-                                     </div>
-                                   </div>
-                                 ))}
-                               
-                               {getFilteredAudioItems(audioItems.filter(item => item.pack_id === pack.id && !item.subfolder)).length === 0 && (
-                                 <div className="text-center py-4 text-gray-500 text-sm">
-                                   {searchQuery ? 'No root files match your search.' : 'No root files.'}
-                                 </div>
-                               )}
-                             </div>
-                           )}
-                         </div>
-                      </div>
-                    )}
-                  </Card>
-                ))
-              )}
-            </div>
-          )}
         </TabsContent>
 
-        {/* Packs Tab */}
-        <TabsContent value="packs" className="space-y-4">
-          {audioPacks.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">No packs found.</div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {audioPacks.map(pack => (
-                <Card key={pack.id} className="p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold">{pack.name}</h3>
-                      <p className="text-sm text-gray-500">{pack.item_count || 0} items</p>
+                <TabsContent value="metadata" className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Audio Type</Label>
+                      <Input
+                        value={editingItem.audio_type || ''}
+                        onChange={(e) => setEditingItem({...editingItem, audio_type: e.target.value})}
+                        placeholder="e.g., kick, snare, melody, loop"
+                      />
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditPackModal(pack)}
-                      >
-                        <Edit3 className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDeletePack(pack.id)}
-                        disabled={deleting}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  {pack.description && (
-                    <p className="text-sm text-gray-600 mb-3">{pack.description}</p>
-                  )}
-                  
-                  {pack.subfolders && pack.subfolders.length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-medium">Subfolders:</h4>
-                      {pack.subfolders.map(subfolder => (
-                        <div key={subfolder.id} className="flex justify-between items-center text-sm">
-                          <span>{subfolder.name}</span>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditSubfolderModal(subfolder)}
-                            >
-                              <Edit3 className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => handleDeleteSubfolder(subfolder.id)}
-                              disabled={deleting}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Subfolders Tab */}
-        <TabsContent value="subfolders" className="space-y-4">
-          {audioPacks.flatMap(pack => pack.subfolders || []).length === 0 ? (
-            <div className="text-center py-8 text-gray-500">No subfolders found.</div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {audioPacks.flatMap(pack => 
-                (pack.subfolders || []).map(subfolder => ({ ...subfolder, packName: pack.name }))
-              ).map(subfolder => (
-                <Card key={subfolder.id} className="p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold">{subfolder.name}</h3>
-                      <p className="text-sm text-gray-500">Pack: {subfolder.packName}</p>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditSubfolderModal(subfolder)}
-                      >
-                        <Edit3 className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDeleteSubfolder(subfolder.id)}
-                        disabled={deleting}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  {subfolder.description && (
-                    <p className="text-sm text-gray-600">{subfolder.description}</p>
-                  )}
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-
-      {/* Advanced Search & Analytics Card */}
-      <div className="mt-8">
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-6">
             <div>
-              <h3 className="text-2xl font-bold">Advanced Search & Analytics</h3>
-              <p className="text-gray-600">Find files needing updates, missing data, and similar content</p>
+                      <Label>Instrument Type</Label>
+                      <Input
+                        value={editingItem.instrument_type || ''}
+                        onChange={(e) => setEditingItem({...editingItem, instrument_type: e.target.value})}
+                        placeholder="e.g., piano, guitar, synthesizer"
+                      />
             </div>
-            <Button 
-              variant="outline" 
-              onClick={() => loadAudioData()}
-              disabled={loadingAudio}
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh Data
-            </Button>
           </div>
 
-          {/* Data Overview Tabs */}
-          <Tabs defaultValue="audio" className="mb-6">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="audio">Audio Library</TabsTrigger>
-              <TabsTrigger value="genres">Genres</TabsTrigger>
-              <TabsTrigger value="packs">Packs</TabsTrigger>
-              <TabsTrigger value="analytics">Analytics</TabsTrigger>
-            </TabsList>
-
-            {/* Audio Library Tab */}
-            <TabsContent value="audio" className="space-y-4">
-              {/* Data Quality Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
-                  <h4 className="font-medium mb-2 text-blue-900">Total Files</h4>
-                  <p className="text-2xl font-bold text-blue-700">{audioItems.length}</p>
-                  <p className="text-xs text-blue-600 mt-1">Audio library items</p>
-                </div>
-                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-4 rounded-lg border border-yellow-200">
-                  <h4 className="font-medium mb-2 text-yellow-900">Missing BPM</h4>
-                  <p className="text-2xl font-bold text-yellow-700">
-                    {audioItems.filter(item => !item.bpm).length}
-                  </p>
-                  <p className="text-xs text-yellow-600 mt-1">
-                    {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => !item.bpm).length / audioItems.length) * 100)}%` : '0%'}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-red-50 to-red-100 p-4 rounded-lg border border-red-200">
-                  <h4 className="font-medium mb-2 text-red-900">Missing Key</h4>
-                  <p className="text-2xl font-bold text-red-700">
-                    {audioItems.filter(item => !item.key).length}
-                  </p>
-                  <p className="text-xs text-red-600 mt-1">
-                    {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => !item.key).length / audioItems.length) * 100)}%` : '0%'}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
-                  <h4 className="font-medium mb-2 text-green-900">Missing Genre</h4>
-                  <p className="text-2xl font-bold text-green-700">
-                    {audioItems.filter(item => !item.genre).length}
-                  </p>
-                  <p className="text-xs text-green-600 mt-1">
-                    {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => !item.genre).length / audioItems.length) * 100)}%` : '0%'}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border border-purple-200">
-                  <h4 className="font-medium mb-2 text-purple-900">Missing Tags</h4>
-                  <p className="text-2xl font-bold text-purple-700">
-                    {audioItems.filter(item => !item.tags || item.tags.length === 0).length}
-                  </p>
-                  <p className="text-xs text-purple-600 mt-1">
-                    {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => !item.tags || item.tags.length === 0).length / audioItems.length) * 100)}%` : '0%'}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 rounded-lg border border-emerald-200">
-                  <h4 className="font-medium mb-2 text-emerald-900">Ready Files</h4>
-                  <p className="text-2xl font-bold text-emerald-700">
-                    {audioItems.filter(item => item.is_ready).length}
-                  </p>
-                  <p className="text-xs text-emerald-600 mt-1">
-                    {audioItems.length > 0 ? `${Math.round((audioItems.filter(item => item.is_ready).length / audioItems.length) * 100)}%` : '0%'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Advanced Search Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="missing-data-filter">Missing Data Filter</Label>
-                  <Select
-                    value={missingDataFilter}
-                    onValueChange={setMissingDataFilter}
+                      <Label>Mood</Label>
+                      <Input
+                        value={editingItem.mood || ''}
+                        onChange={(e) => setEditingItem({...editingItem, mood: e.target.value})}
+                        placeholder="e.g., dark, uplifting, melancholic"
+                      />
+                </div>
+                <div>
+                  <Label>Tempo Category</Label>
+                  <Select 
+                    value={editingItem?.tempo_category || ''} 
+                    onValueChange={(value) => setEditingItem(prev => prev ? { ...prev, tempo_category: value } : null)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Filter by missing data" />
-                    </SelectTrigger>
-                                         <SelectContent>
-                       <SelectItem value="all">All Files</SelectItem>
-                       <SelectItem value="bpm">Missing BPM</SelectItem>
-                       <SelectItem value="key">Missing Key</SelectItem>
-                       <SelectItem value="genre">Missing Genre</SelectItem>
-                       <SelectItem value="subgenre">Missing Subgenre</SelectItem>
-                       <SelectItem value="tags">Missing Tags</SelectItem>
-                       <SelectItem value="pack">No Pack Assigned</SelectItem>
-                       <SelectItem value="subfolder">No Subfolder</SelectItem>
-                       <SelectItem value="description">No Description</SelectItem>
-                       <SelectItem value="audio_type">No Audio Type</SelectItem>
-                       <SelectItem value="file_url">No File URL</SelectItem>
-                     </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="type-filter">Type Filter</Label>
-                  <Select
-                    value={typeFilter}
-                    onValueChange={setTypeFilter}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Filter by type" />
-                    </SelectTrigger>
-                                         <SelectContent>
-                       <SelectItem value="all">All Types</SelectItem>
-                       <SelectItem value="midi">MIDI</SelectItem>
-                       <SelectItem value="soundkit">Soundkit</SelectItem>
-                       <SelectItem value="loop">Loop</SelectItem>
-                       <SelectItem value="patch">Patch</SelectItem>
-                       <SelectItem value="sample">Sample</SelectItem>
-                       <SelectItem value="clip">Clip</SelectItem>
-                       <SelectItem value="other">Other</SelectItem>
-                     </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="genre-filter">Genre Filter</Label>
-                  <Select
-                    value={genreFilter}
-                    onValueChange={setGenreFilter}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Filter by genre" />
-                    </SelectTrigger>
-                                         <SelectContent>
-                       <SelectItem value="all">All Genres</SelectItem>
-                       {Array.from(new Set(audioItems.map(item => item.genre).filter(Boolean))).map(genre => (
-                         <SelectItem key={genre} value={genre!}>{genre}</SelectItem>
-                       ))}
-                     </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="bpm-range">BPM Range</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      placeholder="Min"
-                      value={bpmRange.min}
-                      onChange={(e) => setBpmRange(prev => ({ ...prev, min: e.target.value }))}
-                      className="w-20"
-                    />
-                    <span className="text-gray-500 self-center">-</span>
-                    <Input
-                      type="number"
-                      placeholder="Max"
-                      value={bpmRange.max}
-                      onChange={(e) => setBpmRange(prev => ({ ...prev, max: e.target.value }))}
-                      className="w-20"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="ready-filter">Ready Status</Label>
-                  <Select
-                    value={readyFilter}
-                    onValueChange={setReadyFilter}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Filter by ready status" />
+                      <SelectValue placeholder="Select tempo category" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Files</SelectItem>
-                      <SelectItem value="ready">Ready Files</SelectItem>
-                      <SelectItem value="not-ready">Not Ready Files</SelectItem>
+                      <SelectItem value="slow">Slow</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="fast">Fast</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
+                </div>
 
-                             {/* Quick Actions */}
-               <div className="flex flex-wrap gap-2">
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const missingBpm = audioItems.filter(item => !item.bpm);
-                     setSelectedFiles(new Set(missingBpm.map(item => item.id)));
-                   }}
-                   className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100"
-                 >
-                   Select Missing BPM
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const missingKey = audioItems.filter(item => !item.key);
-                     setSelectedFiles(new Set(missingKey.map(item => item.id)));
-                   }}
-                   className="text-xs bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-                 >
-                   Select Missing Key
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const missingGenre = audioItems.filter(item => !item.genre);
-                     setSelectedFiles(new Set(missingGenre.map(item => item.id)));
-                   }}
-                   className="text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                 >
-                   Select Missing Genre
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const missingSubgenre = audioItems.filter(item => !item.subgenre);
-                     setSelectedFiles(new Set(missingSubgenre.map(item => item.id)));
-                   }}
-                   className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                 >
-                   Select Missing Subgenre
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const missingTags = audioItems.filter(item => !item.tags || item.tags.length === 0);
-                     setSelectedFiles(new Set(missingTags.map(item => item.id)));
-                   }}
-                   className="text-xs bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100"
-                 >
-                   Select Missing Tags
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const noPack = audioItems.filter(item => !item.pack_id);
-                     setSelectedFiles(new Set(noPack.map(item => item.id)));
-                   }}
-                   className="text-xs bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
-                 >
-                   Select No Pack
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const noSubfolder = audioItems.filter(item => !item.subfolder);
-                     setSelectedFiles(new Set(noSubfolder.map(item => item.id)));
-                   }}
-                   className="text-xs bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100"
-                 >
-                   Select No Subfolder
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const noDescription = audioItems.filter(item => !item.description);
-                     setSelectedFiles(new Set(noDescription.map(item => item.id)));
-                   }}
-                   className="text-xs bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100"
-                 >
-                   Select No Description
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const noAudioType = audioItems.filter(item => !item.audio_type);
-                     setSelectedFiles(new Set(noAudioType.map(item => item.id)));
-                   }}
-                   className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
-                 >
-                   Select No Audio Type
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const noFileUrl = audioItems.filter(item => !item.file_url);
-                     setSelectedFiles(new Set(noFileUrl.map(item => item.id)));
-                   }}
-                   className="text-xs bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-                 >
-                   Select No File URL
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const notReady = audioItems.filter(item => !item.is_ready);
-                     setSelectedFiles(new Set(notReady.map(item => item.id)));
-                   }}
-                   className="text-xs bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100"
-                 >
-                   Select Not Ready
-                 </Button>
-                 <Button
-                   variant="outline"
-                   onClick={() => {
-                     const ready = audioItems.filter(item => item.is_ready);
-                     setSelectedFiles(new Set(ready.map(item => item.id)));
-                   }}
-                   className="text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                 >
-                   Select Ready
-                 </Button>
+                  <div className="grid grid-cols-2 gap-4">
+                <div>
+                      <Label>Energy Level (1-10)</Label>
+                    <Input
+                      type="number"
+                        min="1"
+                        max="10"
+                        value={editingItem.energy_level || ''}
+                        onChange={(e) => setEditingItem({...editingItem, energy_level: parseInt(e.target.value) || null})}
+                      />
+                    </div>
+                    <div>
+                      <Label>Complexity (1-10)</Label>
+                    <Input
+                      type="number"
+                        min="1"
+                        max="10"
+                        value={editingItem.complexity || ''}
+                        onChange={(e) => setEditingItem({...editingItem, complexity: parseInt(e.target.value) || null})}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                    <Label>Distribution Type</Label>
+                  <Select
+                      value={editingItem.distribution_type || 'private'} 
+                      onValueChange={(value) => setEditingItem({...editingItem, distribution_type: value})}
+                  >
+                    <SelectTrigger>
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="private">Private</SelectItem>
+                        <SelectItem value="public">Public</SelectItem>
+                        <SelectItem value="commercial">Commercial</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                </div>
             </TabsContent>
 
-            {/* Genres Tab */}
-            <TabsContent value="genres" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-4 rounded-lg border border-indigo-200">
-                  <h4 className="font-medium mb-2 text-indigo-900">Total Genres</h4>
-                  <p className="text-2xl font-bold text-indigo-700">
-                    {Array.from(new Set(audioItems.map(item => item.genre).filter(Boolean))).length}
-                  </p>
-                  <p className="text-xs text-indigo-600 mt-1">Unique genres found</p>
+                <TabsContent value="advanced" className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Duration (seconds)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={editingItem.duration || ''}
+                        onChange={(e) => setEditingItem({...editingItem, duration: parseFloat(e.target.value) || null})}
+                      />
                 </div>
-                <div className="bg-gradient-to-br from-pink-50 to-pink-100 p-4 rounded-lg border border-pink-200">
-                  <h4 className="font-medium mb-2 text-pink-900">Most Popular</h4>
-                  <p className="text-lg font-bold text-pink-700">
-                    {(() => {
-                      const genreCounts = audioItems.reduce((acc, item) => {
-                        if (item.genre) {
-                          acc[item.genre] = (acc[item.genre] || 0) + 1;
-                        }
-                        return acc;
-                      }, {} as Record<string, number>);
-                      const mostPopular = Object.entries(genreCounts).sort(([,a], [,b]) => b - a)[0];
-                      return mostPopular ? mostPopular[0] : 'None';
-                    })()}
-                  </p>
-                  <p className="text-xs text-pink-600 mt-1">Genre with most files</p>
-                </div>
-                <div className="bg-gradient-to-br from-teal-50 to-teal-100 p-4 rounded-lg border border-teal-200">
-                  <h4 className="font-medium mb-2 text-teal-900">Genre Distribution</h4>
-                  <p className="text-2xl font-bold text-teal-700">
-                    {audioItems.length > 0 ? 
-                      `${Math.round((audioItems.filter(item => item.genre).length / audioItems.length) * 100)}%` : '0%'
-                    }
-                  </p>
-                  <p className="text-xs text-teal-600 mt-1">Files with genre data</p>
+                    <div>
+                      <Label>Sample Rate</Label>
+                      <Input
+                        type="number"
+                        value={editingItem.sample_rate || ''}
+                        onChange={(e) => setEditingItem({...editingItem, sample_rate: parseInt(e.target.value) || null})}
+                        placeholder="e.g., 44100, 48000"
+                      />
                 </div>
               </div>
 
-              {/* Genre Breakdown */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-medium mb-3">Genre Breakdown</h4>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {(() => {
-                    const genreCounts = audioItems.reduce((acc, item) => {
-                      if (item.genre) {
-                        acc[item.genre] = (acc[item.genre] || 0) + 1;
-                      }
-                      return acc;
-                    }, {} as Record<string, number>);
-                    
-                    return Object.entries(genreCounts)
-                      .sort(([,a], [,b]) => b - a)
-                      .map(([genre, count]) => (
-                        <div key={genre} className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{genre}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-20 bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-blue-600 h-2 rounded-full" 
-                                style={{ width: `${(count / audioItems.length) * 100}%` }}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Bit Depth</Label>
+                      <Input
+                        type="number"
+                        value={editingItem.bit_depth || ''}
+                        onChange={(e) => setEditingItem({...editingItem, bit_depth: parseInt(e.target.value) || null})}
+                        placeholder="e.g., 16, 24"
                               />
                             </div>
-                            <span className="text-xs text-gray-600 w-8 text-right">{count}</span>
-                          </div>
-                        </div>
-                      ));
-                  })()}
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Packs Tab */}
-            <TabsContent value="packs" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 p-4 rounded-lg border border-emerald-200">
-                  <h4 className="font-medium mb-2 text-emerald-900">Total Packs</h4>
-                  <p className="text-2xl font-bold text-emerald-700">
-                    {Array.from(new Set(audioItems.map(item => item.pack_id).filter(Boolean))).length}
-                  </p>
-                  <p className="text-xs text-emerald-600 mt-1">Unique packs</p>
-                </div>
-                <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-lg border border-amber-200">
-                  <h4 className="font-medium mb-2 text-amber-900">Largest Pack</h4>
-                  <p className="text-lg font-bold text-amber-700">
-                    {(() => {
-                      const packCounts = audioItems.reduce((acc, item) => {
-                        if (item.pack_id) {
-                          acc[item.pack_id] = (acc[item.pack_id] || 0) + 1;
-                        }
-                        return acc;
-                      }, {} as Record<string, number>);
-                      const largestPack = Object.entries(packCounts).sort(([,a], [,b]) => b - a)[0];
-                      return largestPack ? largestPack[1] : 0;
-                    })()} files
-                  </p>
-                  <p className="text-xs text-amber-600 mt-1">Biggest pack size</p>
-                </div>
-                <div className="bg-gradient-to-br from-rose-50 to-rose-100 p-4 rounded-lg border border-rose-200">
-                  <h4 className="font-medium mb-2 text-rose-900">Unorganized</h4>
-                  <p className="text-2xl font-bold text-rose-700">
-                    {audioItems.filter(item => !item.pack_id).length}
-                  </p>
-                  <p className="text-xs text-rose-600 mt-1">Files without packs</p>
-                </div>
-              </div>
-
-              {/* Pack Management */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-medium mb-3">Pack Management</h4>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      const noPack = audioItems.filter(item => !item.pack_id);
-                      setSelectedFiles(new Set(noPack.map(item => item.id)));
-                    }}
-                    className="text-xs bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
-                  >
-                    Select Unorganized Files
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      const smallPacks = audioItems.filter(item => {
-                        if (!item.pack_id) return false;
-                        const packSize = audioItems.filter(other => other.pack_id === item.pack_id).length;
-                        return packSize < 5;
-                      });
-                      setSelectedFiles(new Set(smallPacks.map(item => item.id)));
-                    }}
-                    className="text-xs bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100"
-                  >
-                    Select Small Packs (&lt;5 files)
-                  </Button>
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Analytics Tab */}
-            <TabsContent value="analytics" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-4 rounded-lg border border-slate-200">
-                  <h4 className="font-medium mb-2 text-slate-900">Data Completeness</h4>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Complete Files</span>
-                      <span className="text-sm font-medium">
-                        {audioItems.filter(item => item.bpm && item.key && item.genre && item.tags && item.tags.length > 0).length}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full" 
-                        style={{ 
-                          width: `${audioItems.length > 0 ? 
-                            (audioItems.filter(item => item.bpm && item.key && item.genre && item.tags && item.tags.length > 0).length / audioItems.length) * 100 : 0
-                          }%` 
-                        }}
+                    <div>
+                      <Label>License Type</Label>
+                      <Input
+                        value={editingItem.license_type || ''}
+                        onChange={(e) => setEditingItem({...editingItem, license_type: e.target.value})}
+                        placeholder="e.g., royalty-free, commercial"
                       />
-                    </div>
-                    <p className="text-xs text-gray-600">
-                      {audioItems.length > 0 ? 
-                        `${Math.round((audioItems.filter(item => item.bpm && item.key && item.genre && item.tags && item.tags.length > 0).length / audioItems.length) * 100)}% complete`
-                        : '0% complete'
-                      }
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 p-4 rounded-lg border border-cyan-200">
-                  <h4 className="font-medium mb-2 text-cyan-900">Type Distribution</h4>
-                  <div className="space-y-1">
-                    {(() => {
-                      const typeCounts = audioItems.reduce((acc, item) => {
-                        acc[item.type] = (acc[item.type] || 0) + 1;
-                        return acc;
-                      }, {} as Record<string, number>);
-                      
-                      return Object.entries(typeCounts)
-                        .sort(([,a], [,b]) => b - a)
-                        .slice(0, 5)
-                        .map(([type, count]) => (
-                          <div key={type} className="flex items-center justify-between">
-                            <span className="text-sm capitalize">{type}</span>
-                            <span className="text-sm font-medium">{count}</span>
-                          </div>
-                        ));
-                    })()}
-                  </div>
-                </div>
-              </div>
-
-              {/* BPM Analysis */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-medium mb-3">BPM Analysis</h4>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-600">
-                      {(() => {
-                        const bpms = audioItems.map(item => item.bpm).filter(Boolean) as number[];
-                        return bpms.length > 0 ? Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length) : 0;
-                      })()}
-                    </p>
-                    <p className="text-xs text-gray-600">Average BPM</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">
-                      {(() => {
-                        const bpms = audioItems.map(item => item.bpm).filter(Boolean) as number[];
-                        return bpms.length > 0 ? Math.min(...bpms) : 0;
-                      })()}
-                    </p>
-                    <p className="text-xs text-gray-600">Min BPM</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-red-600">
-                      {(() => {
-                        const bpms = audioItems.map(item => item.bpm).filter(Boolean) as number[];
-                        return bpms.length > 0 ? Math.max(...bpms) : 0;
-                      })()}
-                    </p>
-                    <p className="text-xs text-gray-600">Max BPM</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-purple-600">
-                      {(() => {
-                        const bpms = audioItems.map(item => item.bpm).filter(Boolean) as number[];
-                        return bpms.length > 0 ? 
-                          bpms.sort((a, b) => a - b)[Math.floor(bpms.length / 2)] : 0;
-                      })()}
-                    </p>
-                    <p className="text-xs text-gray-600">Median BPM</p>
-                  </div>
                 </div>
               </div>
             </TabsContent>
-          </Tabs>
 
-                     {/* Data Quality Report */}
-           <div className="mt-6 pt-6 border-t">
-             <h4 className="text-lg font-semibold mb-4">Data Quality Report</h4>
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-               <div className="bg-gray-50 p-4 rounded-lg">
-                 <h5 className="font-medium mb-2">Files with Complete Data</h5>
-                 <p className="text-2xl font-bold text-green-600">
-                   {audioItems.filter(item => item.bpm && item.key && item.genre && item.tags && item.tags.length > 0).length}
-                 </p>
-                 <p className="text-sm text-gray-600">
-                   {audioItems.length > 0 ? 
-                     `${Math.round((audioItems.filter(item => item.bpm && item.key && item.genre && item.tags && item.tags.length > 0).length / audioItems.length) * 100)}% complete`
-                     : '0% complete'
-                   }
-                 </p>
-               </div>
-               <div className="bg-gray-50 p-4 rounded-lg">
-                 <h5 className="font-medium mb-2">Files in Packs</h5>
-                 <p className="text-2xl font-bold text-blue-600">
-                   {audioItems.filter(item => item.pack_id).length}
-                 </p>
-                 <p className="text-sm text-gray-600">
-                   {audioItems.length > 0 ? 
-                     `${Math.round((audioItems.filter(item => item.pack_id).length / audioItems.length) * 100)}% organized`
-                     : '0% organized'
-                   }
-                 </p>
-               </div>
-               <div className="bg-gray-50 p-4 rounded-lg">
-                 <h5 className="font-medium mb-2">Files with Tags</h5>
-                 <p className="text-2xl font-bold text-purple-600">
-                   {audioItems.filter(item => item.tags && item.tags.length > 0).length}
-                 </p>
-                 <p className="text-sm text-gray-600">
-                   {audioItems.length > 0 ? 
-                     `${Math.round((audioItems.filter(item => item.tags && item.tags.length > 0).length / audioItems.length) * 100)}% tagged`
-                     : '0% tagged'
-                   }
-                 </p>
-               </div>
-             </div>
-           </div>
-        </Card>
-      </div>
-
-      {/* Files Found Section (moved here from Files tab) */}
-      <div className="mt-8">
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-lg font-semibold text-white">Files Found</h4>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">
-                {selectedFiles.size > 0 ? `${selectedFiles.size} selected` : 'No files selected'}
-              </span>
-              {selectedFiles.size > 0 && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSelectedFiles(new Set())}
-                    className="text-xs text-gray-600 hover:text-gray-900"
-                  >
-                    Clear Selection
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={openMassEditSelectedModal}
-                    className="text-xs bg-blue-600 text-white hover:bg-blue-700"
-                  >
-                    Mass Edit Selected
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-          {/* File List */}
-          <div className="space-y-1 max-h-96 overflow-y-auto">
-            {audioItems.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                No audio files found. Load some data first.
-              </div>
-            ) : (
-              audioItems.map(item => (
-                <div
-                  key={item.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer group ${
-                    selectedFiles.has(item.id) 
-                      ? 'border-blue-300 bg-blue-50/50' 
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/30'
-                  }`}
-                  onClick={() => toggleFileSelection(item.id)}
-                >
-                  {/* File Icon */}
-                  <div 
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${
-                      selectedFiles.has(item.id) ? 'bg-blue-100' : 'bg-gray-100 group-hover:bg-gray-200'
-                    } ${currentlyPlayingId === item.id ? 'bg-green-200' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleAudioToggle(item);
+            <TabsContent value="waveform" className="space-y-4">
+              {editingItem?.file_url ? (
+                <div onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}>
+                  <AudioWaveformEditor
+                    audioUrl={editingItem.file_url}
+                    bpm={editingItem.bpm || 120}
+                    musicalKey={editingItem.key || 'C'}
+                    timeSignature={editingItem.time_signature || '4/4'}
+                    onBpmChange={(bpm) => setEditingItem({...editingItem, bpm})}
+                    onKeyChange={(key) => setEditingItem({...editingItem, key})}
+                    onTimeSignatureChange={(timeSignature) => setEditingItem({...editingItem, time_signature: timeSignature})}
+                    onMarkerAdd={(position, label) => {
+                      console.log(`Marker added at ${position}s: ${label}`)
                     }}
+                    onPatternAdd={(startBar, endBar, label) => {
+                      console.log(`Pattern added from bar ${startBar} to ${endBar}: ${label}`)
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileAudio className="w-12 h-12 mx-auto mb-4" />
+                  <p>No audio file available for waveform editing</p>
+                </div>
+              )}
+            </TabsContent>
+              </Tabs>
+
+              {editError && (
+                <div className="text-red-500 text-sm">{editError}</div>
+              )}
+
+              <DialogFooter className="flex flex-col gap-8 mt-4">
+                {/* Navigation controls */}
+                <div className="flex justify-center gap-4">
+                  <Button
+                    variant="outline"
+                    onClick={navigateToPreviousItem}
+                    disabled={currentEditIndex === 0}
+                    className="min-w-[120px]"
                   >
-                    {item.type === 'midi' && <Piano className="h-4 w-4 text-yellow-600" />}
-                    {item.type === 'soundkit' && <Drum className="h-4 w-4 text-red-600" />}
-                    {item.type === 'loop' && <Music className="h-4 w-4 text-blue-600" />}
-                    {item.type === 'patch' && <Music2 className="h-4 w-4 text-green-600" />}
-                    {item.type === 'sample' && <FileAudio className="h-4 w-4 text-purple-600" />}
-                    {item.type === 'clip' && <FileMusic className="h-4 w-4 text-pink-600" />}
-                    {item.type === 'other' && <File className="h-4 w-4 text-gray-600" />}
+                    ← Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={navigateToNextItem}
+                    disabled={currentEditIndex >= filteredItems.length - 1}
+                    className="min-w-[120px]"
+                  >
+                    Next →
+                  </Button>
+                </div>
+                
+                {/* Ready status and action controls */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="mark-as-ready"
+                      checked={editingItem?.is_ready || false}
+                      onChange={(e) => setEditingItem(prev => prev ? { ...prev, is_ready: e.target.checked } : null)}
+                      className="w-4 h-4"
+                    />
+                    <label htmlFor="mark-as-ready" className="text-sm text-gray-300">
+                      Mark as Ready
+                    </label>
                   </div>
-                  {/* File Info */}
-                  <div className="flex-1 min-w-0">
-                    <h5 className="font-medium text-white truncate">{item.name}</h5>
-                    <div className="flex items-center gap-2 text-xs text-gray-300 mt-0.5">
-                      <span className="capitalize font-medium">{item.type}</span>
-                      {item.bpm && <span>• {item.bpm} BPM</span>}
-                      {item.key && <span>• {item.key}</span>}
-                      {item.genre && <span>• {item.genre}</span>}
-                      {item.subgenre && <span>• {item.subgenre}</span>}
-                      {item.pack && <span>• {item.pack.name}</span>}
-                    </div>
-                    {/* Missing Data Indicators */}
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {!item.bpm && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-yellow-50 text-yellow-700 border-yellow-200 cursor-pointer hover:bg-yellow-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'bpm'); }}>Missing BPM</Badge>}
-                      {!item.key && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-red-50 text-red-700 border-red-200 cursor-pointer hover:bg-red-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'key'); }}>Missing Key</Badge>}
-                      {!item.genre && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-green-50 text-green-700 border-green-200 cursor-pointer hover:bg-green-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'genre'); }}>Missing Genre</Badge>}
-                      {!item.subgenre && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border-emerald-200 cursor-pointer hover:bg-emerald-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'subgenre'); }}>Missing Subgenre</Badge>}
-                      {(!item.tags || item.tags.length === 0) && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-purple-50 text-purple-700 border-purple-200 cursor-pointer hover:bg-purple-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'tags'); }}>Missing Tags</Badge>}
-                      {!item.pack_id && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 border-blue-200 cursor-pointer hover:bg-blue-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'pack_id'); }}>No Pack</Badge>}
-                      {!item.subfolder && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-orange-50 text-orange-700 border-orange-200 cursor-pointer hover:bg-orange-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'subfolder'); }}>No Subfolder</Badge>}
-                      {!item.description && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-pink-50 text-pink-700 border-pink-200 cursor-pointer hover:bg-pink-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'description'); }}>No Description</Badge>}
-                      {!item.audio_type && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-200 cursor-pointer hover:bg-indigo-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'audio_type'); }}>No Audio Type</Badge>}
-                      {!item.file_url && <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-gray-50 text-gray-700 border-gray-200 cursor-pointer hover:bg-gray-100 hover:underline" onClick={e => { e.stopPropagation(); handleQuickEdit(item, 'file_url'); }}>No File URL</Badge>}
-                    </div>
-                  </div>
-                  {/* File info instead of audio player */}
-                  {item.file_url && (
-                    <div className="flex-shrink-0 text-xs text-gray-500">
-                      📁 {item.file_url.split('/').pop()}
-                    </div>
-                  )}
-                  {/* Action Buttons */}
-                  <div className="flex gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditAudioModal(item);
-                      }}
-                      className="h-7 w-7 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                    >
-                      <Edit3 className="h-3 w-3" />
+                  
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowEditModal(false)}>
+                      Close
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      asChild
-                      className="h-7 w-7 p-0 text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    <Button 
+                      type="button" 
+                      onClick={(e) => handleEditItem(e as any, false)}
+                      disabled={saving}
                     >
-                      <a href={item.file_url} download>
-                        <Download className="h-3 w-3" />
-                      </a>
+                      {saving ? 'Saving...' : 'Save'}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteAudio(item.id);
-                      }}
-                      className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    <Button 
+                      type="button" 
+                      onClick={(e) => handleEditItem(e as any, true)}
+                      disabled={saving}
                     >
-                      <Trash2 className="h-3 w-3" />
+                      {saving ? 'Saving...' : 'Save & Continue'}
                     </Button>
                   </div>
                 </div>
-              ))
-            )}
+              </DialogFooter>
           </div>
-          {/* No Results Message */}
-          {audioItems.length > 0 && searchQuery && filteredAudioItems.length === 0 && (
-            <div className="text-center py-8 text-gray-500">
-              No files found matching "{searchQuery}"
-            </div>
           )}
-        </Card>
-      </div>
-
-      {/* Edit Audio Modal */}
-      <Dialog open={showEditAudioModal} onOpenChange={setShowEditAudioModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Audio File</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSaveAudio} className="space-y-4">
-            <Input
-              placeholder="Name"
-              value={editForm.name}
-              onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-              required
-            />
-            <Input
-              placeholder="Type (e.g. loop, sample, kit)"
-              value={editForm.type}
-              onChange={e => setEditForm({ ...editForm, type: e.target.value })}
-            />
-            <Input
-              type="number"
-              placeholder="BPM (e.g., 140)"
-              value={editForm.bpm}
-              onChange={e => setEditForm({ ...editForm, bpm: e.target.value })}
-            />
-            <Input
-              placeholder="Key (e.g., C, Am, F#)"
-              value={editForm.key}
-              onChange={e => setEditForm({ ...editForm, key: e.target.value })}
-            />
-            <Input
-              placeholder="Audio Type (e.g., kick, snare, hihat, bass, melody, loop)"
-              value={editForm.audio_type}
-              onChange={e => setEditForm({ ...editForm, audio_type: e.target.value })}
-            />
-            <Input
-              placeholder="Genre (e.g., trap, hip-hop, house, techno, dubstep, pop, rock)"
-              value={editForm.genre}
-              onChange={e => setEditForm({ ...editForm, genre: e.target.value })}
-            />
-            <Input
-              placeholder="Subgenre (e.g., drill, boom bap, deep house, acid techno, melodic dubstep)"
-              value={editForm.subgenre}
-              onChange={e => setEditForm({ ...editForm, subgenre: e.target.value })}
-            />
-            <Input
-              placeholder="Tags (comma-separated, e.g., trap, dark, aggressive, 808)"
-              value={editForm.tags}
-              onChange={e => setEditForm({ ...editForm, tags: e.target.value })}
-            />
-            <Textarea
-              placeholder="Description"
-              value={editForm.description}
-              onChange={e => setEditForm({ ...editForm, description: e.target.value })}
-            />
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="is_ready"
-                checked={editForm.is_ready}
-                onChange={e => setEditForm({ ...editForm, is_ready: e.target.checked })}
-                className="rounded border-gray-300"
-              />
-              <Label htmlFor="is_ready">Mark as Ready</Label>
-            </div>
-            <select
-              value={editForm.pack_id}
-              onChange={e => {
-                setEditForm({ ...editForm, pack_id: e.target.value, subfolder: '' });
-              }}
-              className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
-            >
-              <option value="">No Pack (Individual File)</option>
-              {audioPacks.map(pack => (
-                <option key={pack.id} value={pack.id}>{pack.name}</option>
-              ))}
-            </select>
-            
-            {editForm.pack_id && (
-              <select
-                value={editForm.subfolder}
-                onChange={e => setEditForm({ ...editForm, subfolder: e.target.value })}
-                className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
-              >
-                <option value="">Root of Pack (No Subfolder)</option>
-                {audioPacks
-                  .find(pack => pack.id === editForm.pack_id)
-                  ?.subfolders?.map(subfolder => (
-                    <option key={subfolder.id} value={subfolder.name}>
-                      📁 {subfolder.name}
-                    </option>
-                  ))}
-              </select>
-            )}
-            
-            <DialogFooter>
-              <Button type="submit" disabled={saving} className="bg-yellow-400 hover:bg-yellow-500 text-black">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Pack Modal */}
-      <Dialog open={showEditPackModal} onOpenChange={setShowEditPackModal}>
+      {/* Bulk Edit Modal */}
+      <Dialog open={showBulkEditModal} onOpenChange={setShowBulkEditModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Audio Pack</DialogTitle>
+            <DialogTitle>Bulk Edit {selectedItems.size} Items</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSavePack} className="space-y-4">
-            <Input
-              placeholder="Pack Name"
-              value={editPackForm.name}
-              onChange={e => setEditPackForm({ ...editPackForm, name: e.target.value })}
-              required
-            />
-            <Textarea
-              placeholder="Description"
-              value={editPackForm.description}
-              onChange={e => setEditPackForm({ ...editPackForm, description: e.target.value })}
-            />
+          <form onSubmit={handleBulkEdit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Pack Color</label>
-              <input
-                type="color"
-                value={editPackForm.color}
-                onChange={e => setEditPackForm({ ...editPackForm, color: e.target.value })}
-                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
-              />
+              <Label>Field to Edit</Label>
+              <Select value={bulkEditField} onValueChange={setBulkEditField}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a field" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="genre">Genre</SelectItem>
+                  <SelectItem value="subgenre">Subgenre</SelectItem>
+                  <SelectItem value="audio_type">Audio Type</SelectItem>
+                  <SelectItem value="instrument_type">Instrument Type</SelectItem>
+                  <SelectItem value="mood">Mood</SelectItem>
+                  <SelectItem value="tempo_category">Tempo Category</SelectItem>
+                  <SelectItem value="distribution_type">Distribution Type</SelectItem>
+                  <SelectItem value="license_type">License Type</SelectItem>
+                  <SelectItem value="is_ready">Is Ready</SelectItem>
+                  <SelectItem value="is_new">Is New</SelectItem>
+                  <SelectItem value="tags">Tags</SelectItem>
+                  <SelectItem value="additional_subgenres">Additional Subgenres</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <DialogFooter>
-              <Button type="submit" disabled={saving} className="bg-blue-500 hover:bg-blue-600 text-white">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
-      {/* Edit Subfolder Modal */}
-      <Dialog open={showEditSubfolderModal} onOpenChange={setShowEditSubfolderModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Subfolder</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSaveSubfolder} className="space-y-4">
-            <Input
-              placeholder="Subfolder Name"
-              value={editSubfolderForm.name}
-              onChange={e => setEditSubfolderForm({ ...editSubfolderForm, name: e.target.value })}
-              required
-            />
-            <Textarea
-              placeholder="Description"
-              value={editSubfolderForm.description}
-              onChange={e => setEditSubfolderForm({ ...editSubfolderForm, description: e.target.value })}
-            />
             <div>
-              <label className="block text-sm font-medium mb-2">Subfolder Color</label>
-              <input
-                type="color"
-                value={editSubfolderForm.color}
-                onChange={e => setEditSubfolderForm({ ...editSubfolderForm, color: e.target.value })}
-                className="w-16 h-10 border border-gray-300 rounded cursor-pointer"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit" disabled={saving} className="bg-green-500 hover:bg-green-600 text-white">
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Quick Edit Dropdown Modal */}
-      {showQuickEditDropdown && quickEditItem && quickEditField && (
-        <Dialog open={showQuickEditDropdown} onOpenChange={setShowQuickEditDropdown}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Quick Edit {quickEditField.toUpperCase()}</DialogTitle>
-              <div className="text-sm text-gray-400 mt-1 mb-2 font-medium truncate">
-                Editing: {
-                  quickEditItem && quickEditItem.name && quickEditField === 'bpm'
-                    ? (
-                        // Highlight numbers and BPM keywords in the name
-                        <>{
-                          quickEditItem.name
-                            .split(/(\d+|\b(?:BPM|bpm|tempo)\b)/i)
-                            .map((part, i) => {
-                              if (/\d+/.test(part)) {
-                                return (
-                                  <span 
-                                    key={i} 
-                                    className="bg-yellow-300 text-black font-bold px-1 rounded mx-0.5 cursor-pointer hover:bg-yellow-400 transition-colors"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setQuickEditValue(part);
-                                      // Auto-save after setting the value
-                                      setTimeout(() => {
-                                        saveQuickEdit();
-                                      }, 100);
-                                    }}
-                                  >
-                                    {part}
-                                  </span>
-                                );
-                              } else if (/\b(?:BPM|bpm|tempo)\b/i.test(part)) {
-                                return <span key={i} className="bg-purple-300 text-black font-bold px-1 rounded mx-0.5">{part}</span>;
-                              } else {
-                                return <span key={i}>{part}</span>;
-                              }
-                            })
-                        }</>
-                      )
-                    : quickEditItem?.name
-                }
-              </div>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="quick-edit-value">Value</Label>
-                <div className="flex gap-2">
-                  {quickEditField === 'tags' ? (
-                    <div className="flex-1 space-y-2">
-                      {/* Existing tags as chips */}
-                      <div className="flex flex-wrap gap-2">
-                        {(quickEditItem?.tags || []).map((tag, index) => (
-                          <div
-                            key={index}
-                            className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm"
-                          >
-                            <span>{tag}</span>
-                            <button
-                              onClick={() => removeTag(tag)}
-                              className="text-blue-600 hover:text-blue-800 text-xs font-bold"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        
-                        {/* Add new tag button */}
-                        {!showTagInput && (
-                          <button
-                            onClick={() => setShowTagInput(true)}
-                            className="flex items-center gap-1 bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-sm hover:bg-gray-200"
-                          >
-                            <span>+</span>
-                            <span>Add Tag</span>
-                          </button>
-                        )}
-                      </div>
-                      
-                      {/* New tag input */}
-                      {showTagInput && (
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Type new tag"
-                            value={newTagInput}
-                            onChange={(e) => setNewTagInput(e.target.value)}
-                            onKeyPress={(e) => {
-                              if (e.key === 'Enter') {
-                                addNewTag();
-                              }
-                            }}
-                            className="flex-1"
-                            autoFocus
-                          />
-                          <Button
-                            size="sm"
-                            onClick={addNewTag}
-                            disabled={!newTagInput.trim()}
-                          >
-                            Add
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setShowTagInput(false);
-                              setNewTagInput('');
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <Select value={quickEditValue} onValueChange={setQuickEditValue}>
-                        <SelectTrigger className="flex-1">
-                          <SelectValue placeholder={`Select ${quickEditField}`} />
+              <Label>New Value</Label>
+              {bulkEditField === 'is_ready' || bulkEditField === 'is_new' ? (
+                <Select value={bulkEditValue} onValueChange={setBulkEditValue}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select value" />
                         </SelectTrigger>
                         <SelectContent>
-                          {getDropdownOptions(quickEditField).map((option) => (
-                            <SelectItem key={option} value={option}>
-                              {option}
-                            </SelectItem>
-                          ))}
+                    <SelectItem value="true">True</SelectItem>
+                    <SelectItem value="false">False</SelectItem>
                         </SelectContent>
                       </Select>
+              ) : bulkEditField === 'distribution_type' ? (
+                <Select value={bulkEditValue} onValueChange={setBulkEditValue}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select distribution type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="private">Private</SelectItem>
+                    <SelectItem value="public">Public</SelectItem>
+                    <SelectItem value="commercial">Commercial</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
                       <Input
-                        placeholder="Or type custom value"
-                        value={quickEditValue}
-                        onChange={(e) => setQuickEditValue(e.target.value)}
-                        className="flex-1"
-                      />
-                    </>
+                  value={bulkEditValue}
+                  onChange={(e) => setBulkEditValue(e.target.value)}
+                  placeholder={`Enter new ${bulkEditField} value`}
+                />
                   )}
                 </div>
-              </div>
-            </div>
+
             <DialogFooter>
-              <Button onClick={saveQuickEdit} disabled={!quickEditValue.trim()}>
-                Save
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setShowQuickEditDropdown(false);
-                  setQuickEditItem(null);
-                  setQuickEditField(null);
-                  setQuickEditValue('');
-                }}
-              >
+              <Button type="button" variant="outline" onClick={() => setShowBulkEditModal(false)}>
                 Cancel
               </Button>
+              <Button type="submit" disabled={bulkEditing || !bulkEditField}>
+                {bulkEditing ? 'Updating...' : 'Update Items'}
+              </Button>
             </DialogFooter>
+          </form>
           </DialogContent>
         </Dialog>
-      )}
-
-      {/* Mass Edit Modals */}
-      {showMassEditModal && massEditPack && massEditSubfolder && (
-        <MassEditSubfolderModal
-          isOpen={showMassEditModal}
-          onClose={() => {
-            setShowMassEditModal(false);
-            setMassEditPack(null);
-            setMassEditSubfolder(null);
-          }}
-          pack={massEditPack}
-          subfolder={massEditSubfolder}
-          audioItems={audioItems.filter(item => 
-            item.pack_id === massEditPack.id && 
-            item.subfolder === massEditSubfolder.name
-          )}
-          onUpdate={() => {
-            loadAudioData(currentPage);
-            loadAudioPacks();
-          }}
-        />
-      )}
-
-      {showMassEditSelectedModal && (
-        <MassEditSelectedFilesModal
-          isOpen={showMassEditSelectedModal}
-          onClose={() => setShowMassEditSelectedModal(false)}
-          selectedFiles={audioItems.filter(item => selectedFiles.has(item.id))}
-          onUpdate={() => {
-            loadAudioData(currentPage);
-            loadAudioPacks();
-            setSelectedFiles(new Set());
-          }}
-        />
-      )}
     </div>
-  );
+  )
 } 

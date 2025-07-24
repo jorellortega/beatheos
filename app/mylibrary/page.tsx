@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
@@ -62,7 +63,22 @@ interface AudioLibraryItem {
   audio_type?: string
   genre?: string
   subgenre?: string
+  additional_subgenres?: string[]
   tags?: string[]
+  is_ready?: boolean
+  instrument_type?: string
+  mood?: string
+  energy_level?: number
+  complexity?: number
+  tempo_category?: string
+  key_signature?: string
+  time_signature?: string
+  duration?: number
+  sample_rate?: number
+  bit_depth?: number
+  license_type?: string
+  is_new?: boolean
+  distribution_type?: string
 }
 
 interface AudioPack {
@@ -162,8 +178,23 @@ export default function MyLibrary() {
     audio_type: '',
     genre: '',
     subgenre: '',
+    additional_subgenres: [] as string[],
     description: '',
-    tags: ''
+    tags: '',
+    is_ready: false,
+    instrument_type: '',
+    mood: '',
+    energy_level: '',
+    complexity: '',
+    tempo_category: '',
+    key_signature: '',
+    time_signature: '',
+    duration: '',
+    sample_rate: '',
+    bit_depth: '',
+    license_type: '',
+    is_new: true,
+    distribution_type: 'private'
   });
   const [savingAudio, setSavingAudio] = useState(false);
   const [audioEditError, setAudioEditError] = useState<string | null>(null);
@@ -590,10 +621,25 @@ export default function MyLibrary() {
     audio_type: '',
     genre: '',
     subgenre: '',
-    tags: ''
+    additional_subgenres: [] as string[],
+    tags: '',
+    instrument_type: '',
+    mood: '',
+    energy_level: '',
+    complexity: '',
+    tempo_category: '',
+    key_signature: '',
+    time_signature: '',
+    duration: '',
+    sample_rate: '',
+    bit_depth: '',
+    license_type: '',
+    is_new: true,
+    distribution_type: 'private'
   });
   const [audioUploading, setAudioUploading] = useState(false);
   const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
+  const [additionalSubgenreInput, setAdditionalSubgenreInput] = useState('');
   
   // Pack creation modal
   const [showPackModal, setShowPackModal] = useState(false);
@@ -637,6 +683,25 @@ export default function MyLibrary() {
     return data?.publicUrl || null;
   }
 
+  // Add additional subgenre
+  const addAdditionalSubgenre = () => {
+    if (additionalSubgenreInput.trim() && !newAudio.additional_subgenres.includes(additionalSubgenreInput.trim())) {
+      setNewAudio({
+        ...newAudio,
+        additional_subgenres: [...newAudio.additional_subgenres, additionalSubgenreInput.trim()]
+      });
+      setAdditionalSubgenreInput('');
+    }
+  };
+
+  // Remove additional subgenre
+  const removeAdditionalSubgenre = (subgenreToRemove: string) => {
+    setNewAudio({
+      ...newAudio,
+      additional_subgenres: newAudio.additional_subgenres.filter(subgenre => subgenre !== subgenreToRemove)
+    });
+  };
+
   // Handle add audio
   async function handleAddAudio(e: React.FormEvent) {
     e.preventDefault();
@@ -659,7 +724,21 @@ export default function MyLibrary() {
       audio_type: newAudio.audio_type || null,
       genre: newAudio.genre || null,
       subgenre: newAudio.subgenre || null,
-      tags: newAudio.tags ? newAudio.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null
+      additional_subgenres: newAudio.additional_subgenres.length > 0 ? newAudio.additional_subgenres : null,
+      tags: newAudio.tags ? newAudio.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null,
+      instrument_type: newAudio.instrument_type || null,
+      mood: newAudio.mood || null,
+      energy_level: newAudio.energy_level ? parseInt(newAudio.energy_level) : null,
+      complexity: newAudio.complexity ? parseInt(newAudio.complexity) : null,
+      tempo_category: newAudio.tempo_category || null,
+      key_signature: newAudio.key_signature || null,
+      time_signature: newAudio.time_signature || null,
+      duration: newAudio.duration ? parseFloat(newAudio.duration) : null,
+      sample_rate: newAudio.sample_rate ? parseInt(newAudio.sample_rate) : null,
+      bit_depth: newAudio.bit_depth ? parseInt(newAudio.bit_depth) : null,
+      license_type: newAudio.license_type || null,
+      is_new: newAudio.is_new,
+      distribution_type: newAudio.distribution_type || 'private'
     };
     const { error } = await supabase.from('audio_library_items').insert([insertData]);
     if (error) {
@@ -679,7 +758,21 @@ export default function MyLibrary() {
       audio_type: '',
       genre: '',
       subgenre: '',
-      tags: ''
+      additional_subgenres: [],
+      tags: '',
+      instrument_type: '',
+      mood: '',
+      energy_level: '',
+      complexity: '',
+      tempo_category: '',
+      key_signature: '',
+      time_signature: '',
+      duration: '',
+      sample_rate: '',
+      bit_depth: '',
+      license_type: '',
+      is_new: true,
+      distribution_type: 'private'
     });
     // Refresh data
     await refreshAudioData();
@@ -791,8 +884,23 @@ export default function MyLibrary() {
       audio_type: editAudioForm.audio_type || null,
       genre: editAudioForm.genre || null,
       subgenre: editAudioForm.subgenre || null,
+      additional_subgenres: editAudioForm.additional_subgenres.length > 0 ? editAudioForm.additional_subgenres : null,
       description: editAudioForm.description || null,
-      tags: editAudioForm.tags ? editAudioForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null
+      tags: editAudioForm.tags ? editAudioForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : null,
+      is_ready: editAudioForm.is_ready,
+      instrument_type: editAudioForm.instrument_type || null,
+      mood: editAudioForm.mood || null,
+      energy_level: editAudioForm.energy_level ? parseInt(editAudioForm.energy_level) : null,
+      complexity: editAudioForm.complexity ? parseInt(editAudioForm.complexity) : null,
+      tempo_category: editAudioForm.tempo_category || null,
+      key_signature: editAudioForm.key_signature || null,
+      time_signature: editAudioForm.time_signature || null,
+      duration: editAudioForm.duration ? parseFloat(editAudioForm.duration) : null,
+      sample_rate: editAudioForm.sample_rate ? parseInt(editAudioForm.sample_rate) : null,
+      bit_depth: editAudioForm.bit_depth ? parseInt(editAudioForm.bit_depth) : null,
+      license_type: editAudioForm.license_type || null,
+      is_new: editAudioForm.is_new,
+      distribution_type: editAudioForm.distribution_type || 'private'
     };
     
     const { error } = await supabase
@@ -814,8 +922,23 @@ export default function MyLibrary() {
       audio_type: updateData.audio_type || undefined,
       genre: updateData.genre || undefined,
       subgenre: updateData.subgenre || undefined,
+      additional_subgenres: updateData.additional_subgenres || undefined,
       description: updateData.description || undefined,
-      tags: updateData.tags || undefined
+      tags: updateData.tags || undefined,
+      is_ready: updateData.is_ready,
+      instrument_type: updateData.instrument_type || undefined,
+      mood: updateData.mood || undefined,
+      energy_level: updateData.energy_level || undefined,
+      complexity: updateData.complexity || undefined,
+      tempo_category: updateData.tempo_category || undefined,
+      key_signature: updateData.key_signature || undefined,
+      time_signature: updateData.time_signature || undefined,
+      duration: updateData.duration || undefined,
+      sample_rate: updateData.sample_rate || undefined,
+      bit_depth: updateData.bit_depth || undefined,
+      license_type: updateData.license_type || undefined,
+      is_new: updateData.is_new,
+      distribution_type: updateData.distribution_type || undefined
     };
     setAudioItems(audioItems.map(item => 
       item.id === editingAudio.id ? updatedItem : item
@@ -826,7 +949,30 @@ export default function MyLibrary() {
     
     setShowEditAudioModal(false);
     setEditingAudio(null);
-            setEditAudioForm({ bpm: '', key: '', audio_type: '', genre: '', subgenre: '', description: '', tags: '' });
+            setEditAudioForm({ 
+      bpm: '', 
+      key: '', 
+      audio_type: '', 
+      genre: '', 
+      subgenre: '', 
+      additional_subgenres: [], 
+      description: '', 
+      tags: '', 
+      is_ready: false,
+      instrument_type: '',
+      mood: '',
+      energy_level: '',
+      complexity: '',
+      tempo_category: '',
+      key_signature: '',
+      time_signature: '',
+      duration: '',
+      sample_rate: '',
+      bit_depth: '',
+      license_type: '',
+      is_new: true,
+      distribution_type: 'private'
+    });
     setSavingAudio(false);
   }
   
@@ -839,8 +985,23 @@ export default function MyLibrary() {
       audio_type: item.audio_type || '',
       genre: item.genre || '',
       subgenre: item.subgenre || '',
+      additional_subgenres: item.additional_subgenres || [],
       description: item.description || '',
-      tags: item.tags ? item.tags.join(', ') : ''
+      tags: item.tags ? item.tags.join(', ') : '',
+      is_ready: item.is_ready || false,
+      instrument_type: item.instrument_type || '',
+      mood: item.mood || '',
+      energy_level: item.energy_level?.toString() || '',
+      complexity: item.complexity?.toString() || '',
+      tempo_category: item.tempo_category || '',
+      key_signature: item.key_signature || '',
+      time_signature: item.time_signature || '',
+      duration: item.duration?.toString() || '',
+      sample_rate: item.sample_rate?.toString() || '',
+      bit_depth: item.bit_depth?.toString() || '',
+      license_type: item.license_type || '',
+      is_new: item.is_new || false,
+      distribution_type: item.distribution_type || 'private'
     });
     setShowEditAudioModal(true);
   }
@@ -1743,11 +1904,170 @@ export default function MyLibrary() {
               value={newAudio.subgenre}
               onChange={e => setNewAudio({ ...newAudio, subgenre: e.target.value })}
             />
+            
+            {/* Additional Subgenres */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Additional Subgenres</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add another subgenre..."
+                  value={additionalSubgenreInput}
+                  onChange={e => setAdditionalSubgenreInput(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addAdditionalSubgenre();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addAdditionalSubgenre}
+                  disabled={!additionalSubgenreInput.trim()}
+                  className="px-3"
+                >
+                  Add
+                </Button>
+              </div>
+              {newAudio.additional_subgenres.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {newAudio.additional_subgenres.map((subgenre, index) => (
+                    <Badge
+                      key={index}
+                      variant="secondary"
+                      className="bg-blue-100 text-blue-800 hover:bg-blue-200"
+                    >
+                      {subgenre}
+                      <button
+                        type="button"
+                        onClick={() => removeAdditionalSubgenre(subgenre)}
+                        className="ml-1 text-blue-600 hover:text-blue-800"
+                      >
+                        ×
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+            
             <Input
               placeholder="Tags (comma-separated, e.g., trap, dark, aggressive, 808)"
               value={newAudio.tags}
               onChange={e => setNewAudio({ ...newAudio, tags: e.target.value })}
             />
+            
+            {/* New Metadata Fields */}
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                placeholder="Instrument Type (e.g., piano, guitar, synthesizer, drum machine)"
+                value={newAudio.instrument_type}
+                onChange={e => setNewAudio({ ...newAudio, instrument_type: e.target.value })}
+              />
+              <Input
+                placeholder="Mood (e.g., dark, uplifting, melancholic, aggressive, chill)"
+                value={newAudio.mood}
+                onChange={e => setNewAudio({ ...newAudio, mood: e.target.value })}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                placeholder="Energy Level (1-10)"
+                value={newAudio.energy_level}
+                onChange={e => setNewAudio({ ...newAudio, energy_level: e.target.value })}
+              />
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                placeholder="Complexity (1-10)"
+                value={newAudio.complexity}
+                onChange={e => setNewAudio({ ...newAudio, complexity: e.target.value })}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                placeholder="Tempo Category (e.g., slow, medium, fast, very fast)"
+                value={newAudio.tempo_category}
+                onChange={e => setNewAudio({ ...newAudio, tempo_category: e.target.value })}
+              />
+              <Input
+                placeholder="Key Signature (e.g., C major, A minor, F# minor)"
+                value={newAudio.key_signature}
+                onChange={e => setNewAudio({ ...newAudio, key_signature: e.target.value })}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                placeholder="Time Signature (e.g., 4/4, 3/4, 6/8)"
+                value={newAudio.time_signature}
+                onChange={e => setNewAudio({ ...newAudio, time_signature: e.target.value })}
+              />
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Duration (seconds)"
+                value={newAudio.duration}
+                onChange={e => setNewAudio({ ...newAudio, duration: e.target.value })}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                type="number"
+                placeholder="Sample Rate (e.g., 44100, 48000)"
+                value={newAudio.sample_rate}
+                onChange={e => setNewAudio({ ...newAudio, sample_rate: e.target.value })}
+              />
+              <Input
+                type="number"
+                placeholder="Bit Depth (e.g., 16, 24)"
+                value={newAudio.bit_depth}
+                onChange={e => setNewAudio({ ...newAudio, bit_depth: e.target.value })}
+              />
+            </div>
+            
+            <Input
+              placeholder="License Type (e.g., royalty-free, commercial, personal use only)"
+              value={newAudio.license_type}
+              onChange={e => setNewAudio({ ...newAudio, license_type: e.target.value })}
+            />
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="is_new"
+                  checked={newAudio.is_new}
+                  onChange={e => setNewAudio({ ...newAudio, is_new: e.target.checked })}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="is_new" className="text-sm font-medium">
+                  Mark as New
+                </label>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Distribution Type</label>
+                <select
+                  value={newAudio.distribution_type}
+                  onChange={e => setNewAudio({ ...newAudio, distribution_type: e.target.value })}
+                  className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+                >
+                  <option value="private">Private</option>
+                  <option value="public">Public</option>
+                  <option value="commercial">Commercial</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            
             <Textarea
               placeholder="Description"
               value={newAudio.description}
@@ -2195,7 +2515,15 @@ export default function MyLibrary() {
                   {item.type === 'other' && <File className="h-6 w-6 text-gray-400" />}
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold">{item.name}</h3>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-lg font-semibold">{item.name}</h3>
+                    <Badge 
+                      variant={item.is_ready ? "default" : "secondary"}
+                      className={`text-xs ${item.is_ready ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                    >
+                      {item.is_ready ? 'Ready' : 'Not Ready'}
+                    </Badge>
+                  </div>
                   <p className="text-sm text-gray-400 mb-1">{item.description}</p>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs text-gray-500 capitalize">{item.type}</span>
@@ -2622,7 +2950,15 @@ export default function MyLibrary() {
                                             {item.type === 'other' && <File className="h-3 w-3 text-gray-400" />}
                                           </div>
                                           <div className="flex-1">
-                                            <h5 className="text-sm font-medium">{item.name}</h5>
+                                            <div className="flex items-center gap-2 mb-1">
+                                              <h5 className="text-sm font-medium">{item.name}</h5>
+                                              <Badge 
+                                                variant={item.is_ready ? "default" : "secondary"}
+                                                className={`text-xs ${item.is_ready ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                                              >
+                                                {item.is_ready ? 'Ready' : 'Not Ready'}
+                                              </Badge>
+                                            </div>
                                             <p className="text-xs text-gray-500 capitalize">{item.type}</p>
                                             <div className="flex items-center gap-1 mt-1">
                                               {item.bpm && (
@@ -2846,7 +3182,15 @@ export default function MyLibrary() {
                                   {item.type === 'other' && <File className="h-4 w-4 text-gray-400" />}
                                 </div>
                                 <div className="flex-1">
-                                  <h4 className="font-medium">{item.name}</h4>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="font-medium">{item.name}</h4>
+                                    <Badge 
+                                      variant={item.is_ready ? "default" : "secondary"}
+                                      className={`text-xs ${item.is_ready ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                                    >
+                                      {item.is_ready ? 'Ready' : 'Not Ready'}
+                                    </Badge>
+                                  </div>
                                   <p className="text-xs text-gray-500 capitalize">{item.type}</p>
                                   <div className="flex items-center gap-1 mt-1">
                                     {item.bpm && (
@@ -3013,6 +3357,30 @@ export default function MyLibrary() {
                                     {item.subgenre}
                                   </Badge>
                                 )}
+                                {item.additional_subgenres && item.additional_subgenres.length > 0 && (
+                                  <>
+                                    {item.additional_subgenres.map((subgenre, index) => (
+                                      <Badge key={`additional-subgenre-${item.id}-${index}`} variant="secondary" className="text-xs bg-green-100 text-green-800">
+                                        {subgenre}
+                                      </Badge>
+                                    ))}
+                                  </>
+                                )}
+                                {item.is_new && (
+                                  <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">
+                                    New
+                                  </Badge>
+                                )}
+                                {item.distribution_type && (
+                                  <Badge variant="secondary" className={`text-xs ${
+                                    item.distribution_type === 'public' ? 'bg-green-100 text-green-800' :
+                                    item.distribution_type === 'commercial' ? 'bg-purple-100 text-purple-800' :
+                                    item.distribution_type === 'other' ? 'bg-gray-100 text-gray-800' :
+                                    'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {item.distribution_type}
+                                  </Badge>
+                                )}
                               </div>
                               {item.tags && item.tags.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-1">
@@ -3131,6 +3499,72 @@ export default function MyLibrary() {
                 />
               </div>
               
+              {/* Additional Subgenres */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Additional Subgenres</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Add another subgenre..."
+                    value={additionalSubgenreInput}
+                    onChange={e => setAdditionalSubgenreInput(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (additionalSubgenreInput.trim() && !editAudioForm.additional_subgenres.includes(additionalSubgenreInput.trim())) {
+                          setEditAudioForm({
+                            ...editAudioForm,
+                            additional_subgenres: [...editAudioForm.additional_subgenres, additionalSubgenreInput.trim()]
+                          });
+                          setAdditionalSubgenreInput('');
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (additionalSubgenreInput.trim() && !editAudioForm.additional_subgenres.includes(additionalSubgenreInput.trim())) {
+                        setEditAudioForm({
+                          ...editAudioForm,
+                          additional_subgenres: [...editAudioForm.additional_subgenres, additionalSubgenreInput.trim()]
+                        });
+                        setAdditionalSubgenreInput('');
+                      }
+                    }}
+                    disabled={!additionalSubgenreInput.trim()}
+                    className="px-3"
+                  >
+                    Add
+                  </Button>
+                </div>
+                {editAudioForm.additional_subgenres.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {editAudioForm.additional_subgenres.map((subgenre, index) => (
+                      <Badge
+                        key={index}
+                        variant="secondary"
+                        className="bg-blue-100 text-blue-800 hover:bg-blue-200"
+                      >
+                        {subgenre}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditAudioForm({
+                              ...editAudioForm,
+                              additional_subgenres: editAudioForm.additional_subgenres.filter(s => s !== subgenre)
+                            });
+                          }}
+                          className="ml-1 text-blue-600 hover:text-blue-800"
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
               <div>
                 <label className="text-sm font-medium">Tags</label>
                 <Input
@@ -3138,6 +3572,162 @@ export default function MyLibrary() {
                   value={editAudioForm.tags}
                   onChange={e => setEditAudioForm({ ...editAudioForm, tags: e.target.value })}
                 />
+              </div>
+              
+              {/* New Metadata Fields */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Instrument Type</label>
+                  <Input
+                    placeholder="e.g., piano, guitar, synthesizer, drum machine"
+                    value={editAudioForm.instrument_type}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, instrument_type: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Mood</label>
+                  <Input
+                    placeholder="e.g., dark, uplifting, melancholic, aggressive, chill"
+                    value={editAudioForm.mood}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, mood: e.target.value })}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Energy Level (1-10)</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    placeholder="1-10"
+                    value={editAudioForm.energy_level}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, energy_level: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Complexity (1-10)</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    placeholder="1-10"
+                    value={editAudioForm.complexity}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, complexity: e.target.value })}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Tempo Category</label>
+                  <Input
+                    placeholder="e.g., slow, medium, fast, very fast"
+                    value={editAudioForm.tempo_category}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, tempo_category: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Key Signature</label>
+                  <Input
+                    placeholder="e.g., C major, A minor, F# minor"
+                    value={editAudioForm.key_signature}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, key_signature: e.target.value })}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Time Signature</label>
+                  <Input
+                    placeholder="e.g., 4/4, 3/4, 6/8"
+                    value={editAudioForm.time_signature}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, time_signature: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Duration (seconds)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="e.g., 3.45"
+                    value={editAudioForm.duration}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, duration: e.target.value })}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium">Sample Rate</label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 44100, 48000"
+                    value={editAudioForm.sample_rate}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, sample_rate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Bit Depth</label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 16, 24"
+                    value={editAudioForm.bit_depth}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, bit_depth: e.target.value })}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">License Type</label>
+                <Input
+                  placeholder="e.g., royalty-free, commercial, personal use only"
+                  value={editAudioForm.license_type}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, license_type: e.target.value })}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="is_new"
+                    checked={editAudioForm.is_new}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, is_new: e.target.checked })}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="is_new" className="text-sm font-medium">
+                    Mark as New
+                  </label>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Distribution Type</label>
+                  <select
+                    value={editAudioForm.distribution_type}
+                    onChange={e => setEditAudioForm({ ...editAudioForm, distribution_type: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-md bg-background text-foreground"
+                  >
+                    <option value="private">Private</option>
+                    <option value="public">Public</option>
+                    <option value="commercial">Commercial</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="is_ready"
+                  checked={editAudioForm.is_ready}
+                  onChange={e => setEditAudioForm({ ...editAudioForm, is_ready: e.target.checked })}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="is_ready" className="text-sm font-medium">
+                  Mark as Ready
+                </label>
               </div>
               
               <div>
