@@ -62,7 +62,7 @@ export interface PianoRollData {
   [trackId: number]: AudioNote[]
 }
 
-export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
+export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling') {
   const [sequencerData, setSequencerData] = useState<SequencerData>({})
   const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
@@ -236,10 +236,20 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
               console.log(`[DEBUG] Set playback rate for track ${track.name} to ${track.playbackRate}`)
             }
             
-            // Apply pitch shift if specified
-            if (track.pitchShift && track.pitchShift !== 0) {
-              pitchShift.pitch = track.pitchShift
-              console.log(`[DEBUG] Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+            // Apply pitch shift based on time stretch mode
+            if (timeStretchMode === 'flex-time') {
+              // In flex-time mode, keep pitch shift at 0 to maintain original pitch
+              pitchShift.pitch = 0
+              console.log(`[DEBUG] FT mode: Set pitch shift to 0 to maintain original pitch for track ${track.name}`)
+            } else {
+              // In resampling mode, apply the track's pitch shift
+              if (track.pitchShift && track.pitchShift !== 0) {
+                pitchShift.pitch = track.pitchShift
+                console.log(`[DEBUG] RM mode: Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+              } else {
+                pitchShift.pitch = 0
+                console.log(`[DEBUG] RM mode: No pitch shift applied for track ${track.name}`)
+              }
             }
             
             samplesRef.current[track.id] = player
@@ -254,7 +264,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     }
 
     loadSamples()
-  }, [tracks])
+  }, [tracks, timeStretchMode])
 
   // Define playStep function first
   const playStep = useCallback((step: number) => {
@@ -771,6 +781,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
     try {
       console.log(`[FORCE RELOAD] Reloading sample for track ${track.name} with playback rate ${track.playbackRate}`)
       console.log(`[FORCE RELOAD] Original BPM: ${track.originalBpm}, Current BPM: ${track.currentBpm}`)
+      console.log(`[FORCE RELOAD] Time stretch mode: ${timeStretchMode}`)
+      console.log(`[FORCE RELOAD] ${timeStretchMode === 'resampling' ? 'RM: Changing pitch & speed' : 'FT: Changing speed only, keeping original pitch'}`)
       
       // Create new pitch shifter
       const pitchShift = new Tone.PitchShift({
@@ -796,10 +808,20 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
         console.log(`[FORCE RELOAD] Reset playback rate for track ${track.name} to 1.0`)
       }
       
-      // Apply pitch shift if specified
-      if (track.pitchShift && track.pitchShift !== 0) {
-        pitchShift.pitch = track.pitchShift
-        console.log(`[FORCE RELOAD] Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+      // Apply pitch shift based on time stretch mode
+      if (timeStretchMode === 'flex-time') {
+        // In flex-time mode, keep pitch shift at 0 to maintain original pitch
+        pitchShift.pitch = 0
+        console.log(`[FORCE RELOAD] FT mode: Set pitch shift to 0 to maintain original pitch for track ${track.name}`)
+      } else {
+        // In resampling mode, apply the track's pitch shift
+        if (track.pitchShift && track.pitchShift !== 0) {
+          pitchShift.pitch = track.pitchShift
+          console.log(`[FORCE RELOAD] RM mode: Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+        } else {
+          pitchShift.pitch = 0
+          console.log(`[FORCE RELOAD] RM mode: No pitch shift applied for track ${track.name}`)
+        }
       }
       
       // Wait for the player to load before setting it
@@ -815,7 +837,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       }
       
       samplesRef.current[trackId] = player
-      console.log(`[FORCE RELOAD] Successfully reloaded sample for track ${track.name} with improved sync`)
+      console.log(`[FORCE RELOAD] Successfully reloaded sample for track ${track.name} with ${timeStretchMode} mode`)
       
       // Test the player to ensure it's working
       setTimeout(() => {
@@ -832,7 +854,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number) {
       console.error(`[FORCE RELOAD] Failed to reload sample for track ${track.name}:`, error)
       throw error // Re-throw to allow calling code to handle the error
     }
-  }, [tracks])
+  }, [tracks, timeStretchMode])
 
   // Function to quantize track timing for perfect sync
   const quantizeTrackTiming = useCallback((trackId: number) => {

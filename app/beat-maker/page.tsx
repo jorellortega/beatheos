@@ -74,32 +74,12 @@ export default function BeatMakerPage() {
   const [showBpmRangeControls, setShowBpmRangeControls] = useState(false)
   
   const [tracks, setTracks] = useState<Track[]>([])
-  const [isAutoMode, setIsAutoMode] = useState(false) // Auto mode is on by default when no template is loaded
+  const [isAutoMode, setIsAutoMode] = useState(false) // Strata mode is on by default when no template is loaded
+  const [isLatidoMode, setIsLatidoMode] = useState(false) // Latido mode controls drum track loading in shuffle all
+  const [isHeliosMode, setIsHeliosMode] = useState(false) // Helios mode creates hybrid drum/loop track combinations
   const [isBpmToleranceEnabled, setIsBpmToleranceEnabled] = useState(false) // ±10 BPM tolerance rule
   const [timeStretchMode, setTimeStretchMode] = useState<'resampling' | 'flex-time'>('resampling') // RM vs FT mode
   const [steps, setSteps] = useState(64)
-  
-  // Initialize sequencer with first step active for each track when in auto mode
-  useEffect(() => {
-    if (isAutoMode) {
-      // Only initialize if we don't have any sequencer data yet
-      const hasExistingData = Object.keys(sequencerData).length > 0
-      
-      if (!hasExistingData) {
-        // Set first step active for each track
-        const initialSequencerData: {[trackId: number]: boolean[]} = {}
-        tracks.forEach(track => {
-          const stepPattern = new Array(steps).fill(false)
-          stepPattern[0] = true // Activate first step
-          initialSequencerData[track.id] = stepPattern
-        })
-        setSequencerDataFromSession(initialSequencerData)
-        console.log('[AUTO MODE] Initialized sequencer data for new session')
-      } else {
-        console.log('[AUTO MODE] Skipping initialization - sequencer data already exists')
-      }
-    }
-  }, [isAutoMode, steps]) // Remove tracks dependency to prevent clearing patterns
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
   const [showPianoRoll, setShowPianoRoll] = useState(false)
@@ -236,7 +216,7 @@ export default function BeatMakerPage() {
     clearPianoRollData,
     debugPianoRollPlayback,
     samplesRef
-  } = useBeatMaker(tracks, steps, bpm)
+  } = useBeatMaker(tracks, steps, bpm, timeStretchMode)
 
   // Custom playStep function that includes MIDI playback
   const customPlayStep = useCallback((step: number) => {
@@ -299,7 +279,7 @@ export default function BeatMakerPage() {
 
       console.log('Loaded pattern from database:', pattern)
 
-      // Turn off auto mode when a template/pattern is loaded
+      // Turn off Strata mode when a template/pattern is loaded
       setIsAutoMode(false)
 
       // Load pattern BPM and steps
@@ -425,6 +405,46 @@ export default function BeatMakerPage() {
   // Current sequencer patterns - these are the patterns currently active in the sequencer
   const [currentSequencerPatterns, setCurrentSequencerPatterns] = useState<{id: string, name: string, tracks: Track[], sequencerData: any, bpm: number, transportKey: string, steps: number, trackKey?: string, originalKey?: string, pitchShift?: number, trackBpm?: number, originalBpm?: number, playbackRate?: number}[]>([])
   
+  // --- Arrangement Grid Constants ---
+  const STEPS_PER_BAR = 16;
+  // Find the furthest step any pattern is placed at
+  let maxPatternEndStep = 0;
+  Object.entries(songPatternAssignments).forEach(([trackId, barAssignments]) => {
+    Object.entries(barAssignments).forEach(([barIdx, patternId]) => {
+      const pattern = currentSequencerPatterns.find(p => p.id === patternId);
+      if (pattern) {
+        const startStep = parseInt(barIdx) * STEPS_PER_BAR + 1;
+        const endStep = startStep + (pattern.steps || steps) - 1;
+        if (endStep > maxPatternEndStep) maxPatternEndStep = endStep;
+      }
+    });
+  });
+  // Always show at least 100 steps, or enough to fit the furthest pattern
+  const totalSteps = Math.max(100, steps, maxPatternEndStep);
+  const totalBars = Math.ceil(totalSteps / STEPS_PER_BAR);
+  
+  // Initialize sequencer with first step active for each track when in Strata mode
+  useEffect(() => {
+    if (isAutoMode) {
+      // Only initialize if we don't have any sequencer data yet
+      const hasExistingData = Object.keys(sequencerData).length > 0
+      
+      if (!hasExistingData) {
+        // Set first step active for each track
+        const initialSequencerData: {[trackId: number]: boolean[]} = {}
+        tracks.forEach(track => {
+          const stepPattern = new Array(steps).fill(false)
+          stepPattern[0] = true // Activate first step
+          initialSequencerData[track.id] = stepPattern
+        })
+        setSequencerDataFromSession(initialSequencerData)
+        console.log('[STRATA MODE] Initialized sequencer data for new session')
+      } else {
+        console.log('[STRATA MODE] Skipping initialization - sequencer data already exists')
+      }
+    }
+  }, [isAutoMode, steps]) // Remove tracks dependency to prevent clearing patterns
+
   // Function to capture current sequencer state as a pattern
   const captureCurrentSequencerAsPattern = (patternName?: string) => {
     const newPattern = {
@@ -1441,7 +1461,7 @@ export default function BeatMakerPage() {
   const loadPattern = (patternId: string) => {
     const pattern = savedPatterns.find(p => p.id === patternId)
     if (pattern) {
-      // Turn off auto mode when a template/pattern is loaded
+      // Turn off Strata mode when a template/pattern is loaded
       setIsAutoMode(false)
       
       // Load pattern BPM, transport key, and steps
@@ -1720,7 +1740,7 @@ export default function BeatMakerPage() {
     console.log('Pattern sequencer_data:', selectedPattern.sequencer_data)
     console.log('Current tracks in sequencer:', tracks)
     
-    // Turn off auto mode when a template/pattern is loaded
+    // Turn off Strata mode when a template/pattern is loaded
     setIsAutoMode(false)
     
     // Load pattern BPM and steps
@@ -2006,6 +2026,8 @@ export default function BeatMakerPage() {
         }
       }, 0)
     }
+    
+    markSessionChanged()
   }
 
 
@@ -2198,6 +2220,14 @@ export default function BeatMakerPage() {
       //   event.preventDefault()
       //   setSelectedPatternForPlacement(null)
       // }
+
+      // Update session with Ctrl+S or Cmd+S
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
+        event.preventDefault()
+        if (currentSessionId && hasUnsavedChanges) {
+          handleUpdateSession()
+        }
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -2302,6 +2332,7 @@ export default function BeatMakerPage() {
     ))
     setShowSampleLibrary(false)
     setSelectedTrack(null)
+    markSessionChanged()
   }
 
   const handleOpenSampleLibrary = (trackId: number) => {
@@ -2356,6 +2387,7 @@ export default function BeatMakerPage() {
       console.log(`[PIANO ROLL UPDATE] Updating track ${trackPianoRollTrack.name} with ${notes.length} notes:`, notes)
       updatePianoRollData(trackPianoRollTrack.id, notes)
     }
+    markSessionChanged()
   }
 
   const handleTrackTempoChange = (trackId: number, newBpm: number, originalBpm?: number) => {
@@ -2620,6 +2652,7 @@ export default function BeatMakerPage() {
   const handleBpmChange = (newBpm: number) => {
     if (newBpm >= 60 && newBpm <= 200) {
       setBpm(newBpm)
+      markSessionChanged()
       
       // Synchronize Tone.js Transport BPM
       import('tone').then(Tone => {
@@ -2693,6 +2726,19 @@ export default function BeatMakerPage() {
       } else {
         console.log(`[TRANSPORT BPM] M-T mode: Skipping track sync - Melody Loop controls transport`)
       }
+      
+      // Force reload all tracks to apply current time stretch mode
+      // This ensures RM/FT mode is properly applied to all tracks
+      setTimeout(() => {
+        console.log(`[TRANSPORT BPM] Force reloading all tracks to apply ${timeStretchMode} mode`)
+        tracks.forEach(track => {
+          if (track.audioUrl && track.audioUrl !== 'undefined') {
+            setTimeout(() => {
+              forceReloadTrackSamples(track.id)
+            }, 100 * track.id) // Stagger reloads to prevent conflicts
+          }
+        })
+      }, 200)
     }
   }
 
@@ -2779,6 +2825,7 @@ export default function BeatMakerPage() {
   const handleTransportKeySelect = (key: string) => {
     setTransportKey(key)
     setEditingTransportKey(false)
+    markSessionChanged()
   }
 
   const handleTransportKeySave = () => {
@@ -2941,11 +2988,6 @@ export default function BeatMakerPage() {
             .eq('audio_type', originalTrack.audio_type || 'Melody Loop')
           if (isReadyCheckEnabled) {
             fallbackQuery = fallbackQuery.eq('is_ready', true) // Only include ready audio files when ready check is enabled
-          }
-          
-          // Add genre filter if a genre is selected and locked
-          if (selectedGenre && selectedGenre.name && isGenreLocked) {
-            fallbackQuery = fallbackQuery.eq('genre', selectedGenre.name)
           }
           
           const { data: fallbackAudio, error: fallbackError } = await fallbackQuery.limit(10)
@@ -3142,6 +3184,41 @@ export default function BeatMakerPage() {
         console.log('[DEBUG] Available audio types:', [...new Set(allUserFiles.map(f => f.audio_type))])
       }
 
+      // Special debug for Kick track
+      if (track.name === 'Kick') {
+        console.log(`[KICK DEBUG] === KICK TRACK SHUFFLE DEBUG ===`)
+        console.log(`[KICK DEBUG] Track name: ${track.name}`)
+        console.log(`[KICK DEBUG] isReadyCheckEnabled: ${isReadyCheckEnabled}`)
+        console.log(`[KICK DEBUG] isShuffleTrackerEnabled: ${isShuffleTrackerEnabled}`)
+        console.log(`[KICK DEBUG] isBpmToleranceEnabled: ${isBpmToleranceEnabled}`)
+        console.log(`[KICK DEBUG] selectedGenre:`, selectedGenre)
+        console.log(`[KICK DEBUG] selectedSubgenre:`, selectedSubgenre)
+        console.log(`[KICK DEBUG] transportKey: ${transportKey}`)
+        console.log(`[KICK DEBUG] bpm: ${bpm}`)
+        
+        // Check Kick files specifically
+        const kickFiles = allUserFiles?.filter(f => f.audio_type === 'Kick') || []
+        console.log(`[KICK DEBUG] Total Kick files: ${kickFiles.length}`)
+        
+        const readyKickFiles = kickFiles.filter(f => f.is_ready)
+        console.log(`[KICK DEBUG] Ready Kick files: ${readyKickFiles.length}`)
+        
+        const notReadyKickFiles = kickFiles.filter(f => !f.is_ready)
+        console.log(`[KICK DEBUG] Not ready Kick files: ${notReadyKickFiles.length}`)
+        
+        if (kickFiles.length > 0) {
+          console.log(`[KICK DEBUG] Sample Kick files:`, kickFiles.slice(0, 3).map(f => ({
+            id: f.id,
+            name: f.name,
+            is_ready: f.is_ready,
+            genre: f.genre,
+            subgenre: f.subgenre,
+            bpm: f.bpm,
+            key: f.key
+          })))
+        }
+      }
+
       // Map track names to audio types for filtering using the new categorized system
       const trackTypeMap: { [key: string]: string } = {
         // Drums
@@ -3205,9 +3282,16 @@ export default function BeatMakerPage() {
       // Use the same shuffle tracking system as "shuffle all" for consistency
       console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
       
-      // Get batch of audio files using the tracking system with key filtering and BPM filtering
+      // Check if this is a drum track (should not be pitch-shifted or key-filtered)
+      const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
+      
+                // Check if this track should be filtered by key (skip drum tracks - they don't need key filtering)
+      const shouldFilterByKey = !isDrumTrack
+      const keyToUse = shouldFilterByKey ? transportKey : undefined
+      
+      // Get batch of audio files using the tracking system with conditional key filtering and BPM filtering
       // Apply BPM filtering only when BPM tolerance is enabled
-      const audioFiles = await getShuffleAudioBatch(user, audioType, transportKey, selectedGenre, selectedSubgenre, bpm, isBpmToleranceEnabled)
+      const audioFiles = await getShuffleAudioBatch(user, audioType, keyToUse, selectedGenre, selectedSubgenre, bpm, isBpmToleranceEnabled)
 
       if (!audioFiles || audioFiles.length === 0) {
         console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
@@ -3226,9 +3310,6 @@ export default function BeatMakerPage() {
       let finalKey = selectedAudio.key || 'C'
       let pitchShift = 0
       let playbackRate = 1.0
-      
-      // Check if this is a drum track (should not be pitch-shifted)
-      const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
       
       if (isBpmLocked || isKeyLocked) {
         // Transport is partially or fully locked - adapt tracks accordingly
@@ -3369,7 +3450,8 @@ export default function BeatMakerPage() {
       }
       
       // Check if this is a relative key (not exact match with transport key)
-      const isRelativeKey = transportKey && selectedAudio.key && selectedAudio.key !== transportKey
+      // Skip drum tracks as they don't need key matching
+      const isRelativeKey = !isDrumTrack && transportKey && selectedAudio.key && selectedAudio.key !== transportKey
       
       setTracks(prev => prev.map(t => 
         t.id === trackId ? { 
@@ -3815,6 +3897,18 @@ export default function BeatMakerPage() {
       if (!isShuffleTrackerEnabled) {
         console.log(`[SHUFFLE TRACKER] Tracker disabled - getting random files from entire table for ${audioType}`)
         
+        // Special debug for Kick audio type
+        if (audioType === 'Kick') {
+          console.log(`[KICK DEBUG] === GETSHUFFLEAUDIOBATCH DEBUG ===`)
+          console.log(`[KICK DEBUG] audioType: ${audioType}`)
+          console.log(`[KICK DEBUG] transportKey: ${transportKey}`)
+          console.log(`[KICK DEBUG] selectedGenre:`, selectedGenre)
+          console.log(`[KICK DEBUG] selectedSubgenre: ${selectedSubgenre}`)
+          console.log(`[KICK DEBUG] transportBpm: ${transportBpm}`)
+          console.log(`[KICK DEBUG] applyBpmFilter: ${applyBpmFilter}`)
+          console.log(`[KICK DEBUG] isReadyCheckEnabled: ${isReadyCheckEnabled}`)
+        }
+        
         let query = supabase
           .from('audio_library_items')
           .select('*')
@@ -3837,7 +3931,7 @@ export default function BeatMakerPage() {
           }
         }
         
-        // Add BPM filtering if transport BPM is provided and BPM filter is enabled (auto mode shuffle all)
+        // Add BPM filtering if transport BPM is provided and BPM filter is enabled (Strata mode shuffle all)
         if (applyBpmFilter && transportBpm) {
           const bpmTolerance = 10 // ±10 BPM tolerance
           const minBpm = transportBpm - bpmTolerance
@@ -3903,6 +3997,22 @@ export default function BeatMakerPage() {
         }
         
         const { data: allFiles } = await query
+        
+        // Special debug for Kick audio type
+        if (audioType === 'Kick') {
+          console.log(`[KICK DEBUG] Query result: ${allFiles?.length || 0} files found`)
+          if (allFiles && allFiles.length > 0) {
+            console.log(`[KICK DEBUG] Sample files from query:`, allFiles.slice(0, 3).map(f => ({
+              id: f.id,
+              name: f.name,
+              is_ready: f.is_ready,
+              genre: f.genre,
+              subgenre: f.subgenre,
+              bpm: f.bpm,
+              key: f.key
+            })))
+          }
+        }
         
         if (!allFiles || allFiles.length === 0) {
           console.log(`[KEY FILTER] No files found with key filtering for ${audioType}`)
@@ -4084,9 +4194,9 @@ export default function BeatMakerPage() {
       setSteps(64)
       console.log('[SHUFFLE ALL] Set transport to 64 steps')
 
-      // Handle track loading based on auto mode
+      // Handle track loading based on Strata mode, Latido mode, and Helios mode
       if (isAutoMode) {
-        // Auto mode ON: Load only loop tracks (not drum tracks)
+        // Strata mode ON: Load only loop tracks (not drum tracks)
         const defaultTrackNames = ['Melody Loop', 'Drum Loop', 'Hihat Loop', 'Percussion Loop', '808 Loop']
         const currentTrackNames = tracks.map(t => t.name)
         
@@ -4094,7 +4204,7 @@ export default function BeatMakerPage() {
         const missingTracks = defaultTrackNames.filter(name => !currentTrackNames.includes(name))
         
         if (missingTracks.length > 0) {
-          console.log(`[AUTO MODE ON] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default loop tracks only.`)
+          console.log(`[STRATA MODE ON] Missing tracks detected: ${missingTracks.join(', ')}. Reloading default loop tracks only.`)
           
           // Reset to default tracks - only loop tracks (no drum tracks)
           const defaultTracks: Track[] = [
@@ -4116,9 +4226,9 @@ export default function BeatMakerPage() {
           })
           setSequencerDataFromSession(initialSequencerData)
         }
-      } else {
-        // Auto mode OFF: Load drum tracks
-        console.log(`[AUTO MODE OFF] Loading drum tracks for shuffle all`)
+      } else if (isLatidoMode) {
+        // Latido mode ON: Load drum tracks (same as old Strata OFF behavior)
+        console.log(`[LATIDO MODE ON] Loading drum tracks for shuffle all`)
         
         // Reset to drum tracks
         const drumTracks: Track[] = [
@@ -4138,6 +4248,64 @@ export default function BeatMakerPage() {
           initialSequencerData[track.id] = stepPattern
         })
         setSequencerDataFromSession(initialSequencerData)
+      } else if (isHeliosMode) {
+        // Helios mode ON: Create hybrid drum/loop track combinations
+        console.log(`[HELIOS MODE ON] Creating hybrid drum/loop track combinations`)
+        
+        // Define all possible track options for Helios mode
+        const heliosTrackOptions = [
+          // Drum tracks
+          { name: 'Kick', color: 'bg-red-500', isDrum: true },
+          { name: 'Snare', color: 'bg-blue-500', isDrum: true },
+          { name: 'Hi-Hat', color: 'bg-green-500', isDrum: true },
+          { name: 'Bass', color: 'bg-purple-500', isDrum: true },
+          { name: 'Percussion', color: 'bg-orange-500', isDrum: true },
+          // Loop tracks
+          { name: 'Melody Loop', color: 'bg-red-500', isDrum: false },
+          { name: 'Drum Loop', color: 'bg-blue-500', isDrum: false },
+          { name: 'Hihat Loop', color: 'bg-green-500', isDrum: false },
+          { name: 'Bass Loop', color: 'bg-purple-500', isDrum: false },
+          { name: 'Percussion Loop', color: 'bg-orange-500', isDrum: false },
+        ]
+        
+        // Randomly select 4-5 tracks, ensuring no duplicates
+        const selectedTracks: Track[] = []
+        const usedNames = new Set<string>()
+        
+        // Shuffle the options
+        const shuffledOptions = [...heliosTrackOptions].sort(() => Math.random() - 0.5)
+        
+        // Select 4-5 tracks randomly
+        const numTracks = Math.random() > 0.5 ? 4 : 5
+        
+        for (let i = 0; i < shuffledOptions.length && selectedTracks.length < numTracks; i++) {
+          const option = shuffledOptions[i]
+          if (!usedNames.has(option.name)) {
+            selectedTracks.push({
+              id: selectedTracks.length + 1,
+              name: option.name,
+              audioUrl: null,
+              color: option.color
+            })
+            usedNames.add(option.name)
+          }
+        }
+        
+        console.log(`[HELIOS MODE] Selected tracks: ${selectedTracks.map(t => t.name).join(', ')}`)
+        
+        setTracks(selectedTracks)
+        
+        // Initialize sequencer data for new tracks
+        const initialSequencerData: {[trackId: number]: boolean[]} = {}
+        selectedTracks.forEach(track => {
+          const stepPattern = new Array(steps).fill(false)
+          stepPattern[0] = true // Activate first step
+          initialSequencerData[track.id] = stepPattern
+        })
+        setSequencerDataFromSession(initialSequencerData)
+      } else {
+        // All modes OFF: Don't change tracks, just shuffle audio
+        console.log(`[ALL MODES OFF] Keeping current tracks, only shuffling audio`)
       }
 
       // DON'T toggle melody loop mode on shuffle - keep the current mode
@@ -4273,8 +4441,10 @@ export default function BeatMakerPage() {
 
           console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
           
-          // Check if this track should be filtered by key (skip drum-related loops)
-          const shouldFilterByKey = !['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
+                  // Check if this track should be filtered by key (skip drum tracks - they don't need key filtering)
+        const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
+          const isDrumLoop = ['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
+          const shouldFilterByKey = !isDrumTrack && !isDrumLoop
           const keyToUse = shouldFilterByKey ? transportKey : undefined
           
           // Get batch of audio files using the tracking system with conditional key filtering and BPM filtering
@@ -4301,11 +4471,7 @@ export default function BeatMakerPage() {
           
           // Check if this is a relative key (not exact match with transport key)
           // Only mark as relative key if it's not a drum-related loop
-          const isDrumLoop = ['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
           const isRelativeKey = !isDrumLoop && transportKey && selectedAudio.key && selectedAudio.key !== transportKey
-          
-          // Check if this is a drum track (should not be pitch-shifted)
-          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
           
           if (isBpmLocked || isKeyLocked) {
             // Transport is partially or fully locked - adapt tracks accordingly
@@ -4458,7 +4624,11 @@ export default function BeatMakerPage() {
         .filter(track => !track.locked) // Skip locked tracks
         .map(async track => {
           // Special handling for loop tracks - only first step active
-          if (track.name === 'Melody Loop' || track.name.includes(' Loop')) {
+          // In Helios mode, we need to check if this is a loop track specifically
+          const isLoopTrack = track.name === 'Melody Loop' || track.name.includes(' Loop')
+          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion'].includes(track.name)
+          
+          if (isLoopTrack) {
             const newPattern = new Array(steps).fill(false)
             newPattern[0] = true // Always keep the first step active
             return { trackId: track.id, pattern: newPattern }
@@ -4600,7 +4770,7 @@ export default function BeatMakerPage() {
         console.log('BPM locked - restored BPM setting')
       }
       
-      // Update Key based on loop tracks when auto mode is on
+      // Update Key based on loop tracks when Strata mode is on
       if (!isKeyLocked) {
         if (melodyLoopMode === 'transport-dominates') {
           // T-M mode: Transport should adapt to loop tracks' key
@@ -4980,7 +5150,11 @@ export default function BeatMakerPage() {
         .filter(track => !track.locked) // Skip locked tracks
         .map(async track => {
           // Special handling for loop tracks - only first step active
-          if (track.name === 'Melody Loop' || track.name.includes(' Loop')) {
+          // In Helios mode, we need to check if this is a loop track specifically
+          const isLoopTrack = track.name === 'Melody Loop' || track.name.includes(' Loop')
+          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion'].includes(track.name)
+          
+          if (isLoopTrack) {
             const newPattern = new Array(steps).fill(false)
             newPattern[0] = true // Always keep the first step active
             return { trackId: track.id, pattern: newPattern }
@@ -5246,11 +5420,14 @@ export default function BeatMakerPage() {
   // Session management state
   const [savedSessions, setSavedSessions] = useState<any[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [currentSessionName, setCurrentSessionName] = useState<string>('')
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false)
   const [showSessionDialog, setShowSessionDialog] = useState(false)
   const [sessionName, setSessionName] = useState('')
   const [sessionDescription, setSessionDescription] = useState('')
   const [sessionCategory, setSessionCategory] = useState('')
   const [sessionTags, setSessionTags] = useState('')
+  const [sessionStatus, setSessionStatus] = useState('draft')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -5473,6 +5650,7 @@ export default function BeatMakerPage() {
         description: sessionDescription,
         category: sessionCategory,
         tags,
+        status: sessionStatus,
         bpm,
         transport_key: transportKey, // Save transport key
         steps,
@@ -5526,10 +5704,13 @@ export default function BeatMakerPage() {
       }
 
       setCurrentSessionId(result.data.id)
+      setCurrentSessionName(result.data.name)
+      setHasUnsavedChanges(false)
       setSessionName('')
       setSessionDescription('')
       setSessionCategory('')
       setSessionTags('')
+      setSessionStatus('draft')
       setShowSessionDialog(false)
       alert(`Session "${result.data.name}" saved successfully!`)
       
@@ -5541,6 +5722,85 @@ export default function BeatMakerPage() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  // Update current session function
+  const handleUpdateSession = async () => {
+    if (!currentSessionId) {
+      alert('No session loaded to update')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Please log in to update sessions')
+        return
+      }
+
+      // Collect all session data
+      const sessionData = {
+        bpm,
+        transport_key: transportKey,
+        steps,
+        tracks,
+        sequencer_data: sequencerData,
+        mixer_data: mixerSettings,
+        effects_data: {}, // Will be implemented when effects are added
+        piano_roll_data: {}, // Will be populated when piano roll is used
+        sample_library_data: {}, // Will be populated when sample roll is used
+        playback_state: {
+          isPlaying,
+          currentStep,
+          lastPlayedAt: new Date().toISOString()
+        },
+        ui_state: {
+          activeTab,
+          showSampleLibrary,
+          showPianoRoll,
+          selectedTrack,
+          pianoRollTrack
+        }
+      }
+
+      const result = await supabase
+        .from('beat_sessions')
+        .update(sessionData)
+        .eq('id', currentSessionId)
+        .select()
+        .single()
+
+      if (result.error) {
+        console.error('Error updating session:', result.error)
+        alert('Failed to update session')
+        return
+      }
+
+      setHasUnsavedChanges(false)
+      alert(`Session "${currentSessionName}" updated successfully!`)
+      
+      // Refresh saved sessions list
+      loadSavedSessions()
+    } catch (error) {
+      console.error('Error updating session:', error)
+      alert('Failed to update session')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Function to mark session as having unsaved changes
+  const markSessionChanged = () => {
+    if (currentSessionId) {
+      setHasUnsavedChanges(true)
+    }
+  }
+
+  // Wrapper function for toggleStep that also marks session as changed
+  const handleToggleStep = (trackId: number, stepIndex: number) => {
+    toggleStep(trackId, stepIndex)
+    markSessionChanged()
   }
 
   // Load saved sessions
@@ -5643,6 +5903,16 @@ export default function BeatMakerPage() {
       }
 
       setCurrentSessionId(sessionId)
+      setCurrentSessionName(data.name)
+      setHasUnsavedChanges(false)
+      
+      // Populate form fields with current session data
+      setSessionName(data.name)
+      setSessionDescription(data.description || '')
+      setSessionCategory(data.category || '')
+      setSessionTags(data.tags ? data.tags.join(', ') : '')
+      setSessionStatus(data.status || 'draft')
+      
       alert(`Session "${data.name}" loaded successfully!`)
     } catch (error) {
       console.error('Error loading session:', error)
@@ -5670,6 +5940,8 @@ export default function BeatMakerPage() {
 
       if (currentSessionId === sessionId) {
         setCurrentSessionId(null)
+        setCurrentSessionName('')
+        setHasUnsavedChanges(false)
       }
       
       alert('Session deleted successfully!')
@@ -6208,26 +6480,32 @@ export default function BeatMakerPage() {
   }
 
   const handleClearAll = () => {
-    // Reset transport settings
+    // Reset transport settings to defaults
     setBpm(120)
     setTransportKey('C')
-    setSteps(16)
+    setSteps(64) // Default steps
     setCurrentStep(0)
     setBpmRange([70, 165]) // Reset BPM range to default
     
-    // Reset tracks to default (Auto mode tracks)
-    setTracks([
-      { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
-      { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
-      { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
-      { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
-      { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
-    ])
+    // Reset tracks to empty array (like page refresh)
+    setTracks([])
     
-    // Turn auto mode back on when clearing all
-    setIsAutoMode(true)
+    // Reset to default state (Strata mode OFF)
+    setIsAutoMode(false)
     
-    // Clear all sequencer data (will be re-initialized by the useEffect when auto mode is set to true)
+    // Reset all transport and shuffle settings to defaults
+    setIsBpmToleranceEnabled(false)
+    setIsBpmLocked(false)
+    setIsKeyLocked(false)
+    setIsReadyCheckEnabled(false)
+    setIsShuffleTrackerEnabled(false)
+    setIsShuffleLimitEnabled(false)
+    setIsReadyCheckLocked(false)
+    setShowWaveforms(false)
+    setTrackWaveformStates({})
+    setMelodyLoopMode('transport-dominates')
+    
+    // Clear all sequencer data (will be re-initialized by the useEffect when Strata mode is set to true)
     setSequencerDataFromSession({})
     
     // Clear piano roll data
@@ -6236,27 +6514,95 @@ export default function BeatMakerPage() {
     // Reset mixer settings
     setMixerSettings({})
     
+    // Reset all UI states to defaults
+    setShowSampleLibrary(false)
+    setSelectedTrack(null)
+    setShowPianoRoll(false)
+    setPianoRollTrack(null)
+    setShowAudioPianoRoll(false)
+    setAudioPianoRollNotes([])
+    setShowTrackPianoRoll(false)
+    setTrackPianoRollTrack(null)
+    setTrackPianoRollNotes([])
+    setShowBpmRangeControls(false)
+    setShowEditTrackModal(false)
+    setEditingTrack(null)
+    setShowSavePatternDialog(false)
+    setShowLoadPatternDialog(false)
+    setShowSaveTrackPatternDialog(false)
+    setSelectedTrackForPattern(null)
+    setPatternName('')
+    setPatternDescription('')
+    setPatternCategory('')
+    setPatternTags('')
+    setSelectedPatternToLoad(null)
+    
     // Reset genre selection
     setSelectedGenre(null)
-    setSelectedSubgenre('')
+    setSelectedGenreId('none')
+    setSelectedSubgenre('none')
     setIsGenreLocked(false)
     setIsSubgenreLocked(false)
+    setIsPackLocked(false)
+    setSelectedPacks([])
     setAvailableSubgenres([])
     setGenreSubgenres({})
     setGenreTemplates([])
+    setShowGenreDialog(false)
+    setShowGenreTemplateDialog(false)
+    setShowPackDialog(false)
+    setSelectedGenreTemplate(null)
+    setShowCreateGenreDialog(false)
+    setShowEditGenreDialog(false)
+    setShowEditSubgenreDialog(false)
+    setShowSubgenreManagerDialog(false)
+    setShowQuantizeModal(false)
+    setQuantizeTrack(null)
     
     // Reset session
     setCurrentSessionId(null)
+    setCurrentSessionName('')
+    setHasUnsavedChanges(false)
+    setShowSessionDialog(false)
+    setSessionName('')
+    setSessionDescription('')
+    setSessionCategory('')
+    setSessionTags('')
+    setSessionStatus('draft')
+    setIsSaving(false)
+    setIsLoading(false)
+    
+    // Reset song arrangement states
+    setShowSaveSongDialog(false)
+    setShowLoadSongDialog(false)
+    setShowSaveSongTrackPatternDialog(false)
+    setShowLoadSongTrackPatternDialog(false)
+    setSelectedSongTrackForPattern(null)
+    setSongName('')
+    setSongDescription('')
+    setSongCategory('')
+    setSongGenre('')
+    setSongSubgenre('')
+    setSongTags('')
+    setSongTrackPatternName('')
+    setSongTrackPatternDescription('')
+    setSongTrackPatternCategory('')
+    setSongTrackPatternTags('')
+    
+    // Reset AI prompt
+    setAiPrompt('')
+    setIsAiPromptVisible(false)
+    
+    // Reset editing states
+    setEditingBpm(false)
+    setEditingPosition(false)
+    setEditingTransportKey(false)
+    setSavingTrack(false)
+    setTrackEditError(null)
     
     // Stop playback
     stopSequence()
     setIsPlaying(false)
-    
-    // Reset transport locks
-    setIsBpmLocked(false)
-    setIsKeyLocked(false)
-    setIsReadyCheckEnabled(true)
-    setIsReadyCheckLocked(false)
     
     console.log('Cleared all data - fresh start!')
   }
@@ -6353,6 +6699,7 @@ export default function BeatMakerPage() {
     setSessionDescription('')
     setSessionCategory('')
     setSessionTags('')
+    setSessionStatus('draft')
     setShowSessionDialog(true)
   }
 
@@ -6803,6 +7150,18 @@ export default function BeatMakerPage() {
         <div>
           <h1 className="text-3xl font-bold text-white">Ortega Beat Maker</h1>
           <p className="text-gray-400">Create beats with our professional tools</p>
+          {currentSessionId && (
+            <div className="flex items-center gap-2 mt-2">
+              <Badge variant="outline" className="text-green-500 border-green-500 text-xs">
+                Session: {currentSessionName}
+              </Badge>
+              {hasUnsavedChanges && (
+                <Badge variant="outline" className="text-orange-500 border-orange-500 text-xs">
+                  Unsaved Changes
+                </Badge>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           
@@ -6941,6 +7300,29 @@ export default function BeatMakerPage() {
             <Music className="w-4 h-4 mr-2" />
             Genres
           </Button>
+          
+          {/* Quick Session Update Button */}
+          {currentSessionId && hasUnsavedChanges && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleUpdateSession}
+              disabled={isSaving}
+              className="border-green-400 text-green-400 hover:bg-green-400 hover:text-black"
+            >
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <Save className="w-3 h-3 mr-1" />
+                  Update Session
+                </>
+              )}
+            </Button>
+          )}
 
           
 
@@ -7045,13 +7427,43 @@ export default function BeatMakerPage() {
                   size="sm"
                   className={`${
                     isAutoMode 
-                      ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                      ? 'bg-green-600 text-white hover:bg-green-700 border-green-500 shadow-lg shadow-green-500/30' 
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
                   }`}
-                  title={isAutoMode ? "Auto mode is ON - Click to turn off" : "Auto mode is OFF - Click to turn on"}
+                  title={isAutoMode ? "Strata mode is ON - Click to turn off" : "Strata mode is OFF - Click to turn on"}
                 >
-                  <Settings className="w-4 h-4 mr-1" />
-                  Auto
+                  Strata
+                </Button>
+                <Button
+                  onClick={() => setIsLatidoMode(!isLatidoMode)}
+                  variant="outline"
+                  size="sm"
+                  className={`${
+                    isLatidoMode 
+                      ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500 shadow-lg shadow-blue-500/30' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                  }`}
+                  title={isLatidoMode ? "Latido mode is ON - Click to turn off" : "Latido mode is OFF - Click to turn on"}
+                >
+                  Latido
+                </Button>
+                <Button
+                  onClick={() => setIsHeliosMode(!isHeliosMode)}
+                  variant="outline"
+                  size="sm"
+                  className={`${
+                    isHeliosMode 
+                      ? 'bg-yellow-600 text-white hover:bg-yellow-700 border-yellow-500 shadow-lg shadow-yellow-500/30' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                  }`}
+                  title={isHeliosMode ? "Helios mode is ON - Click to turn off" : "Helios mode is OFF - Click to turn on"}
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Helios</span>
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
                 </Button>
                 
                 {/* ±10 BPM Tolerance Indicator */}
@@ -7069,7 +7481,23 @@ export default function BeatMakerPage() {
                 
                 {/* Time Stretch Mode Toggle (RM/FT) */}
                 <button
-                  onClick={() => setTimeStretchMode(timeStretchMode === 'resampling' ? 'flex-time' : 'resampling')}
+                  onClick={() => {
+                    const newMode = timeStretchMode === 'resampling' ? 'flex-time' : 'resampling'
+                    setTimeStretchMode(newMode)
+                    console.log(`[TIME STRETCH] Mode changed to: ${newMode}`)
+                    
+                    // Force reload all tracks to apply new time stretch mode
+                    setTimeout(() => {
+                      console.log(`[TIME STRETCH] Force reloading all tracks to apply ${newMode} mode`)
+                      tracks.forEach(track => {
+                        if (track.audioUrl && track.audioUrl !== 'undefined') {
+                          setTimeout(() => {
+                            forceReloadTrackSamples(track.id)
+                          }, 100 * track.id) // Stagger reloads to prevent conflicts
+                        }
+                      })
+                    }, 100)
+                  }}
                   className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
                     timeStretchMode === 'resampling'
                       ? 'text-orange-300 bg-orange-900/40 border border-orange-500/60 shadow-lg shadow-orange-500/30' 
@@ -7653,7 +8081,7 @@ export default function BeatMakerPage() {
             steps={steps}
             sequencerData={sequencerData}
             pianoRollData={pianoRollData}
-            onToggleStep={toggleStep}
+                            onToggleStep={handleToggleStep}
             currentStep={currentStep}
             bpm={bpm}
             onSavePattern={handleSavePattern}
@@ -7940,66 +8368,37 @@ export default function BeatMakerPage() {
 
                 {/* Song Timeline */}
                 <div className="flex-1 overflow-auto">
-                  {/* Timeline Header */}
-                  <div className="sticky top-0 bg-[#141414] border-b border-gray-600 p-2">
-                    <div className="flex relative">
-                      <div className="w-24 text-center text-gray-400 text-xs py-2">Steps</div>
-                      {/* Dynamic timeline based on sequencer steps - calculate how many bars we need */}
-                      {Array.from({ length: Math.max(64, Math.ceil(128 / steps) * 4) }, (_, i) => {
-                        // Check if any track has pattern assignments at this bar
-                        const hasPatternAssignments = Object.values(songPatternAssignments).some(trackAssignments => 
-                          trackAssignments[i]
-                        )
-                        
-                        // Check if this bar is currently playing based on step position
-                        const isCurrentlyPlaying = songPlayback.isPlaying && songPlayback.currentBar === i
-                        
-                        // Use the sequencer's current step count for consistent bar width
-                const sequencerSteps = steps
-                // Each step should be 4px wide, so a 16-step pattern should be 64px wide, 32-step = 128px, 64-step = 256px
-                const barWidth = Math.max(64, sequencerSteps * 4)
-                        
-                        return (
-                          <div 
-                            key={i} 
-                            className={`text-center text-xs py-2 border-r border-gray-700 relative ${
-                              isCurrentlyPlaying
-                                ? 'bg-green-500/20 text-green-400' 
-                                : hasPatternAssignments
-                                  ? 'text-blue-400'
-                                  : 'text-gray-400'
-                            }`}
-                            style={{ width: `${barWidth}px` }}
-                          >
-                                {i + 1}
-                                {hasPatternAssignments && !songPlayback.isPlaying && (
-                                  <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full"></div>
-                                )}
-                                {isCurrentlyPlaying && (
-                                  <div className="absolute top-0 left-0 w-full h-full bg-green-500/30 animate-pulse"></div>
-                                )}
-                              </div>
-                            )
-                          })}
-                      
-                      {/* Playhead */}
-                      {songPlayback.isPlaying && (
-                        <div 
-                          className="absolute top-0 w-1 h-full bg-green-500 z-10 transition-all duration-100"
-                          style={{ 
-                            left: `${96 + getPlayheadBasePosition()}px`,
-                            transform: `translateX(${getPlayheadOffset()}px)`
-                          }}
+                  {/* Timeline Header: Bar Numbers */}
+                  <div className="sticky top-0 bg-[#141414] border-b border-gray-600 p-2 z-20">
+                    <div className="flex">
+                      <div className="w-24 text-center text-gray-400 text-xs py-2">Bars</div>
+                      {Array.from({ length: totalBars }, (_, i) => (
+                        <div
+                          key={i}
+                          className="text-center text-xs py-2 border-r border-gray-700/30 text-gray-400"
+                          style={{ width: `${STEPS_PER_BAR * 4}px` }}
                         >
-                          <div className="w-3 h-3 bg-green-500 rounded-full -ml-1 -mt-1"></div>
+                          {i + 1}
                         </div>
-                      )}
+                      ))}
+                    </div>
+                    {/* Step Numbers Row */}
+                    <div className="flex">
+                      <div className="w-24 text-center text-gray-400 text-xxs py-1">Steps</div>
+                      {Array.from({ length: totalSteps }, (_, i) => (
+                        <div
+                          key={i}
+                          className="text-center text-xxs py-1 border-r border-gray-700/10 text-gray-500"
+                          style={{ width: `4px` }}
+                        >
+                          {(i % STEPS_PER_BAR === 0 || i === 0) ? i + 1 : ''}
+                        </div>
+                      ))}
                     </div>
                   </div>
-
                   {/* Track Rows */}
                   <div className="space-y-1 p-2">
-                    {tracks.map((track, trackIndex) => (
+                    {tracks.map((track) => (
                       <div key={track.id} className="flex items-center h-12 bg-[#1a1a1a] rounded">
                         {/* Track Header */}
                         <div className="w-24 px-2 flex items-center gap-2">
@@ -8008,153 +8407,92 @@ export default function BeatMakerPage() {
                             <div className="text-white text-xs font-medium truncate">
                               {getTrackDisplayName(track.name)}
                             </div>
-                            <div className={`text-xs ${track.audioUrl ? 'text-green-500' : 'text-gray-500'}`}>
-                              {track.audioUrl ? 'LOADED' : 'EMPTY'}
-                            </div>
+                            <div className={`text-xs ${track.audioUrl ? 'text-green-500' : 'text-gray-500'}`}>{track.audioUrl ? 'LOADED' : 'EMPTY'}</div>
                           </div>
                         </div>
-
                         {/* Timeline Grid */}
                         <div className="flex-1 flex relative">
-                          {/* Timeline grid - dynamic based on sequencer steps */}
-                          {Array.from({ length: Math.max(64, Math.ceil(128 / steps) * 4) }, (_, i) => {
-                            const assignedPatternId = getAssignedPattern(track.id, i)
-                            const assignedPattern = assignedPatternId ? currentSequencerPatterns.find(p => p.id === assignedPatternId) : null
-                            const isCurrentBar = songPlayback.isPlaying && songPlayback.currentBar === i
-                            const isSelected = selectedPatternForPlacement === assignedPatternId
-                            
-                            // Use the sequencer's current step count for consistent bar width
-                            const sequencerSteps = steps
-                            
-                            // Calculate if this specific step is currently playing
-                            const isCurrentStep = isCurrentBar && assignedPattern && songPlayback.isPlaying
-                            const currentStepInBar = songPlaybackRef.current.currentStep % sequencerSteps
-                            // Each step should be 4px wide, so a 16-step pattern should be 64px wide, 32-step = 128px, 64-step = 256px
-                            const barWidth = Math.max(64, sequencerSteps * 4)
-                            
-                            return (
-                              <div 
-                                key={i} 
-                                className={`h-8 border-r border-gray-700/30 cursor-pointer transition-colors flex items-center justify-center relative ${
-                                  assignedPattern 
-                                    ? 'bg-gray-800/50 border-gray-600' 
-                                    : 'hover:bg-gray-700/30'
-                                } ${isCurrentBar && assignedPattern ? 'ring-2 ring-green-400 animate-pulse' : ''} ${isSelected ? 'ring-2 ring-blue-400' : ''}`}
-                                style={{ width: `${barWidth}px` }}
-                                onClick={() => {
-                                  if (selectedPatternForPlacement) {
-                                    // Check if the selected pattern is compatible with this track
-                                    const selectedPattern = currentSequencerPatterns.find(p => p.id === selectedPatternForPlacement)
-                                    if (selectedPattern) {
-                                      if (selectedPattern.id.startsWith('track-')) {
-                                        // Track pattern - only assign if it matches this track
-                                        const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''))
-                                        if (patternTrackId === track.id) {
-                                    assignPatternToTrack(track.id, i, selectedPatternForPlacement)
+                          {/* Render steps for this track */}
+                          {Array.from({ length: totalSteps }, (_, stepIdx) => {
+                            // Find if a pattern starts at this step
+                            const barIdx = Math.floor(stepIdx / STEPS_PER_BAR);
+                            const assignedPatternId = getAssignedPattern(track.id, barIdx);
+                            const assignedPattern = assignedPatternId ? currentSequencerPatterns.find(p => p.id === assignedPatternId) : null;
+                            // Only render the pattern block at the starting step of the bar
+                            if (assignedPattern && (stepIdx % STEPS_PER_BAR === 0)) {
+                              // Calculate how many steps this pattern spans
+                              const patternSteps = assignedPattern.steps || steps;
+                              // If the pattern would overflow the grid, clamp it
+                              const patternEndStep = Math.min(stepIdx + patternSteps, totalSteps);
+                              const patternWidth = (patternEndStep - stepIdx) * 4;
+                              return (
+                                <div
+                                  key={stepIdx}
+                                  className={`h-8 border-r border-gray-700/30 cursor-pointer transition-colors flex items-center justify-center relative ${showPatternDetails ? 'bg-gray-800/50 border-gray-600' : ''}`}
+                                  style={{ width: `${patternWidth}px`, zIndex: 2, backgroundColor: !showPatternDetails ? getTrackColorHex(track.color) : undefined }}
+                                  onClick={() => {
+                                    if (selectedPatternForPlacement) {
+                                      const selectedPattern = currentSequencerPatterns.find(p => p.id === selectedPatternForPlacement);
+                                      if (selectedPattern) {
+                                        if (selectedPattern.id.startsWith('track-')) {
+                                          const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''));
+                                          if (patternTrackId === track.id) {
+                                            assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement);
+                                          } else {
+                                            alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`);
+                                          }
                                         } else {
-                                          // Show a message that this pattern is for a different track
-                                          alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`)
+                                          assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement);
                                         }
-                                      } else {
-                                        // Full pattern - assign to all tracks
-                                        assignPatternToTrack(track.id, i, selectedPatternForPlacement)
                                       }
+                                    } else if (assignedPatternId) {
+                                      assignPatternToTrack(track.id, barIdx, null);
                                     }
-                                    // Don't clear selection - keep it selected for multiple assignments
-                                  } else if (assignedPatternId) {
-                                    // Remove the assigned pattern
-                                    assignPatternToTrack(track.id, i, null)
-                                  }
-                                }}
-                                title={`Bar ${i + 1} - ${getTrackDisplayName(track.name)} ${assignedPattern ? `(${assignedPattern.name}, ${assignedPattern.steps || 16} steps${assignedPattern.trackKey ? `, Key: ${assignedPattern.trackKey}` : ''}${assignedPattern.trackBpm && assignedPattern.trackBpm !== assignedPattern.bpm ? `, Track BPM: ${assignedPattern.trackBpm}` : ''})` : '(No Pattern)'} - ${selectedPatternForPlacement ? 'Click to assign pattern' : 'Click to remove pattern'}`}
-                              >
-                                {assignedPattern && (
-                                  <div className="absolute inset-0 p-1">
-                                    {showPatternDetails ? (
-                                      <>
-                                        {/* Show the assigned pattern for this track */}
-                                        <div className="w-full h-full flex items-center gap-0.5">
-                                          {(assignedPattern.sequencerData[track.id] || []).slice(0, sequencerSteps).map((stepActive: boolean, stepIndex: number) => (
-                                            <div
-                                              key={stepIndex}
-                                              className={`h-full rounded-sm ${
-                                                stepActive 
-                                                  ? getTrackColorHex(track.color) 
-                                                  : 'bg-gray-600/30'
-                                              } ${isCurrentStep && currentStepInBar === stepIndex ? 'ring-1 ring-white' : ''}`}
-                                              style={{
-                                                backgroundColor: stepActive ? getTrackColorHex(track.color) : undefined,
-                                                width: `${100 / sequencerSteps}%`
-                                              }}
-                                            />
-                                          )) || Array.from({ length: sequencerSteps }, (_, stepIndex) => (
-                                            <div
-                                              key={stepIndex}
-                                              className={`h-full bg-gray-600/30 rounded-sm ${isCurrentStep && currentStepInBar === stepIndex ? 'ring-1 ring-white' : ''}`}
-                                              style={{
-                                                width: `${100 / sequencerSteps}%`
-                                              }}
-                                            />
-                                          ))}
-                                        </div>
-                                        
-                                        {/* Show pattern name and step count */}
-                                        <div className="absolute bottom-0 left-0 right-0 text-center">
-                                          <div className="text-white text-xs font-bold truncate px-1">
-                                            {assignedPattern.name}
-                                          </div>
-                                          <div className="text-gray-400 text-xs">
-                                            {sequencerSteps} steps
-                                            {assignedPattern.trackKey && (
-                                              <span className="text-blue-400"> | {assignedPattern.trackKey}</span>
-                                            )}
-                                          </div>
-                                        </div>
-                                        
-                                        {/* Show current step position when playing */}
-                                        {isCurrentStep && (
-                                          <div className="absolute top-0 left-0 right-0 text-center">
-                                            <div className="text-yellow-300 text-xs font-bold bg-black/50 px-1 rounded">
-                                              Step {currentStepInBar + 1}
-                                            </div>
-                                          </div>
-                                        )}
-                                        
-                                        {/* Show playing indicator */}
-                                        {isCurrentBar && songPlayback.isPlaying && (
-                                          <div className="absolute top-1 right-1 text-green-400 text-xs font-bold">
-                                            🔊
-                                          </div>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <>
-                                        {/* Simple solid bar view */}
-                                        <div 
-                                          className="w-full h-full rounded-sm"
-                                          style={{
-                                            backgroundColor: isCurrentBar && songPlayback.isPlaying 
-                                              ? '#22c55e' 
-                                              : getTrackColorHex(track.color)
-                                          }}
-                                        />
-                                        
-                                        {/* Show simple playing indicator */}
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                          <div className="text-white text-xs font-bold">
-                                            {isCurrentBar && songPlayback.isPlaying ? '🔊' : '●'}
-                                          </div>
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                                
-                                {!assignedPattern && (
-                                  <div className="text-gray-500 text-xs">+</div>
-                                )}
-                              </div>
-                            )
+                                  }}
+                                  title={`Step ${stepIdx + 1} - ${getTrackDisplayName(track.name)} (${assignedPattern.name}, ${patternSteps} steps)`}
+                                >
+                                  {showPatternDetails ? (
+                                    <div className="absolute inset-0 p-1 flex flex-col justify-center">
+                                      <div className="w-full h-4 flex items-center gap-0.5">
+                                        {(assignedPattern.sequencerData[track.id] || []).slice(0, patternSteps).map((stepActive: boolean, idx: number) => (
+                                          <div
+                                            key={idx}
+                                            className={`h-full rounded-sm ${stepActive ? getTrackColorHex(track.color) : 'bg-gray-600/30'}`}
+                                            style={{
+                                              backgroundColor: stepActive ? getTrackColorHex(track.color) : undefined,
+                                              width: `${100 / patternSteps}%`
+                                            }}
+                                          />
+                                        ))}
+                                      </div>
+                                      <div className="absolute bottom-0 left-0 right-0 text-center">
+                                        <div className="text-white text-xs font-bold truncate px-1">{assignedPattern.name}</div>
+                                        <div className="text-gray-400 text-xs">{patternSteps} steps{assignedPattern.trackKey && (<span className="text-blue-400"> | {assignedPattern.trackKey}</span>)}</div>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            }
+                            // If no pattern starts here, render empty step
+                            if (!assignedPattern || (stepIdx % STEPS_PER_BAR !== 0)) {
+                              return (
+                                <div
+                                  key={stepIdx}
+                                  className="h-8 border-r border-gray-700/30 cursor-pointer flex items-center justify-center text-gray-500 text-xs"
+                                  style={{ width: `4px` }}
+                                  onClick={() => {
+                                    if (selectedPatternForPlacement) {
+                                      assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement);
+                                    }
+                                  }}
+                                  title={`Step ${stepIdx + 1} - ${getTrackDisplayName(track.name)} (No Pattern)`}
+                                >
+                                  {(stepIdx % STEPS_PER_BAR === 0) ? '+' : ''}
+                                </div>
+                              );
+                            }
+                            return null;
                           })}
                         </div>
                       </div>
@@ -8264,7 +8602,7 @@ export default function BeatMakerPage() {
                   <div className="flex items-center gap-2 px-3 py-1 bg-gray-700 rounded">
                     <span className="text-white text-sm">Debug:</span>
                     <span className="text-gray-200 text-sm">
-                      Global Steps: {steps} | Patterns: {currentSequencerPatterns.length} | BPM: {bpm} | Timeline Bars: {Math.max(64, Math.ceil(128 / steps) * 4)}
+                      Global Steps: {steps} | Patterns: {currentSequencerPatterns.length} | BPM: {bpm} | Timeline Bars: {totalBars}
                     </span>
                   </div>
                   
@@ -8294,7 +8632,7 @@ export default function BeatMakerPage() {
                     <span className="text-white text-sm">Visual:</span>
                     <span className="text-purple-200 text-sm">
                       {songPlayback.isPlaying ? `Bar ${songPlayback.currentBar + 1}: ${songPlaybackRef.current.currentStep || 0} steps` : 'Stopped'} | 
-                      Bar Width: {Math.max(64, steps * 4)}px | 
+                      Bar Width: {STEPS_PER_BAR * 4}px | 
                       {currentSequencerPatterns.filter(p => p.steps && p.steps > 16).length > 0 
                         ? `${currentSequencerPatterns.filter(p => p.steps && p.steps > 16).length} long patterns` 
                         : 'All patterns 16 steps'}
@@ -8332,7 +8670,7 @@ export default function BeatMakerPage() {
                             ? 'text-yellow-300 bg-yellow-900/30 border border-yellow-500/50 shadow-lg shadow-yellow-500/20 animate-pulse' 
                             : 'text-gray-400 bg-gray-800/30 border border-gray-600/50'
                         }`}
-                        title={`±10 BPM tolerance - Auto Mode: ${isAutoMode ? 'ON' : 'OFF'}`}
+                        title={`±10 BPM tolerance - Strata Mode: ${isAutoMode ? 'ON' : 'OFF'}`}
                       >
                         ±10
                       </span>
@@ -8370,7 +8708,7 @@ export default function BeatMakerPage() {
                     ? 'text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30 animate-pulse' 
                     : 'text-gray-400 bg-gray-800/40 border border-gray-600/60'
                 }`}
-                title={`±10 BPM tolerance - Auto Mode: ${isAutoMode ? 'ON' : 'OFF'}`}
+                title={`±10 BPM tolerance - Strata Mode: ${isAutoMode ? 'ON' : 'OFF'}`}
               >
                 ±10
               </span>
@@ -8550,14 +8888,46 @@ export default function BeatMakerPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-white">Beat Sessions</CardTitle>
-                <Button
-                  onClick={() => setShowSessionDialog(true)}
-                  variant="outline"
-                  size="sm"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save New Session
-                </Button>
+                <div className="flex items-center gap-2">
+                  {currentSessionId && (
+                    <div className="flex items-center gap-2 mr-4">
+                      <Badge variant="outline" className="text-green-500 border-green-500 text-xs">
+                        {currentSessionName}
+                      </Badge>
+                      {hasUnsavedChanges && (
+                        <Badge variant="outline" className="text-orange-500 border-orange-500 text-xs">
+                          Unsaved Changes
+                        </Badge>
+                      )}
+                      <Button
+                        onClick={handleUpdateSession}
+                        disabled={isSaving || !hasUnsavedChanges}
+                        size="lg"
+                        className="bg-black text-white font-bold px-6 py-2 rounded shadow hover:bg-gray-900 transition-colors border-none"
+                      >
+                        {isSaving ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Updating...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 mr-2" />
+                            Update Session
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => setShowSessionDialog(true)}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save New Session
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -8632,6 +9002,16 @@ export default function BeatMakerPage() {
                                 <List className="w-3 h-3" />
                                 <span>{session.tracks?.length || 0} Tracks</span>
                               </div>
+                              <div className="flex items-center gap-1">
+                                <Badge className={`${
+                                  session.status === 'draft' ? 'bg-gray-600 text-gray-200 border-gray-500' :
+                                  session.status === 'in_progress' ? 'bg-blue-600 text-white border-blue-500' :
+                                  session.status === 'complete' ? 'bg-green-600 text-white border-green-500' :
+                                  'bg-orange-600 text-white border-orange-500'
+                                }`}>
+                                  {session.status?.replace('_', ' ') || 'draft'}
+                                </Badge>
+                              </div>
                             </div>
                           </div>
                           
@@ -8666,7 +9046,7 @@ export default function BeatMakerPage() {
 
       {/* Save Session Dialog */}
       <Dialog open={showSessionDialog} onOpenChange={setShowSessionDialog}>
-        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-4xl">
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-white">Session Management</DialogTitle>
             <DialogDescription className="text-gray-400">
@@ -8721,20 +9101,34 @@ export default function BeatMakerPage() {
                     className="bg-[#2a2a2a] border-gray-600 text-white"
                   />
                 </div>
+                <div>
+                  <Label htmlFor="session-status" className="text-white">Status</Label>
+                  <Select value={sessionStatus} onValueChange={setSessionStatus}>
+                    <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#2a2a2a] border-gray-600">
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="complete">Complete</SelectItem>
+                      <SelectItem value="archived">Archived</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
-                  onClick={handleSaveSession}
+                  onClick={currentSessionId ? handleUpdateSession : handleSaveSession}
                   disabled={isSaving || !sessionName.trim()}
                   className="w-full"
                 >
                   {isSaving ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Saving...
+                      {currentSessionId ? 'Updating...' : 'Saving...'}
                     </>
                   ) : (
                     <>
                       <Save className="w-4 h-4 mr-2" />
-                      Save Session
+                      {currentSessionId ? 'Update Session' : 'Save Session'}
                     </>
                   )}
                 </Button>
@@ -8764,6 +9158,12 @@ export default function BeatMakerPage() {
                             <span>BPM: {session.bpm}</span>
                             <span>Steps: {session.steps}</span>
                             {session.category && <span>Category: {session.category}</span>}
+                            <span className={`${
+                              session.status === 'draft' ? 'text-gray-400' :
+                              session.status === 'in_progress' ? 'text-blue-400' :
+                              session.status === 'complete' ? 'text-green-400' :
+                              'text-orange-400'
+                            }`}>Status: {session.status.replace('_', ' ')}</span>
                           </div>
                           {session.description && (
                             <p className="text-sm text-gray-500 mt-1">{session.description}</p>
