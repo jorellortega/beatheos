@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -22,13 +22,19 @@ import { QuantizeLoopModal } from '@/components/beat-maker/QuantizeLoopModal'
 import { PianoRoll } from '@/components/beat-maker/PianoRoll'
 import { AudioPianoRoll } from '@/components/beat-maker/AudioPianoRoll'
 import { TrackPianoRoll } from '@/components/beat-maker/TrackPianoRoll'
+import { UndoRedoControls } from '@/components/beat-maker/UndoRedoControls'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
+import { useUndoRedo, BeatMakerState } from '@/hooks/useUndoRedo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { calculatePitchShift, validatePitchShift } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 
 export default function BeatMakerPage() {
   const searchParams = useSearchParams()
+  
+  // Initialize undo/redo functionality
+  const undoRedo = useUndoRedo(50) // 50 versions max
+  
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
   const [transportKey, setTransportKey] = useState('C') // Add transport key state
@@ -51,6 +57,14 @@ export default function BeatMakerPage() {
   const [songTrackPatternCategory, setSongTrackPatternCategory] = useState('')
   const [songTrackPatternTags, setSongTrackPatternTags] = useState('')
   const [savedSongTrackPatterns, setSavedSongTrackPatterns] = useState<any[]>([])
+  
+  // Export state
+  const [isExporting, setIsExporting] = useState(false)
+  
+  // Version history state
+  const [showVersionHistoryDialog, setShowVersionHistoryDialog] = useState(false)
+  const [sessionVersions, setSessionVersions] = useState<any[]>([])
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false)
   
   // AI Prompt state
   const [aiPrompt, setAiPrompt] = useState('')
@@ -89,8 +103,6 @@ export default function BeatMakerPage() {
   const [showTrackPianoRoll, setShowTrackPianoRoll] = useState(false)
   const [trackPianoRollTrack, setTrackPianoRollTrack] = useState<Track | null>(null)
   const [trackPianoRollNotes, setTrackPianoRollNotes] = useState<any[]>([])
-  
-
   
   // MIDI synthesizers
   const [midiSoundType, setMidiSoundType] = useState<'piano' | 'synth' | 'bass'>('piano')
@@ -407,6 +419,7 @@ export default function BeatMakerPage() {
   
   // --- Arrangement Grid Constants ---
   const STEPS_PER_BAR = 16;
+  const STEP_WIDTH = 48; // Match sequencer grid step width
   // Find the furthest step any pattern is placed at
   let maxPatternEndStep = 0;
   Object.entries(songPatternAssignments).forEach(([trackId, barAssignments]) => {
@@ -419,8 +432,8 @@ export default function BeatMakerPage() {
       }
     });
   });
-  // Always show at least 100 steps, or enough to fit the furthest pattern
-  const totalSteps = Math.max(100, steps, maxPatternEndStep);
+  // Always show at least 64 steps to match the transport
+  const totalSteps = Math.max(64, steps, maxPatternEndStep);
   const totalBars = Math.ceil(totalSteps / STEPS_PER_BAR);
   
   // Initialize sequencer with first step active for each track when in Strata mode
@@ -704,14 +717,23 @@ export default function BeatMakerPage() {
   // Create individual track patterns from current sequencer state
   const createCurrentTrackPatterns = () => {
     return tracks.map(track => {
+      // Ensure we have 64 steps of sequencer data
+      const currentTrackData = sequencerData[track.id] || []
+      const extendedTrackData = [...currentTrackData]
+      
+      // Extend the array to 64 steps if it's shorter
+      while (extendedTrackData.length < 64) {
+        extendedTrackData.push(false)
+      }
+      
       const trackPattern = {
         id: `track-${track.id}`,
         name: track.name,
         tracks: [track],
-        sequencerData: { [track.id]: sequencerData[track.id] || [] },
+        sequencerData: { [track.id]: extendedTrackData },
         bpm: bpm,
         transportKey: transportKey,
-        steps: steps,
+        steps: 64, // Force 64 steps
         trackId: track.id,
         color: track.color,
         // Include current track key information to keep patterns in sync with track cards
@@ -752,6 +774,42 @@ export default function BeatMakerPage() {
     })
   }, [sequencerData, tracks, bpm, transportKey, steps])
 
+  // Function to automatically load sequencer patterns into song arrangement
+  const autoLoadSequencerPatternsToSong = () => {
+    const trackPatterns = createCurrentTrackPatterns()
+    
+    if (trackPatterns.length === 0) {
+      console.log('[AUTO LOAD] No active patterns found in sequencer')
+      alert('No active patterns found in sequencer! Create some patterns in the sequencer first.')
+      return
+    }
+
+    console.log('[AUTO LOAD] Loading sequencer patterns into song arrangement:', trackPatterns)
+    
+    // Clear existing assignments
+    setSongPatternAssignments({})
+    
+    // Assign each track pattern to its corresponding track for 4 bars in sequence
+    const newAssignments: {[trackId: number]: {[barIndex: number]: string}} = {}
+    
+    trackPatterns.forEach((pattern, patternIndex) => {
+      const trackId = pattern.trackId
+      
+      if (!newAssignments[trackId]) {
+        newAssignments[trackId] = {}
+      }
+      
+      // Assign the pattern to 4 consecutive bars starting from bar 0
+      for (let barIndex = 0; barIndex < 4; barIndex++) {
+        newAssignments[trackId][barIndex] = pattern.id
+      }
+    })
+    
+    setSongPatternAssignments(newAssignments)
+    console.log('[AUTO LOAD] Pattern assignments created:', newAssignments)
+    alert(`Loaded ${trackPatterns.length} patterns into song arrangement!`)
+  }
+
   // Clear all arrangements
   const clearAllArrangements = () => {
     // This function is no longer needed as song playback is automatic
@@ -778,6 +836,183 @@ export default function BeatMakerPage() {
     currentStep: 0,
     players: {}
   })
+
+  // State restoration function for undo/redo
+  const restoreState = useCallback((state: BeatMakerState) => {
+    // Restore all state from the saved version
+    setTracks(state.tracks || [])
+    setBpm(state.bpm || 120)
+    setSteps(state.steps || 64)
+    setTransportKey(state.transportKey || 'C')
+    setLayoutMode(state.layoutMode || 'default')
+    setTimeStretchMode(state.timeStretchMode || 'resampling')
+    setMasterVolume(state.masterVolume || 0.8)
+    setCurrentSequencerPatterns(state.currentSequencerPatterns || [])
+    setSongPatternAssignments(state.songPatternAssignments || {})
+    setSongPlayback(state.songPlayback || { isPlaying: false, currentBar: 0 })
+    setIsAutoMode(state.isAutoMode || false)
+    setIsLatidoMode(state.isLatidoMode || false)
+    setIsHeliosMode(state.isHeliosMode || false)
+    setIsBpmToleranceEnabled(state.isBpmToleranceEnabled || false)
+    setMidiSoundType(state.midiSoundType || 'piano')
+    setMidiVolume(state.midiVolume || 0.7)
+    setAudioLevels(state.audioLevels || {})
+    setPeakLevels(state.peakLevels || {})
+    setMasterLevel(state.masterLevel || 0)
+    setMasterPeak(state.masterPeak || 0)
+    setSavedPatterns(state.savedPatterns || [])
+    setSavedSongArrangements(state.savedSongArrangements || [])
+    setSavedSongTrackPatterns(state.savedSongTrackPatterns || [])
+    setActiveTab(state.activeTab || 'sequencer')
+    setLastLoadedPattern(state.lastLoadedPattern || null)
+    setShowPatternDetails(state.showPatternDetails !== undefined ? state.showPatternDetails : true)
+    setSelectedPatternForPlacement(state.selectedPatternForPlacement || null)
+    setEditingBpm(state.editingBpm || false)
+    setEditingPosition(state.editingPosition || false)
+    setEditingTransportKey(state.editingTransportKey || false)
+    setBpmInputValue(state.bpmInputValue || '')
+    setPositionInputValue(state.positionInputValue || '')
+    setTransportKeyInputValue(state.transportKeyInputValue || '')
+    setShowSampleLibrary(state.showSampleLibrary || false)
+    setSelectedTrack(state.selectedTrack || null)
+    setShowPianoRoll(state.showPianoRoll || false)
+    setPianoRollTrack(state.pianoRollTrack || null)
+    setShowAudioPianoRoll(state.showAudioPianoRoll || false)
+    setAudioPianoRollNotes(state.audioPianoRollNotes || [])
+    setShowTrackPianoRoll(state.showTrackPianoRoll || false)
+    setTrackPianoRollTrack(state.trackPianoRollTrack || null)
+    setTrackPianoRollNotes(state.trackPianoRollNotes || [])
+    setShowEditTrackModal(state.showEditTrackModal || false)
+    setEditingTrack(state.editingTrack || null)
+    setEditTrackForm(state.editTrackForm || { name: '', bpm: '', key: '', audio_type: '', tags: '' })
+    setSavingTrack(state.savingTrack || false)
+    setTrackEditError(state.trackEditError || null)
+    setBpmRange(state.bpmRange || [70, 165])
+    setShowBpmRangeControls(state.showBpmRangeControls || false)
+    setAiPrompt(state.aiPrompt || '')
+    setIsAiPromptVisible(state.isAiPromptVisible || false)
+    setShowSaveSongDialog(state.showSaveSongDialog || false)
+    setSongName(state.songName || '')
+    setSongDescription(state.songDescription || '')
+    setSongCategory(state.songCategory || '')
+    setSongGenre(state.songGenre || '')
+    setSongSubgenre(state.songSubgenre || '')
+    setSongTags(state.songTags || '')
+    setShowLoadSongDialog(state.showLoadSongDialog || false)
+    setShowSaveSongTrackPatternDialog(state.showSaveSongTrackPatternDialog || false)
+    setShowLoadSongTrackPatternDialog(state.showLoadSongTrackPatternDialog || false)
+    setSelectedSongTrackForPattern(state.selectedSongTrackForPattern || null)
+    setSongTrackPatternName(state.songTrackPatternName || '')
+    setSongTrackPatternDescription(state.songTrackPatternDescription || '')
+    setSongTrackPatternCategory(state.songTrackPatternCategory || '')
+    setSongTrackPatternTags(state.songTrackPatternTags || '')
+    
+    // Restore sequencer data through the hook
+    if (state.sequencerData) {
+      setSequencerDataFromSession(state.sequencerData)
+    }
+    
+    // Restore piano roll data through the hook
+    if (state.pianoRollData) {
+      setPianoRollDataFromSession(state.pianoRollData)
+    }
+    
+    // Restore mixer settings
+    if (state.mixerSettings) {
+      setMixerSettings(state.mixerSettings)
+    }
+    
+    console.log('[UNDO/REDO] State restored successfully')
+  }, [setSequencerDataFromSession, setPianoRollDataFromSession])
+  
+  // Function to capture current state for undo/redo
+  const captureCurrentState = useCallback((): BeatMakerState => {
+    return {
+      sequencerData,
+      pianoRollData,
+      tracks,
+      bpm,
+      steps,
+      transportKey,
+      mixerSettings,
+      masterVolume,
+      currentSequencerPatterns,
+      songPatternAssignments,
+      songPlayback,
+      layoutMode,
+      timeStretchMode,
+      isAutoMode,
+      isLatidoMode,
+      isHeliosMode,
+      isBpmToleranceEnabled,
+      midiSoundType,
+      midiVolume,
+      audioLevels,
+      peakLevels,
+      masterLevel,
+      masterPeak,
+      savedPatterns,
+      savedSongArrangements,
+      savedSongTrackPatterns,
+      activeTab,
+      lastLoadedPattern,
+      showPatternDetails,
+      selectedPatternForPlacement,
+      editingBpm,
+      editingPosition,
+      editingTransportKey,
+      bpmInputValue,
+      positionInputValue,
+      transportKeyInputValue,
+      showSampleLibrary,
+      selectedTrack,
+      showPianoRoll,
+      pianoRollTrack,
+      showAudioPianoRoll,
+      audioPianoRollNotes,
+      showTrackPianoRoll,
+      trackPianoRollTrack,
+      trackPianoRollNotes,
+      showEditTrackModal,
+      editingTrack,
+      editTrackForm,
+      savingTrack,
+      trackEditError,
+      bpmRange,
+      showBpmRangeControls,
+      aiPrompt,
+      isAiPromptVisible,
+      showSaveSongDialog,
+      songName,
+      songDescription,
+      songCategory,
+      songGenre,
+      songSubgenre,
+      songTags,
+      showLoadSongDialog,
+      showSaveSongTrackPatternDialog,
+      showLoadSongTrackPatternDialog,
+      selectedSongTrackForPattern,
+      songTrackPatternName,
+      songTrackPatternDescription,
+      songTrackPatternCategory,
+      songTrackPatternTags
+    }
+  }, [
+    sequencerData, pianoRollData, tracks, bpm, steps, transportKey, mixerSettings, masterVolume,
+    currentSequencerPatterns, songPatternAssignments, songPlayback, layoutMode, timeStretchMode,
+    isAutoMode, isLatidoMode, isHeliosMode, isBpmToleranceEnabled, midiSoundType, midiVolume,
+    audioLevels, peakLevels, masterLevel, masterPeak, savedPatterns, savedSongArrangements,
+    savedSongTrackPatterns, activeTab, lastLoadedPattern, showPatternDetails, selectedPatternForPlacement,
+    editingBpm, editingPosition, editingTransportKey, bpmInputValue, positionInputValue, transportKeyInputValue,
+    showSampleLibrary, selectedTrack, showPianoRoll, pianoRollTrack, showAudioPianoRoll, audioPianoRollNotes,
+    showTrackPianoRoll, trackPianoRollTrack, trackPianoRollNotes, showEditTrackModal, editingTrack,
+    editTrackForm, savingTrack, trackEditError, bpmRange, showBpmRangeControls, aiPrompt, isAiPromptVisible,
+    showSaveSongDialog, songName, songDescription, songCategory, songGenre, songSubgenre, songTags,
+    showLoadSongDialog, showSaveSongTrackPatternDialog, showLoadSongTrackPatternDialog,
+    selectedSongTrackForPattern, songTrackPatternName, songTrackPatternDescription, songTrackPatternCategory,
+    songTrackPatternTags
+  ])
 
   // Initialize song players separately from sequencer
   useEffect(() => {
@@ -2066,6 +2301,8 @@ export default function BeatMakerPage() {
   // Master volume control function
   const handleMasterVolumeChange = (value: number) => {
     setMasterVolume(value)
+    // Add to undo/redo history
+    undoRedo.addToHistory(captureCurrentState(), `Change master volume to ${value}`)
     
     // Apply master volume to all tracks
     tracks.forEach(track => {
@@ -2653,6 +2890,8 @@ export default function BeatMakerPage() {
     if (newBpm >= 60 && newBpm <= 200) {
       setBpm(newBpm)
       markSessionChanged()
+      // Add to undo/redo history
+      undoRedo.addToHistory(captureCurrentState(), `Change BPM to ${newBpm}`)
       
       // Synchronize Tone.js Transport BPM
       import('tone').then(Tone => {
@@ -2847,6 +3086,7 @@ export default function BeatMakerPage() {
     setTracks(prev => prev.map(track => 
       track.id === trackId ? { ...track, locked: !track.locked } : track
     ))
+    markSessionChanged()
   }
 
   // Function to toggle track mute
@@ -2854,6 +3094,7 @@ export default function BeatMakerPage() {
     setTracks(prev => prev.map(track => 
       track.id === trackId ? { ...track, mute: !track.mute } : track
     ))
+    markSessionChanged()
   }
 
   // Copy key from one track to another
@@ -2861,6 +3102,7 @@ export default function BeatMakerPage() {
     setTracks(prev => prev.map(track => 
       track.id === toTrackId ? { ...track, key: key } : track
     ))
+    markSessionChanged()
     console.log(`Copied key ${key} from track ${fromTrackId} to track ${toTrackId}`)
   }
 
@@ -2869,6 +3111,7 @@ export default function BeatMakerPage() {
     setTracks(prev => prev.map(track => 
       track.id === toTrackId ? { ...track, bpm: bpm } : track
     ))
+    markSessionChanged()
     console.log(`Copied BPM ${bpm} from track ${fromTrackId} to track ${toTrackId}`)
   }
 
@@ -3137,18 +3380,27 @@ export default function BeatMakerPage() {
       }))
       console.log(`[LOOP TRACK] Auto-activated first step for new ${trackType} track`)
     }
+    
+    // Add to undo/redo history
+    undoRedo.addToHistory(captureCurrentState(), `Add ${trackType} track`)
   }
 
   // Function to remove a track
   const removeTrack = (trackId: number) => {
     if (tracks.length > 1) { // Keep at least one track
       setTracks(prev => prev.filter(track => track.id !== trackId))
+      // Add to undo/redo history
+      undoRedo.addToHistory(captureCurrentState(), 'Remove track')
+      markSessionChanged()
     }
   }
 
   // Function to reorder tracks
   const reorderTracks = (newOrder: Track[]) => {
     setTracks(newOrder)
+    // Add to undo/redo history
+    undoRedo.addToHistory(captureCurrentState(), 'Reorder tracks')
+    markSessionChanged()
   }
 
   // Function to shuffle audio files by type
@@ -3249,6 +3501,7 @@ export default function BeatMakerPage() {
         'Piano Loop': 'Piano Loop',
         '808 Loop': '808 Loop',
         'Drum Loop': 'Drum Loop',
+        'Hihat Loop': 'Hihat Loop',
         'Bass Loop': 'Bass Loop',
         'Vocal Loop': 'Vocal Loop',
         'Guitar Loop': 'Guitar Loop',
@@ -3310,6 +3563,9 @@ export default function BeatMakerPage() {
       let finalKey = selectedAudio.key || 'C'
       let pitchShift = 0
       let playbackRate = 1.0
+      
+      // Mark session as changed
+      markSessionChanged()
       
       if (isBpmLocked || isKeyLocked) {
         // Transport is partially or fully locked - adapt tracks accordingly
@@ -4307,10 +4563,35 @@ export default function BeatMakerPage() {
         // Initialize sequencer data for new tracks
         const initialSequencerData: {[trackId: number]: boolean[]} = {}
         selectedTracks.forEach(track => {
-          const stepPattern = new Array(steps).fill(false)
-          stepPattern[0] = true // Activate first step
-          initialSequencerData[track.id] = stepPattern
-        })
+          const displayName = getTrackDisplayName(track.name);
+          const isLoopTrack = displayName.includes('🔄');
+          
+          if (isLoopTrack) {
+            // Loop tracks: only first step active
+            const stepPattern = new Array(steps).fill(false)
+            stepPattern[0] = true // Activate first step only
+            initialSequencerData[track.id] = stepPattern
+          } else {
+            // Drum tracks: get shuffled pattern
+            const patternLibrary = getPatternLibraryForTrackType(track.name)
+            const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+            
+            let newPattern: boolean[]
+            if (steps === 16) {
+              newPattern = randomPattern
+            } else if (steps === 8) {
+              newPattern = randomPattern.slice(0, 8)
+            } else if (steps === 32) {
+              newPattern = [...randomPattern, ...randomPattern]
+            } else if (steps === 64) {
+              newPattern = [...randomPattern, ...randomPattern, ...randomPattern, ...randomPattern]
+            } else {
+              newPattern = randomPattern.slice(0, steps)
+            }
+            
+            initialSequencerData[track.id] = newPattern
+          }
+                })
         setSequencerDataFromSession(initialSequencerData)
       } else {
         // All modes OFF: Don't change tracks, just shuffle audio
@@ -4435,6 +4716,14 @@ export default function BeatMakerPage() {
       // Shuffle audio for each track using the new tracking system
       for (const track of tracksToShuffle) {
         try {
+          // Helios mode: Shuffle all tracks (both drum and loop tracks)
+          if (isHeliosMode) {
+            const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion'].includes(track.name)
+            const isLoopTrack = track.name.includes(' Loop')
+            
+            console.log(`[HELIOS MODE] Processing ${isDrumTrack ? 'drum' : isLoopTrack ? 'loop' : 'other'} track: ${track.name}`)
+          }
+          
           // Extract base track type from name (remove key suffix for loops)
           let baseTrackName = track.name
           if (track.name.includes(' Loop ') && track.name.split(' ').length > 2) {
@@ -4632,17 +4921,21 @@ export default function BeatMakerPage() {
       const patternShufflePromises = tracks
         .filter(track => !track.locked) // Skip locked tracks
         .map(async track => {
-          // Special handling for loop tracks - only first step active
-          // In Helios mode, we need to check if this is a loop track specifically
-          const isLoopTrack = track.name === 'Melody Loop' || track.name.includes(' Loop')
-          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion'].includes(track.name)
+          // Use display name logic to detect loop tracks (those with the repeat/loop icon)
+          const displayName = getTrackDisplayName(track.name);
+          const isLoopTrack = displayName.includes('🔄');
+          
+
+          
+          console.log(`[SHUFFLE ALL DEBUG] Track: ${track.name}, Display: ${displayName}, isLoopTrack: ${isLoopTrack}`);
           
           if (isLoopTrack) {
-            const newPattern = new Array(steps).fill(false)
-            newPattern[0] = true // Always keep the first step active
-            return { trackId: track.id, pattern: newPattern }
+            console.log(`[SHUFFLE ALL] Loop track (icon detected) ${track.name}: Setting first step only`);
+            const newPattern = new Array(steps).fill(false);
+            newPattern[0] = true; // Only first step active
+            return { trackId: track.id, pattern: newPattern };
           }
-
+          
           // For other tracks, try database patterns first with genre/subgenre filtering
           const patternType = track.name.toLowerCase()
           
@@ -4727,6 +5020,9 @@ export default function BeatMakerPage() {
         })
         return newSequencerData
       })
+      
+      // Add to undo/redo history
+      undoRedo.addToHistory(captureCurrentState(), 'Shuffle all audio and patterns')
 
       // Update BPM based on loop tracks when in T-M mode (Transport-Melody)
       // In T-M mode, transport should adapt to loop tracks' BPM
@@ -4827,6 +5123,7 @@ export default function BeatMakerPage() {
       }
 
       console.log('Shuffled all audio samples and patterns using tracking system')
+      markSessionChanged()
     } catch (error) {
       console.error('Error shuffling all tracks:', error)
       alert('Failed to shuffle all tracks')
@@ -5158,15 +5455,15 @@ export default function BeatMakerPage() {
       const patternShufflePromises = tracks
         .filter(track => !track.locked) // Skip locked tracks
         .map(async track => {
-          // Special handling for loop tracks - only first step active
-          // In Helios mode, we need to check if this is a loop track specifically
-          const isLoopTrack = track.name === 'Melody Loop' || track.name.includes(' Loop')
-          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion'].includes(track.name)
+          // Use display name logic to detect loop tracks (those with the repeat/loop icon)
+          const displayName = getTrackDisplayName(track.name);
+          const isLoopTrack = displayName.includes('🔄');
           
           if (isLoopTrack) {
-            const newPattern = new Array(steps).fill(false)
-            newPattern[0] = true // Always keep the first step active
-            return { trackId: track.id, pattern: newPattern }
+            console.log(`[SHUFFLE ALL] Loop track (icon detected) ${track.name}: Setting first step only`);
+            const newPattern = new Array(steps).fill(false);
+            newPattern[0] = true; // Only first step active
+            return { trackId: track.id, pattern: newPattern };
           }
           
           const patternType = track.name.toLowerCase()
@@ -5810,6 +6107,8 @@ export default function BeatMakerPage() {
   const handleToggleStep = (trackId: number, stepIndex: number) => {
     toggleStep(trackId, stepIndex)
     markSessionChanged()
+    // Add to undo/redo history
+    undoRedo.addToHistory(captureCurrentState(), 'Toggle step')
   }
 
   // Load saved sessions
@@ -5967,6 +6266,53 @@ export default function BeatMakerPage() {
     loadGenres()
     loadAudioPacks()
   }, [])
+
+  // Version history functions
+  const loadSessionVersions = async () => {
+    if (!currentSessionId) return
+    
+    setIsLoadingVersions(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // For now, we'll use the in-memory undo/redo history
+      // In the future, this could load from a database table
+      const versions = undoRedo.getHistorySummary()
+      setSessionVersions(versions)
+    } catch (error) {
+      console.error('Error loading session versions:', error)
+    } finally {
+      setIsLoadingVersions(false)
+    }
+  }
+
+  const openVersionHistoryDialog = () => {
+    if (!currentSessionId) {
+      alert('Please load a session first to view version history')
+      return
+    }
+    loadSessionVersions()
+    setShowVersionHistoryDialog(true)
+  }
+
+  const loadVersion = (versionId: string) => {
+    try {
+      undoRedo.jumpToVersion(versionId)
+      setShowVersionHistoryDialog(false)
+      toast({
+        title: "Version loaded",
+        description: "The selected version has been loaded successfully.",
+      })
+    } catch (error) {
+      console.error('Error loading version:', error)
+      toast({
+        title: "Error",
+        description: "Failed to load the selected version.",
+        variant: "destructive",
+      })
+    }
+  }
 
   // Load genres from database
   const loadGenres = async () => {
@@ -7161,6 +7507,167 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Note: True MP3 encoding requires additional libraries like lamejs
+  // For now, we'll provide WAV files with different quality settings
+  const createOptimizedWav = async (wavBlob: Blob, isHighQuality: boolean = false): Promise<Blob> => {
+    try {
+      // Create audio context
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      
+      // Convert blob to array buffer
+      const arrayBuffer = await wavBlob.arrayBuffer()
+      
+      // Decode the audio data
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // For now, return the original WAV but with appropriate MIME type
+      // In a real implementation, you'd apply compression here
+      return new Blob([arrayBuffer], { 
+        type: isHighQuality ? 'audio/wav' : 'audio/wav' 
+      })
+    } catch (error) {
+      console.error('[WAV OPTIMIZATION] Error optimizing WAV:', error)
+      return wavBlob
+    }
+  }
+
+  // Export song arrangement as audio file
+  const exportSongArrangement = async (format: 'wav' | 'mp3' = 'wav') => {
+    try {
+      setIsExporting(true)
+      
+      // Check if there are any patterns assigned
+      const hasActiveArrangement = Object.values(songPatternAssignments).some(trackAssignments => 
+        Object.keys(trackAssignments).length > 0
+      )
+      
+      if (!hasActiveArrangement) {
+        alert('No patterns assigned! Please assign patterns to tracks in the timeline before exporting.')
+        setIsExporting(false)
+        return
+      }
+
+      // Get song name for the export
+      const exportSongName = songName || 'Song_Arrangement'
+      const fileName = `${exportSongName.replace(/[^a-zA-Z0-9]/g, '_')}_${format.toUpperCase()}`
+
+      // Initialize Tone.js
+      const Tone = await import('tone')
+      await Tone.start()
+
+      // Create a recorder to capture the audio
+      const recorder = new Tone.Recorder()
+      Tone.Destination.connect(recorder)
+
+      // Set up the song arrangement for recording
+      Tone.Transport.bpm.value = bpm
+      
+      // Calculate the total duration needed for the song
+      let maxSteps = 16 // Default minimum
+      Object.values(songPatternAssignments).forEach(trackAssignments => {
+        Object.entries(trackAssignments).forEach(([barStr, patternId]) => {
+          const bar = parseInt(barStr)
+          const pattern = currentSequencerPatterns.find(p => p.id === patternId)
+          if (pattern) {
+            const transportSteps = steps
+            const barEndStep = (bar + 1) * transportSteps
+            maxSteps = Math.max(maxSteps, barEndStep)
+          }
+        })
+      })
+
+      // Calculate total duration in seconds
+      const stepDuration = 60 / bpm / 4 // 16th note duration
+      const totalDuration = maxSteps * stepDuration
+
+      console.log(`[EXPORT] Exporting song arrangement: ${totalDuration}s, ${maxSteps} steps, ${bpm} BPM`)
+
+      // Start recording
+      recorder.start()
+
+      // Create a sequence that plays the entire song arrangement
+      const exportSequence = new Tone.Sequence((time, step) => {
+        playSongStep(step)
+      }, Array.from({ length: maxSteps }, (_, i) => i), stepDuration)
+
+      // Start the sequence and transport
+      exportSequence.start(0)
+      Tone.Transport.start()
+
+      // Stop recording after the song duration
+      setTimeout(async () => {
+        try {
+          Tone.Transport.stop()
+          exportSequence.stop()
+          exportSequence.dispose()
+
+          const recording = await recorder.stop()
+          
+          let finalBlob = recording
+          let finalUrl: string
+          
+          // For now, both formats export as WAV since true MP3 encoding requires additional libraries
+          // The difference is in the file extension and user expectation
+          if (format === 'mp3') {
+            // Create a WAV file but with .mp3 extension for user convenience
+            // Users can convert it to true MP3 using external tools
+            finalBlob = recording
+          } else {
+            // Standard WAV export
+            finalBlob = recording
+          }
+          
+          // Create download URL
+          finalUrl = URL.createObjectURL(finalBlob)
+          const anchor = document.createElement('a')
+          
+          // Set the correct file extension and download
+          if (format === 'mp3') {
+            anchor.download = `${fileName}.mp3`
+            anchor.href = finalUrl
+            anchor.click()
+            
+            toast({
+              title: "Export Complete",
+              description: `Song arrangement exported as ${fileName}.mp3 (WAV format with MP3 extension - convert with external tools for true MP3)`,
+            })
+          } else {
+            // WAV export
+            anchor.download = `${fileName}.wav`
+            anchor.href = finalUrl
+            anchor.click()
+            
+            toast({
+              title: "Export Complete",
+              description: `Song arrangement exported as ${fileName}.wav`,
+            })
+          }
+
+          // Clean up
+          URL.revokeObjectURL(finalUrl)
+        } catch (error) {
+          console.error('[EXPORT] Error during export:', error)
+          toast({
+            title: "Export Failed",
+            description: "Failed to export song arrangement. Please try again.",
+            variant: "destructive",
+          })
+        } finally {
+          setIsExporting(false)
+        }
+      }, totalDuration * 1000 + 1000) // Add 1 second buffer
+
+    } catch (error) {
+      console.error('[EXPORT] Error starting export:', error)
+      toast({
+        title: "Export Failed",
+        description: "Failed to start export. Please check your audio setup.",
+        variant: "destructive",
+      })
+      setIsExporting(false)
+    }
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
@@ -7465,6 +7972,14 @@ export default function BeatMakerPage() {
                 >
                   Latido
                 </Button>
+                
+                {/* Undo/Redo Controls */}
+                <UndoRedoControls
+                  undoRedo={undoRedo}
+                  currentState={captureCurrentState()}
+                  onStateRestore={restoreState}
+                  className="ml-2"
+                />
                 <Button
                   onClick={() => setIsHeliosMode(!isHeliosMode)}
                   variant="outline"
@@ -7529,11 +8044,15 @@ export default function BeatMakerPage() {
                   onClick={openSaveSessionDialog}
                   variant="outline"
                   size="sm"
-                  className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
-                  title="Save current session"
+                  className={`${
+                    currentSessionId && hasUnsavedChanges 
+                      ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500'
+                  }`}
+                  title={currentSessionId && hasUnsavedChanges ? "Update current session" : "Save current session"}
                 >
                   <Save className="w-4 h-4 mr-1" />
-                  Save Session
+                  {currentSessionId && hasUnsavedChanges ? 'Update Session' : 'Save Session'}
                 </Button>
                 <Button
                   onClick={handleClearShuffleTracker}
@@ -8193,6 +8712,16 @@ export default function BeatMakerPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={autoLoadSequencerPatternsToSong}
+                    className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                    title="Auto-load current sequencer patterns into song arrangement (4x each)"
+                  >
+                    <Music className="w-4 h-4 mr-1" />
+                    Auto-Load Patterns
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={openSaveSongDialog}
                     className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
                   >
@@ -8244,6 +8773,16 @@ export default function BeatMakerPage() {
                       <div className="text-center text-gray-500 text-sm py-4">
                         <div className="mb-2">No active patterns</div>
                         <div className="text-xs">Create patterns in the Sequencer tab first</div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full mt-3 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                          onClick={autoLoadSequencerPatternsToSong}
+                          title="Auto-load current sequencer patterns into song arrangement"
+                        >
+                          <Music className="w-4 h-4 mr-1" />
+                          Auto-Load from Sequencer
+                        </Button>
                       </div>
                     ) : (
                       currentSequencerPatterns.map((pattern, index) => (
@@ -8362,6 +8901,10 @@ export default function BeatMakerPage() {
                   </div>
 
                   <div className="mt-6 space-y-2">
+                    <Button size="sm" variant="outline" className="w-full" onClick={autoLoadSequencerPatternsToSong}>
+                      <Music className="w-4 h-4 mr-2" />
+                      Auto-Load to Song (4x)
+                    </Button>
                     <Button size="sm" variant="outline" className="w-full" onClick={() => captureCurrentSequencerAsPattern()}>
                       <Music className="w-4 h-4 mr-2" />
                       Capture Full Pattern
@@ -8380,137 +8923,171 @@ export default function BeatMakerPage() {
                       <div className="text-purple-400 mt-2">🎼 Click pattern then click timeline to assign!</div>
                       <div className="text-orange-400 text-xs">🎯 Track patterns only work on their specific track</div>
                       <div className="text-cyan-400 text-xs">👁️ Toggle button to show/hide pattern details</div>
+                      <div className="text-blue-400 text-xs">⚡ Auto-Load button loads sequencer patterns (4x each)</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Song Timeline */}
-                <div className="flex-1 overflow-auto">
-                  {/* Timeline Header: Bar Numbers */}
+                <div className="flex-1 overflow-auto" style={{ minWidth: `${steps * STEP_WIDTH + 100}px` }}>
+                  {console.log(`[DEBUG] Song arrangement - steps: ${steps}, STEP_WIDTH: ${STEP_WIDTH}, total width: ${steps * STEP_WIDTH}px`)}
+                  {/* Timeline Header: Step Numbers - EXACTLY like sequencer grid */}
                   <div className="sticky top-0 bg-[#141414] border-b border-gray-600 p-2 z-20">
-                    <div className="flex">
-                      <div className="w-24 text-center text-gray-400 text-xs py-2">Bars</div>
-                      {Array.from({ length: totalBars }, (_, i) => (
-                        <div
-                          key={i}
-                          className="text-center text-xs py-2 border-r border-gray-700/30 text-gray-400"
-                          style={{ width: `${STEPS_PER_BAR * 4}px` }}
-                        >
-                          {i + 1}
-                        </div>
-                      ))}
-                    </div>
-                    {/* Step Numbers Row */}
-                    <div className="flex">
-                      <div className="w-24 text-center text-gray-400 text-xxs py-1">Steps</div>
-                      {Array.from({ length: totalSteps }, (_, i) => (
-                        <div
-                          key={i}
-                          className="text-center text-xxs py-1 border-r border-gray-700/10 text-gray-500"
-                          style={{ width: `4px` }}
-                        >
-                          {(i % STEPS_PER_BAR === 0 || i === 0) ? i + 1 : ''}
-                        </div>
-                      ))}
+                    <div className="flex h-8" style={{ minWidth: `${steps * STEP_WIDTH + 100}px`, width: `${steps * STEP_WIDTH + 100}px` }}>
+                      <div className="w-24 flex-shrink-0"></div>
+                      {Array.from({ length: steps }, (_, i) => {
+                        console.log(`[DEBUG] Rendering step ${i + 1} of ${steps} steps`)
+                        const stepNumber = i + 1
+                        const isDownbeat = stepNumber % 4 === 1
+                        
+                        return (
+                          <div
+                            key={`step-${i}`}
+                            style={{ width: `${STEP_WIDTH}px`, minWidth: `${STEP_WIDTH}px` }}
+                            className={`flex items-center justify-center text-xs font-mono border-r ${
+                              isDownbeat ? 'border-yellow-500 border-r-2' : 'border-gray-600'
+                            } ${
+                              isDownbeat 
+                                ? 'bg-black text-gray-300 font-bold' 
+                                : 'bg-[#1f1f1f] text-gray-300'
+                            }`}
+                          >
+                            {stepNumber}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
-                  {/* Track Rows */}
-                  <div className="space-y-1 p-2">
+                  
+                  {/* Track Rows - EXACTLY like sequencer grid */}
+                  <div className="space-y-1 p-2" style={{ minWidth: `${steps * STEP_WIDTH + 100}px` }}>
                     {tracks.map((track) => (
-                      <div key={track.id} className="flex items-center h-12 bg-[#1a1a1a] rounded">
-                        {/* Track Header */}
-                        <div className="w-24 px-2 flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
-                          <div className="flex flex-col">
-                            <div className="text-white text-xs font-medium truncate">
+                      <div key={track.id} className="flex">
+                        {/* Track Header - EXACTLY like sequencer grid */}
+                        <div className="w-24 flex-shrink-0 flex flex-col px-2 py-0">
+                          <div className="flex items-center gap-2 h-6">
+                            <div className={`w-3 h-3 rounded-full ${track.color} mr-2`}></div>
+                            <Music className="w-3 h-3 text-gray-300 mr-1" />
+                            <span className="text-white text-sm flex-1 truncate">
                               {getTrackDisplayName(track.name)}
-                            </div>
-                            <div className={`text-xs ${track.audioUrl ? 'text-green-500' : 'text-gray-500'}`}>{track.audioUrl ? 'LOADED' : 'EMPTY'}</div>
+                            </span>
                           </div>
                         </div>
-                        {/* Timeline Grid */}
-                        <div className="flex-1 flex relative">
-                          {/* Render steps for this track */}
-                          {Array.from({ length: totalSteps }, (_, stepIdx) => {
-                            // Find if a pattern starts at this step
-                            const barIdx = Math.floor(stepIdx / STEPS_PER_BAR);
-                            const assignedPatternId = getAssignedPattern(track.id, barIdx);
-                            const assignedPattern = assignedPatternId ? currentSequencerPatterns.find(p => p.id === assignedPatternId) : null;
-                            // Only render the pattern block at the starting step of the bar
-                            if (assignedPattern && (stepIdx % STEPS_PER_BAR === 0)) {
-                              // Calculate how many steps this pattern spans
-                              const patternSteps = assignedPattern.steps || steps;
-                              // If the pattern would overflow the grid, clamp it
-                              const patternEndStep = Math.min(stepIdx + patternSteps, totalSteps);
-                              const patternWidth = (patternEndStep - stepIdx) * 4;
+
+                                                {/* Timeline Grid - Pattern blocks that span full pattern length */}
+                        <div className="flex-1 flex relative" style={{ minWidth: `${steps * STEP_WIDTH}px`, width: `${steps * STEP_WIDTH}px` }}>
+                          {/* Pattern blocks layer - rendered first */}
+                          {Array.from({ length: steps }, (_, stepIndex) => {
+                            const barIdx = Math.floor(stepIndex / STEPS_PER_BAR)
+                            const assignedPatternId = getAssignedPattern(track.id, barIdx)
+                            const assignedPattern = assignedPatternId ? currentSequencerPatterns.find(p => p.id === assignedPatternId) : null
+                            
+                            // Debug logging for pattern blocks
+                            if (stepIndex === 0) {
+                              console.log(`[PATTERN BLOCKS DEBUG] Track ${track.id} (${track.name}):`)
+                              console.log(`[PATTERN BLOCKS DEBUG] songPatternAssignments:`, songPatternAssignments[track.id])
+                              console.log(`[PATTERN BLOCKS DEBUG] currentSequencerPatterns:`, currentSequencerPatterns.map(p => ({ id: p.id, name: p.name })))
+                            }
+                            
+                            // Only render pattern block at the start of the timeline (step 0)
+                            if (assignedPattern && stepIndex === 0) {
+                              // Use EXACTLY the same logic as sequencer grid
+                              const patternWidth = steps * STEP_WIDTH // 64 * 48 = 3072px
+                              console.log(`[DEBUG] Pattern block width: ${patternWidth}px, steps: ${steps}, STEP_WIDTH: ${STEP_WIDTH}`)
+                              console.log(`[DEBUG] Rendering pattern block for ${assignedPattern.name} with width ${patternWidth}px`)
+                              
+                              console.log(`[PATTERN BLOCK] Rendering pattern block: ${assignedPattern.name}, steps: 64, width: ${patternWidth}px, start: ${stepIndex}, totalSteps: ${totalSteps}`)
+                              console.log(`[PATTERN BLOCK] STEP_WIDTH: ${STEP_WIDTH}, calculated width: ${patternWidth}px`)
+                              
                               return (
                                 <div
-                                  key={stepIdx}
-                                  className={`h-8 border-r border-gray-700/30 cursor-pointer transition-colors flex items-center justify-center relative ${showPatternDetails ? 'bg-gray-800/50 border-gray-600' : ''}`}
-                                  style={{ width: `${patternWidth}px`, zIndex: 2, backgroundColor: !showPatternDetails ? getTrackColorHex(track.color) : undefined }}
+                                  key={`pattern-${stepIndex}`}
+                                  className="absolute h-8 border-2 border-blue-500 bg-blue-500/60 cursor-pointer transition-colors hover:bg-blue-400/70 shadow-lg"
+                                  style={{ 
+                                    width: `${patternWidth}px`, 
+                                    minWidth: `${patternWidth}px`,
+                                    left: `${stepIndex * STEP_WIDTH}px`,
+                                    zIndex: 1
+                                  }}
                                   onClick={() => {
                                     if (selectedPatternForPlacement) {
-                                      const selectedPattern = currentSequencerPatterns.find(p => p.id === selectedPatternForPlacement);
+                                      const selectedPattern = currentSequencerPatterns.find(p => p.id === selectedPatternForPlacement)
                                       if (selectedPattern) {
                                         if (selectedPattern.id.startsWith('track-')) {
-                                          const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''));
+                                          const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''))
                                           if (patternTrackId === track.id) {
-                                            assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement);
+                                            assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement)
                                           } else {
-                                            alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`);
+                                            alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`)
                                           }
                                         } else {
-                                          assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement);
+                                          assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement)
                                         }
                                       }
                                     } else if (assignedPatternId) {
-                                      assignPatternToTrack(track.id, barIdx, null);
+                                      assignPatternToTrack(track.id, barIdx, null)
                                     }
                                   }}
-                                  title={`Step ${stepIdx + 1} - ${getTrackDisplayName(track.name)} (${assignedPattern.name}, ${patternSteps} steps)`}
+                                  title={`Full Timeline - ${assignedPattern.name} (64 steps)`}
                                 >
-                                  {showPatternDetails ? (
-                                    <div className="absolute inset-0 p-1 flex flex-col justify-center">
-                                      <div className="w-full h-4 flex items-center gap-0.5">
-                                        {(assignedPattern.sequencerData[track.id] || []).slice(0, patternSteps).map((stepActive: boolean, idx: number) => (
-                                          <div
-                                            key={idx}
-                                            className={`h-full rounded-sm ${stepActive ? getTrackColorHex(track.color) : 'bg-gray-600/30'}`}
-                                            style={{
-                                              backgroundColor: stepActive ? getTrackColorHex(track.color) : undefined,
-                                              width: `${100 / patternSteps}%`
-                                            }}
-                                          />
-                                        ))}
-                                      </div>
-                                      <div className="absolute bottom-0 left-0 right-0 text-center">
-                                        <div className="text-white text-xs font-bold truncate px-1">{assignedPattern.name}</div>
-                                        <div className="text-gray-400 text-xs">{patternSteps} steps{assignedPattern.trackKey && (<span className="text-blue-400"> | {assignedPattern.trackKey}</span>)}</div>
-                                      </div>
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="text-white text-xs font-bold truncate px-1 bg-black/50 rounded">
+                                      {assignedPattern.name} (64)
                                     </div>
-                                  ) : null}
+                                  </div>
                                 </div>
-                              );
+                              )
                             }
-                            // If no pattern starts here, render empty step
-                            if (!assignedPattern || (stepIdx % STEPS_PER_BAR !== 0)) {
-                              return (
-                                <div
-                                  key={stepIdx}
-                                  className="h-8 border-r border-gray-700/30 cursor-pointer flex items-center justify-center text-gray-500 text-xs"
-                                  style={{ width: `4px` }}
+                            return null
+                          })}
+                          
+                          {/* Individual steps layer - rendered on top but transparent when pattern exists */}
+                          {Array.from({ length: steps }, (_, stepIndex) => {
+                            const stepNumber = stepIndex + 1
+                            const barIdx = Math.floor(stepIndex / STEPS_PER_BAR)
+                            const assignedPatternId = getAssignedPattern(track.id, barIdx)
+                            const assignedPattern = assignedPatternId ? currentSequencerPatterns.find(p => p.id === assignedPatternId) : null
+                            
+                            // Check if this step is within a pattern - use full 64 steps
+                            const isInPattern = assignedPattern && stepIndex >= 0 && stepIndex < 64
+                            const isActive = isInPattern && assignedPattern.sequencerData[track.id]?.[stepIndex % 64]
+                            
+                            return (
+                              <div key={stepIndex} className="flex flex-col relative" style={{ zIndex: 2 }}>
+                                <Button
+                                  variant={isActive ? "default" : "outline"}
+                                  size="sm"
+                                  style={{ width: `${STEP_WIDTH}px`, minWidth: `${STEP_WIDTH}px` }}
+                                  className={`h-8 rounded-none border-r border-gray-600 ${
+                                    isActive ? track.color : 'bg-[#1f1f1f] hover:bg-[#2a2a2a]'
+                                  } ${isInPattern ? 'opacity-50' : ''}`}
                                   onClick={() => {
                                     if (selectedPatternForPlacement) {
-                                      assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement);
+                                      const selectedPattern = currentSequencerPatterns.find(p => p.id === selectedPatternForPlacement)
+                                      if (selectedPattern) {
+                                        if (selectedPattern.id.startsWith('track-')) {
+                                          const patternTrackId = parseInt(selectedPattern.id.replace('track-', ''))
+                                          if (patternTrackId === track.id) {
+                                            assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement)
+                                          } else {
+                                            alert(`This pattern is for ${selectedPattern.name}, not ${track.name}`)
+                                          }
+                                        } else {
+                                          assignPatternToTrack(track.id, barIdx, selectedPatternForPlacement)
+                                        }
+                                      }
+                                    } else if (assignedPatternId) {
+                                      assignPatternToTrack(track.id, barIdx, null)
                                     }
                                   }}
-                                  title={`Step ${stepIdx + 1} - ${getTrackDisplayName(track.name)} (No Pattern)`}
+                                  title={`Step ${stepNumber} - ${getTrackDisplayName(track.name)} ${isInPattern ? `(${assignedPattern?.name})` : '(No Pattern)'}`}
                                 >
-                                  {(stepIdx % STEPS_PER_BAR === 0) ? '+' : ''}
-                                </div>
-                              );
-                            }
-                            return null;
+                                  {isActive && (
+                                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                                  )}
+                                </Button>
+                              </div>
+                            )
                           })}
                         </div>
                       </div>
@@ -8572,12 +9149,82 @@ export default function BeatMakerPage() {
                   
                   <Button 
                     size="sm" 
+                    variant="outline"
+                    onClick={() => exportSongArrangement('wav')}
+                    disabled={isExporting || !Object.values(songPatternAssignments).some(trackAssignments => 
+                      Object.keys(trackAssignments).length > 0
+                    )}
+                    className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                  >
+                    {isExporting ? (
+                      <>
+                        <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Export WAV
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => exportSongArrangement('mp3')}
+                    disabled={isExporting || !Object.values(songPatternAssignments).some(trackAssignments => 
+                      Object.keys(trackAssignments).length > 0
+                    )}
+                    className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                    title="Exports as WAV with MP3 extension - convert with external tools for true MP3"
+                  >
+                    {isExporting ? (
+                      <>
+                        <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Export MP3*
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
                     variant="outline" 
                     onClick={debugPatternAssignments}
                     className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
                   >
                     <Bug className="w-4 h-4 mr-2" />
                     Debug Assignments
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => {
+                      console.log('[TEST] Creating test pattern assignments...')
+                      const testAssignments: {[trackId: number]: {[barIndex: number]: string}} = {}
+                      
+                      // Create test patterns for each track
+                      tracks.forEach((track, index) => {
+                        testAssignments[track.id] = {}
+                        // Assign a test pattern to bars 0 and 1
+                        testAssignments[track.id][0] = `test-pattern-${track.id}`
+                        testAssignments[track.id][1] = `test-pattern-${track.id}`
+                      })
+                      
+                      setSongPatternAssignments(testAssignments)
+                      console.log('[TEST] Test assignments created:', testAssignments)
+                      alert('Test pattern blocks created! You should now see blue pattern blocks.')
+                    }}
+                    className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                  >
+                    <div className="w-4 h-4 mr-2">🧪</div>
+                    Test Pattern Blocks
                   </Button>
                   
                   <Button 
@@ -8935,6 +9582,15 @@ export default function BeatMakerPage() {
                           </>
                         )}
                       </Button>
+                      <Button
+                        onClick={openVersionHistoryDialog}
+                        variant="outline"
+                        size="lg"
+                        className="bg-gray-800 text-white font-bold px-6 py-2 rounded shadow hover:bg-gray-700 transition-colors border-gray-600"
+                      >
+                        <Clock className="w-4 h-4 mr-2" />
+                        Version History
+                      </Button>
                     </div>
                   )}
                   <Button
@@ -9243,7 +9899,92 @@ export default function BeatMakerPage() {
         </DialogContent>
       </Dialog>
 
-
+      {/* Version History Dialog */}
+      <Dialog open={showVersionHistoryDialog} onOpenChange={setShowVersionHistoryDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">Version History</DialogTitle>
+            <DialogDescription className="text-gray-400">
+              View and restore previous versions of your session.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {isLoadingVersions ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+                <p className="text-gray-400">Loading versions...</p>
+              </div>
+            ) : sessionVersions.length === 0 ? (
+              <div className="text-center py-8">
+                <Clock className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-white mb-2">No versions found</h3>
+                <p className="text-gray-400">Start making changes to create version history</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sessionVersions.map((version) => (
+                  <div
+                    key={version.id}
+                    className={`p-4 rounded-lg border transition-colors cursor-pointer ${
+                      version.isCurrent
+                        ? 'bg-[#2a2a2a] border-green-500'
+                        : 'bg-[#1a1a1a] border-gray-600 hover:border-gray-500 hover:bg-[#2a2a2a]'
+                    }`}
+                    onClick={() => !version.isCurrent && loadVersion(version.id)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-white font-semibold text-lg">{version.name}</h3>
+                          {version.isCurrent && (
+                            <Badge variant="outline" className="text-green-500 border-green-500 text-xs">
+                              Current
+                            </Badge>
+                          )}
+                          {version.isAutoSave && (
+                            <Badge variant="outline" className="text-blue-500 border-blue-500 text-xs">
+                              Auto-save
+                            </Badge>
+                          )}
+                        </div>
+                        {version.description && (
+                          <p className="text-gray-400 text-sm mb-2">{version.description}</p>
+                        )}
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-4 h-4" />
+                            {new Date(version.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                      {!version.isCurrent && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            loadVersion(version.id)
+                          }}
+                          className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
+                        >
+                          Restore
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVersionHistoryDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Save Pattern Dialog */}
       <Dialog open={showSavePatternDialog} onOpenChange={setShowSavePatternDialog}>

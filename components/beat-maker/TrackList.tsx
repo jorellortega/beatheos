@@ -292,6 +292,32 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     return trackName
   }
 
+  // Function to get track display name for modal buttons (same logic as above)
+  const getModalTrackDisplayName = (trackName: string) => {
+    if (trackName.includes(' Loop')) {
+      const baseName = trackName.replace(' Loop', '')
+      const loopIcon = '🔄'
+      
+      // Add specific icons for different loop types
+      if (baseName === 'Melody') return `${loopIcon} Melody`
+      if (baseName === 'Drum') return `${loopIcon} Drum`
+      if (baseName === 'Hihat') return `${loopIcon} Hihat`
+      if (baseName === 'Percussion') return `${loopIcon} Perc`
+      if (baseName === '808') return `${loopIcon} 808`
+      if (baseName === 'Bass') return `${loopIcon} Bass`
+      if (baseName === 'Piano') return `${loopIcon} Piano`
+      if (baseName === 'Guitar') return `${loopIcon} Guitar`
+      if (baseName === 'Synth') return `${loopIcon} Synth`
+      if (baseName === 'Vocal') return `${loopIcon} Vocal`
+      
+      // Default for other loop types
+      return `${loopIcon} ${baseName}`
+    }
+    
+    // For non-loop tracks, return the original name
+    return trackName
+  }
+
   const handleDragStart = (e: React.DragEvent, track: Track) => {
     setDraggedTrack(track)
     e.dataTransfer.effectAllowed = 'move'
@@ -574,7 +600,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     onClick={() => handleTrackTypeSelect(trackType)}
                     className={`h-16 flex flex-col items-center justify-center bg-black border-gray-700 hover:bg-gray-900 ${categoryColors[selectedCategory as keyof typeof categoryColors]}`}
                   >
-                    <div className="text-sm font-bold">{trackType}</div>
+                    <div className="text-sm font-bold">{getModalTrackDisplayName(trackType)}</div>
                   </Button>
                 ))}
               </div>
@@ -937,7 +963,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                           // Melodic
                           'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
                           // Loops
-                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Hihat Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
                           // Effects & Technical
                           'FX', 'Vocal', 'Sample', 'MIDI', 'Patch', 'Preset'
                         ].some(trackType => track.name.includes(trackType)) && (
@@ -979,7 +1005,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         {/* Duplicate with Shuffle button - show for tracks with audio */}
                         {track.audioUrl && onDuplicateWithShuffle && [
                           // Loops (primary target for this feature)
-                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Hihat Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
                           // Melodic
                           'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
                           // Bass
