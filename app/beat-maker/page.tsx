@@ -4190,6 +4190,15 @@ export default function BeatMakerPage() {
         return
       }
 
+      // Close current session to prevent accidental overwrites
+      if (currentSessionId) {
+        console.log('[SHUFFLE ALL] Closing current session to prevent accidental overwrites')
+        setCurrentSessionId(null)
+        setCurrentSessionName('')
+        setHasUnsavedChanges(false)
+        alert('Session closed. Shuffle All will create a new session state.')
+      }
+
       // Set transport to 64 steps when shuffling all
       setSteps(64)
       console.log('[SHUFFLE ALL] Set transport to 64 steps')
@@ -6480,6 +6489,15 @@ export default function BeatMakerPage() {
   }
 
   const handleClearAll = () => {
+    // Close current session to prevent accidental overwrites
+    if (currentSessionId) {
+      console.log('[CLEAR ALL] Closing current session to prevent accidental overwrites')
+      setCurrentSessionId(null)
+      setCurrentSessionName('')
+      setHasUnsavedChanges(false)
+      alert('Session closed. Clear All will create a fresh start.')
+    }
+
     // Reset transport settings to defaults
     setBpm(120)
     setTransportKey('C')
