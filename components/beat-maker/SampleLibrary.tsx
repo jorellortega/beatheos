@@ -68,9 +68,11 @@ interface SampleLibraryProps {
     audio_type?: string
     tags?: string[]
   }) => void
+  preferMp3?: boolean
+  onToggleFormat?: (preferMp3: boolean) => void
 }
 
-export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryProps) {
+export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = false, onToggleFormat }: SampleLibraryProps) {
   const { user, isLoading: authLoading } = useAuth()
   const [audioItems, setAudioItems] = useState<AudioLibraryItem[]>([])
   const [audioPacks, setAudioPacks] = useState<AudioPack[]>([])
@@ -82,6 +84,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
   const [viewMode, setViewMode] = useState<'grid' | 'packs'>('packs')
   const [selectedPack, setSelectedPack] = useState<string | null>(null)
   const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set())
+  const [fileLinks, setFileLinks] = useState<any[]>([])
   
   // Store refs to audio elements for preview
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({})
@@ -94,6 +97,50 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
       isOpen 
     })
   }, [user, authLoading, isOpen])
+
+  // Fetch file links for format switching
+  const fetchFileLinks = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.warn('No access token available')
+        return
+      }
+
+      const response = await fetch('/api/audio/links', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+      if (!response.ok) throw new Error('Failed to fetch file links')
+      
+      const { links } = await response.json()
+      console.log('Fetched file links:', links)
+      setFileLinks(links || [])
+    } catch (error) {
+      console.error('Error fetching file links:', error)
+    }
+  }
+
+  // Get the preferred audio URL for a file
+  const getPreferredAudioUrl = (file: AudioLibraryItem) => {
+    if (!preferMp3) {
+      return file.file_url
+    }
+
+    // Look for MP3 version in file links
+    const mp3Link = fileLinks.find(link => 
+      link.original_file_id === file.id && link.converted_format === 'mp3'
+    )
+
+    if (mp3Link) {
+      // Find the MP3 file in audioItems
+      const mp3File = audioItems.find(item => item.id === mp3Link.converted_file_id)
+      return mp3File?.file_url || file.file_url
+    }
+
+    return file.file_url
+  }
 
   useEffect(() => {
     console.log('SampleLibrary: Effect triggered -', { isOpen, authLoading, userId: user?.id })
@@ -188,6 +235,13 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
     }
   }
 
+  // Fetch file links when audio library is loaded
+  useEffect(() => {
+    if (audioItems.length > 0) {
+      fetchFileLinks()
+    }
+  }, [audioItems])
+
   const handlePlayAudio = (audioId: string, fileUrl: string) => {
     // Stop currently playing audio
     if (playingAudio && audioRefs.current[playingAudio]) {
@@ -213,7 +267,12 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
 
   const handleSelectAudio = (fileUrl: string, fileName?: string, item?: AudioLibraryItem) => {
     handleStopAudio()
-    onSelectAudio(fileUrl, fileName, item ? {
+    
+    // Use preferred audio URL if item is provided
+    const finalUrl = item ? getPreferredAudioUrl(item) || fileUrl : fileUrl
+    const finalName = fileName || item?.name || 'Unknown'
+    
+    onSelectAudio(finalUrl, finalName, item ? {
       bpm: item.bpm,
       key: item.key,
       audio_type: item.audio_type,
@@ -369,6 +428,45 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio }: SampleLibraryP
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Format Toggle */}
+          {onToggleFormat && (
+            <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+              <div className="flex items-center gap-4">
+                <div className="text-center">
+                  <div className={`text-lg font-bold ${!preferMp3 ? 'text-blue-600' : 'text-muted-foreground'}`}>
+                    WAV
+                  </div>
+                  <div className="text-xs text-muted-foreground">High Quality</div>
+                </div>
+                
+                <div 
+                  className="relative inline-flex h-8 w-16 items-center rounded-full bg-gray-200 cursor-pointer shadow-inner transition-colors hover:bg-gray-300"
+                  onClick={() => onToggleFormat(!preferMp3)}
+                >
+                  <div 
+                    className={`h-6 w-6 transform rounded-full bg-[#141414] shadow-md transition-all duration-200 ease-in-out ${
+                      preferMp3 ? 'translate-x-8' : 'translate-x-1'
+                    }`}
+                  />
+                </div>
+                
+                <div className="text-center">
+                  <div className={`text-lg font-bold ${preferMp3 ? 'text-green-600' : 'text-muted-foreground'}`}>
+                    MP3
+                  </div>
+                  <div className="text-xs text-muted-foreground">Compressed</div>
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                  <FileAudio className="h-3 w-3" />
+                  Loading: {preferMp3 ? 'MP3' : 'WAV'} files
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Upload Area */}
           <div
             onDragOver={handleDragOver}

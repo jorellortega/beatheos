@@ -117,8 +117,25 @@ export default function BeatMakerPage() {
   const [masterLevel, setMasterLevel] = useState(0)
   const [masterPeak, setMasterPeak] = useState(0)
 
+  // Format toggle state
+  const [preferMp3, setPreferMp3] = useState(false)
+  const [fileLinks, setFileLinks] = useState<any[]>([])
+
   // Helper to check if any track has a valid audio file
   const hasLoadedAudio = tracks.some(track => track.audioUrl && track.audioUrl !== 'undefined')
+
+  // Fetch file links for format detection
+  const fetchFileLinks = async () => {
+    try {
+      const response = await fetch('/api/audio/links')
+      if (response.ok) {
+        const data = await response.json()
+        setFileLinks(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch file links:', error)
+    }
+  }
 
   // Initialize MIDI synthesizers
   useEffect(() => {
@@ -6265,7 +6282,13 @@ export default function BeatMakerPage() {
     loadSavedSessions()
     loadGenres()
     loadAudioPacks()
+    fetchFileLinks() // Add file links fetching
   }, [])
+
+  // Refetch file links when format preference changes
+  useEffect(() => {
+    fetchFileLinks()
+  }, [preferMp3])
 
   // Version history functions
   const loadSessionVersions = async () => {
@@ -8040,6 +8063,28 @@ export default function BeatMakerPage() {
                 >
                   {timeStretchMode === 'resampling' ? 'RM' : 'FT'}
                 </button>
+
+                {/* Format Toggle (WAV/MP3) */}
+                <button
+                  onClick={() => {
+                    const newFormat = preferMp3 ? false : true
+                    setPreferMp3(newFormat)
+                    console.log(`[FORMAT TOGGLE] Changed to: ${newFormat ? 'MP3' : 'WAV'}`)
+                    
+                    toast({
+                      title: `Format changed to ${newFormat ? 'MP3' : 'WAV'}`,
+                      description: `Audio files will now load as ${newFormat ? 'compressed MP3' : 'high quality WAV'} format.`,
+                    })
+                  }}
+                  className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
+                    preferMp3
+                      ? 'text-green-300 bg-green-900/40 border border-green-500/60 shadow-lg shadow-green-500/30' 
+                      : 'text-blue-300 bg-blue-900/40 border border-blue-500/60 shadow-lg shadow-blue-500/30'
+                  }`}
+                  title={`Audio format: ${preferMp3 ? 'MP3 (compressed)' : 'WAV (high quality)'} - Click to toggle`}
+                >
+                  {preferMp3 ? 'MP3' : 'WAV'}
+                </button>
                 <Button
                   onClick={openSaveSessionDialog}
                   variant="outline"
@@ -8602,6 +8647,8 @@ export default function BeatMakerPage() {
             onDuplicateTrackEmpty={handleDuplicateTrackEmpty}
             transportKey={transportKey}
             melodyLoopMode={melodyLoopMode}
+            preferMp3={preferMp3} // Add format preference
+            fileLinks={fileLinks} // Add file links for format detection
           />
         </div>
 
@@ -8653,6 +8700,8 @@ export default function BeatMakerPage() {
           isOpen={showSampleLibrary}
           onClose={() => setShowSampleLibrary(false)}
           onSelectAudio={(audioUrl, audioName, metadata) => handleTrackAudioSelect(selectedTrack, audioUrl, audioName, metadata)}
+          preferMp3={preferMp3} // Use transport format preference
+          onToggleFormat={setPreferMp3} // Use transport format setter
         />
       )}
 
@@ -8930,7 +8979,6 @@ export default function BeatMakerPage() {
 
                 {/* Song Timeline */}
                 <div className="flex-1 overflow-auto" style={{ minWidth: `${steps * STEP_WIDTH + 100}px` }}>
-                  {console.log(`[DEBUG] Song arrangement - steps: ${steps}, STEP_WIDTH: ${STEP_WIDTH}, total width: ${steps * STEP_WIDTH}px`)}
                   {/* Timeline Header: Step Numbers - EXACTLY like sequencer grid */}
                   <div className="sticky top-0 bg-[#141414] border-b border-gray-600 p-2 z-20">
                     <div className="flex h-8" style={{ minWidth: `${steps * STEP_WIDTH + 100}px`, width: `${steps * STEP_WIDTH + 100}px` }}>

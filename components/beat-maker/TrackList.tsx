@@ -239,9 +239,11 @@ interface TrackListProps {
   onDuplicateTrackEmpty?: (trackId: number) => void
   transportKey?: string
   melodyLoopMode?: 'transport-dominates' | 'melody-dominates'
+  preferMp3?: boolean // Add format preference
+  fileLinks?: any[] // Add file links for format detection
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, transportKey, melodyLoopMode }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [] }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [draggedKey, setDraggedKey] = useState<string | null>(null)
@@ -556,6 +558,28 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     setShowCategoryModal(false)
   }
 
+  // Helper function to determine the current format for a track
+  const getTrackFormat = (track: Track) => {
+    if (!track.audioUrl) return null // No audio loaded
+    
+    // If WAV is preferred, always show WAV
+    if (!preferMp3) {
+      return 'WAV'
+    }
+    
+    // If MP3 is preferred, check if there's a linked MP3 file
+    const mp3Link = fileLinks.find(link => 
+      link.original_file_id === track.id && link.converted_format === 'mp3'
+    )
+    
+    if (mp3Link) {
+      return 'MP3'
+    }
+    
+    // Fallback to WAV if no MP3 link exists
+    return 'WAV'
+  }
+
   return (
     <>
       {/* Stock Sound Selector Modal */}
@@ -804,19 +828,35 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     ) : (
                       // Audio tracks: show audio badge or No Audio
                       track.audioUrl ? (
-                        <Badge 
-                          variant="secondary" 
-                          className={`text-xs bg-green-600 cursor-pointer hover:bg-green-500 transition-colors ${
-                            expandedNames[track.id] ? 'max-w-none' : 'max-w-[200px]'
-                          }`}
-                          onClick={() => toggleNameExpansion(track.id)}
-                          title={expandedNames[track.id] ? 'Click to collapse' : 'Click to see full name'}
-                        >
-                          <Music className="w-3 h-3 mr-1 flex-shrink-0" />
-                          <span className={expandedNames[track.id] ? 'whitespace-normal break-words' : 'truncate'}>
-                            {track.audioName || 'Audio Loaded'}
-                          </span>
-                        </Badge>
+                        <>
+                          <Badge 
+                            variant="secondary" 
+                            className={`text-xs bg-green-600 cursor-pointer hover:bg-green-500 transition-colors ${
+                              expandedNames[track.id] ? 'max-w-none' : 'max-w-[200px]'
+                            }`}
+                            onClick={() => toggleNameExpansion(track.id)}
+                            title={expandedNames[track.id] ? 'Click to collapse' : 'Click to see full name'}
+                          >
+                            <Music className="w-3 h-3 mr-1 flex-shrink-0" />
+                            <span className={expandedNames[track.id] ? 'whitespace-normal break-words' : 'truncate'}>
+                              {track.audioName || 'Audio Loaded'}
+                            </span>
+                          </Badge>
+                          {/* Format Indicator */}
+                          {getTrackFormat(track) && (
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs font-bold ${
+                                getTrackFormat(track) === 'MP3' 
+                                  ? 'text-green-300 bg-green-900/40 border-green-500/60' 
+                                  : 'text-blue-300 bg-blue-900/40 border-blue-500/60'
+                              }`}
+                              title={`Currently playing: ${getTrackFormat(track)} format`}
+                            >
+                              {getTrackFormat(track)}
+                            </Badge>
+                          )}
+                        </>
                       ) : (
                         track.name !== 'MIDI' && (
                           <Badge variant="outline" className="text-xs text-gray-400">No Audio</Badge>
