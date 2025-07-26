@@ -32,7 +32,8 @@ import {
   Tag,
   Settings,
   Play,
-  Square
+  Square,
+  RefreshCw
 } from 'lucide-react'
 import AudioWaveformEditor from '@/components/AudioWaveformEditor'
 
@@ -157,6 +158,8 @@ export default function EditData() {
     
     setLoading(true)
     try {
+      console.log('🔄 Loading audio data for user:', user.id)
+      
       const { data, error } = await supabase
         .from('audio_library_items')
         .select(`
@@ -167,9 +170,11 @@ export default function EditData() {
         .order('created_at', { ascending: false })
 
       if (error) throw error
+      
+      console.log(`✅ Loaded ${data?.length || 0} audio items`)
       setAudioItems(data || [])
     } catch (error) {
-      console.error('Error loading audio data:', error)
+      console.error('❌ Error loading audio data:', error)
     } finally {
       setLoading(false)
     }
@@ -190,6 +195,13 @@ export default function EditData() {
     } catch (error) {
       console.error('Error loading audio packs:', error)
     }
+  }
+
+  // Refresh function to reload all data
+  const refreshData = async () => {
+    console.log('🔄 Refreshing all data...')
+    await Promise.all([loadAudioData(), loadAudioPacks()])
+    console.log('✅ Data refresh complete')
   }
 
   // Filter and sort audio items
@@ -680,6 +692,16 @@ export default function EditData() {
             onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
           >
             {viewMode === 'grid' ? <List className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={refreshData}
+            disabled={loading}
+            className="flex items-center gap-2"
+            title="Refresh data"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
           </Button>
           {selectedItems.size > 0 && (
             <Button onClick={() => setShowBulkEditModal(true)}>

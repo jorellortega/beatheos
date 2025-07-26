@@ -568,9 +568,19 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     }
     
     // If MP3 is preferred, check if there's a linked MP3 file
+    // Use audioFileId if available, otherwise fallback to track.id
+    const audioFileId = track.audioFileId || track.id.toString()
     const mp3Link = fileLinks.find(link => 
-      link.original_file_id === track.id && link.converted_format === 'mp3'
+      link.original_file_id === audioFileId && link.converted_format === 'mp3'
     )
+    
+    console.log(`🔍 Format detection for track ${track.name}:`, {
+      audioFileId,
+      preferMp3,
+      fileLinksCount: fileLinks.length,
+      mp3Link: mp3Link ? 'Found' : 'Not found',
+      availableFileIds: fileLinks.map(l => l.original_file_id).slice(0, 5)
+    })
     
     if (mp3Link) {
       return 'MP3'

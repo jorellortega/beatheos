@@ -7,6 +7,7 @@ export interface Track {
   name: string
   audioUrl: string | null
   audioName?: string | null
+  audioFileId?: string | null // Add audio file ID for format detection
   color: string
   mute?: boolean
   solo?: boolean

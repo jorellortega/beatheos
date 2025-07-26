@@ -127,13 +127,17 @@ export default function BeatMakerPage() {
   // Fetch file links for format detection
   const fetchFileLinks = async () => {
     try {
+      console.log('🔄 Fetching file links from API...')
       const response = await fetch('/api/audio/links')
       if (response.ok) {
         const data = await response.json()
-        setFileLinks(data)
+        console.log(`✅ Fetched ${data?.length || 0} file links:`, data?.slice(0, 3))
+        setFileLinks(data || [])
+      } else {
+        console.error('❌ Failed to fetch file links:', response.status, response.statusText)
       }
     } catch (error) {
-      console.error('Failed to fetch file links:', error)
+      console.error('❌ Error fetching file links:', error)
     }
   }
 
@@ -2562,6 +2566,7 @@ export default function BeatMakerPage() {
     key?: string
     audio_type?: string
     tags?: string[]
+    audioFileId?: string // Add audio file ID to metadata
   }) => {
     const publicUrl = getPublicAudioUrl(audioUrlOrPath)
     setTracks(prev => prev.map(track => 
@@ -2569,6 +2574,7 @@ export default function BeatMakerPage() {
         ...track, 
         audioUrl: publicUrl,
         audioName: audioName || null,
+        audioFileId: metadata?.audioFileId || null, // Store audio file ID
         // Initialize tempo properties with default values or use metadata
         originalBpm: metadata?.bpm || 120, // Use metadata BPM if available
         currentBpm: metadata?.bpm || 120,

@@ -102,6 +102,8 @@ export default function AudioLinkPage() {
   const [compressionFile, setCompressionFile] = useState<{ id: string; url: string } | null>(null)
   const [showCopyDialog, setShowCopyDialog] = useState(false)
   const [copyFile, setCopyFile] = useState<{ id: string; url: string; name: string } | null>(null)
+  const [showBulkCompressionDialog, setShowBulkCompressionDialog] = useState(false)
+  const [bulkCompressionLevel, setBulkCompressionLevel] = useState<'ultra_high' | 'high' | 'medium' | 'low'>('medium')
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -213,22 +215,39 @@ export default function AudioLinkPage() {
       setLoadingPacks(true)
       console.log('Fetching audio packs for user:', user.id)
 
-      const { data, error } = await supabase
+      // First, get all packs
+      const { data: packsData, error: packsError } = await supabase
         .from('audio_packs')
-        .select(`
-          *,
-          item_count:audio_library_items(count)
-        `)
+        .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
-      if (error) {
-        console.error('Supabase error fetching packs:', error)
-        throw error
+      if (packsError) {
+        console.error('Supabase error fetching packs:', packsError)
+        throw packsError
       }
 
-      console.log('Fetched audio packs:', data?.length || 0, 'packs')
-      setAudioPacks(data || [])
+      // Then, get the file count for each pack
+      const packsWithCounts = await Promise.all(
+        (packsData || []).map(async (pack) => {
+          const { count, error: countError } = await supabase
+            .from('audio_library_items')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('pack_id', pack.id)
+
+          if (countError) {
+            console.error(`Error counting files for pack ${pack.id}:`, countError)
+            return { ...pack, item_count: 0 }
+          }
+
+          return { ...pack, item_count: count || 0 }
+        })
+      )
+
+      console.log('Fetched audio packs with counts:', packsWithCounts.length, 'packs')
+      console.log('Pack counts:', packsWithCounts.map(p => `${p.name}: ${p.item_count} files`))
+      setAudioPacks(packsWithCounts)
     } catch (error) {
       console.error('Error fetching audio packs:', error)
     } finally {
@@ -519,7 +538,7 @@ export default function AudioLinkPage() {
       // We want to view the other format, so find the linked file
       const link = linkedFiles[0]
       const linkedFileId = link.original_file_id === file.id ? link.converted_file_id : link.original_file_id
-      const linkedFile = audioFiles.find(f => f.id === linkedFileId)
+      const linkedFile = audioFiles.find(f => f.id === linkedFileId) || allAudioFiles.find(f => f.id === linkedFileId)
       
       console.log(`Looking for linked file:`, {
         link,
@@ -623,14 +642,51 @@ export default function AudioLinkPage() {
     }
   }
 
-  const togglePackExpansion = (packId: string) => {
+  const togglePackExpansion = async (packId: string) => {
     const newExpanded = new Set(expandedPacks)
     if (newExpanded.has(packId)) {
       newExpanded.delete(packId)
     } else {
       newExpanded.add(packId)
+      // Load all files for this pack when expanding
+      await loadPackFiles(packId)
     }
     setExpandedPacks(newExpanded)
+  }
+
+  const loadPackFiles = async (packId: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      console.log('Loading files for pack:', packId)
+
+      const { data, error } = await supabase
+        .from('audio_library_items')
+        .select(`
+          *,
+          pack:audio_packs(id, name, color)
+        `)
+        .eq('user_id', user.id)
+        .eq('pack_id', packId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error loading pack files:', error)
+        return
+      }
+
+      console.log(`Loaded ${data?.length || 0} files for pack ${packId}`)
+
+      // Add these files to allAudioFiles if they're not already there
+      setAllAudioFiles(prev => {
+        const existingIds = new Set(prev.map(f => f.id))
+        const newFiles = (data || []).filter(f => !existingIds.has(f.id))
+        return [...prev, ...newFiles]
+      })
+    } catch (error) {
+      console.error('Error loading pack files:', error)
+    }
   }
 
   const playAudio = async (fileId: string, fileUrl: string) => {
@@ -707,6 +763,203 @@ export default function AudioLinkPage() {
         title: "Download failed",
         description: "Failed to download file.",
         variant: "destructive"
+      })
+    }
+  }
+
+  // Bulk action functions
+  const bulkConvertToMp3 = async (compressionLevel: 'ultra_high' | 'high' | 'medium' | 'low' = 'medium') => {
+    if (selectedFiles.length === 0) {
+      toast({
+        title: "No Files Selected",
+        description: "Please select files to convert.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const filesToConvert = selectedFiles.map(fileId => {
+      // Search in both audioFiles and allAudioFiles
+      const file = audioFiles.find(f => f.id === fileId) || allAudioFiles.find(f => f.id === fileId)
+      return file && file.file_url ? { id: fileId, url: file.file_url, name: file.name } : null
+    }).filter(Boolean)
+
+    if (filesToConvert.length === 0) {
+      toast({
+        title: "No Valid Files",
+        description: "No valid files found for conversion.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    toast({
+      title: "Starting Conversion",
+      description: `Converting ${filesToConvert.length} files to MP3...`,
+    })
+
+    let completed = 0
+    let failed = 0
+
+    for (const file of filesToConvert) {
+      if (!file) continue
+      try {
+        await convertToMp3(file.id, file.url, compressionLevel)
+        completed++
+      } catch (error) {
+        console.error(`Failed to convert ${file.name}:`, error)
+        failed++
+      }
+    }
+
+    // Clear selection after bulk operation
+    setSelectedFiles([])
+    
+    // Refresh files and links to show updated data
+    await Promise.all([refreshFiles(), fetchFileLinks()])
+
+    if (failed === 0) {
+      toast({
+        title: "Conversion Complete",
+        description: `Successfully converted ${completed} files to MP3.`,
+      })
+    } else {
+      toast({
+        title: "Conversion Partially Complete",
+        description: `Converted ${completed} files, ${failed} failed.`,
+        variant: "destructive",
+      })
+    }
+  }
+
+  const bulkDownloadFiles = async () => {
+    if (selectedFiles.length === 0) {
+      toast({
+        title: "No Files Selected",
+        description: "Please select files to download.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const filesToDownload = selectedFiles.map(fileId => {
+      // Search in both audioFiles and allAudioFiles
+      const file = audioFiles.find(f => f.id === fileId) || allAudioFiles.find(f => f.id === fileId)
+      return file && file.file_url ? { id: fileId, url: file.file_url, name: file.name } : null
+    }).filter(Boolean)
+
+    if (filesToDownload.length === 0) {
+      toast({
+        title: "No Valid Files",
+        description: "No valid files found for download.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    toast({
+      title: "Starting Downloads",
+      description: `Downloading ${filesToDownload.length} files...`,
+    })
+
+    let completed = 0
+    let failed = 0
+
+    for (const file of filesToDownload) {
+      if (!file) continue
+      try {
+        await downloadFile(file.id, file.name, file.url)
+        completed++
+      } catch (error) {
+        console.error(`Failed to download ${file.name}:`, error)
+        failed++
+      }
+    }
+
+    // Clear selection after bulk operation
+    setSelectedFiles([])
+    
+    // Refresh files to show updated data
+    await refreshFiles()
+
+    if (failed === 0) {
+      toast({
+        title: "Downloads Complete",
+        description: `Successfully downloaded ${completed} files.`,
+      })
+    } else {
+      toast({
+        title: "Downloads Partially Complete",
+        description: `Downloaded ${completed} files, ${failed} failed.`,
+        variant: "destructive",
+      })
+    }
+  }
+
+  const bulkDeleteFiles = async () => {
+    if (selectedFiles.length === 0) {
+      toast({
+        title: "No Files Selected",
+        description: "Please select files to delete.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const filesToDelete = selectedFiles.map(fileId => {
+      // Search in both audioFiles and allAudioFiles
+      const file = audioFiles.find(f => f.id === fileId) || allAudioFiles.find(f => f.id === fileId)
+      return file ? { id: fileId, name: file.name } : null
+    }).filter(Boolean)
+
+    if (filesToDelete.length === 0) {
+      toast({
+        title: "No Valid Files",
+        description: "No valid files found for deletion.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete ${filesToDelete.length} files? This action cannot be undone.`)) {
+      return
+    }
+
+    toast({
+      title: "Starting Deletion",
+      description: `Deleting ${filesToDelete.length} files...`,
+    })
+
+    let completed = 0
+    let failed = 0
+
+    for (const file of filesToDelete) {
+      if (!file) continue
+      try {
+        await deleteFile(file.id, file.name)
+        completed++
+      } catch (error) {
+        console.error(`Failed to delete ${file.name}:`, error)
+        failed++
+      }
+    }
+
+    // Clear selection after bulk operation
+    setSelectedFiles([])
+    
+    // Refresh files to show updated data
+    await refreshFiles()
+
+    if (failed === 0) {
+      toast({
+        title: "Deletion Complete",
+        description: `Successfully deleted ${completed} files.`,
+      })
+    } else {
+      toast({
+        title: "Deletion Partially Complete",
+        description: `Deleted ${completed} files, ${failed} failed.`,
+        variant: "destructive",
       })
     }
   }
@@ -803,15 +1056,7 @@ export default function AudioLinkPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // Bulk convert selected files to MP3
-                    selectedFiles.forEach(fileId => {
-                      const file = audioFiles.find(f => f.id === fileId)
-                      if (file && file.file_url) {
-                        showCompressionOptions(fileId, file.file_url)
-                      }
-                    })
-                  }}
+                  onClick={() => setShowBulkCompressionDialog(true)}
                 >
                   <Upload className="h-4 w-4 mr-2" />
                   Convert Selected to MP3
@@ -819,15 +1064,7 @@ export default function AudioLinkPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // Bulk download selected files
-                    selectedFiles.forEach(fileId => {
-                      const file = audioFiles.find(f => f.id === fileId)
-                      if (file && file.file_url) {
-                        downloadFile(fileId, file.name, file.file_url)
-                      }
-                    })
-                  }}
+                  onClick={bulkDownloadFiles}
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Download Selected
@@ -835,18 +1072,7 @@ export default function AudioLinkPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // Bulk delete selected files
-                    if (confirm(`Are you sure you want to delete ${selectedFiles.length} files?`)) {
-                      selectedFiles.forEach(fileId => {
-                        const file = audioFiles.find(f => f.id === fileId)
-                        if (file) {
-                          deleteFile(fileId, file.name)
-                        }
-                      })
-                      setSelectedFiles([])
-                    }
-                  }}
+                  onClick={bulkDeleteFiles}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
@@ -1119,15 +1345,7 @@ export default function AudioLinkPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // Bulk convert selected files to MP3
-                    selectedFiles.forEach(fileId => {
-                      const file = audioFiles.find(f => f.id === fileId)
-                      if (file && file.file_url) {
-                        showCompressionOptions(fileId, file.file_url)
-                      }
-                    })
-                  }}
+                  onClick={() => setShowBulkCompressionDialog(true)}
                 >
                   <Upload className="h-4 w-4 mr-2" />
                   Convert Selected to MP3
@@ -1135,15 +1353,7 @@ export default function AudioLinkPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // Bulk download selected files
-                    selectedFiles.forEach(fileId => {
-                      const file = audioFiles.find(f => f.id === fileId)
-                      if (file && file.file_url) {
-                        downloadFile(fileId, file.name, file.file_url)
-                      }
-                    })
-                  }}
+                  onClick={bulkDownloadFiles}
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Download Selected
@@ -1151,18 +1361,7 @@ export default function AudioLinkPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    // Bulk delete selected files
-                    if (confirm(`Are you sure you want to delete ${selectedFiles.length} files?`)) {
-                      selectedFiles.forEach(fileId => {
-                        const file = audioFiles.find(f => f.id === fileId)
-                        if (file) {
-                          deleteFile(fileId, file.name)
-                        }
-                      })
-                      setSelectedFiles([])
-                    }
-                  }}
+                  onClick={bulkDeleteFiles}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
@@ -1190,7 +1389,7 @@ export default function AudioLinkPage() {
               ) : (
                 audioPacks.map((pack) => {
                   const packFiles = allAudioFiles.filter(file => file.pack_id === pack.id)
-                  console.log(`Pack ${pack.name} (${pack.id}): ${packFiles.length} files`, packFiles.map(f => ({ name: f.name, pack_id: f.pack_id })))
+                  console.log(`Pack ${pack.name} (${pack.id}): ${packFiles.length} loaded files, ${pack.item_count || 0} total files`, packFiles.map(f => ({ name: f.name, pack_id: f.pack_id })))
                   const filteredPackFiles = packFiles.filter(file => {
                     if (!file || !file.name || !file.file_url) return false
                     const matchesSearch = file.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -1215,7 +1414,7 @@ export default function AudioLinkPage() {
                             <div>
                               <CardTitle className="text-lg">{pack.name}</CardTitle>
                               <CardDescription>
-                                {packFiles.length} file{packFiles.length !== 1 ? 's' : ''}
+                                {pack.item_count || 0} file{(pack.item_count || 0) !== 1 ? 's' : ''}
                                 {pack.description && ` • ${pack.description}`}
                               </CardDescription>
                             </div>
@@ -1227,7 +1426,10 @@ export default function AudioLinkPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => isAllSelectedInPack(pack.id) ? deselectAllFilesInPack(pack.id) : selectAllFilesInPack(pack.id)}
+                              onClick={(e) => {
+                                e.stopPropagation() // Prevent pack expansion
+                                isAllSelectedInPack(pack.id) ? deselectAllFilesInPack(pack.id) : selectAllFilesInPack(pack.id)
+                              }}
                               className="text-xs"
                             >
                               {isAllSelectedInPack(pack.id) ? 'Deselect Pack' : 'Select Pack'}
@@ -1766,6 +1968,104 @@ export default function AudioLinkPage() {
                   setShowCopyDialog(false)
                   setCopyFile(null)
                 }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Compression Dialog */}
+      <Dialog open={showBulkCompressionDialog} onOpenChange={setShowBulkCompressionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Convert to MP3</DialogTitle>
+            <DialogDescription>
+              Convert {selectedFiles.length} selected files to MP3 format. Choose your compression level:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <div 
+                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                  bulkCompressionLevel === 'ultra_high' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+                }`}
+                onClick={() => setBulkCompressionLevel('ultra_high')}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-lg">Ultra High Compression</div>
+                    <div className="text-sm text-muted-foreground">Smallest file size, lower quality</div>
+                    <div className="text-xs text-muted-foreground mt-1">~64 kbps • 97% compression • Best for storage</div>
+                  </div>
+                  <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+                </div>
+              </div>
+
+              <div 
+                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                  bulkCompressionLevel === 'high' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+                }`}
+                onClick={() => setBulkCompressionLevel('high')}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-lg">High Compression</div>
+                    <div className="text-sm text-muted-foreground">Small file size, good quality</div>
+                    <div className="text-xs text-muted-foreground mt-1">~128 kbps • 94% compression • Best for streaming</div>
+                  </div>
+                  <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+                </div>
+              </div>
+
+              <div 
+                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                  bulkCompressionLevel === 'medium' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+                }`}
+                onClick={() => setBulkCompressionLevel('medium')}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-lg">Medium Compression</div>
+                    <div className="text-sm text-muted-foreground">Balanced size and quality</div>
+                    <div className="text-xs text-muted-foreground mt-1">~192 kbps • 90% compression • Best for general use</div>
+                  </div>
+                  <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+                </div>
+              </div>
+
+              <div 
+                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                  bulkCompressionLevel === 'low' ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
+                }`}
+                onClick={() => setBulkCompressionLevel('low')}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-lg">Low Compression</div>
+                    <div className="text-sm text-muted-foreground">Better quality, larger file size</div>
+                    <div className="text-xs text-muted-foreground mt-1">~320 kbps • 84% compression • Best for professional use</div>
+                  </div>
+                  <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  bulkConvertToMp3(bulkCompressionLevel)
+                  setShowBulkCompressionDialog(false)
+                }}
+                className="flex-1"
+              >
+                Convert {selectedFiles.length} Files
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowBulkCompressionDialog(false)}
               >
                 Cancel
               </Button>

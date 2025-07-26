@@ -427,30 +427,59 @@ export default function MyLibrary() {
       .select(`
         *,
         pack:audio_packs(id, name, color)
-      `, { count: 'exact' })
+      `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .range(0, itemsPerPage - 1)
-      .then(({ data, error, count }) => {
+      .then(async ({ data, error }) => {
         if (error) setAudioError(error.message);
         setAudioItems(data || []);
-        setTotalItems(count || 0);
+        
+        // Get total count separately to avoid object issues
+        const { count } = await supabase
+          .from('audio_library_items')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+        
+        setTotalItems(typeof count === 'number' ? count : 0);
         setCurrentPage(1);
       });
       
-    // Audio Packs
+    // Audio Packs - use the new approach that doesn't cause object rendering issues
     setLoadingPacks(true);
     supabase.from('audio_packs')
       .select(`
         *,
-        item_count:audio_library_items(count),
         subfolders:audio_subfolders(*)
       `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) setPackError(error.message);
-        setAudioPacks(data || []);
+      .then(async ({ data, error }) => {
+        if (error) {
+          setPackError(error.message);
+          setLoadingPacks(false);
+          return;
+        }
+        
+        // Get file counts for each pack using the safe approach
+        const packsWithCounts = await Promise.all(
+          (data || []).map(async (pack) => {
+            try {
+              const { data: files } = await supabase
+                .from('audio_library_items')
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('pack_id', pack.id);
+              
+              return { ...pack, item_count: files ? files.length : 0 };
+            } catch (error) {
+              console.error(`Error counting files for pack ${pack.id}:`, error);
+              return { ...pack, item_count: 0 };
+            }
+          })
+        );
+        
+        setAudioPacks(packsWithCounts);
         setLoadingPacks(false);
       });
       
@@ -1282,36 +1311,88 @@ export default function MyLibrary() {
     
     // Refresh Audio Library with pagination
     setLoadingAudio(true);
-    const { data: audioData, error: audioError, count } = await supabase
+    const { data: audioData, error: audioError } = await supabase
       .from('audio_library_items')
       .select(`
         *,
         pack:audio_packs(id, name, color)
-      `, { count: 'exact' })
+      `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .range(0, itemsPerPage - 1);
     
     if (audioError) setAudioError(audioError.message);
     setAudioItems(audioData || []);
-    setTotalItems(count || 0);
+    
+    // Get total count separately to avoid object issues
+    const { count } = await supabase
+      .from('audio_library_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id);
+    
+    setTotalItems(typeof count === 'number' ? count : 0);
     setCurrentPage(1);
     setLoadingAudio(false);
       
     // Refresh Audio Packs
     setLoadingPacks(true);
+    
+    // First, get all packs
     const { data: packsData, error: packsError } = await supabase
       .from('audio_packs')
       .select(`
         *,
-        item_count:audio_library_items(count),
         subfolders:audio_subfolders(*)
       `)
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     
-    if (packsError) setPackError(packsError.message);
-    setAudioPacks(packsData || []);
+    if (packsError) {
+      setPackError(packsError.message);
+      setLoadingPacks(false);
+      return;
+    }
+
+    // Then, get the file count for each pack using a simpler approach
+    const packsWithCounts = await Promise.all(
+      (packsData || []).map(async (pack) => {
+        try {
+          // Use a simpler count query
+          const { data: files, error: countError } = await supabase
+            .from('audio_library_items')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('pack_id', pack.id)
+
+          if (countError) {
+            console.error(`Error counting files for pack ${pack.id}:`, countError)
+            return { ...pack, item_count: 0 }
+          }
+
+          const fileCount = files ? files.length : 0
+          console.log(`Pack ${pack.name}: ${fileCount} files`)
+          
+          return { ...pack, item_count: fileCount }
+        } catch (error) {
+          console.error(`Error processing pack ${pack.id}:`, error)
+          return { ...pack, item_count: 0 }
+        }
+      })
+    )
+
+    console.log('Fetched audio packs with counts:', packsWithCounts.length, 'packs')
+    packsWithCounts.forEach(p => {
+      console.log(`Pack: ${p.name}, Count: ${p.item_count}, Type: ${typeof p.item_count}`)
+    }    )
+    
+    // Debug the final packs data
+    console.log('Final packsWithCounts:', packsWithCounts.map(p => ({
+      name: p.name,
+      item_count: p.item_count,
+      item_count_type: typeof p.item_count
+    })));
+    
+    setAudioPacks(packsWithCounts);
     setLoadingPacks(false);
   }
 
@@ -2831,7 +2912,7 @@ export default function MyLibrary() {
                           <h3 className="text-lg font-semibold">{pack.name}</h3>
                           <p className="text-sm text-gray-400">{pack.description}</p>
                           <p className="text-xs text-gray-500">
-                            {allAudioItems.filter(item => item.pack_id === pack.id).length} items
+                            {pack.item_count || 0} items
                           </p>
                         </div>
                       </div>

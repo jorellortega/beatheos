@@ -67,6 +67,7 @@ interface SampleLibraryProps {
     key?: string
     audio_type?: string
     tags?: string[]
+    audioFileId?: string
   }) => void
   preferMp3?: boolean
   onToggleFormat?: (preferMp3: boolean) => void
@@ -276,7 +277,8 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
       bpm: item.bpm,
       key: item.key,
       audio_type: item.audio_type,
-      tags: item.tags
+      tags: item.tags,
+      audioFileId: item.id // Include the audio file ID
     } : undefined)
   }
 
