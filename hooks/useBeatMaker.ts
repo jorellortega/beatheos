@@ -25,6 +25,9 @@ export interface Track {
   key?: string
   audio_type?: string
   tags?: string[]
+  // Genre and subgenre for individual track filtering
+  genre?: string
+  subgenre?: string
   // MIDI properties
   midiNotes?: MidiNote[]
   // Piano roll properties for audio tracks
@@ -1000,6 +1003,15 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     })
   }, [])
 
+  // Function to apply EQ settings to a track
+  const applyEQToTrack = useCallback((trackId: number, eqSettings: { low: number, mid: number, high: number }) => {
+    const player = samplesRef.current[trackId]
+    if (player) {
+      // This will be implemented in the main component
+      console.log(`[HOOK] EQ settings requested for track ${trackId}:`, eqSettings)
+    }
+  }, [])
+
   return {
     sequencerData,
     pianoRollData,
@@ -1019,6 +1031,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     clearTrackPattern,
     clearPianoRollData,
     debugPianoRollPlayback,
-    samplesRef
+    samplesRef,
+    pitchShiftersRef,
+    applyEQToTrack
   }
 } 

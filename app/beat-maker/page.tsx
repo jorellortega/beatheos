@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -23,6 +23,7 @@ import { PianoRoll } from '@/components/beat-maker/PianoRoll'
 import { AudioPianoRoll } from '@/components/beat-maker/AudioPianoRoll'
 import { TrackPianoRoll } from '@/components/beat-maker/TrackPianoRoll'
 import { UndoRedoControls } from '@/components/beat-maker/UndoRedoControls'
+import { EQPanel } from '@/components/beat-maker/EQPanel'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { useUndoRedo, BeatMakerState } from '@/hooks/useUndoRedo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -118,7 +119,7 @@ export default function BeatMakerPage() {
   const [masterPeak, setMasterPeak] = useState(0)
 
   // Format toggle state
-  const [preferMp3, setPreferMp3] = useState(false)
+  const [preferMp3, setPreferMp3] = useState(true)
   const [fileLinks, setFileLinks] = useState<any[]>([])
 
   // Helper to check if any track has a valid audio file
@@ -128,11 +129,24 @@ export default function BeatMakerPage() {
   const fetchFileLinks = async () => {
     try {
       console.log('🔄 Fetching file links from API...')
-      const response = await fetch('/api/audio/links')
+      
+      // Get the current session for authentication
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.log('❌ No session available, skipping file links fetch')
+        return
+      }
+      
+      const response = await fetch('/api/audio/links', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+      
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ Fetched ${data?.length || 0} file links:`, data?.slice(0, 3))
-        setFileLinks(data || [])
+        console.log(`✅ Fetched ${data?.links?.length || 0} file links:`, data?.links?.slice(0, 3))
+        setFileLinks(data?.links || [])
       } else {
         console.error('❌ Failed to fetch file links:', response.status, response.statusText)
       }
@@ -248,7 +262,8 @@ export default function BeatMakerPage() {
     clearTrackPattern,
     clearPianoRollData,
     debugPianoRollPlayback,
-    samplesRef
+    samplesRef,
+    pitchShiftersRef
   } = useBeatMaker(tracks, steps, bpm, timeStretchMode)
 
   // Custom playStep function that includes MIDI playback
@@ -621,10 +636,31 @@ export default function BeatMakerPage() {
             (trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume))
           player.volume.value = volumeDb
           console.log(`[MIXER INIT] Applied volume ${trackSettings.volume} (${volumeDb.toFixed(2)}dB) to track ${track.id}`)
+          
+          // Apply EQ settings if they exist
+          if (trackSettings.eq) {
+            applyEQToPlayer(player, track.id, trackSettings.eq)
+            console.log(`[MIXER INIT] Applied EQ settings to track ${track.id}:`, trackSettings.eq)
+          }
         }
       }
     })
   }, [tracks, mixerSettings, samplesRef])
+
+  // Apply EQ settings when new audio players are created
+  useEffect(() => {
+    tracks.forEach(track => {
+      const trackSettings = mixerSettings[track.id]
+      if (trackSettings?.eq && samplesRef?.current?.[track.id]) {
+        const player = samplesRef.current[track.id] as any
+        if (player && !player._eqApplied) {
+          applyEQToPlayer(player, track.id, trackSettings.eq)
+          player._eqApplied = true
+          console.log(`[EQ INIT] Applied EQ settings to newly created player for track ${track.id}:`, trackSettings.eq)
+        }
+      }
+    })
+  }, [samplesRef, tracks, mixerSettings])
 
   // Monitor songPatternAssignments state changes
   useEffect(() => {
@@ -2299,6 +2335,145 @@ export default function BeatMakerPage() {
         }
       }
     }))
+
+    // Apply EQ to the audio player
+    const player = samplesRef?.current?.[trackId]
+    if (player) {
+      // Get current EQ settings
+      const currentSettings = mixerSettings[trackId]?.eq || { low: 0, mid: 0, high: 0 }
+      const newSettings = { ...currentSettings, [band]: value }
+      
+      // Apply EQ using Tone.js filters
+      applyEQToPlayer(player, trackId, newSettings)
+      console.log(`[EQ] Applied ${band} band EQ (${value}dB) to track ${trackId}`)
+    }
+  }
+
+  // Function to apply EQ settings to a Tone.js player
+  const applyEQToPlayer = (player: any, trackId: number, eqSettings: { low: number, mid: number, high: number }) => {
+    // Import Tone.js dynamically
+    import('tone').then(Tone => {
+      console.log('[EQ] Applying EQ settings to track', trackId, ':', eqSettings)
+      
+      // Get the pitch shifter that the player is connected to
+      const pitchShifter = pitchShiftersRef?.current?.[trackId] as any
+      
+      if (!pitchShifter) {
+        console.warn('[EQ] No pitch shifter found for track', trackId)
+        return
+      }
+      
+      // Clean up existing EQ chain if it exists
+      if (player._eqChain) {
+        player._eqChain.forEach((node: any) => {
+          try {
+            if (node && typeof node.disconnect === 'function') {
+              node.disconnect()
+            }
+            if (node && typeof node.dispose === 'function') {
+              node.dispose()
+            }
+          } catch (error) {
+            console.warn('[EQ] Error disposing EQ node:', error)
+          }
+        })
+        player._eqChain = []
+      }
+      
+      // Check if any EQ settings are active
+      const hasEQ = eqSettings.low !== 0 || eqSettings.mid !== 0 || eqSettings.high !== 0
+      
+      if (hasEQ) {
+        // Create a proper 3-band EQ using parallel processing
+        const eqChain = []
+        
+        // Create a master output mixer
+        const outputMixer = new Tone.Gain()
+        outputMixer.gain.value = 1
+        eqChain.push(outputMixer)
+        
+        // Create parallel paths for each band
+        const bands = []
+        
+        // Low band path
+        if (eqSettings.low !== 0) {
+          const lowFilter = new Tone.Filter({
+            type: 'lowpass',
+            frequency: 200,
+            rolloff: -12
+          })
+          const lowGain = new Tone.Gain()
+          lowGain.gain.value = Math.pow(10, eqSettings.low / 20)
+          
+          lowFilter.connect(lowGain)
+          lowGain.connect(outputMixer)
+          
+          bands.push({ filter: lowFilter, gain: lowGain })
+          eqChain.push(lowFilter, lowGain)
+          console.log('[EQ] Created low band at 200Hz with gain:', Math.pow(10, eqSettings.low / 20))
+        }
+        
+        // Mid band path
+        if (eqSettings.mid !== 0) {
+          const midFilter = new Tone.Filter({
+            type: 'peaking',
+            frequency: 1000,
+            Q: 1
+          })
+          const midGain = new Tone.Gain()
+          midGain.gain.value = Math.pow(10, eqSettings.mid / 20)
+          
+          midFilter.connect(midGain)
+          midGain.connect(outputMixer)
+          
+          bands.push({ filter: midFilter, gain: midGain })
+          eqChain.push(midFilter, midGain)
+          console.log('[EQ] Created mid band at 1kHz with gain:', Math.pow(10, eqSettings.mid / 20))
+        }
+        
+        // High band path
+        if (eqSettings.high !== 0) {
+          const highFilter = new Tone.Filter({
+            type: 'highpass',
+            frequency: 4000,
+            rolloff: -12
+          })
+          const highGain = new Tone.Gain()
+          highGain.gain.value = Math.pow(10, eqSettings.high / 20)
+          
+          highFilter.connect(highGain)
+          highGain.connect(outputMixer)
+          
+          bands.push({ filter: highFilter, gain: highGain })
+          eqChain.push(highFilter, highGain)
+          console.log('[EQ] Created high band at 4kHz with gain:', Math.pow(10, eqSettings.high / 20))
+        }
+        
+        // Disconnect pitch shifter from destination
+        pitchShifter.disconnect()
+        
+        // Connect pitch shifter to all active filter inputs
+        bands.forEach(band => {
+          pitchShifter.connect(band.filter)
+        })
+        
+        // Connect output mixer to destination
+        outputMixer.toDestination()
+        
+        // Store the EQ chain for later cleanup
+        player._eqChain = eqChain
+        console.log('[EQ] Connected EQ chain with', eqChain.length, 'nodes')
+        
+        console.log('[EQ] Applied EQ settings successfully')
+      } else {
+        // No EQ, connect pitch shifter directly to destination
+        pitchShifter.toDestination()
+        player._eqChain = []
+        console.log('[EQ] No EQ settings, connected pitch shifter directly to destination')
+      }
+    }).catch(error => {
+      console.error('[EQ] Failed to apply EQ settings:', error)
+    })
   }
 
   const updateEffect = (trackId: number, effect: 'reverb' | 'delay', value: number) => {
@@ -3120,6 +3295,74 @@ export default function BeatMakerPage() {
     markSessionChanged()
   }
 
+  // Function to toggle track solo
+  const handleToggleTrackSolo = (trackId: number) => {
+    setTracks(prev => {
+      const updatedTracks = prev.map(track => {
+        if (track.id === trackId) {
+          // Toggle solo for the clicked track
+          return { ...track, solo: !track.solo }
+        }
+        return track // Don't change other tracks' mute state
+      })
+      
+      // Apply solo logic to audio players
+      setTimeout(() => {
+        // Get all soloed tracks
+        const soloedTracks = updatedTracks.filter(track => track.solo)
+        const hasAnySolo = soloedTracks.length > 0
+        
+        updatedTracks.forEach(track => {
+          const isSoloed = track.solo
+          const shouldBeMuted = hasAnySolo && !isSoloed
+          
+          // Apply to sequencer players
+          if (samplesRef?.current?.[track.id]) {
+            const player = samplesRef.current[track.id]
+            if (player && player.volume) {
+              if (shouldBeMuted) {
+                player.volume.value = -Infinity
+                console.log(`[SOLO] Muted track ${track.id} (not soloed)`)
+              } else {
+                // Restore volume based on mixer settings
+                const trackSettings = mixerSettings[track.id]
+                const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
+                player.volume.value = volumeDb
+                console.log(`[SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
+              }
+            }
+          }
+          
+          // Apply to song arrangement players
+          if (songPlaybackRef.current?.players?.[track.id]) {
+            const player = songPlaybackRef.current.players[track.id]
+            if (player && player.volume) {
+              if (shouldBeMuted) {
+                player.volume.value = -Infinity
+                console.log(`[SOLO] Muted song track ${track.id} (not soloed)`)
+              } else {
+                // Restore volume based on mixer settings
+                const trackSettings = mixerSettings[track.id]
+                const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
+                player.volume.value = volumeDb
+                console.log(`[SOLO] Restored volume for song track ${track.id} (soloed or no solo active)`)
+              }
+            }
+          }
+        })
+        
+        if (hasAnySolo) {
+          console.log(`[SOLO] ${soloedTracks.length} track(s) soloed:`, soloedTracks.map(t => t.name).join(', '))
+        } else {
+          console.log(`[SOLO] No tracks soloed - all tracks restored`)
+        }
+      }, 0)
+      
+      return updatedTracks
+    })
+    markSessionChanged()
+  }
+
   // Copy key from one track to another
   const handleCopyTrackKey = (fromTrackId: number, toTrackId: number, key: string) => {
     setTracks(prev => prev.map(track => 
@@ -3565,9 +3808,15 @@ export default function BeatMakerPage() {
       const shouldFilterByKey = !isDrumTrack
       const keyToUse = shouldFilterByKey ? transportKey : undefined
       
+      // Use track's individual genre/subgenre if available, otherwise fall back to global settings
+      const trackGenre = track.genre || selectedGenre?.name
+      const trackSubgenre = track.subgenre || selectedSubgenre
+      
+      console.log(`[TRACK GENRE] Track ${track.name} using genre: ${trackGenre}, subgenre: ${trackSubgenre}`)
+      
       // Get batch of audio files using the tracking system with conditional key filtering and BPM filtering
       // Apply BPM filtering only when BPM tolerance is enabled
-      const audioFiles = await getShuffleAudioBatch(user, audioType, keyToUse, selectedGenre, selectedSubgenre, bpm, isBpmToleranceEnabled)
+      const audioFiles = await getShuffleAudioBatch(user, audioType, keyToUse, trackGenre ? { name: trackGenre } : selectedGenre, trackSubgenre, bpm, isBpmToleranceEnabled)
 
       if (!audioFiles || audioFiles.length === 0) {
         console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
@@ -3737,6 +3986,7 @@ export default function BeatMakerPage() {
           ...t, 
           audioUrl: publicUrl,
           audioName: selectedAudio.name,
+          audioFileId: selectedAudio.id, // <-- Add this line to set the audioFileId
           // Use calculated tempo and key values
           originalBpm: selectedAudio.bpm || 120,
           currentBpm: finalBpm,
@@ -4916,6 +5166,7 @@ export default function BeatMakerPage() {
               ...t, 
               audioUrl: publicUrl,
               audioName: selectedAudio.name,
+              audioFileId: selectedAudio.id, // <-- Add this line to set the audioFileId
               // Use calculated tempo and key values
               originalBpm: selectedAudio.bpm || 120,
               currentBpm: finalBpm,
@@ -5810,6 +6061,13 @@ export default function BeatMakerPage() {
   // Quantization modal state
   const [showQuantizeModal, setShowQuantizeModal] = useState(false)
   const [quantizeTrack, setQuantizeTrack] = useState<any>(null)
+  
+  // EQ Panel state
+  const [showEQPanel, setShowEQPanel] = useState(false)
+  const [selectedTrackForEQ, setSelectedTrackForEQ] = useState<number | null>(null)
+  // Master EQ state
+  const [masterEQ, setMasterEQ] = useState({ low: 0, mid: 0, high: 0 })
+  const [showMasterEQPanel, setShowMasterEQPanel] = useState(false)
 
   // Add subgenre to new genre
   const addSubgenreToNewGenre = () => {
@@ -6295,6 +6553,27 @@ export default function BeatMakerPage() {
   useEffect(() => {
     fetchFileLinks()
   }, [preferMp3])
+
+  // Debug: Log file links when they change
+  useEffect(() => {
+    console.log('📊 File links updated:', {
+      count: fileLinks.length,
+      links: fileLinks.slice(0, 3),
+      preferMp3
+    })
+  }, [fileLinks, preferMp3])
+
+  // Debug: Log tracks with audioFileId
+  useEffect(() => {
+    const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioFileId)
+    if (tracksWithAudio.length > 0) {
+      console.log('🎵 Tracks with audioFileId:', tracksWithAudio.map(track => ({
+        name: track.name,
+        audioFileId: track.audioFileId,
+        audioUrl: track.audioUrl?.substring(0, 50) + '...'
+      })))
+    }
+  }, [tracks])
 
   // Version history functions
   const loadSessionVersions = async () => {
@@ -7084,6 +7363,57 @@ export default function BeatMakerPage() {
     }))
 
     console.log(`Duplicated ${trackToDuplicate.name} as empty track`)
+  }
+
+  // Handle individual track genre change
+  const handleTrackGenreChange = (trackId: number, genre: string, subgenre: string) => {
+    setTracks(prev => prev.map(track => 
+      track.id === trackId 
+        ? { ...track, genre, subgenre }
+        : track
+    ))
+  }
+
+  // Open EQ panel for a specific track
+  const openEQPanel = (trackId: number) => {
+    setSelectedTrackForEQ(trackId)
+    setShowEQPanel(true)
+  }
+
+  // Close EQ panel
+  const closeEQPanel = () => {
+    setShowEQPanel(false)
+    setSelectedTrackForEQ(null)
+  }
+  
+  // Master EQ functions
+  const openMasterEQPanel = () => {
+    setShowMasterEQPanel(true)
+  }
+  
+  const closeMasterEQPanel = () => {
+    setShowMasterEQPanel(false)
+  }
+  
+  const updateMasterEQ = (band: 'low' | 'mid' | 'high', value: number) => {
+    setMasterEQ(prev => ({
+      ...prev,
+      [band]: value
+    }))
+    
+    // Apply master EQ to all tracks
+    tracks.forEach(track => {
+      const player = samplesRef?.current?.[track.id]
+      if (player) {
+        const currentTrackEQ = mixerSettings[track.id]?.eq || { low: 0, mid: 0, high: 0 }
+        const combinedEQ = {
+          low: currentTrackEQ.low + value,
+          mid: currentTrackEQ.mid + value,
+          high: currentTrackEQ.high + value
+        }
+        applyEQToPlayer(player, track.id, combinedEQ)
+      }
+    })
   }
 
   // Function to open save session dialog with cleared form
@@ -7885,7 +8215,7 @@ export default function BeatMakerPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="sequencer" className="w-full" onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 bg-[#141414] border-gray-700">
+        <TabsList className="grid w-full grid-cols-5 bg-[#141414] border-gray-700">
           <TabsTrigger value="sequencer" className="data-[state=active]:bg-[#2a2a2a] text-white">
             <Disc className="w-4 h-4 mr-2" />
             Sequencer
@@ -7897,6 +8227,10 @@ export default function BeatMakerPage() {
           <TabsTrigger value="mixer" className="data-[state=active]:bg-[#2a2a2a] text-white">
             <Settings className="w-4 h-4 mr-2" />
             Mixer
+          </TabsTrigger>
+          <TabsTrigger value="record" className="data-[state=active]:bg-[#2a2a2a] text-white">
+            <Mic className="w-4 h-4 mr-2" />
+            Record
           </TabsTrigger>
           <TabsTrigger value="sessions" className="data-[state=active]:bg-[#2a2a2a] text-white">
             <List className="w-4 h-4 mr-2" />
@@ -8648,13 +8982,17 @@ export default function BeatMakerPage() {
             onSetTransportKey={setTransportKey}
             onToggleTrackLock={handleToggleTrackLock}
             onToggleTrackMute={handleToggleTrackMute}
+            onToggleTrackSolo={handleToggleTrackSolo}
             onQuantizeLoop={openQuantizeModal}
             onSwitchTrackType={handleSwitchTrackType}
             onDuplicateTrackEmpty={handleDuplicateTrackEmpty}
+            onTrackGenreChange={handleTrackGenreChange}
             transportKey={transportKey}
             melodyLoopMode={melodyLoopMode}
             preferMp3={preferMp3} // Add format preference
             fileLinks={fileLinks} // Add file links for format detection
+            genres={genres} // Available genres for track selection
+            genreSubgenres={genreSubgenres} // Genre to subgenre mapping
           />
         </div>
 
@@ -9466,6 +9804,23 @@ export default function BeatMakerPage() {
                           {!track.audioUrl ? 'EMPTY' :
                            isPlaying && sequencerData[track.id]?.[currentStep] ? 'ACTIVE' : 'LOADED'}
                         </div>
+                        
+                        {/* EQ Button - positioned below track name */}
+                        <div className="mt-2">
+                          <Button
+                            size="sm"
+                            variant={settings.eq && (settings.eq.low !== 0 || settings.eq.mid !== 0 || settings.eq.high !== 0) ? "default" : "outline"}
+                            onClick={() => openEQPanel(track.id)}
+                            className={`w-full h-6 text-xs ${
+                              settings.eq && (settings.eq.low !== 0 || settings.eq.mid !== 0 || settings.eq.high !== 0)
+                                ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                : 'border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white'
+                            }`}
+                            title={`Open EQ for ${getTrackDisplayName(track.name)} (current: Low ${settings.eq?.low || 0}dB, Mid ${settings.eq?.mid || 0}dB, High ${settings.eq?.high || 0}dB)`}
+                          >
+                            EQ
+                          </Button>
+                        </div>
                       </div>
 
 
@@ -9526,6 +9881,8 @@ export default function BeatMakerPage() {
                           />
                         </div>
                       </div>
+
+
                     </div>
                   )
                 })}
@@ -9557,6 +9914,23 @@ export default function BeatMakerPage() {
                         peak={masterPeak}
                       />
                     </div>
+                  </div>
+                  
+                  {/* Master EQ Button */}
+                  <div className="mb-2">
+                    <Button
+                      size="sm"
+                      variant={masterEQ.low !== 0 || masterEQ.mid !== 0 || masterEQ.high !== 0 ? "default" : "outline"}
+                      onClick={openMasterEQPanel}
+                      className={`w-full h-6 text-xs ${
+                        masterEQ.low !== 0 || masterEQ.mid !== 0 || masterEQ.high !== 0
+                          ? 'bg-red-600 hover:bg-red-700 text-white'
+                          : 'border-red-600 text-red-300 hover:bg-red-800 hover:text-white'
+                      }`}
+                      title={`Master EQ (current: Low ${masterEQ.low}dB, Mid ${masterEQ.mid}dB, High ${masterEQ.high}dB)`}
+                    >
+                      MASTER EQ
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -9599,6 +9973,265 @@ export default function BeatMakerPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+                {/* Record Tab */}
+        <TabsContent value="record" className="mt-6">
+          {/* Pro Tools Style Interface */}
+          <div className="bg-[#141414] border border-gray-700 rounded-lg overflow-hidden">
+                         {/* Transport Bar */}
+             <div className="bg-[#141414] border-b border-gray-600 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  {/* Transport Controls */}
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" className="bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600 h-8 w-8 p-0">
+                      <RotateCcw className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" className="bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600 h-8 w-8 p-0">
+                      <Play className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" className="bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600 h-8 w-8 p-0">
+                      <Square className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" className="bg-red-800 text-red-300 hover:bg-red-700 border-red-600 h-8 w-8 p-0">
+                      <Mic className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  
+                  {/* Time Display */}
+                  <div className="flex items-center gap-2 bg-black px-3 py-1 rounded border border-gray-600">
+                    <span className="text-white text-sm font-mono">00:00:00</span>
+                    <span className="text-gray-400">/</span>
+                    <span className="text-gray-400 text-sm font-mono">03:45:00</span>
+                  </div>
+                  
+                  {/* BPM and Key */}
+                  <div className="flex items-center gap-2">
+                    <div className="bg-black px-2 py-1 rounded border border-gray-600">
+                      <span className="text-white text-xs">120 BPM</span>
+                    </div>
+                    <div className="bg-black px-2 py-1 rounded border border-gray-600">
+                      <span className="text-white text-xs">Key: C</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs bg-gray-800 border-gray-600 text-gray-300">
+                    Mock Pro Tools
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* Main DAW Interface */}
+            <div className="flex h-[700px]">
+                             {/* Track List Panel (Left) */}
+               <div className="w-64 bg-[#141414] border-r border-gray-600 flex flex-col">
+                                 {/* Track List Header */}
+                 <div className="bg-[#141414] border-b border-gray-600 p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-white text-sm font-medium">Tracks</span>
+                    <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0">
+                      <Plus className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Track List */}
+                <div className="flex-1 p-2 space-y-1">
+                  {/* Beat Track */}
+                  <div className="bg-black border border-gray-600 p-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                        <span className="text-white text-xs font-medium">Beat</span>
+                      </div>
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0">
+                        <Music className="w-2 h-2" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">M</Button>
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">S</Button>
+                      <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-5 w-5 p-0 text-xs">R</Button>
+                    </div>
+                  </div>
+                  
+                  {/* Vocal Track 1 */}
+                  <div className="bg-black border border-gray-600 p-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span className="text-white text-xs font-medium">Vocal 1</span>
+                      </div>
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0">
+                        <Mic className="w-2 h-2" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">M</Button>
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">S</Button>
+                      <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-5 w-5 p-0 text-xs">R</Button>
+                    </div>
+                  </div>
+                  
+                  {/* Vocal Track 2 */}
+                  <div className="bg-black border border-gray-600 p-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                        <span className="text-white text-xs font-medium">Vocal 2</span>
+                      </div>
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0">
+                        <Mic className="w-2 h-2" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">M</Button>
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">S</Button>
+                      <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-5 w-5 p-0 text-xs">R</Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+                             {/* Timeline Panel (Right) */}
+               <div className="flex-1 bg-[#141414] flex flex-col">
+                                 {/* Timeline Header */}
+                 <div className="bg-[#141414] border-b border-gray-600 p-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="text-white text-sm font-medium">Timeline</span>
+                      <div className="flex items-center gap-2">
+                        <div className="bg-black px-2 py-1 rounded border border-gray-600">
+                          <span className="text-white text-xs">4/4</span>
+                        </div>
+                        <div className="bg-black px-2 py-1 rounded border border-gray-600">
+                          <span className="text-white text-xs">120 BPM</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600">
+                        <Settings className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Timeline Grid */}
+                <div className="flex-1 p-4">
+                  <div className="space-y-1">
+                                         {/* Beat Track Timeline */}
+                     <div className="flex items-center h-10 bg-[#141414] border border-gray-600">
+                       <div className="w-16 text-white text-xs font-medium px-2">Beat</div>
+                       <div className="flex-1 bg-gray-700 h-full relative">
+                         <div className="absolute left-0 top-0 w-1/3 h-full bg-green-500/40 border border-green-400"></div>
+                       </div>
+                     </div>
+                     
+                     {/* Vocal 1 Timeline */}
+                     <div className="flex items-center h-10 bg-[#141414] border border-gray-600">
+                       <div className="w-16 text-white text-xs font-medium px-2">Vocal 1</div>
+                       <div className="flex-1 bg-gray-700 h-full relative">
+                         <div className="absolute left-1/3 top-0 w-1/4 h-full bg-red-500/40 border border-red-400"></div>
+                       </div>
+                     </div>
+                     
+                     {/* Vocal 2 Timeline */}
+                     <div className="flex items-center h-10 bg-[#141414] border border-gray-600">
+                       <div className="w-16 text-white text-xs font-medium px-2">Vocal 2</div>
+                       <div className="flex-1 bg-gray-700 h-full relative">
+                         <div className="absolute left-2/3 top-0 w-1/6 h-full bg-blue-500/40 border border-blue-400"></div>
+                       </div>
+                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+                         {/* Mixer Panel (Bottom) */}
+             <div className="bg-[#141414] border-t border-gray-600 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-white text-sm font-medium">Mixer</span>
+              </div>
+              <div className="grid grid-cols-4 gap-4">
+                {/* Beat Channel */}
+                <div className="bg-black rounded border border-gray-600 p-3">
+                  <div className="text-center mb-3">
+                    <div className="w-2 h-2 rounded-full bg-green-500 mx-auto mb-1"></div>
+                    <div className="text-white text-xs font-medium">Beat</div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
+                      <div className="w-1.5 bg-green-500 rounded-sm h-3/4"></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 text-xs">-12</span>
+                      <span className="text-white text-xs">0</span>
+                      <span className="text-gray-400 text-xs">+12</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Vocal 1 Channel */}
+                <div className="bg-black rounded border border-gray-600 p-3">
+                  <div className="text-center mb-3">
+                    <div className="w-2 h-2 rounded-full bg-red-500 mx-auto mb-1"></div>
+                    <div className="text-white text-xs font-medium">Vocal 1</div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
+                      <div className="w-1.5 bg-red-500 rounded-sm h-1/2"></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 text-xs">-12</span>
+                      <span className="text-white text-xs">0</span>
+                      <span className="text-gray-400 text-xs">+12</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Vocal 2 Channel */}
+                <div className="bg-black rounded border border-gray-600 p-3">
+                  <div className="text-center mb-3">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 mx-auto mb-1"></div>
+                    <div className="text-white text-xs font-medium">Vocal 2</div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
+                      <div className="w-1.5 bg-blue-500 rounded-sm h-1/3"></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 text-xs">-12</span>
+                      <span className="text-white text-xs">0</span>
+                      <span className="text-gray-400 text-xs">+12</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Master Channel */}
+                <div className="bg-black rounded border border-gray-600 p-3">
+                  <div className="text-center mb-3">
+                    <div className="w-2 h-2 rounded-full bg-yellow-500 mx-auto mb-1"></div>
+                    <div className="text-white text-xs font-medium">Master</div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
+                      <div className="w-1.5 bg-yellow-500 rounded-sm h-2/3"></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 text-xs">-12</span>
+                      <span className="text-white text-xs">0</span>
+                      <span className="text-gray-400 text-xs">+12</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </TabsContent>
 
         {/* Sessions Tab */}
@@ -11532,6 +12165,28 @@ export default function BeatMakerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+              {/* EQ Panel */}
+        {showEQPanel && selectedTrackForEQ && (
+          <EQPanel
+            isOpen={showEQPanel}
+            onClose={closeEQPanel}
+            trackName={getTrackDisplayName(tracks.find(t => t.id === selectedTrackForEQ)?.name || '')}
+            eq={mixerSettings[selectedTrackForEQ]?.eq || { low: 0, mid: 0, high: 0 }}
+            onEQChange={(band, value) => updateEQ(selectedTrackForEQ, band, value)}
+          />
+        )}
+        
+        {/* Master EQ Panel */}
+        {showMasterEQPanel && (
+          <EQPanel
+            isOpen={showMasterEQPanel}
+            onClose={closeMasterEQPanel}
+            trackName="MASTER"
+            eq={masterEQ}
+            onEQChange={(band, value) => updateMasterEQ(band, value)}
+          />
+        )}
     </div>
   )
 }

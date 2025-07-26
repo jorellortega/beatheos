@@ -234,18 +234,26 @@ interface TrackListProps {
   onSetTransportKey?: (key: string) => void
   onToggleTrackLock?: (trackId: number) => void
   onToggleTrackMute?: (trackId: number) => void
+  onToggleTrackSolo?: (trackId: number) => void
   onQuantizeLoop?: (track: any) => void
   onSwitchTrackType?: (trackId: number) => void
   onDuplicateTrackEmpty?: (trackId: number) => void
+  onTrackGenreChange?: (trackId: number, genre: string, subgenre: string) => void
   transportKey?: string
   melodyLoopMode?: 'transport-dominates' | 'melody-dominates'
   preferMp3?: boolean // Add format preference
   fileLinks?: any[] // Add file links for format detection
+  genres?: any[] // Available genres for track selection
+  genreSubgenres?: {[key: string]: string[]} // Genre to subgenre mapping
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [] }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {} }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [showGenreSelector, setShowGenreSelector] = useState(false)
+  const [selectedTrackForGenre, setSelectedTrackForGenre] = useState<Track | null>(null)
+  const [selectedGenreForTrack, setSelectedGenreForTrack] = useState<string>('')
+  const [selectedSubgenreForTrack, setSelectedSubgenreForTrack] = useState<string>('')
   const [draggedKey, setDraggedKey] = useState<string | null>(null)
   const [draggedKeyTrackId, setDraggedKeyTrackId] = useState<number | null>(null)
   const [draggedBpm, setDraggedBpm] = useState<number | null>(null)
@@ -570,24 +578,142 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     // If MP3 is preferred, check if there's a linked MP3 file
     // Use audioFileId if available, otherwise fallback to track.id
     const audioFileId = track.audioFileId || track.id.toString()
-    const mp3Link = fileLinks.find(link => 
-      link.original_file_id === audioFileId && link.converted_format === 'mp3'
-    )
+    
+    // Check both directions: original to converted and converted to original
+    const mp3Link = fileLinks.find(link => {
+      // Check if this track's audio file is the original and has an MP3 conversion
+      if (link.original_file_id === audioFileId && link.converted_format === 'mp3') {
+        return true
+      }
+      // Check if this track's audio file is the converted MP3 of another file
+      if (link.converted_file_id === audioFileId && link.converted_format === 'mp3') {
+        return true
+      }
+      return false
+    })
     
     console.log(`🔍 Format detection for track ${track.name}:`, {
       audioFileId,
       preferMp3,
       fileLinksCount: fileLinks.length,
       mp3Link: mp3Link ? 'Found' : 'Not found',
-      availableFileIds: fileLinks.map(l => l.original_file_id).slice(0, 5)
+      availableFileIds: fileLinks.map(l => l.original_file_id).slice(0, 5),
+      availableConvertedIds: fileLinks.map(l => l.converted_file_id).slice(0, 5),
+      trackAudioFileId: track.audioFileId,
+      trackId: track.id,
+      allFileLinks: fileLinks.map(l => ({
+        original: l.original_file_id,
+        converted: l.converted_file_id,
+        originalFormat: l.original_format,
+        convertedFormat: l.converted_format
+      }))
     })
     
     if (mp3Link) {
+      console.log(`✅ Found MP3 link for track ${track.name}:`, mp3Link)
       return 'MP3'
     }
     
+    console.log(`❌ No MP3 link found for track ${track.name}, falling back to WAV`)
     // Fallback to WAV if no MP3 link exists
     return 'WAV'
+  }
+
+  // Helper function to get the appropriate audio URL based on format preference
+  const getTrackAudioUrl = (track: Track) => {
+    if (!track.audioUrl) return null
+    
+    // If WAV is preferred, return the original URL
+    if (!preferMp3) {
+      return track.audioUrl
+    }
+    
+    // If MP3 is preferred, check if there's a linked MP3 file
+    const audioFileId = track.audioFileId || track.id.toString()
+    
+    // Check both directions: original to converted and converted to original
+    const mp3Link = fileLinks.find(link => {
+      // Check if this track's audio file is the original and has an MP3 conversion
+      if (link.original_file_id === audioFileId && link.converted_format === 'mp3') {
+        return true
+      }
+      // Check if this track's audio file is the converted MP3 of another file
+      if (link.converted_file_id === audioFileId && link.converted_format === 'mp3') {
+        return true
+      }
+      return false
+    })
+    
+    if (mp3Link) {
+      // TODO: We need to get the actual MP3 file URL from the database
+      // For now, return the original URL
+      console.log(`🔗 Would switch to MP3 for track ${track.name}, but URL not implemented yet`)
+      return track.audioUrl
+    }
+    
+    // Fallback to original URL if no MP3 link exists
+    return track.audioUrl
+  }
+
+  // Function to switch track audio URL based on format preference
+  const switchTrackAudioUrl = (track: Track) => {
+    if (!track.audioUrl || !track.audioFileId) return track.audioUrl
+    
+    // If WAV is preferred, return the original URL
+    if (!preferMp3) {
+      return track.audioUrl
+    }
+    
+    // If MP3 is preferred, check if there's a linked MP3 file
+    const audioFileId = track.audioFileId
+    
+    // Check both directions: original to converted and converted to original
+    const mp3Link = fileLinks.find(link => {
+      // Check if this track's audio file is the original and has an MP3 conversion
+      if (link.original_file_id === audioFileId && link.converted_format === 'mp3') {
+        return true
+      }
+      // Check if this track's audio file is the converted MP3 of another file
+      if (link.converted_file_id === audioFileId && link.converted_format === 'mp3') {
+        return true
+      }
+      return false
+    })
+    
+    if (mp3Link) {
+      // TODO: We need to get the actual MP3 file URL from the database
+      // For now, return the original URL but log that we would switch
+      console.log(`🔗 Would switch to MP3 for track ${track.name}, but URL not implemented yet`)
+      return track.audioUrl
+    }
+    
+    // Fallback to original URL if no MP3 link exists
+    return track.audioUrl
+  }
+
+
+
+  // Open genre selector for a specific track
+  const openGenreSelector = (track: Track) => {
+    setSelectedTrackForGenre(track)
+    setSelectedGenreForTrack(track.genre || '')
+    setSelectedSubgenreForTrack(track.subgenre || '')
+    setShowGenreSelector(true)
+  }
+
+  // Handle genre change for track
+  const handleGenreChangeForTrack = (genre: string) => {
+    setSelectedGenreForTrack(genre)
+    setSelectedSubgenreForTrack('') // Reset subgenre when genre changes
+  }
+
+  // Apply genre change to track
+  const applyGenreChange = () => {
+    if (selectedTrackForGenre && onTrackGenreChange) {
+      onTrackGenreChange(selectedTrackForGenre.id, selectedGenreForTrack, selectedSubgenreForTrack)
+    }
+    setShowGenreSelector(false)
+    setSelectedTrackForGenre(null)
   }
 
   return (
@@ -786,6 +912,12 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                   melodyLoopMode === 'melody-dominates' && track.name === 'Melody Loop' 
                     ? 'ring-2 ring-purple-400 border-purple-400 bg-purple-500/10 shadow-lg shadow-purple-500/20' 
                     : ''
+                } ${
+                  // Highlight soloed tracks with yellow tint
+                  track.solo ? 'ring-2 ring-yellow-400 border-yellow-400 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' : ''
+                } ${
+                  // Highlight muted tracks with red tint (but not if soloed)
+                  track.mute && !track.solo ? 'ring-2 ring-red-400 border-red-400 bg-red-500/10 shadow-lg shadow-red-500/20' : ''
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -946,6 +1078,9 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
 
                   {/* Controls Row */}
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* Debug button for format detection */}
+
+                    
                     {/* Only show Piano Roll button for MIDI */}
                     {onOpenPianoRoll && track.name === 'MIDI' && (
                       <Button
@@ -991,17 +1126,33 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         {/* Mute button - show for all tracks */}
                         {onToggleTrackMute && (
                           <Button
-                            variant="ghost"
+                            variant={track.mute ? "destructive" : "outline"}
                             size="sm"
                             onClick={() => onToggleTrackMute(track.id)}
-                            className={`text-xs transition-colors font-bold ${
+                            className={`w-8 h-8 text-sm font-bold transition-all duration-200 ${
                               track.mute 
-                                ? 'text-red-400 hover:text-red-300 hover:bg-red-900/20' 
-                                : 'text-gray-400 hover:text-gray-300 hover:bg-gray-900/20'
+                                ? 'bg-red-600 hover:bg-red-700 text-white border-red-500 shadow-lg' 
+                                : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-600 hover:text-white hover:border-gray-500'
                             }`}
                             title={track.mute ? 'Unmute track' : 'Mute track'}
                           >
                             M
+                          </Button>
+                        )}
+                        {/* Solo button - show for all tracks */}
+                        {onToggleTrackSolo && (
+                          <Button
+                            variant={track.solo ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => onToggleTrackSolo(track.id)}
+                            className={`w-8 h-8 text-sm font-bold transition-all duration-200 ${
+                              track.solo 
+                                ? 'bg-yellow-600 hover:bg-yellow-700 text-white border-yellow-500 shadow-lg' 
+                                : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-600 hover:text-white hover:border-gray-500'
+                            }`}
+                            title={track.solo ? 'Disable solo' : 'Solo track'}
+                          >
+                            S
                           </Button>
                         )}
                         {/* Shuffle button - show for all track types that support shuffle */}
@@ -1121,6 +1272,30 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         >
                           {track.audioUrl ? 'Change' : 'Select Audio'}
                         </Button>
+                        
+                        {/* Genre Selector button - show for tracks that can shuffle */}
+                        {onShuffleAudio && [
+                          // Loops
+                          'Melody Loop', 'Piano Loop', '808 Loop', 'Drum Loop', 'Hihat Loop', 'Bass Loop', 'Vocal Loop', 'Guitar Loop', 'Synth Loop',
+                          // Melodic
+                          'Melody', 'Lead', 'Pad', 'Chord', 'Arp',
+                          // Bass
+                          'Bass', 'Sub', '808',
+                          // Drums
+                          'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion',
+                          // Effects & Technical
+                          'FX', 'Vocal', 'Sample', 'Patch', 'Preset'
+                        ].some(trackType => track.name.includes(trackType)) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openGenreSelector(track)}
+                            className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                            title={`Change genre for ${getTrackDisplayName(track.name)} (current: ${track.genre || 'Global'} / ${track.subgenre || 'Global'})`}
+                          >
+                            {track.genre ? `${track.genre}${track.subgenre ? '/' + track.subgenre : ''}` : 'Genre'}
+                          </Button>
+                        )}
                         
                         {/* Edit button for Custom Sample tracks */}
                         {track.name.startsWith('Custom Sample') && onEditTrack && (
@@ -1520,6 +1695,78 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
           </div>
         </CardContent>
       </Card>
+      
+      {/* Genre Selector Dialog */}
+      {showGenreSelector && selectedTrackForGenre && (
+        <Dialog open={showGenreSelector} onOpenChange={setShowGenreSelector}>
+          <DialogContent className="bg-[#141414] border-gray-700 max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-white">
+                Change Genre for {getTrackDisplayName(selectedTrackForGenre.name)}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="p-6 space-y-4">
+              {/* Genre Selection */}
+              <div>
+                <label className="text-sm text-gray-300 mb-2 block">Genre:</label>
+                <select
+                  value={selectedGenreForTrack}
+                  onChange={(e) => handleGenreChangeForTrack(e.target.value)}
+                  className="w-full bg-black border border-gray-600 rounded px-3 py-2 text-white"
+                >
+                  <option value="">Use Global Genre</option>
+                  {genres.map((genre) => (
+                    <option key={genre.id} value={genre.name}>
+                      {genre.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Subgenre Selection */}
+              <div>
+                <label className="text-sm text-gray-300 mb-2 block">Subgenre:</label>
+                <select
+                  value={selectedSubgenreForTrack}
+                  onChange={(e) => setSelectedSubgenreForTrack(e.target.value)}
+                  className="w-full bg-black border border-gray-600 rounded px-3 py-2 text-white"
+                  disabled={!selectedGenreForTrack}
+                >
+                  <option value="">Use Global Subgenre</option>
+                  {selectedGenreForTrack && genreSubgenres[selectedGenreForTrack]?.map((subgenre) => (
+                    <option key={subgenre} value={subgenre}>
+                      {subgenre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Current Settings Display */}
+              <div className="text-xs text-gray-400 p-3 bg-gray-800 rounded">
+                <div>Current: {selectedTrackForGenre.genre || 'Global'} / {selectedTrackForGenre.subgenre || 'Global'}</div>
+                <div>New: {selectedGenreForTrack || 'Global'} / {selectedSubgenreForTrack || 'Global'}</div>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowGenreSelector(false)}
+                  className="border-gray-600 text-gray-300 hover:bg-gray-800"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={applyGenreChange}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   )
 }
