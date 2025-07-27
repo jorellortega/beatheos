@@ -987,30 +987,34 @@ export default function EditData() {
 
       {/* Edit Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle className="flex items-center gap-3">
-                Edit Audio File: {editingItem?.name ? highlightMusicInfoInFileName(editingItem.name, handleBpmFromNameClick, handleKeyFromNameClick) : ''}
-                {editingItem?.file_url && (
-                        <Button 
-                    type="button"
-                    size="icon"
-                          variant="outline"
-                    onClick={handleTogglePreview}
-                    className="ml-2"
-                    title={isPlayingPreview ? 'Stop Preview' : 'Play Preview'}
-                        >
-                    {isPlayingPreview ? <Square className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                        </Button>
-                      )}
-              </DialogTitle>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <DialogTitle className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-lg sm:text-xl">
+                <span className="text-sm sm:text-base text-gray-500 mb-2 sm:mb-0">
                   {currentEditIndex + 1} of {getFilteredAndSortedItems().length}
                 </span>
+                <div className="flex items-center gap-2">
+                  <span className="hidden sm:inline">Edit Audio File:</span>
+                  <span className="sm:hidden">File:</span>
+                  {editingItem?.name ? highlightMusicInfoInFileName(editingItem.name, handleBpmFromNameClick, handleKeyFromNameClick) : ''}
+                  {editingItem?.file_url && (
+                    <Button 
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      onClick={handleTogglePreview}
+                      className="ml-2"
+                      title={isPlayingPreview ? 'Stop Preview' : 'Play Preview'}
+                    >
+                      {isPlayingPreview ? <Square className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    </Button>
+                  )}
+                </div>
+              </DialogTitle>
+              <div className="flex items-center gap-2">
                 <Select value={editMode} onValueChange={(value: 'sequential' | 'shuffle') => setEditMode(value)}>
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-28 sm:w-32 text-xs sm:text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1018,22 +1022,22 @@ export default function EditData() {
                     <SelectItem value="shuffle">Shuffle</SelectItem>
                   </SelectContent>
                 </Select>
-                    </div>
-                    </div>
+              </div>
+            </div>
           </DialogHeader>
           {editingItem && (
             <div className="space-y-6">
               <Tabs defaultValue="basic" className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
-                  <TabsTrigger value="basic">Basic Info</TabsTrigger>
-                  <TabsTrigger value="musical">Musical</TabsTrigger>
-                  <TabsTrigger value="metadata">Metadata</TabsTrigger>
-                  <TabsTrigger value="advanced">Advanced</TabsTrigger>
-                  <TabsTrigger value="waveform">Waveform</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1">
+                  <TabsTrigger value="basic" className="text-xs sm:text-sm px-2 sm:px-3">Basic</TabsTrigger>
+                  <TabsTrigger value="musical" className="text-xs sm:text-sm px-2 sm:px-3">Musical</TabsTrigger>
+                  <TabsTrigger value="metadata" className="text-xs sm:text-sm px-2 sm:px-3">Metadata</TabsTrigger>
+                  <TabsTrigger value="advanced" className="text-xs sm:text-sm px-2 sm:px-3">Advanced</TabsTrigger>
+                  <TabsTrigger value="waveform" className="text-xs sm:text-sm px-2 sm:px-3">Waveform</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="basic" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                       <Label>Name</Label>
                       <Input
@@ -1060,7 +1064,7 @@ export default function EditData() {
                     />
                                       </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex items-center space-x-2">
                       <input
                         type="checkbox"
@@ -1085,7 +1089,7 @@ export default function EditData() {
                 </TabsContent>
 
                 <TabsContent value="musical" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>BPM</Label>
                       <Input
@@ -1103,7 +1107,7 @@ export default function EditData() {
                                          </div>
                                        </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Key Signature</Label>
                       <Input
@@ -1122,7 +1126,7 @@ export default function EditData() {
                              </div>
                            </div>
                            
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Genre</Label>
                                    <Input
@@ -1165,7 +1169,7 @@ export default function EditData() {
         </TabsContent>
 
                 <TabsContent value="metadata" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Audio Type</Label>
                       <Input
@@ -1184,7 +1188,7 @@ export default function EditData() {
             </div>
           </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                       <Label>Mood</Label>
                       <Input
@@ -1211,7 +1215,7 @@ export default function EditData() {
                 </div>
                 </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                       <Label>Energy Level (1-10)</Label>
                     <Input
@@ -1254,7 +1258,7 @@ export default function EditData() {
             </TabsContent>
 
                 <TabsContent value="advanced" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Duration (seconds)</Label>
                       <Input
@@ -1275,7 +1279,7 @@ export default function EditData() {
                 </div>
               </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Bit Depth</Label>
                       <Input
@@ -1328,14 +1332,14 @@ export default function EditData() {
                 <div className="text-red-500 text-sm">{editError}</div>
               )}
 
-              <DialogFooter className="flex flex-col gap-8 mt-4">
+              <DialogFooter className="flex flex-col gap-6 mt-4">
                 {/* Navigation controls */}
-                <div className="flex justify-center gap-4">
+                <div className="flex justify-center gap-2 sm:gap-4">
                   <Button
                     variant="outline"
                     onClick={navigateToPreviousItem}
                     disabled={currentEditIndex === 0}
-                    className="min-w-[120px]"
+                    className="min-w-[100px] sm:min-w-[120px] text-sm"
                   >
                     ← Previous
                   </Button>
@@ -1343,14 +1347,14 @@ export default function EditData() {
                     variant="outline"
                     onClick={navigateToNextItem}
                     disabled={currentEditIndex >= filteredItems.length - 1}
-                    className="min-w-[120px]"
+                    className="min-w-[100px] sm:min-w-[120px] text-sm"
                   >
                     Next →
                   </Button>
                 </div>
                 
                 {/* Ready status and action controls */}
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -1364,14 +1368,15 @@ export default function EditData() {
                     </label>
                   </div>
                   
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setShowEditModal(false)}>
+                  <div className="flex flex-col sm:flex-row justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowEditModal(false)} className="text-sm">
                       Close
                     </Button>
                     <Button 
                       type="button" 
                       onClick={(e) => handleEditItem(e as any, false)}
                       disabled={saving}
+                      className="text-sm"
                     >
                       {saving ? 'Saving...' : 'Save'}
                     </Button>
@@ -1379,6 +1384,7 @@ export default function EditData() {
                       type="button" 
                       onClick={(e) => handleEditItem(e as any, true)}
                       disabled={saving}
+                      className="text-sm"
                     >
                       {saving ? 'Saving...' : 'Save & Continue'}
                     </Button>

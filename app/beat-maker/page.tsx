@@ -27,7 +27,7 @@ import { EQPanel } from '@/components/beat-maker/EQPanel'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { useUndoRedo, BeatMakerState } from '@/hooks/useUndoRedo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { calculatePitchShift, validatePitchShift } from '@/lib/utils'
+import { calculatePitchShift, validatePitchShift, applyPitchShiftWithEnhancement } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
 
 export default function BeatMakerPage() {
@@ -39,6 +39,10 @@ export default function BeatMakerPage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [bpm, setBpm] = useState(120)
   const [transportKey, setTransportKey] = useState('C') // Add transport key state
+  const [originalKey, setOriginalKey] = useState('C') // Original key before pitch shifting
+  const [pitchShift, setPitchShift] = useState(0) // Pitch shifter in semitones
+  const [pitchQuality, setPitchQuality] = useState<'standard' | 'high' | 'ultra'>('high') // Pitch shifter quality
+  const [isPitchShifting, setIsPitchShifting] = useState(false) // Visual indicator for pitch shifting
   const [currentStep, setCurrentStep] = useState(0)
   const [layoutMode, setLayoutMode] = useState<'default' | 'vertical' | 'horizontal'>('default')
   const [savedSongArrangements, setSavedSongArrangements] = useState<any[]>([])
@@ -2590,82 +2594,7 @@ export default function BeatMakerPage() {
     )
   }
 
-  // Add keyboard shortcut handling
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check if user is typing in an input field
-      const isTyping = event.target instanceof HTMLInputElement ||
-                      event.target instanceof HTMLTextAreaElement ||
-                      (event.target instanceof HTMLElement && event.target.contentEditable === 'true')
 
-      // Only handle spacebar if not typing
-      if (event.code === 'Space' && !isTyping) {
-        event.preventDefault()
-        
-        if (activeTab === 'song') {
-          console.log('[SPACEBAR DEBUG] Spacebar pressed in song tab')
-          console.log('[SPACEBAR DEBUG] Current songPatternAssignments:', songPatternAssignments)
-          console.log('[SPACEBAR DEBUG] Has active arrangement:', Object.values(songPatternAssignments).some(trackAssignments => 
-            Object.keys(trackAssignments).length > 0
-          ))
-          
-          // Stop sequencer if it's playing before starting song arrangement
-          if (isPlaying) {
-            stopSequence()
-          }
-          // Play song arrangement in Song tab
-          playSongArrangement()
-        } else if (hasLoadedAudio) {
-          // Stop song arrangement if it's playing before starting sequencer
-          if (songPlayback.isPlaying) {
-            setSongPlayback(prev => ({ ...prev, isPlaying: false }))
-            
-            // Stop Tone.js sequence
-            if (songPlaybackRef.current.sequence) {
-              songPlaybackRef.current.sequence.stop()
-              songPlaybackRef.current.sequence.dispose()
-              songPlaybackRef.current.sequence = null
-            }
-            
-            // Stop Tone.js transport
-            import('tone').then(Tone => {
-              Tone.Transport.stop()
-            }).catch(console.warn)
-            
-            // Stop any playing song samples
-            Object.values(songPlaybackRef.current.players || {}).forEach(player => {
-              try {
-                if (player.state === 'started') {
-                  player.stop()
-                }
-              } catch (error) {
-                console.warn('[SPACEBAR] Error stopping song player:', error)
-              }
-            })
-          }
-          // Play current sequencer pattern in Sequencer tab
-          handlePlayPause()
-        }
-      }
-
-      // Clear pattern selection with Escape key
-      // if (event.code === 'Escape' && selectedPatternForPlacement) {
-      //   event.preventDefault()
-      //   setSelectedPatternForPlacement(null)
-      // }
-
-      // Update session with Ctrl+S or Cmd+S
-      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
-        event.preventDefault()
-        if (currentSessionId && hasUnsavedChanges) {
-          handleUpdateSession()
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isPlaying, hasLoadedAudio, activeTab, songPlayback.isPlaying, songPatternAssignments])
 
   const handlePlayPause = () => {
     console.log(`[MAIN TRANSPORT] Play/Pause called. isPlaying: ${isPlaying}, pianoRollData:`, pianoRollData)
@@ -3260,7 +3189,9 @@ export default function BeatMakerPage() {
   }
 
   const handleTransportKeySelect = (key: string) => {
-    setTransportKey(key)
+    setOriginalKey(key) // Set the original key
+    setTransportKey(key) // Set the displayed key
+    setPitchShift(0) // Reset pitch shift when manually changing key
     setEditingTransportKey(false)
     markSessionChanged()
   }
@@ -3268,7 +3199,9 @@ export default function BeatMakerPage() {
   const handleTransportKeySave = () => {
     const newKey = transportKeyInputValue.trim().toUpperCase()
     if (newKey && /^[A-G][#b]?$/.test(newKey)) {
-      setTransportKey(newKey)
+      setOriginalKey(newKey) // Set the original key
+      setTransportKey(newKey) // Set the displayed key
+      setPitchShift(0) // Reset pitch shift when manually changing key
     }
     setEditingTransportKey(false)
     setTransportKeyInputValue('')
@@ -3277,6 +3210,84 @@ export default function BeatMakerPage() {
   const handleTransportKeyCancel = () => {
     setEditingTransportKey(false)
     setTransportKeyInputValue('')
+  }
+
+  // Function to calculate new key based on pitch shift
+  const calculateNewKey = (currentKey: string, semitones: number): string => {
+    const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    const currentIndex = keys.indexOf(currentKey)
+    if (currentIndex === -1) return currentKey
+    
+    const newIndex = (currentIndex + semitones + 12) % 12
+    return keys[newIndex]
+  }
+
+    // Function to handle pitch shift change
+  const handlePitchShiftChange = (value: number) => {
+    setPitchShift(value)
+    setIsPitchShifting(true) // Show visual indicator
+    
+    // Calculate the actual current key based on the original key + pitch shift
+    const actualCurrentKey = calculateNewKey(originalKey, value)
+    setTransportKey(actualCurrentKey)
+    markSessionChanged()
+    
+    // Check if we need to force reload tracks for better pitch shifting
+    const absPitch = Math.abs(value)
+    const needsReload = absPitch > 7 // Reload for large pitch changes to use better algorithm
+    
+    if (needsReload) {
+      console.log(`[PITCH SHIFT] Large pitch change detected (${value}), forcing track reload for better quality`)
+      // Force reload all tracks to apply the new pitch shifting method
+      tracks.forEach(track => {
+        if (forceReloadTrackSamples) {
+          forceReloadTrackSamples(track.id)
+        }
+      })
+    } else {
+      // Apply pitch shift to all tracks immediately
+      tracks.forEach(track => {
+        if (pitchShiftersRef?.current?.[track.id]) {
+          const pitchShifter = pitchShiftersRef.current[track.id]
+          
+          try {
+            // Check the pitch shifter type and apply accordingly
+            const pitchShifterAny = pitchShifter as any
+            if (pitchShifterAny._pitchShifterType === 'playback-rate') {
+              // Playback rate method - apply immediately
+              const newPlaybackRate = Math.pow(2, value / 12)
+              pitchShifterAny.playbackRate = newPlaybackRate
+              console.log(`[PITCH SHIFT] Applied playback rate ${newPlaybackRate} to track ${track.name}`)
+            } else if (pitchShifterAny._pitchShifterType === 'phase-vocoder' || pitchShifterAny.pitch !== undefined) {
+              // Phase vocoder method - apply immediately
+              pitchShifterAny.pitch = value
+              console.log(`[PITCH SHIFT] Applied pitch shift ${value} to track ${track.name}`)
+            }
+          } catch (error) {
+            console.error(`[PITCH SHIFT] Error applying pitch shift to track ${track.name}:`, error)
+          }
+        }
+      })
+    }
+    
+    // Force a small audio update to ensure changes are applied
+    setTimeout(() => {
+      console.log(`[PITCH SHIFT] Pitch shift updated to ${value} semitones, key: ${actualCurrentKey}`)
+      setIsPitchShifting(false) // Hide visual indicator
+    }, 100)
+  }
+
+  // Function to handle pitch quality change
+  const handlePitchQualityChange = (quality: 'standard' | 'high' | 'ultra') => {
+    setPitchQuality(quality)
+    markSessionChanged()
+    
+    // Note: Quality changes require recreating pitch shifters
+    // This will happen automatically when tracks are reloaded
+    toast({
+      title: "Quality setting updated",
+      description: `Pitch shifter quality changed to ${quality}. Quality changes will apply to new audio loads.`,
+    })
   }
 
   // Function to toggle track lock
@@ -6061,6 +6072,83 @@ export default function BeatMakerPage() {
   // Quantization modal state
   const [showQuantizeModal, setShowQuantizeModal] = useState(false)
   const [quantizeTrack, setQuantizeTrack] = useState<any>(null)
+
+  // Add keyboard shortcut handling (moved here to access showQuantizeModal)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const isTyping = event.target instanceof HTMLInputElement ||
+                      event.target instanceof HTMLTextAreaElement ||
+                      (event.target instanceof HTMLElement && event.target.contentEditable === 'true')
+
+      // Only handle spacebar if not typing and quantize modal is not open
+      if (event.code === 'Space' && !isTyping && !showQuantizeModal) {
+        event.preventDefault()
+        
+        if (activeTab === 'song') {
+          console.log('[SPACEBAR DEBUG] Spacebar pressed in song tab')
+          console.log('[SPACEBAR DEBUG] Current songPatternAssignments:', songPatternAssignments)
+          console.log('[SPACEBAR DEBUG] Has active arrangement:', Object.values(songPatternAssignments).some(trackAssignments => 
+            Object.keys(trackAssignments).length > 0
+          ))
+          
+          // Stop sequencer if it's playing before starting song arrangement
+          if (isPlaying) {
+            stopSequence()
+          }
+          // Play song arrangement in Song tab
+          playSongArrangement()
+        } else if (hasLoadedAudio) {
+          // Stop song arrangement if it's playing before starting sequencer
+          if (songPlayback.isPlaying) {
+            setSongPlayback(prev => ({ ...prev, isPlaying: false }))
+            
+            // Stop Tone.js sequence
+            if (songPlaybackRef.current.sequence) {
+              songPlaybackRef.current.sequence.stop()
+              songPlaybackRef.current.sequence.dispose()
+              songPlaybackRef.current.sequence = null
+            }
+            
+            // Stop Tone.js transport
+            import('tone').then(Tone => {
+              Tone.Transport.stop()
+            }).catch(console.warn)
+            
+            // Stop any playing song samples
+            Object.values(songPlaybackRef.current.players || {}).forEach(player => {
+              try {
+                if (player.state === 'started') {
+                  player.stop()
+                }
+              } catch (error) {
+                console.warn('[SPACEBAR] Error stopping song player:', error)
+              }
+            })
+          }
+          // Play current sequencer pattern in Sequencer tab
+          handlePlayPause()
+        }
+      }
+
+      // Clear pattern selection with Escape key
+      // if (event.code === 'Escape' && selectedPatternForPlacement) {
+      //   event.preventDefault()
+      //   setSelectedPatternForPlacement(null)
+      // }
+
+      // Update session with Ctrl+S or Cmd+S
+      if ((event.ctrlKey || event.metaKey) && event.code === 'KeyS') {
+        event.preventDefault()
+        if (currentSessionId && hasUnsavedChanges) {
+          handleUpdateSession()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isPlaying, hasLoadedAudio, activeTab, songPlayback.isPlaying, songPatternAssignments, showQuantizeModal])
   
   // EQ Panel state
   const [showEQPanel, setShowEQPanel] = useState(false)
@@ -8598,6 +8686,54 @@ export default function BeatMakerPage() {
                   </Badge>
                 )}
               </div>
+
+              {/* Pitch Shifter Controls */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-white">
+                  Pitch:
+                </span>
+                <Badge 
+                  variant="secondary" 
+                  className={`min-w-[50px] text-center border-purple-500 text-purple-300 transition-colors ${
+                    isPitchShifting ? 'bg-purple-500/40 animate-pulse' : 'bg-purple-600/20'
+                  }`}
+                  title={`Pitch shift: ${pitchShift > 0 ? '+' : ''}${pitchShift} semitones`}
+                >
+                  {pitchShift > 0 ? '+' : ''}{pitchShift}
+                </Badge>
+                <div className="w-32">
+                  <Slider
+                    value={[pitchShift]}
+                    onValueChange={(value) => handlePitchShiftChange(value[0])}
+                    min={-12}
+                    max={12}
+                    step={1}
+                    className="w-full"
+                    title="Adjust overall pitch (affects key automatically)"
+                  />
+                </div>
+                {/* Quality Selector */}
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-400">Q:</span>
+                  <select
+                    value={pitchQuality}
+                    onChange={(e) => handlePitchQualityChange(e.target.value as 'standard' | 'high' | 'ultra')}
+                    className="text-xs bg-[#1a1a1a] border border-gray-600 rounded px-1 py-0.5 text-white"
+                    title="Pitch shifter quality (higher = better quality, more CPU)"
+                  >
+                    <option value="standard">Std</option>
+                    <option value="high">High</option>
+                    <option value="ultra">Ultra</option>
+                  </select>
+                </div>
+                {/* Pitch Shifting Indicator */}
+                {isPitchShifting && (
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
+                    <span className="text-xs text-purple-300">Processing...</span>
+                  </div>
+                )}
+              </div>
               
               {/* Ready Check Controls */}
               <div className="flex items-center gap-2">
@@ -9976,262 +10112,460 @@ export default function BeatMakerPage() {
         </TabsContent>
 
                 {/* Record Tab */}
-        <TabsContent value="record" className="mt-6">
-          {/* Pro Tools Style Interface */}
-          <div className="bg-[#141414] border border-gray-700 rounded-lg overflow-hidden">
-                         {/* Transport Bar */}
-             <div className="bg-[#141414] border-b border-gray-600 p-3">
+        <TabsContent value="record" className="space-y-6 mt-6">
+          <Card className="!bg-[#141414] border-gray-700">
+            <CardHeader>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  {/* Transport Controls */}
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="sm" className="bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600 h-8 w-8 p-0">
-                      <RotateCcw className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" className="bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600 h-8 w-8 p-0">
-                      <Play className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" className="bg-gray-800 text-gray-300 hover:bg-gray-700 border-gray-600 h-8 w-8 p-0">
-                      <Square className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" className="bg-red-800 text-red-300 hover:bg-red-700 border-red-600 h-8 w-8 p-0">
-                      <Mic className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  
-                  {/* Time Display */}
-                  <div className="flex items-center gap-2 bg-black px-3 py-1 rounded border border-gray-600">
-                    <span className="text-white text-sm font-mono">00:00:00</span>
-                    <span className="text-gray-400">/</span>
-                    <span className="text-gray-400 text-sm font-mono">03:45:00</span>
-                  </div>
-                  
-                  {/* BPM and Key */}
-                  <div className="flex items-center gap-2">
-                    <div className="bg-black px-2 py-1 rounded border border-gray-600">
-                      <span className="text-white text-xs">120 BPM</span>
-                    </div>
-                    <div className="bg-black px-2 py-1 rounded border border-gray-600">
-                      <span className="text-white text-xs">Key: C</span>
-                    </div>
-                  </div>
+                <div>
+                  <CardTitle className="text-white">Digital Audio Workstation</CardTitle>
+                  <p className="text-gray-400 text-sm">
+                    Professional recording interface for vocals and beat import
+                  </p>
                 </div>
-                
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs bg-gray-800 border-gray-600 text-gray-300">
-                    Mock Pro Tools
-                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                  >
+                    <Upload className="w-4 h-4 mr-1" />
+                    Import Beat
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                  >
+                    <Save className="w-4 h-4 mr-1" />
+                    Save Project
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
+                  >
+                    <FolderOpen className="w-4 h-4 mr-1" />
+                    Load Project
+                  </Button>
                 </div>
               </div>
-            </div>
-
-            {/* Main DAW Interface */}
-            <div className="flex h-[700px]">
-                             {/* Track List Panel (Left) */}
-               <div className="w-64 bg-[#141414] border-r border-gray-600 flex flex-col">
-                                 {/* Track List Header */}
-                 <div className="bg-[#141414] border-b border-gray-600 p-2">
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="bg-[#0f0f0f] border border-gray-700 rounded-lg overflow-hidden">
+                {/* Transport Bar */}
+                <div className="bg-[#1a1a1a] border-b border-gray-600 p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-white text-sm font-medium">Tracks</span>
-                    <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0">
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-                
-                {/* Track List */}
-                <div className="flex-1 p-2 space-y-1">
-                  {/* Beat Track */}
-                  <div className="bg-black border border-gray-600 p-2">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-6">
+                      {/* Transport Controls */}
                       <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        <span className="text-white text-xs font-medium">Beat</span>
+                        <Button variant="outline" size="sm" className="bg-[#2a2a2a] text-gray-300 hover:bg-[#3a3a3a] border-gray-600 h-10 w-10 p-0">
+                          <RotateCcw className="w-5 h-5" />
+                        </Button>
+                        <Button variant="outline" size="sm" className="bg-[#2a2a2a] text-gray-300 hover:bg-[#3a3a3a] border-gray-600 h-10 w-10 p-0">
+                          <Play className="w-5 h-5" />
+                        </Button>
+                        <Button variant="outline" size="sm" className="bg-[#2a2a2a] text-gray-300 hover:bg-[#3a3a3a] border-gray-600 h-10 w-10 p-0">
+                          <Square className="w-5 h-5" />
+                        </Button>
+                        <Button variant="outline" size="sm" className="bg-red-800 text-red-300 hover:bg-red-700 border-red-600 h-10 w-10 p-0">
+                          <Mic className="w-5 h-5" />
+                        </Button>
                       </div>
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0">
-                        <Music className="w-2 h-2" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">M</Button>
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">S</Button>
-                      <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-5 w-5 p-0 text-xs">R</Button>
-                    </div>
-                  </div>
-                  
-                  {/* Vocal Track 1 */}
-                  <div className="bg-black border border-gray-600 p-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                        <span className="text-white text-xs font-medium">Vocal 1</span>
+                      
+                      {/* Time Display */}
+                      <div className="flex items-center gap-2 bg-[#2a2a2a] px-4 py-2 rounded border border-gray-600">
+                        <span className="text-white text-lg font-mono">00:00:00</span>
+                        <span className="text-gray-400">/</span>
+                        <span className="text-gray-400 text-lg font-mono">03:45:00</span>
                       </div>
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0">
-                        <Mic className="w-2 h-2" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">M</Button>
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">S</Button>
-                      <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-5 w-5 p-0 text-xs">R</Button>
-                    </div>
-                  </div>
-                  
-                  {/* Vocal Track 2 */}
-                  <div className="bg-black border border-gray-600 p-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                        <span className="text-white text-xs font-medium">Vocal 2</span>
-                      </div>
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0">
-                        <Mic className="w-2 h-2" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">M</Button>
-                      <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-5 w-5 p-0 text-xs">S</Button>
-                      <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-5 w-5 p-0 text-xs">R</Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-                             {/* Timeline Panel (Right) */}
-               <div className="flex-1 bg-[#141414] flex flex-col">
-                                 {/* Timeline Header */}
-                 <div className="bg-[#141414] border-b border-gray-600 p-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <span className="text-white text-sm font-medium">Timeline</span>
-                      <div className="flex items-center gap-2">
-                        <div className="bg-black px-2 py-1 rounded border border-gray-600">
-                          <span className="text-white text-xs">4/4</span>
+                      
+                      {/* BPM and Key */}
+                      <div className="flex items-center gap-3">
+                        <div className="bg-[#2a2a2a] px-3 py-2 rounded border border-gray-600">
+                          <span className="text-white text-sm font-medium">120 BPM</span>
                         </div>
-                        <div className="bg-black px-2 py-1 rounded border border-gray-600">
-                          <span className="text-white text-xs">120 BPM</span>
+                        <div className="bg-[#2a2a2a] px-3 py-2 rounded border border-gray-600">
+                          <span className="text-white text-sm font-medium">Key: C</span>
+                        </div>
+                        <div className="bg-[#2a2a2a] px-3 py-2 rounded border border-gray-600">
+                          <span className="text-white text-sm font-medium">4/4</span>
                         </div>
                       </div>
                     </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <Badge variant="outline" className="text-sm bg-[#2a2a2a] border-gray-600 text-gray-300">
+                        Pro Tools Style
+                      </Badge>
+                      <Badge variant="outline" className="text-sm bg-green-900/20 border-green-600 text-green-400">
+                        Ready to Record
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main DAW Interface */}
+                <div className="flex h-[600px]">
+                  {/* Track List Panel (Left) */}
+                  <div className="w-72 bg-[#1a1a1a] border-r border-gray-600 flex flex-col">
+                    {/* Track List Header */}
+                    <div className="bg-[#2a2a2a] border-b border-gray-600 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white text-sm font-medium">Tracks</span>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-7 w-7 p-0">
+                            <Plus className="w-3 h-3" />
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-7 w-7 p-0">
+                            <Settings className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Track List */}
+                    <div className="flex-1 p-3 space-y-2">
+                      {/* Beat Track */}
+                      <div className="bg-[#2a2a2a] border border-gray-600 rounded p-3 hover:bg-[#3a3a3a] transition-colors">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                            <span className="text-white text-sm font-medium">Beat Track</span>
+                          </div>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0">
+                            <Music className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs font-bold">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs font-bold">S</Button>
+                          <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-6 w-6 p-0 text-xs font-bold">R</Button>
+                        </div>
+                        <div className="mt-2 text-xs text-gray-500">Imported from Beat Library</div>
+                      </div>
+                      
+                      {/* Vocal Track 1 */}
+                      <div className="bg-[#2a2a2a] border border-gray-600 rounded p-3 hover:bg-[#3a3a3a] transition-colors">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                            <span className="text-white text-sm font-medium">Vocal 1</span>
+                          </div>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0">
+                            <Mic className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs font-bold">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs font-bold">S</Button>
+                          <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-6 w-6 p-0 text-xs font-bold">R</Button>
+                        </div>
+                        <div className="mt-2 text-xs text-gray-500">Microphone Input 1</div>
+                      </div>
+                      
+                      {/* Vocal Track 2 */}
+                      <div className="bg-[#2a2a2a] border border-gray-600 rounded p-3 hover:bg-[#3a3a3a] transition-colors">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                            <span className="text-white text-sm font-medium">Vocal 2</span>
+                          </div>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0">
+                            <Mic className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs font-bold">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs font-bold">S</Button>
+                          <Button size="sm" variant="outline" className="text-red-400 border-red-600 h-6 w-6 p-0 text-xs font-bold">R</Button>
+                        </div>
+                        <div className="mt-2 text-xs text-gray-500">Microphone Input 2</div>
+                      </div>
+                      
+                      {/* Add Track Button */}
+                      <div className="mt-4">
+                        <Button 
+                          variant="outline" 
+                          className="w-full border-dashed border-gray-600 text-gray-400 hover:text-gray-300 hover:border-gray-500 hover:bg-[#3a3a3a]"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add New Track
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Timeline Panel (Right) */}
+                  <div className="flex-1 bg-[#1a1a1a] flex flex-col">
+                    {/* Timeline Header */}
+                    <div className="bg-[#2a2a2a] border-b border-gray-600 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <span className="text-white text-sm font-medium">Timeline</span>
+                          <div className="flex items-center gap-2">
+                            <div className="bg-[#3a3a3a] px-2 py-1 rounded border border-gray-600">
+                              <span className="text-white text-xs">Grid: 1/4</span>
+                            </div>
+                            <div className="bg-[#3a3a3a] px-2 py-1 rounded border border-gray-600">
+                              <span className="text-white text-xs">Snap: On</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600">
+                            <Settings className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Timeline Grid */}
+                    <div className="flex-1 p-4">
+                      <div className="space-y-2">
+                        {/* Beat Track Timeline */}
+                        <div className="flex items-center h-12 bg-[#2a2a2a] border border-gray-600 rounded">
+                          <div className="w-20 text-white text-sm font-medium px-3">Beat</div>
+                          <div className="flex-1 bg-[#3a3a3a] h-full relative rounded-r overflow-hidden">
+                            {/* Beat Waveform */}
+                            <div className="absolute left-0 top-0 w-1/3 h-full flex items-center justify-center">
+                              <div className="flex items-end gap-0.5 h-8">
+                                {[...Array(20)].map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-0.5 bg-green-400 rounded-sm animate-pulse"
+                                    style={{
+                                      height: `${Math.random() * 60 + 20}%`,
+                                      animationDelay: `${i * 0.1}s`,
+                                      animationDuration: '1s'
+                                    }}
+                                  ></div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="absolute left-1/3 top-0 w-1/6 h-full flex items-center justify-center">
+                              <div className="flex items-end gap-0.5 h-8">
+                                {[...Array(12)].map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-0.5 bg-green-400/70 rounded-sm animate-pulse"
+                                    style={{
+                                      height: `${Math.random() * 50 + 15}%`,
+                                      animationDelay: `${i * 0.15}s`,
+                                      animationDuration: '1.2s'
+                                    }}
+                                  ></div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Vocal 1 Timeline */}
+                        <div className="flex items-center h-12 bg-[#2a2a2a] border border-gray-600 rounded">
+                          <div className="w-20 text-white text-sm font-medium px-3">Vocal 1</div>
+                          <div className="flex-1 bg-[#3a3a3a] h-full relative rounded-r overflow-hidden">
+                            {/* Vocal 1 Waveform */}
+                            <div className="absolute left-1/3 top-0 w-1/4 h-full flex items-center justify-center">
+                              <div className="flex items-end gap-0.5 h-8">
+                                {[...Array(25)].map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-0.5 bg-red-400 rounded-sm animate-pulse"
+                                    style={{
+                                      height: `${Math.random() * 80 + 10}%`,
+                                      animationDelay: `${i * 0.08}s`,
+                                      animationDuration: '0.8s'
+                                    }}
+                                  ></div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="absolute left-2/3 top-0 w-1/8 h-full flex items-center justify-center">
+                              <div className="flex items-end gap-0.5 h-8">
+                                {[...Array(8)].map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-0.5 bg-red-400/70 rounded-sm animate-pulse"
+                                    style={{
+                                      height: `${Math.random() * 60 + 20}%`,
+                                      animationDelay: `${i * 0.12}s`,
+                                      animationDuration: '1s'
+                                    }}
+                                  ></div>
+                                ))}
+                              </div>
+                            </div>
+                            {/* Live Recording Indicator */}
+                            <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                                <span className="text-red-400 text-xs font-mono">REC</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Vocal 2 Timeline */}
+                        <div className="flex items-center h-12 bg-[#2a2a2a] border border-gray-600 rounded">
+                          <div className="w-20 text-white text-sm font-medium px-3">Vocal 2</div>
+                          <div className="flex-1 bg-[#3a3a3a] h-full relative rounded-r overflow-hidden">
+                            {/* Vocal 2 Waveform */}
+                            <div className="absolute left-2/3 top-0 w-1/6 h-full flex items-center justify-center">
+                              <div className="flex items-end gap-0.5 h-8">
+                                {[...Array(15)].map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-0.5 bg-blue-400 rounded-sm animate-pulse"
+                                    style={{
+                                      height: `${Math.random() * 70 + 15}%`,
+                                      animationDelay: `${i * 0.1}s`,
+                                      animationDuration: '0.9s'
+                                    }}
+                                  ></div>
+                                ))}
+                              </div>
+                            </div>
+                            {/* Live Recording Indicator */}
+                            <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                <span className="text-blue-400 text-xs font-mono">REC</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mixer Panel (Bottom) */}
+                <div className="bg-[#1a1a1a] border-t border-gray-600 p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-white text-sm font-medium">Mixer Console</span>
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="outline" className="text-gray-400 border-gray-600">
-                        <Settings className="w-3 h-3" />
+                        <Settings className="w-3 h-3 mr-1" />
+                        Settings
                       </Button>
                     </div>
                   </div>
-                </div>
-                
-                {/* Timeline Grid */}
-                <div className="flex-1 p-4">
-                  <div className="space-y-1">
-                                         {/* Beat Track Timeline */}
-                     <div className="flex items-center h-10 bg-[#141414] border border-gray-600">
-                       <div className="w-16 text-white text-xs font-medium px-2">Beat</div>
-                       <div className="flex-1 bg-gray-700 h-full relative">
-                         <div className="absolute left-0 top-0 w-1/3 h-full bg-green-500/40 border border-green-400"></div>
-                       </div>
-                     </div>
-                     
-                     {/* Vocal 1 Timeline */}
-                     <div className="flex items-center h-10 bg-[#141414] border border-gray-600">
-                       <div className="w-16 text-white text-xs font-medium px-2">Vocal 1</div>
-                       <div className="flex-1 bg-gray-700 h-full relative">
-                         <div className="absolute left-1/3 top-0 w-1/4 h-full bg-red-500/40 border border-red-400"></div>
-                       </div>
-                     </div>
-                     
-                     {/* Vocal 2 Timeline */}
-                     <div className="flex items-center h-10 bg-[#141414] border border-gray-600">
-                       <div className="w-16 text-white text-xs font-medium px-2">Vocal 2</div>
-                       <div className="flex-1 bg-gray-700 h-full relative">
-                         <div className="absolute left-2/3 top-0 w-1/6 h-full bg-blue-500/40 border border-blue-400"></div>
-                       </div>
-                     </div>
+                  <div className="grid grid-cols-5 gap-4">
+                    {/* Beat Channel */}
+                    <div className="bg-[#2a2a2a] rounded-lg border border-gray-600 p-4">
+                      <div className="text-center mb-4">
+                        <div className="w-3 h-3 rounded-full bg-green-500 mx-auto mb-2"></div>
+                        <div className="text-white text-sm font-medium">Beat</div>
+                        <div className="text-gray-500 text-xs">-6 dB</div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="h-20 bg-[#3a3a3a] rounded border border-gray-600 flex items-end justify-center p-2">
+                          <div className="w-2 bg-green-500 rounded-sm h-3/4"></div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-400">-∞</span>
+                          <span className="text-white">0</span>
+                          <span className="text-gray-400">+12</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">S</Button>
+                          <Button size="sm" variant="outline" className="text-blue-400 border-blue-600 h-6 w-6 p-0 text-xs">EQ</Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Vocal 1 Channel */}
+                    <div className="bg-[#2a2a2a] rounded-lg border border-gray-600 p-4">
+                      <div className="text-center mb-4">
+                        <div className="w-3 h-3 rounded-full bg-red-500 mx-auto mb-2"></div>
+                        <div className="text-white text-sm font-medium">Vocal 1</div>
+                        <div className="text-gray-500 text-xs">-3 dB</div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="h-20 bg-[#3a3a3a] rounded border border-gray-600 flex items-end justify-center p-2">
+                          <div className="w-2 bg-red-500 rounded-sm h-1/2"></div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-400">-∞</span>
+                          <span className="text-white">0</span>
+                          <span className="text-gray-400">+12</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">S</Button>
+                          <Button size="sm" variant="outline" className="text-blue-400 border-blue-600 h-6 w-6 p-0 text-xs">EQ</Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Vocal 2 Channel */}
+                    <div className="bg-[#2a2a2a] rounded-lg border border-gray-600 p-4">
+                      <div className="text-center mb-4">
+                        <div className="w-3 h-3 rounded-full bg-blue-500 mx-auto mb-2"></div>
+                        <div className="text-white text-sm font-medium">Vocal 2</div>
+                        <div className="text-gray-500 text-xs">-9 dB</div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="h-20 bg-[#3a3a3a] rounded border border-gray-600 flex items-end justify-center p-2">
+                          <div className="w-2 bg-blue-500 rounded-sm h-1/3"></div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-400">-∞</span>
+                          <span className="text-white">0</span>
+                          <span className="text-gray-400">+12</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">S</Button>
+                          <Button size="sm" variant="outline" className="text-blue-400 border-blue-600 h-6 w-6 p-0 text-xs">EQ</Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Master Channel */}
+                    <div className="bg-[#2a2a2a] rounded-lg border border-gray-600 p-4">
+                      <div className="text-center mb-4">
+                        <div className="w-3 h-3 rounded-full bg-yellow-500 mx-auto mb-2"></div>
+                        <div className="text-white text-sm font-medium">Master</div>
+                        <div className="text-gray-500 text-xs">-1 dB</div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="h-20 bg-[#3a3a3a] rounded border border-gray-600 flex items-end justify-center p-2">
+                          <div className="w-2 bg-yellow-500 rounded-sm h-2/3"></div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-400">-∞</span>
+                          <span className="text-white">0</span>
+                          <span className="text-gray-400">+12</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">M</Button>
+                          <Button size="sm" variant="outline" className="text-gray-400 border-gray-600 h-6 w-6 p-0 text-xs">S</Button>
+                          <Button size="sm" variant="outline" className="text-blue-400 border-blue-600 h-6 w-6 p-0 text-xs">EQ</Button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Effects Rack */}
+                    <div className="bg-[#2a2a2a] rounded-lg border border-gray-600 p-4">
+                      <div className="text-center mb-4">
+                        <div className="w-3 h-3 rounded-full bg-purple-500 mx-auto mb-2"></div>
+                        <div className="text-white text-sm font-medium">Effects</div>
+                        <div className="text-gray-500 text-xs">Rack</div>
+                      </div>
+                      <div className="space-y-2">
+                        <Button size="sm" variant="outline" className="w-full text-gray-400 border-gray-600 h-6 text-xs">Reverb</Button>
+                        <Button size="sm" variant="outline" className="w-full text-gray-400 border-gray-600 h-6 text-xs">Delay</Button>
+                        <Button size="sm" variant="outline" className="w-full text-gray-400 border-gray-600 h-6 text-xs">Comp</Button>
+                        <Button size="sm" variant="outline" className="w-full text-gray-400 border-gray-600 h-6 text-xs">EQ</Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-
-                         {/* Mixer Panel (Bottom) */}
-             <div className="bg-[#141414] border-t border-gray-600 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-white text-sm font-medium">Mixer</span>
-              </div>
-              <div className="grid grid-cols-4 gap-4">
-                {/* Beat Channel */}
-                <div className="bg-black rounded border border-gray-600 p-3">
-                  <div className="text-center mb-3">
-                    <div className="w-2 h-2 rounded-full bg-green-500 mx-auto mb-1"></div>
-                    <div className="text-white text-xs font-medium">Beat</div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
-                      <div className="w-1.5 bg-green-500 rounded-sm h-3/4"></div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-400 text-xs">-12</span>
-                      <span className="text-white text-xs">0</span>
-                      <span className="text-gray-400 text-xs">+12</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Vocal 1 Channel */}
-                <div className="bg-black rounded border border-gray-600 p-3">
-                  <div className="text-center mb-3">
-                    <div className="w-2 h-2 rounded-full bg-red-500 mx-auto mb-1"></div>
-                    <div className="text-white text-xs font-medium">Vocal 1</div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
-                      <div className="w-1.5 bg-red-500 rounded-sm h-1/2"></div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-400 text-xs">-12</span>
-                      <span className="text-white text-xs">0</span>
-                      <span className="text-gray-400 text-xs">+12</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Vocal 2 Channel */}
-                <div className="bg-black rounded border border-gray-600 p-3">
-                  <div className="text-center mb-3">
-                    <div className="w-2 h-2 rounded-full bg-blue-500 mx-auto mb-1"></div>
-                    <div className="text-white text-xs font-medium">Vocal 2</div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
-                      <div className="w-1.5 bg-blue-500 rounded-sm h-1/3"></div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-400 text-xs">-12</span>
-                      <span className="text-white text-xs">0</span>
-                      <span className="text-gray-400 text-xs">+12</span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Master Channel */}
-                <div className="bg-black rounded border border-gray-600 p-3">
-                  <div className="text-center mb-3">
-                    <div className="w-2 h-2 rounded-full bg-yellow-500 mx-auto mb-1"></div>
-                    <div className="text-white text-xs font-medium">Master</div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-16 bg-gray-800 rounded border border-gray-600 flex items-end justify-center p-1">
-                      <div className="w-1.5 bg-yellow-500 rounded-sm h-2/3"></div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-400 text-xs">-12</span>
-                      <span className="text-white text-xs">0</span>
-                      <span className="text-gray-400 text-xs">+12</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Sessions Tab */}

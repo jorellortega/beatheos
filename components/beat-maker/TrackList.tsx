@@ -1516,7 +1516,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                         className="w-full h-6 text-xs border-yellow-500 text-yellow-400 hover:bg-yellow-500 hover:text-black"
                         title="Align loop to grid for better tempo sync"
                       >
-                        🔧 Quantize Loop
+                        🔧 Edit Loop
                       </Button>
                     )}
                   </div>

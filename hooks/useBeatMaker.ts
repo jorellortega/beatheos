@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import * as Tone from 'tone'
-import { PITCH_SHIFT_SETTINGS } from '@/lib/utils'
+import { PITCH_SHIFT_SETTINGS, createEnhancedPitchShifter, createProfessionalPitchShifter, getOptimalPitchSettings, createPitchShifter, applyPitchShiftWithEnhancement } from '@/lib/utils'
 
 export interface Track {
   id: number
@@ -202,17 +202,77 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
           try {
             console.log(`[DEBUG] Creating Tone.Player for track ${track.name} (id: ${track.id}) with audioUrl: ${track.audioUrl}`)
             
-            // Create pitch shifter with high quality settings
-            const pitchShift = new Tone.PitchShift({
-              pitch: track.pitchShift || 0,
-              windowSize: PITCH_SHIFT_SETTINGS.windowSize,
-              delayTime: PITCH_SHIFT_SETTINGS.delayTime,
-              feedback: PITCH_SHIFT_SETTINGS.feedback
-            }).toDestination()
-            pitchShiftersRef.current[track.id] = pitchShift
+            // Create pitch shifter using different techniques based on pitch amount
+            const pitchAmount = Math.abs(track.pitchShift || 0)
+            const pitchShifterConfig = createPitchShifter('auto', track.pitchShift || 0)
             
-            // Create player and connect to pitch shifter
-            const player = new Tone.Player(track.audioUrl).connect(pitchShift)
+            console.log(`[PITCH SHIFT] Creating ${pitchShifterConfig.type} pitch shifter for track ${track.name} (pitch: ${track.pitchShift || 0})`)
+            
+            let pitchShift: any
+            let player: any
+            
+            if (pitchShifterConfig.type === 'playback-rate') {
+              // Use simple playback rate for small pitch changes (most natural)
+              player = new Tone.Player(track.audioUrl)
+              player.playbackRate = (pitchShifterConfig.settings as any).playbackRate
+              player.toDestination()
+              pitchShiftersRef.current[track.id] = player // Store player as pitch shifter for consistency
+            } else if (pitchShifterConfig.type === 'granular') {
+              // For large pitch shifts, use a combination of techniques
+              player = new Tone.Player(track.audioUrl)
+              
+              // Create a pitch shifter with very conservative settings
+              pitchShift = new Tone.PitchShift({
+                pitch: track.pitchShift || 0,
+                windowSize: 0.05,
+                delayTime: 0.001,
+                feedback: 0.02
+              })
+              
+              // Add subtle compression to smooth out artifacts
+              const compressor = new Tone.Compressor({
+                threshold: -20,
+                ratio: 2,
+                attack: 0.005,
+                release: 0.1
+              })
+              
+              // Create processing chain: Player -> PitchShift -> Compressor -> Destination
+              pitchShift.chain(compressor, Tone.Destination)
+              pitchShiftersRef.current[track.id] = pitchShift
+              player.connect(pitchShift)
+            } else {
+              // Default phase vocoder approach
+              pitchShift = new Tone.PitchShift({
+                pitch: track.pitchShift || 0,
+                windowSize: pitchShifterConfig.settings.windowSize,
+                delayTime: pitchShifterConfig.settings.delayTime,
+                feedback: pitchShifterConfig.settings.feedback
+              })
+              
+              // For medium pitch shifts, add subtle processing
+              if (pitchAmount > 5) {
+                const compressor = new Tone.Compressor({
+                  threshold: -24,
+                  ratio: 3,
+                  attack: 0.001,
+                  release: 0.1
+                })
+                
+                const eq = new Tone.EQ3({
+                  low: 0,
+                  mid: 0,
+                  high: 0
+                })
+                
+                pitchShift.chain(compressor, eq, Tone.Destination)
+              } else {
+                pitchShift.toDestination()
+              }
+              
+              pitchShiftersRef.current[track.id] = pitchShift
+              player = new Tone.Player(track.audioUrl).connect(pitchShift)
+            }
             
             // Apply loop start/end points if specified (from quantization)
             if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
@@ -240,20 +300,39 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               console.log(`[DEBUG] Set playback rate for track ${track.name} to ${track.playbackRate}`)
             }
             
-            // Apply pitch shift based on time stretch mode
+            // Apply pitch shift based on time stretch mode and pitch shifter type
             if (timeStretchMode === 'flex-time') {
               // In flex-time mode, keep pitch shift at 0 to maintain original pitch
-              pitchShift.pitch = 0
+              if (pitchShifterConfig.type === 'playback-rate') {
+                player.playbackRate = 1.0
+              } else if (pitchShift) {
+                pitchShift.pitch = 0
+              }
               console.log(`[DEBUG] FT mode: Set pitch shift to 0 to maintain original pitch for track ${track.name}`)
             } else {
               // In resampling mode, apply the track's pitch shift
               if (track.pitchShift && track.pitchShift !== 0) {
-                pitchShift.pitch = track.pitchShift
+                if (pitchShifterConfig.type === 'playback-rate') {
+                  player.playbackRate = (pitchShifterConfig.settings as any).playbackRate
+                } else if (pitchShift) {
+                  pitchShift.pitch = track.pitchShift
+                }
                 console.log(`[DEBUG] RM mode: Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
               } else {
-                pitchShift.pitch = 0
+                if (pitchShifterConfig.type === 'playback-rate') {
+                  player.playbackRate = 1.0
+                } else if (pitchShift) {
+                  pitchShift.pitch = 0
+                }
                 console.log(`[DEBUG] RM mode: No pitch shift applied for track ${track.name}`)
               }
+            }
+            
+            // Store the pitch shifter type for later updates
+            if (pitchShifterConfig.type === 'playback-rate') {
+              player._pitchShifterType = 'playback-rate'
+            } else if (pitchShift) {
+              pitchShift._pitchShifterType = 'phase-vocoder'
             }
             
             samplesRef.current[track.id] = player
