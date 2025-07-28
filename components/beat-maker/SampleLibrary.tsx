@@ -117,7 +117,45 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
       
       const { links } = await response.json()
       console.log('Fetched file links:', links)
-      setFileLinks(links || [])
+      
+      // Fetch the actual MP3 file URLs for each link - BATCHED for performance
+      const mp3LinkIds = links.filter((l: any) => l.converted_format === 'mp3').map((l: any) => l.converted_file_id) || []
+      
+      let mp3FilesMap = new Map()
+      if (mp3LinkIds.length > 0) {
+        try {
+          // Batch fetch all MP3 files in one query
+          const { data: mp3Files, error } = await supabase
+            .from('audio_library_items')
+            .select('id, file_url, name, file_size')
+            .in('id', mp3LinkIds)
+          
+          if (!error && mp3Files) {
+            mp3FilesMap = new Map(mp3Files.map(f => [f.id, f]))
+            console.log(`🔗 Batch fetched ${mp3Files.length} MP3 files`)
+          }
+        } catch (error) {
+          console.error('Error batch fetching MP3 files:', error)
+        }
+      }
+      
+      const linksWithUrls = links.map((link: any) => {
+        if (link.converted_format === 'mp3') {
+          const mp3File = mp3FilesMap.get(link.converted_file_id)
+          if (mp3File) {
+            console.log(`🔗 Found MP3 URL for link ${link.id}: ${mp3File.file_url} (${mp3File.name})`)
+            return {
+              ...link,
+              mp3_file_url: mp3File.file_url,
+              mp3_file_name: mp3File.name,
+              mp3_file_size: mp3File.file_size
+            }
+          }
+        }
+        return link
+      })
+      
+      setFileLinks(linksWithUrls || [])
     } catch (error) {
       console.error('Error fetching file links:', error)
     }
@@ -135,7 +173,13 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
     )
 
     if (mp3Link) {
-      // Find the MP3 file in audioItems
+      // Use the MP3 file URL if available in the link data
+      if (mp3Link.mp3_file_url) {
+        console.log(`🔗 Using MP3 URL for ${file.name}: ${mp3Link.mp3_file_url}`)
+        return mp3Link.mp3_file_url
+      }
+      
+      // Fallback to finding the MP3 file in audioItems
       const mp3File = audioItems.find(item => item.id === mp3Link.converted_file_id)
       return mp3File?.file_url || file.file_url
     }
@@ -578,7 +622,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handlePlayAudio(item.id, item.file_url || '')}
+                            onClick={() => handlePlayAudio(item.id, getPreferredAudioUrl(item) || item.file_url || '')}
                             className="w-8 h-8 p-0"
                           >
                             {playingAudio === item.id ? (
@@ -590,7 +634,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                           {/* Hidden audio element for preview */}
                           <audio
                             ref={el => { audioRefs.current[item.id] = el; }}
-                            src={item.file_url || ''}
+                            src={getPreferredAudioUrl(item) || item.file_url || ''}
                             preload="metadata"
                             style={{ display: 'none' }}
                             onEnded={() => setPlayingAudio(null)}
@@ -746,7 +790,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                             <Button
                                               variant="ghost"
                                               size="sm"
-                                              onClick={() => handlePlayAudio(item.id, item.file_url || '')}
+                                              onClick={() => handlePlayAudio(item.id, getPreferredAudioUrl(item) || item.file_url || '')}
                                               className="w-6 h-6 p-0"
                                             >
                                               {playingAudio === item.id ? (
@@ -757,7 +801,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                             </Button>
                                             <audio
                                               ref={el => { audioRefs.current[item.id] = el; }}
-                                              src={item.file_url || ''}
+                                              src={getPreferredAudioUrl(item) || item.file_url || ''}
                                               preload="metadata"
                                               style={{ display: 'none' }}
                                               onEnded={() => setPlayingAudio(null)}
@@ -847,7 +891,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                    <Button
                                      variant="ghost"
                                      size="sm"
-                                     onClick={() => handlePlayAudio(item.id, item.file_url || '')}
+                                     onClick={() => handlePlayAudio(item.id, getPreferredAudioUrl(item) || item.file_url || '')}
                                      className="w-6 h-6 p-0"
                                    >
                                      {playingAudio === item.id ? (
@@ -858,7 +902,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                    </Button>
                                    <audio
                                      ref={el => { audioRefs.current[item.id] = el; }}
-                                     src={item.file_url || ''}
+                                     src={getPreferredAudioUrl(item) || item.file_url || ''}
                                      preload="metadata"
                                      style={{ display: 'none' }}
                                      onEnded={() => setPlayingAudio(null)}
@@ -970,7 +1014,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                <Button
                                  variant="ghost"
                                  size="sm"
-                                 onClick={() => handlePlayAudio(item.id, item.file_url || '')}
+                                 onClick={() => handlePlayAudio(item.id, getPreferredAudioUrl(item) || item.file_url || '')}
                                  className="w-6 h-6 p-0"
                                >
                                  {playingAudio === item.id ? (
@@ -981,7 +1025,7 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                </Button>
                                <audio
                                  ref={el => { audioRefs.current[item.id] = el; }}
-                                 src={item.file_url || ''}
+                                 src={getPreferredAudioUrl(item) || item.file_url || ''}
                                  preload="metadata"
                                  style={{ display: 'none' }}
                                  onEnded={() => setPlayingAudio(null)}

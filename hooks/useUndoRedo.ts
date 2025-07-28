@@ -6,12 +6,11 @@ export interface BeatMakerState {
   tracks: any[]
   bpm: number
   steps: number
+  gridDivision: number
   transportKey: string
   mixerSettings: { [trackId: number]: any }
   masterVolume: number
   currentSequencerPatterns: any[]
-  songPatternAssignments: { [trackId: number]: { [barIndex: number]: string } }
-  songPlayback: { isPlaying: boolean; currentBar: number }
   layoutMode: 'default' | 'vertical' | 'horizontal'
   timeStretchMode: 'resampling' | 'flex-time'
   isAutoMode: boolean
@@ -25,12 +24,10 @@ export interface BeatMakerState {
   masterLevel: number
   masterPeak: number
   savedPatterns: any[]
-  savedSongArrangements: any[]
-  savedSongTrackPatterns: any[]
   activeTab: string
   lastLoadedPattern: string | null
   showPatternDetails: boolean
-  selectedPatternForPlacement: string | null
+
   editingBpm: boolean
   editingPosition: boolean
   editingTransportKey: boolean
@@ -55,21 +52,6 @@ export interface BeatMakerState {
   showBpmRangeControls: boolean
   aiPrompt: string
   isAiPromptVisible: boolean
-  showSaveSongDialog: boolean
-  songName: string
-  songDescription: string
-  songCategory: string
-  songGenre: string
-  songSubgenre: string
-  songTags: string
-  showLoadSongDialog: boolean
-  showSaveSongTrackPatternDialog: boolean
-  showLoadSongTrackPatternDialog: boolean
-  selectedSongTrackForPattern: number | null
-  songTrackPatternName: string
-  songTrackPatternDescription: string
-  songTrackPatternCategory: string
-  songTrackPatternTags: string
 }
 
 export interface VersionHistoryEntry {

@@ -1,0 +1,1492 @@
+import { useState, useEffect, useRef } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3 } from 'lucide-react'
+import { Track } from '@/hooks/useBeatMaker'
+import * as Tone from 'tone'
+import { TrackWaveform } from './TrackWaveform'
+import React from 'react' // Added missing import for React
+
+interface PatternBlock {
+  id: string
+  name: string
+  tracks: Track[]
+  sequencerData: {[trackId: number]: boolean[]}
+  bpm: number
+  steps: number
+  duration: number // in bars
+  startBar: number
+  endBar: number
+  color: string
+  trackId: number // which track this pattern belongs to
+}
+
+interface SongArrangementProps {
+  tracks: Track[]
+  sequencerData: {[trackId: number]: boolean[]}
+  bpm: number
+  steps: number
+  onPlayPattern?: (patternData: {[trackId: number]: boolean[]}) => void
+  onStopPattern?: () => void
+  isPlaying?: boolean
+  patterns?: PatternBlock[] // Patterns from session
+  onPatternsChange?: (patterns: PatternBlock[]) => void // Callback to update patterns
+  onSwitchToSequencerTab?: () => void // Callback to switch to sequencer tab
+}
+
+export function SongArrangement({
+  tracks,
+  sequencerData,
+  bpm,
+  steps,
+  onPlayPattern,
+  onStopPattern,
+  isPlaying = false,
+  patterns = [],
+  onPatternsChange,
+  onSwitchToSequencerTab
+}: SongArrangementProps) {
+  const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>(patterns)
+  const [currentPattern, setCurrentPattern] = useState<PatternBlock | null>(null)
+  const [isArrangementPlaying, setIsArrangementPlaying] = useState(false)
+  const [currentBar, setCurrentBar] = useState(1)
+  
+  // Safe setter for currentBar to prevent negative values
+  const setCurrentBarSafe = (value: number) => {
+    // Multiple safety checks to ensure positive value
+    const safeValue = Math.max(1, Math.abs(value || 1))
+    console.log('[PLAYHEAD DEBUG] setCurrentBarSafe called with:', value, 'setting to:', safeValue, 'current currentBar:', currentBar)
+    setCurrentBar(safeValue)
+  }
+  const [totalBars, setTotalBars] = useState(32) // Default 32 bars
+  const [zoom, setZoom] = useState(50) // pixels per bar
+  const [scrollX, setScrollX] = useState(0)
+  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [loadedTrackId, setLoadedTrackId] = useState<number | null>(null) // which track is in "load" mode
+  const [selectedDuration, setSelectedDuration] = useState(8) // default 8 bars for new patterns
+
+  // Separate audio system for arrangement
+  const arrangementPlayersRef = useRef<{ [trackId: number]: Tone.Player }>({})
+  const arrangementPitchShiftersRef = useRef<{ [trackId: number]: Tone.PitchShift }>({})
+  const arrangementSequenceRef = useRef<Tone.Sequence | null>(null)
+  const arrangementTransportRef = useRef<any>(null)
+  const isArrangementAudioInitialized = useRef(false)
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const arrangementStartTimeRef = useRef<number>(0)
+  const isPlayingRef = useRef(false) // Add ref to track playing state
+
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+
+  // Fixed playhead update using transport position
+  const updatePlayhead = () => {
+    console.log('[PLAYHEAD DEBUG] Update called - isPlayingRef:', isPlayingRef.current, 'transport exists:', !!arrangementTransportRef.current)
+    
+    if (isPlayingRef.current && arrangementTransportRef.current) {
+      try {
+        // Get the current transport position as a string (e.g., "2:1:0")
+        const positionStr = arrangementTransportRef.current.position
+        console.log('[PLAYHEAD DEBUG] Raw transport position string:', positionStr)
+        
+        // Convert position string to [bars, beats, sixteenths]
+        const [bars, beats, sixteenths] = positionStr.split(':').map(Number)
+        console.log('[PLAYHEAD DEBUG] Parsed position - bars:', bars, 'beats:', beats, 'sixteenths:', sixteenths)
+        
+        // Calculate the current bar as a float
+        const currentBarPosition = (bars || 0) + 1 + ((beats || 0) / 4) + ((sixteenths || 0) / 16 / 4)
+        
+        console.log('[PLAYHEAD DEBUG] Calculated position:', currentBarPosition, 'Current state - currentBar:', currentBar)
+        
+        // Only update if we have a valid position
+        if (currentBarPosition >= 1) {
+          console.log('[PLAYHEAD DEBUG] Setting currentBar to:', currentBarPosition)
+          setCurrentBarSafe(currentBarPosition)
+        } else {
+          console.log('[PLAYHEAD DEBUG] Position too low, not updating:', currentBarPosition)
+        }
+      } catch (error) {
+        console.error('[PLAYHEAD DEBUG] Error in update:', error)
+      }
+    } else {
+      console.log('[PLAYHEAD DEBUG] Not updating - isPlayingRef:', isPlayingRef.current, 'transport exists:', !!arrangementTransportRef.current)
+    }
+  }
+
+  // Initialize separate audio system for arrangement
+  useEffect(() => {
+    const initializeArrangementAudio = async () => {
+      if (isArrangementAudioInitialized.current) return
+      
+      await Tone.start()
+      
+      // Use the global transport but reset it for arrangement
+      arrangementTransportRef.current = Tone.getTransport()
+      arrangementTransportRef.current.stop()
+      arrangementTransportRef.current.position = 0
+      arrangementTransportRef.current.bpm.value = bpm
+      
+      // Load audio for tracks that have audio URLs
+      const loadPromises = tracks.map(async (track) => {
+        if (track.audioUrl && track.audioUrl !== 'undefined') {
+          try {
+            console.log(`[ARRANGEMENT AUDIO] Loading audio for track ${track.name}: ${track.audioUrl}`)
+            
+            // Create pitch shifter for arrangement
+            const pitchShifter = new Tone.PitchShift({
+              pitch: track.pitchShift || 0,
+              windowSize: 0.1,
+              delayTime: 0.001,
+              feedback: 0.05
+            }).toDestination()
+            
+            // Create player for arrangement
+            const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
+            
+            // Apply playback rate if specified
+            if (track.playbackRate && track.playbackRate !== 1) {
+              player.playbackRate = track.playbackRate
+            }
+            
+            // Wait for the player to load
+            await player.load(track.audioUrl)
+            
+            arrangementPlayersRef.current[track.id] = player
+            arrangementPitchShiftersRef.current[track.id] = pitchShifter
+            
+            console.log(`[ARRANGEMENT AUDIO] Audio loaded and ready for track ${track.name}`)
+          } catch (error) {
+            console.error(`[ARRANGEMENT AUDIO] Failed to load audio for track ${track.name}:`, error)
+          }
+        }
+      })
+      
+      // Wait for all audio to load
+      await Promise.all(loadPromises)
+      
+      isArrangementAudioInitialized.current = true
+      console.log('[ARRANGEMENT AUDIO] Audio system initialized with players:', Object.keys(arrangementPlayersRef.current))
+    }
+
+    initializeArrangementAudio()
+  }, [tracks, bpm])
+
+  // Cleanup arrangement audio on unmount
+  useEffect(() => {
+    return () => {
+      // Stop and dispose arrangement players
+      Object.values(arrangementPlayersRef.current).forEach(player => {
+        if (player.state === 'started') {
+          player.stop()
+        }
+        player.dispose()
+      })
+      
+      // Dispose pitch shifters
+      Object.values(arrangementPitchShiftersRef.current).forEach(shifter => {
+        shifter.dispose()
+      })
+      
+      // Stop arrangement transport
+      if (arrangementTransportRef.current) {
+        arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.position = 0
+        arrangementTransportRef.current.cancel()
+      }
+      
+      // Clear progress interval
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+      }
+      
+      console.log('[ARRANGEMENT AUDIO] Audio system cleaned up')
+    }
+  }, [])
+
+  // Update arrangement BPM when it changes
+  useEffect(() => {
+    if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.bpm.value = bpm
+    }
+  }, [bpm])
+
+  // Sync patterns when they change from parent component
+  useEffect(() => {
+    setPatternBlocks(patterns)
+  }, [patterns])
+
+  // Debug: Monitor isArrangementPlaying state changes
+  useEffect(() => {
+    console.log('[PLAYHEAD DEBUG] isArrangementPlaying state changed to:', isArrangementPlaying)
+  }, [isArrangementPlaying])
+
+  // Toggle load mode for a track
+  const toggleLoadMode = (trackId: number) => {
+    if (loadedTrackId === trackId) {
+      setLoadedTrackId(null) // Turn off load mode
+    } else {
+      setLoadedTrackId(trackId) // Turn on load mode for this track
+    }
+  }
+
+  // Handle clicking in the grid to place a pattern or seek
+  const handleGridClick = (e: React.MouseEvent) => {
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    // Calculate click position relative to the grid content
+    const clickX = e.clientX - rect.left + scrollX
+    const clickY = e.clientY - rect.top
+    
+    // Calculate which bar was clicked (grid content starts at 0)
+    const clickedBar = Math.floor(clickX / zoom) + 1
+    
+    // If we're in load mode, place a pattern
+    if (loadedTrackId) {
+      // Find the loaded track
+      const loadedTrack = tracks.find(t => t.id === loadedTrackId)
+      if (!loadedTrack) return
+      
+      console.log('Click position:', { clickX, clickY, clickedBar, loadedTrack: loadedTrack.name, loadedTrackId })
+      
+      // Create a new pattern block at the clicked position
+      const newBlock: PatternBlock = {
+        id: `pattern-${Date.now()}-${Math.random()}`,
+        name: `${loadedTrack.name} Pattern`,
+        tracks: [loadedTrack], // Single track pattern
+        sequencerData: { [loadedTrack.id]: sequencerData[loadedTrack.id] || [] },
+        bpm: bpm,
+        steps: steps,
+        duration: selectedDuration,
+        startBar: clickedBar,
+        endBar: clickedBar + selectedDuration - 1,
+        color: loadedTrack.color,
+        trackId: loadedTrack.id
+      }
+
+      const newPatternBlocks = [...patternBlocks, newBlock]
+      setPatternBlocks(newPatternBlocks)
+      setTotalBars(Math.max(totalBars, newBlock.endBar))
+      onPatternsChange?.(newPatternBlocks)
+    } else if (isArrangementPlaying) {
+      // If not in load mode but playing, seek to clicked position
+      const newBar = Math.max(1, Math.min(totalBars, clickedBar))
+      setCurrentBarSafe(newBar)
+      
+      // Update transport position
+      if (arrangementTransportRef.current) {
+        const newPosition = (newBar - 1) * 4 // 4 beats per bar
+        arrangementTransportRef.current.position = newPosition
+        console.log(`[ARRANGEMENT AUDIO] Seeking to bar ${newBar} (position ${newPosition})`)
+      }
+    }
+  }
+
+  // Get a random color for pattern blocks
+  const getRandomColor = () => {
+    const colors = [
+      'bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500',
+      'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-orange-500',
+      'bg-teal-500', 'bg-cyan-500', 'bg-lime-500', 'bg-rose-500'
+    ]
+    return colors[Math.floor(Math.random() * colors.length)]
+  }
+
+  // Remove a pattern block
+  const removePatternBlock = (blockId: string) => {
+    const newPatternBlocks = patternBlocks.filter(block => block.id !== blockId)
+    setPatternBlocks(newPatternBlocks)
+    onPatternsChange?.(newPatternBlocks)
+  }
+
+  // Duplicate a pattern block
+  const duplicatePatternBlock = (block: PatternBlock) => {
+    const newBlock: PatternBlock = {
+      ...block,
+      id: `pattern-${Date.now()}-${Math.random()}`,
+      name: `${block.name} (Copy)`,
+      startBar: block.endBar + 1,
+      endBar: block.endBar + block.duration
+    }
+
+    const newPatternBlocks = [...patternBlocks, newBlock]
+    setPatternBlocks(newPatternBlocks)
+    setTotalBars(Math.max(totalBars, newBlock.endBar))
+    onPatternsChange?.(newPatternBlocks)
+  }
+
+  // View sequencer for a specific pattern
+  const viewPatternSequencer = (block: PatternBlock) => {
+    console.log('[PATTERN] Viewing sequencer for pattern:', block.name)
+    console.log('[PATTERN] Sequencer data:', block.sequencerData)
+    
+    // Call the parent's onPlayPattern to show the sequencer data
+    if (onPlayPattern) {
+      onPlayPattern(block.sequencerData)
+    }
+    
+    // Switch to the sequencer tab to show the pattern
+    if (onSwitchToSequencerTab) {
+      onSwitchToSequencerTab()
+    }
+  }
+
+  // View waveform for a specific pattern
+  const viewPatternWaveform = (block: PatternBlock) => {
+    const track = tracks.find(t => t.id === block.trackId)
+    console.log('[PATTERN] Viewing waveform for pattern:', block.name)
+    console.log('[PATTERN] Track audio URL:', track?.audioUrl)
+    
+    if (track?.audioUrl && track.audioUrl !== 'undefined') {
+      // Create and show waveform modal
+      showWaveformModal(block, track)
+    } else {
+      console.log('[PATTERN] No audio waveform available')
+      alert(`No audio waveform available for ${block.name}`)
+    }
+  }
+
+  // Toggle inline waveform for a pattern
+  const toggleInlineWaveform = async (block: PatternBlock) => {
+    const patternId = block.id
+    const isExpanded = expandedPatterns.has(patternId)
+    
+    if (isExpanded) {
+      // Collapse the waveform
+      setExpandedPatterns(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(patternId)
+        return newSet
+      })
+    } else {
+      // Expand and load waveform data
+      const track = tracks.find(t => t.id === block.trackId)
+      if (track?.audioUrl && track.audioUrl !== 'undefined') {
+        try {
+          console.log('[INLINE WAVEFORM] Loading audio for pattern:', block.name)
+          
+          // Create audio context to analyze the audio
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+          
+          // Fetch the audio file
+          if (!track.audioUrl) {
+            throw new Error('No audio URL available')
+          }
+          const response = await fetch(track.audioUrl)
+          const arrayBuffer = await response.arrayBuffer()
+          
+          // Decode the audio
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+          
+          // Extract waveform data
+          const channelData = audioBuffer.getChannelData(0) // Get first channel
+          const samples = channelData.length
+          const blockSize = Math.floor(samples / 100) // 100 data points for inline display
+          const waveform = []
+          
+          for (let i = 0; i < 100; i++) {
+            const start = i * blockSize
+            const end = start + blockSize
+            let sum = 0
+            
+            for (let j = start; j < end; j++) {
+              sum += Math.abs(channelData[j] || 0)
+            }
+            
+            waveform.push(sum / blockSize)
+          }
+          
+          // Normalize waveform data
+          const maxValue = Math.max(...waveform)
+          const normalizedWaveform = waveform.map(value => value / maxValue)
+          
+          // Store the waveform data
+          setPatternWaveformData(prev => ({
+            ...prev,
+            [patternId]: normalizedWaveform
+          }))
+          
+          // Expand the pattern
+          setExpandedPatterns(prev => new Set([...prev, patternId]))
+          
+          console.log('[INLINE WAVEFORM] Waveform data generated for pattern:', patternId)
+          
+        } catch (error) {
+          console.error('[INLINE WAVEFORM] Error loading audio:', error)
+          alert(`Error loading audio waveform: ${error}`)
+        }
+      } else {
+        alert(`No audio waveform available for ${block.name}`)
+      }
+    }
+  }
+
+  // State for waveform modal
+  const [showWaveform, setShowWaveform] = useState(false)
+  const [waveformData, setWaveformData] = useState<number[]>([])
+  const [waveformTrack, setWaveformTrack] = useState<Track | null>(null)
+  const [waveformBlock, setWaveformBlock] = useState<PatternBlock | null>(null)
+  
+  // State for inline waveform toggles
+  const [expandedPatterns, setExpandedPatterns] = useState<Set<string>>(new Set())
+  const [patternWaveformData, setPatternWaveformData] = useState<{[patternId: string]: number[]}>({})
+  const [patternWaveSub, setPatternWaveSub] = useState<{[patternId: string]: boolean}>({})
+
+  // Show waveform modal with actual audio data
+  const showWaveformModal = async (block: PatternBlock, track: Track) => {
+    try {
+      console.log('[WAVEFORM] Loading audio for waveform:', track.audioUrl)
+      
+      // Create audio context to analyze the audio
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      
+      // Fetch the audio file
+      if (!track.audioUrl) {
+        throw new Error('No audio URL available')
+      }
+      const response = await fetch(track.audioUrl)
+      const arrayBuffer = await response.arrayBuffer()
+      
+      // Decode the audio
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // Extract waveform data
+      const channelData = audioBuffer.getChannelData(0) // Get first channel
+      const samples = channelData.length
+      const blockSize = Math.floor(samples / 200) // 200 data points for visualization
+      const waveform = []
+      
+      for (let i = 0; i < 200; i++) {
+        const start = i * blockSize
+        const end = start + blockSize
+        let sum = 0
+        
+        for (let j = start; j < end; j++) {
+          sum += Math.abs(channelData[j] || 0)
+        }
+        
+        waveform.push(sum / blockSize)
+      }
+      
+      // Normalize waveform data
+      const maxValue = Math.max(...waveform)
+      const normalizedWaveform = waveform.map(value => value / maxValue)
+      
+      setWaveformData(normalizedWaveform)
+      setWaveformTrack(track)
+      setWaveformBlock(block)
+      setShowWaveform(true)
+      
+      console.log('[WAVEFORM] Waveform data generated:', normalizedWaveform.length, 'points')
+      
+    } catch (error) {
+      console.error('[WAVEFORM] Error loading audio:', error)
+      alert(`Error loading audio waveform: ${error}`)
+    }
+  }
+
+  // Generate waveform data for a pattern
+  const generateWaveformData = (block: PatternBlock) => {
+    const track = tracks.find(t => t.id === block.trackId)
+    if (!track) return null
+    
+    // If track has audio, generate realistic waveform
+    if (track.audioUrl && track.audioUrl !== 'undefined') {
+      // Generate waveform based on sequencer data and audio characteristics
+      const waveformPoints = []
+      const steps = block.sequencerData[block.trackId] || []
+      
+      for (let i = 0; i < Math.min(32, block.duration * 4); i++) {
+        const stepIndex = i % steps.length
+        const isActive = steps[stepIndex] || false
+        
+        if (isActive) {
+          // Active step - higher amplitude
+          waveformPoints.push(Math.random() * 0.6 + 0.4)
+        } else {
+          // Inactive step - lower amplitude
+          waveformPoints.push(Math.random() * 0.2 + 0.05)
+        }
+      }
+      
+      return waveformPoints
+    }
+    
+    return null
+  }
+
+  // Play a specific pattern block using arrangement audio system
+  const playPatternBlock = async (block: PatternBlock) => {
+    if (!isArrangementAudioInitialized.current) {
+      console.warn('[ARRANGEMENT AUDIO] Audio system not initialized')
+      return
+    }
+
+    setCurrentPattern(block)
+    
+    // Stop any currently playing arrangement
+    stopArrangement()
+    
+    // Use the arrangement audio system to play this pattern
+    const track = block.tracks[0]
+    const player = arrangementPlayersRef.current[track.id]
+    
+    if (player && player.loaded) {
+      try {
+        // Calculate timing for this pattern
+        const secondsPerBeat = 60 / bpm
+        const beatsPerBar = 4
+        const secondsPerBar = secondsPerBeat * beatsPerBar
+        const patternStartTime = (block.startBar - 1) * secondsPerBar
+        
+        // Start the pattern at the correct time
+        const startTime = Tone.now() + 0.1 // Small delay for stability
+        player.start(startTime, 0, block.duration * secondsPerBar)
+        
+        console.log(`[ARRANGEMENT AUDIO] Playing pattern ${block.name} for ${block.duration} bars`)
+      } catch (error) {
+        console.error(`[ARRANGEMENT AUDIO] Error playing pattern:`, error)
+      }
+    } else {
+      console.warn(`[ARRANGEMENT AUDIO] No player available for track ${track.name}`)
+    }
+  }
+
+  // Play the entire arrangement using arrangement audio system
+  const playArrangement = async () => {
+    console.log('[ARRANGEMENT AUDIO] Play arrangement called')
+    console.log('[ARRANGEMENT AUDIO] Pattern blocks:', patternBlocks)
+    console.log('[ARRANGEMENT AUDIO] Available tracks:', tracks)
+    console.log('[ARRANGEMENT AUDIO] Current players:', arrangementPlayersRef.current)
+    
+    if (patternBlocks.length === 0) {
+      alert('No pattern blocks to play')
+      return
+    }
+
+    if (!isArrangementAudioInitialized.current) {
+      console.warn('[ARRANGEMENT AUDIO] Audio system not initialized, trying to initialize...')
+      await Tone.start()
+      // Try to initialize audio again
+      const initializeArrangementAudio = async () => {
+        await Tone.start()
+        
+        // Use the global transport but reset it for arrangement
+        arrangementTransportRef.current = Tone.getTransport()
+        arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.position = 0
+        arrangementTransportRef.current.bpm.value = bpm
+        
+        console.log('[ARRANGEMENT AUDIO] Starting to load audio for tracks:', tracks.length)
+        
+        const loadPromises = tracks.map(async (track) => {
+          console.log(`[ARRANGEMENT AUDIO] Processing track: ${track.name}, audioUrl: ${track.audioUrl}`)
+          
+          if (track.audioUrl && track.audioUrl !== 'undefined') {
+            try {
+              console.log(`[ARRANGEMENT AUDIO] Loading audio for track ${track.name}: ${track.audioUrl}`)
+              
+              const pitchShifter = new Tone.PitchShift({
+                pitch: track.pitchShift || 0,
+                windowSize: 0.1,
+                delayTime: 0.001,
+                feedback: 0.05
+              }).toDestination()
+              
+              const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
+              
+              if (track.playbackRate && track.playbackRate !== 1) {
+                player.playbackRate = track.playbackRate
+              }
+              
+              // Wait for the player to load
+              console.log(`[ARRANGEMENT AUDIO] Waiting for player to load for ${track.name}...`)
+              await player.load(track.audioUrl)
+              console.log(`[ARRANGEMENT AUDIO] Player loaded successfully for ${track.name}`)
+              
+              arrangementPlayersRef.current[track.id] = player
+              arrangementPitchShiftersRef.current[track.id] = pitchShifter
+              
+              console.log(`[ARRANGEMENT AUDIO] Audio loaded and ready for track ${track.name}`)
+            } catch (error) {
+              console.error(`[ARRANGEMENT AUDIO] Failed to load audio for track ${track.name}:`, error)
+            }
+          } else {
+            console.warn(`[ARRANGEMENT AUDIO] No audio URL for track ${track.name}`)
+          }
+        })
+        
+        // Wait for all audio to load
+        console.log('[ARRANGEMENT AUDIO] Waiting for all audio to load...')
+        await Promise.all(loadPromises)
+        
+        isArrangementAudioInitialized.current = true
+        console.log('[ARRANGEMENT AUDIO] Audio system initialized with players:', Object.keys(arrangementPlayersRef.current))
+        console.log('[ARRANGEMENT AUDIO] Player details:', arrangementPlayersRef.current)
+      }
+      
+      await initializeArrangementAudio()
+    }
+
+    setIsArrangementPlaying(true)
+    isPlayingRef.current = true // Set ref immediately
+    setCurrentBar(1)
+    arrangementStartTimeRef.current = Date.now()
+    
+    console.log('[PLAYHEAD DEBUG] Set isArrangementPlaying to true, isPlayingRef to true')
+    
+    // Stop any currently playing arrangement and reset transport
+    if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.stop()
+      arrangementTransportRef.current.position = 0
+      arrangementTransportRef.current.cancel() // Cancel all scheduled events
+    }
+    
+    // Also ensure the global transport is stopped
+    const globalTransport = Tone.getTransport()
+    if (globalTransport.state === 'started') {
+      globalTransport.stop()
+      globalTransport.position = 0
+      globalTransport.cancel()
+    }
+    
+    // Sort pattern blocks by start bar
+    const sortedBlocks = [...patternBlocks].sort((a, b) => a.startBar - b.startBar)
+    console.log('[ARRANGEMENT AUDIO] Sorted blocks:', sortedBlocks)
+    
+    try {
+      // Calculate total arrangement duration in bars
+      const maxEndBar = Math.max(...sortedBlocks.map(block => block.endBar))
+      const totalDurationBars = maxEndBar
+      
+      // Calculate seconds per bar
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      
+      console.log('[ARRANGEMENT AUDIO] Scheduling patterns with timing:', { bpm, secondsPerBeat, secondsPerBar, totalDurationBars })
+      console.log('[ARRANGEMENT AUDIO] Available players before scheduling:', arrangementPlayersRef.current)
+      
+      // Schedule each pattern to start at its calculated time
+      sortedBlocks.forEach((block, index) => {
+        const track = block.tracks[0]
+        const player = arrangementPlayersRef.current[track.id]
+        
+        console.log(`[ARRANGEMENT AUDIO] Processing block ${block.name}:`, {
+          trackId: track.id,
+          trackName: track.name,
+          player: player,
+          playerLoaded: player?.loaded,
+          playerState: player?.state
+        })
+        
+        // Calculate start time in seconds (convert from bar number)
+        const startTimeInBars = block.startBar - 1 // Convert to 0-based
+        const startTimeInSeconds = startTimeInBars * secondsPerBar
+        const durationInSeconds = block.duration * secondsPerBar
+        
+        console.log(`[ARRANGEMENT AUDIO] Scheduling pattern ${block.name}: start at ${startTimeInSeconds}s, duration ${durationInSeconds}s`)
+        
+        if (player && player.loaded) {
+          try {
+            // Schedule the player to start at the calculated time
+            console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
+            player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
+            console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
+          } catch (error) {
+            console.error(`[ARRANGEMENT AUDIO] Error scheduling pattern ${block.name}:`, error)
+          }
+        } else {
+          console.warn(`[ARRANGEMENT AUDIO] No player available for track ${track.name}. Player:`, player)
+        }
+      })
+      
+      // Start the transport
+      console.log('[ARRANGEMENT AUDIO] Starting transport...')
+      arrangementTransportRef.current?.start()
+      console.log('[ARRANGEMENT AUDIO] Transport started successfully')
+      
+      // Update playhead every 50ms for smooth movement
+      console.log('[PLAYHEAD DEBUG] Setting up interval for playhead updates')
+      progressIntervalRef.current = setInterval(updatePlayhead, 50)
+      console.log('[PLAYHEAD DEBUG] Interval set up, ref:', progressIntervalRef.current)
+      
+      // Test: Force playhead to move every second to verify state updates work
+      const testInterval = setInterval(() => {
+        if (isPlayingRef.current) {
+          console.log('[PLAYHEAD DEBUG] TEST - Forcing playhead to move manually')
+          setCurrentBarSafe(currentBar + 0.1)
+        }
+      }, 1000)
+      
+      // Store test interval for cleanup
+      const testIntervalRef = { current: testInterval }
+      
+      console.log(`[ARRANGEMENT AUDIO] Started arrangement with ${sortedBlocks.length} patterns`)
+    } catch (error) {
+      console.error('[ARRANGEMENT AUDIO] Error creating sequence:', error)
+      setIsArrangementPlaying(false)
+    }
+  }
+
+  // Stop the arrangement
+  const stopArrangement = () => {
+    console.log('[PLAYHEAD DEBUG] stopArrangement called, setting isArrangementPlaying to false')
+    setIsArrangementPlaying(false)
+    isPlayingRef.current = false // Set ref to false
+    setCurrentPattern(null)
+    setCurrentBar(1)
+    
+    // Reset transport position
+    if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.position = 0
+    }
+    
+    // Stop arrangement transport
+    if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.stop()
+    }
+    
+    // Clear progress interval
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+      progressIntervalRef.current = null
+    }
+    
+    // Clear any test intervals
+    if (typeof window !== 'undefined') {
+      // Clear all intervals that might be running (nuclear option for debugging)
+      const highestIntervalId = window.setInterval(() => {}, 0)
+      for (let i = 1; i <= highestIntervalId; i++) {
+        window.clearInterval(i)
+      }
+    }
+    
+    // Stop all arrangement players safely
+    Object.values(arrangementPlayersRef.current).forEach(player => {
+      try {
+        if (player && player.state === 'started') {
+          player.stop()
+        }
+      } catch (error) {
+        console.warn('[ARRANGEMENT AUDIO] Error stopping player:', error)
+      }
+    })
+    
+    console.log('[ARRANGEMENT AUDIO] Arrangement stopped')
+  }
+
+  // Calculate time position for a bar
+  const getBarTime = (barNumber: number) => {
+    const secondsPerBeat = 60 / bpm
+    const beatsPerBar = 4 // Assuming 4/4 time signature
+    const secondsPerBar = secondsPerBeat * beatsPerBar
+    return (barNumber - 1) * secondsPerBar
+  }
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = Math.floor(seconds % 60)
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+  }
+
+  // Handle mouse down on pattern block for selection/dragging
+  const handleBlockMouseDown = (e: React.MouseEvent, blockId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    if (e.ctrlKey || e.metaKey) {
+      // Multi-select
+      setSelectedBlocks(prev => 
+        prev.includes(blockId) 
+          ? prev.filter(id => id !== blockId)
+          : [...prev, blockId]
+      )
+    } else {
+      // Single select
+      setSelectedBlocks([blockId])
+    }
+    
+    setIsDragging(true)
+    setDragStart({ x: e.clientX, y: e.clientY })
+    setDragOffset({ x: 0, y: 0 })
+  }
+
+  // Handle mouse move for dragging
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return
+    
+    const deltaX = e.clientX - dragStart.x
+    const deltaY = e.clientY - dragStart.y
+    
+    setDragOffset({ x: deltaX, y: deltaY })
+    
+            // Update the pattern block position in real-time as you drag
+        if (selectedBlocks.length > 0) {
+          const block = patternBlocks.find(b => b.id === selectedBlocks[0])
+          if (block) {
+            const originalBarX = (block.startBar - 1) * zoom
+            const newBarX = originalBarX + deltaX
+            // Snap when the front edge enters a bar area (use floor instead of round)
+            let snappedBar = Math.floor(newBarX / zoom) + 1
+            snappedBar = Math.max(1, snappedBar) // Don't go before bar 1
+            
+            // Update the block position immediately
+            const newPatternBlocks = patternBlocks.map(b => 
+              b.id === block.id 
+                ? { 
+                    ...b, 
+                    startBar: snappedBar,
+                    endBar: snappedBar + b.duration - 1
+                  }
+                : b
+            )
+            setPatternBlocks(newPatternBlocks)
+            onPatternsChange?.(newPatternBlocks)
+          }
+        }
+  }
+
+  // Handle mouse up to end dragging
+  const handleMouseUp = () => {
+    // Position is already updated during drag, just clean up
+    setIsDragging(false)
+    setSelectedBlocks([])
+    setDragOffset({ x: 0, y: 0 })
+    setDragStart({ x: 0, y: 0 })
+  }
+
+  // Add event listeners for mouse move and up
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove as any)
+      document.addEventListener('mouseup', handleMouseUp)
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove as any)
+        document.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [isDragging, dragStart])
+
+  // Generate timeline markers
+  const timelineMarkers = Array.from({ length: totalBars }, (_, i) => i + 1)
+
+  // Handle spacebar for play/stop (only when arrangement tab is active)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle spacebar when not typing in an input field
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return
+      }
+      
+      if (event.code === 'Space') {
+        event.preventDefault() // Prevent page scroll
+        event.stopPropagation() // Prevent event from bubbling up to main page
+        
+        console.log('[SONG ARRANGEMENT] Spacebar pressed - handling play/stop')
+        
+        if (isArrangementPlaying) {
+          stopArrangement()
+        } else {
+          playArrangement()
+        }
+      }
+    }
+
+    // Add event listener
+    document.addEventListener('keydown', handleKeyDown)
+    
+    // Cleanup
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isArrangementPlaying, patternBlocks]) // Include patternBlocks in dependencies
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <Card className="!bg-[#141414] border-gray-700">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-white text-lg">Song Arrangement</CardTitle>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-300 text-sm">Pattern Duration:</span>
+                <Select value={selectedDuration.toString()} onValueChange={(value) => setSelectedDuration(parseInt(value))}>
+                  <SelectTrigger className="w-20 h-8 bg-gray-700 border-gray-600 text-white text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-600">
+                    <SelectItem value="4">4 Bars</SelectItem>
+                    <SelectItem value="8">8 Bars</SelectItem>
+                    <SelectItem value="16">16 Bars</SelectItem>
+                    <SelectItem value="32">32 Bars</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-300 text-sm">Zoom:</span>
+                <input
+                  type="range"
+                  min="20"
+                  max="100"
+                  value={zoom}
+                  onChange={(e) => setZoom(parseInt(e.target.value))}
+                  className="w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <span className="text-gray-300 text-xs">{zoom}px/bar</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {bpm} BPM
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  {totalBars} Bars
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  {formatTime(getBarTime(totalBars + 1))}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="flex items-center gap-4">
+            <Button
+              onClick={isArrangementPlaying ? stopArrangement : playArrangement}
+              variant={isArrangementPlaying ? "destructive" : "default"}
+              size="lg"
+              className="w-16 h-16 rounded-full"
+              disabled={patternBlocks.length === 0}
+            >
+              {isArrangementPlaying ? <Square className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+            </Button>
+            <Button
+              onClick={stopArrangement}
+              variant="outline"
+              size="sm"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+            <div className="text-gray-300 text-sm">
+              {isArrangementPlaying ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` : 'Ready to play'}
+            </div>
+            <div className="text-gray-400 text-xs">
+              Press SPACEBAR to play/stop
+            </div>
+            {isArrangementPlaying && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-red-400 text-xs font-mono">
+                  Bar {Math.floor(currentBar)}.{Math.floor((currentBar % 1) * 4)} / {totalBars}
+                </span>
+              </div>
+            )}
+            {loadedTrackId && (
+              <div className="flex items-center gap-2 ml-4">
+                <Badge variant="outline" className="text-xs bg-green-600 text-white border-green-500">
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  Load Mode Active
+                </Badge>
+                <span className="text-green-400 text-sm">
+                  Click in grid to place {tracks.find(t => t.id === loadedTrackId)?.name} pattern
+                </span>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* DAW-Style Arrangement Grid */}
+      <Card className="!bg-[#141414] border-gray-700">
+        <CardContent className="p-0">
+          <div className="relative">
+            {/* Track names - Fixed outside the grid */}
+            <div className="absolute left-0 top-0 w-48 h-full bg-[#1a1a1a] border-r border-gray-600 z-30" style={{ marginTop: '60px' }}>
+              {tracks.map((track, index) => (
+                <div
+                  key={track.id}
+                  className="flex items-center justify-between border-b border-gray-600 px-3"
+                  style={{ height: '60px' }}
+                >
+                  <div className="flex items-center gap-2 flex-1">
+                    <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
+                    <span className="text-white text-sm truncate">{track.name}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={loadedTrackId === track.id ? "default" : "outline"}
+                    className={`w-8 h-8 p-0 text-xs ${
+                      loadedTrackId === track.id 
+                        ? 'bg-green-600 hover:bg-green-700 text-white' 
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                    }`}
+                    onClick={() => toggleLoadMode(track.id)}
+                    title={loadedTrackId === track.id ? "Click to turn off load mode" : "Click to load pattern for placement"}
+                  >
+                    {loadedTrackId === track.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "L"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {/* Main scrollable container that includes both header and grid */}
+            <div 
+              ref={gridRef}
+              className="relative overflow-auto ml-48"
+              style={{ height: '460px' }}
+              onScroll={(e) => setScrollX(e.currentTarget.scrollLeft)}
+              onClick={handleGridClick}
+            >
+              {/* Timeline Header - Scrolls with grid */}
+              <div 
+                className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-gray-600 relative"
+                style={{ height: '60px' }}
+              >
+                {/* Timeline Playhead */}
+                {isArrangementPlaying && (
+                  <div 
+                    className="absolute top-0 bottom-0 w-1 bg-red-500 z-30 shadow-lg"
+                    style={{
+                      left: `${Math.max(0, (currentBar - 1) * zoom)}px`,
+                      transition: 'none', // Remove transition for real-time movement
+                      boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)'
+                    }}
+                  >
+                    {/* Playhead arrow */}
+                    <div className="absolute -top-2 -left-2 w-0 h-0 border-l-6 border-r-6 border-b-6 border-transparent border-b-red-500"></div>
+                    {/* Debug info */}
+                    <div className="absolute -top-8 left-2 bg-red-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                      Bar {Math.floor(currentBar)}.{Math.floor((currentBar % 1) * 4)}
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-end h-full">
+                  {/* Timeline markers - Start at position 0 */}
+                  <div className="flex h-full"
+                    style={{ 
+                      width: `${totalBars * zoom}px`
+                    }}
+                  >
+                    {timelineMarkers.map((bar) => (
+                      <div
+                        key={bar}
+                        className="flex-shrink-0 border-r border-gray-600 text-xs text-gray-400 font-mono"
+                        style={{ width: `${zoom}px` }}
+                      >
+                        <div className="h-6 flex items-center justify-center border-b border-gray-600">
+                          {bar}
+                        </div>
+                        <div className="h-6 flex items-center justify-center">
+                          {formatTime(getBarTime(bar))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Arrangement Grid Content */}
+              <div 
+                className="relative"
+                style={{ 
+                  width: `${totalBars * zoom}px`,
+                  height: `${tracks.length * 60}px`
+                }}
+              >
+                {/* Playhead */}
+                {isArrangementPlaying && (
+                  <div 
+                    className="absolute top-0 bottom-0 w-2 bg-yellow-400 z-20 animate-pulse shadow-lg"
+                    style={{
+                      left: `${Math.max(0, (currentBar - 1) * zoom)}px`,
+                      transition: 'none', // Remove transition for real-time movement
+                      boxShadow: '0 0 20px rgba(250, 204, 21, 0.9)'
+                    }}
+                  >
+                    {/* Playhead arrow */}
+                    <div className="absolute -top-3 -left-3 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-yellow-400"></div>
+                    {/* Debug info */}
+                    <div className="absolute -top-10 left-2 bg-yellow-400 text-black text-xs px-2 py-1 rounded whitespace-nowrap font-bold">
+                      PLAYHEAD: Bar {Math.floor(currentBar)}.{Math.floor((currentBar % 1) * 4)}
+                    </div>
+                  </div>
+                )}
+                {/* Grid background */}
+                <div className="absolute inset-0 bg-[#0f0f0f]"></div>
+                
+                {/* Track Grid - Each track row uses same flexbox system as header */}
+                {tracks.map((track, trackIndex) => (
+                  <div
+                    key={track.id}
+                    className="flex absolute"
+                    style={{ 
+                      top: `${trackIndex * 60}px`,
+                      height: '60px',
+                      width: `${totalBars * zoom}px`
+                    }}
+                  >
+                    {timelineMarkers.map((bar) => (
+                      <div
+                        key={bar}
+                        className="flex-shrink-0 border-r border-gray-700"
+                        style={{ width: `${zoom}px` }}
+                      ></div>
+                    ))}
+                  </div>
+                ))}
+                
+                {/* Horizontal track separators */}
+                <div className="absolute inset-0">
+                  {tracks.map((track, index) => (
+                    <div
+                      key={track.id}
+                      className="absolute left-0 right-0 border-b border-gray-700"
+                      style={{ 
+                        top: `${index * 60}px`,
+                        height: '1px'
+                      }}
+                    ></div>
+                  ))}
+                </div>
+
+                {/* Pattern Blocks */}
+                {patternBlocks.map((block) => {
+                  const isExpanded = expandedPatterns.has(block.id)
+                  const waveformData = patternWaveformData[block.id] || []
+                  const blockHeight = isExpanded ? '120px' : '50px'
+                  
+                  return (
+                    <React.Fragment key={block.id}>
+                      <div
+                        key={block.id}
+                        className={`absolute cursor-move select-none ${
+                          selectedBlocks.includes(block.id) 
+                            ? 'ring-2 ring-blue-500 ring-opacity-50' 
+                            : ''
+                        }`}
+                        style={{
+                          left: `${(block.startBar - 1) * zoom}px`,
+                          top: `${tracks.findIndex(t => t.id === block.trackId) * 60 + 5}px`,
+                          width: `${block.duration * zoom}px`,
+                          height: blockHeight,
+                          transform: isDragging && selectedBlocks.includes(block.id) 
+                            ? `translate(${dragOffset.x}px, ${dragOffset.y}px)` 
+                            : 'none'
+                        }}
+                        onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
+                      >
+                        <div className={`h-full rounded border-2 border-gray-600 ${block.color} bg-opacity-80 relative group`}>
+                          {/* Block header */}
+                          <div className="absolute top-0 left-0 right-0 h-6 bg-black bg-opacity-50 rounded-t flex items-center justify-between px-2">
+                            <div className="flex items-center gap-2">
+                              <GripVertical className="w-3 h-3 text-gray-400" />
+                              <span className="text-white text-xs font-medium truncate">{block.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  // Move block 1 bar left
+                                  const newStartBar = Math.max(1, block.startBar - 1)
+                                  setPatternBlocks(prev => prev.map(b => 
+                                    b.id === block.id 
+                                      ? { 
+                                          ...b, 
+                                          startBar: newStartBar,
+                                          endBar: newStartBar + b.duration - 1
+                                        }
+                                      : b
+                                  ))
+                                }}
+                                title="Move left 1 bar"
+                              >
+                                <ChevronLeft className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  // Move block 1 bar right
+                                  const newStartBar = block.startBar + 1
+                                  setPatternBlocks(prev => prev.map(b => 
+                                    b.id === block.id 
+                                      ? { 
+                                          ...b, 
+                                          startBar: newStartBar,
+                                          endBar: newStartBar + b.duration - 1
+                                        }
+                                      : b
+                                  ))
+                                }}
+                                title="Move right 1 bar"
+                              >
+                                <ChevronRight className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  playPatternBlock(block)
+                                }}
+                                title="Play pattern"
+                              >
+                                <Play className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  viewPatternSequencer(block)
+                                }}
+                                title="View sequencer"
+                              >
+                                <Grid3X3 className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleInlineWaveform(block)
+                                }}
+                                title={expandedPatterns.has(block.id) ? "Hide waveform" : "Show waveform"}
+                              >
+                                <BarChart3 className={`w-2 h-2 ${expandedPatterns.has(block.id) ? 'text-blue-400' : ''}`} />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  duplicatePatternBlock(block)
+                                }}
+                                title="Duplicate pattern"
+                              >
+                                <Copy className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20 text-red-400"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  removePatternBlock(block.id)
+                                }}
+                                title="Delete pattern"
+                              >
+                                <Trash2 className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPatternWaveSub(prev => ({ ...prev, [block.id]: !prev[block.id] }))
+                                }}
+                                title={patternWaveSub[block.id] ? "Hide Wave" : "Show Wave"}
+                              >
+                                <BarChart3 className={`w-2 h-2 ${patternWaveSub[block.id] ? 'text-blue-400' : ''}`} />
+                              </Button>
+                            </div>
+                          </div>
+                          
+                          {/* Block content with waveform */}
+                          <div className="absolute top-6 left-0 right-0 bottom-0 flex items-center justify-center">
+                            <div className="w-full h-full flex flex-col">
+                              {/* Waveform visualization */}
+                              <div className="flex-1 flex items-center justify-center px-2">
+                                <div className="w-full h-8 bg-black bg-opacity-30 rounded flex items-center justify-center">
+                                  <div className="flex items-center justify-center space-x-0.5 w-full">
+                                    {/* Generate sophisticated waveform */}
+                                    {(() => {
+                                      const waveformData = generateWaveformData(block)
+                                      const track = tracks.find(t => t.id === block.trackId)
+                                      
+                                      if (waveformData && track?.audioUrl) {
+                                        // Show audio waveform
+                                        return waveformData.map((amplitude, i) => (
+                                          <div
+                                            key={i}
+                                            className="bg-blue-400 bg-opacity-80 rounded-sm"
+                                            style={{
+                                              width: '1px',
+                                              height: `${amplitude * 100}%`,
+                                              minHeight: '1px',
+                                              maxHeight: '16px'
+                                            }}
+                                          />
+                                        ))
+                                      } else {
+                                        // Show sequencer-based waveform
+                                        return Array.from({ length: Math.min(16, block.duration * 4) }, (_, i) => {
+                                          const stepIndex = i % 4
+                                          const trackId = block.trackId
+                                          const isActive = block.sequencerData[trackId]?.[stepIndex] || false
+                                          const intensity = isActive ? Math.random() * 0.8 + 0.2 : 0.1
+                                          
+                                          return (
+                                            <div
+                                              key={i}
+                                              className="bg-white bg-opacity-60 rounded-sm"
+                                              style={{
+                                                width: '2px',
+                                                height: `${intensity * 100}%`,
+                                                minHeight: '2px',
+                                                maxHeight: '20px'
+                                              }}
+                                            />
+                                          )
+                                        })
+                                      }
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Duration label */}
+                              <div className="text-center">
+                                <span className="text-white text-xs font-mono">
+                                  {block.duration} bars
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Expanded Waveform Display */}
+                          {isExpanded && waveformData.length > 0 && (
+                            <div className="absolute top-12 left-0 right-0 bottom-0 bg-black bg-opacity-80 rounded-b border-t border-gray-600">
+                              <div className="flex items-center justify-center h-full px-2">
+                                <div className="flex items-center justify-center space-x-0.5 w-full">
+                                  {waveformData.map((amplitude, index) => (
+                                    <div
+                                      key={index}
+                                      className="bg-blue-400 rounded-sm"
+                                      style={{
+                                        width: '1px',
+                                        height: `${amplitude * 100}%`,
+                                        minHeight: '1px',
+                                        maxHeight: '60px'
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {patternWaveSub[block.id] && tracks.find(t => t.id === block.trackId)?.audioUrl && (
+                        <div className="w-full flex bg-black/80 border-t border-gray-700" style={{ position: 'absolute', left: `${(block.startBar - 1) * zoom}px`, top: `${tracks.findIndex(t => t.id === block.trackId) * 60 + 5 + parseInt(blockHeight)}px`, width: `${block.duration * zoom}px` }}>
+                          <div className="w-2 h-full bg-transparent"></div>
+                          <TrackWaveform
+                            audioUrl={tracks.find(t => t.id === block.trackId)?.audioUrl || null}
+                            trackColor={tracks.find(t => t.id === block.trackId)?.color || '#60a5fa'}
+                            height={40}
+                            width={block.duration * zoom}
+                            bpm={block.bpm}
+                            steps={block.duration * 4}
+                            activeSteps={block.sequencerData[block.trackId]}
+                            isVisible={true}
+                          />
+                        </div>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+
+
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Waveform Modal */}
+      {showWaveform && waveformTrack && waveformBlock && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-600 rounded-lg p-6 max-w-4xl w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-lg font-semibold">
+                Audio Waveform: {waveformBlock.name}
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowWaveform(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </Button>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-gray-300 text-sm">
+                Track: {waveformTrack.name} | Duration: {waveformBlock.duration} bars
+              </p>
+            </div>
+            
+            {/* Waveform Display */}
+            <div className="bg-black rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-center space-x-1 h-32">
+                {waveformData.map((amplitude, index) => (
+                  <div
+                    key={index}
+                    className="bg-blue-400 rounded-sm"
+                    style={{
+                      width: '2px',
+                      height: `${amplitude * 100}%`,
+                      minHeight: '1px',
+                      maxHeight: '120px'
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            
+            {/* Audio Controls */}
+            <div className="flex items-center gap-4">
+              <Button
+                onClick={() => {
+                  if (waveformTrack.audioUrl) {
+                    const audio = new Audio(waveformTrack.audioUrl)
+                    audio.play()
+                  }
+                }}
+                variant="default"
+                size="sm"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Play Audio
+              </Button>
+              <Button
+                onClick={() => setShowWaveform(false)}
+                variant="outline"
+                size="sm"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+} 

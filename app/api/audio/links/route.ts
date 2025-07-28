@@ -10,6 +10,13 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 // GET - Fetch file links for a user
 export async function GET(request: NextRequest) {
   try {
+    // Get query parameters
+    const { searchParams } = new URL(request.url)
+    const limit = parseInt(searchParams.get('limit') || '5000')
+    
+    console.log(`[API] Query limit requested: ${limit}`)
+    console.log(`[API] Full URL: ${request.url}`)
+    
     // Get the access token from the Authorization header
     const authHeader = request.headers.get('authorization')
     if (!authHeader) {
@@ -23,11 +30,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // First, let's see how many total records exist
+    const { count, error: countError } = await supabaseAdmin
+      .from('audio_file_links')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+    
+    if (countError) {
+      console.error('Error counting file links:', countError)
+    } else {
+      console.log(`[API] Total file links in database: ${count}`)
+    }
+    
+    // Now fetch records with the specified limit
     const { data, error } = await supabaseAdmin
       .from('audio_file_links')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
+      .limit(limit) // Use the specified limit
 
     if (error) {
       console.error('Error fetching file links:', error)
@@ -35,6 +56,19 @@ export async function GET(request: NextRequest) {
         { error: 'Failed to fetch file links' },
         { status: 500 }
       )
+    }
+
+    console.log(`[API] Fetched ${data?.length || 0} file links for user ${user.id} (limit was: ${limit})`)
+    
+    // Log a few sample links for debugging
+    if (data && data.length > 0) {
+      console.log(`[API] Sample links:`, data.slice(0, 3).map(link => ({
+        id: link.id,
+        original: link.original_file_id,
+        converted: link.converted_file_id,
+        originalFormat: link.original_format,
+        convertedFormat: link.converted_format
+      })))
     }
 
     return NextResponse.json({ links: data })

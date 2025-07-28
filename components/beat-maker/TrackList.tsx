@@ -245,9 +245,10 @@ interface TrackListProps {
   fileLinks?: any[] // Add file links for format detection
   genres?: any[] // Available genres for track selection
   genreSubgenres?: {[key: string]: string[]} // Genre to subgenre mapping
+  onTrackAudioUrlChange?: (trackId: number, newAudioUrl: string) => void // Add callback for URL changes
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {} }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [showGenreSelector, setShowGenreSelector] = useState(false)
@@ -625,32 +626,49 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     
     // If WAV is preferred, return the original URL
     if (!preferMp3) {
+      console.log(`🎵 Track ${track.name}: Using WAV (original URL)`)
       return track.audioUrl
     }
     
     // If MP3 is preferred, check if there's a linked MP3 file
     const audioFileId = track.audioFileId || track.id.toString()
     
+    console.log(`🔍 Looking for MP3 link for track ${track.name} (audioFileId: ${audioFileId})`)
+    console.log(`📊 Available file links:`, fileLinks.map(l => ({
+      original: l.original_file_id,
+      converted: l.converted_file_id,
+      format: l.converted_format,
+      hasMp3Url: !!l.mp3_file_url
+    })))
+    
     // Check both directions: original to converted and converted to original
     const mp3Link = fileLinks.find(link => {
       // Check if this track's audio file is the original and has an MP3 conversion
       if (link.original_file_id === audioFileId && link.converted_format === 'mp3') {
+        console.log(`✅ Found MP3 link (original -> converted):`, link)
         return true
       }
       // Check if this track's audio file is the converted MP3 of another file
       if (link.converted_file_id === audioFileId && link.converted_format === 'mp3') {
+        console.log(`✅ Found MP3 link (converted -> original):`, link)
         return true
       }
       return false
     })
     
     if (mp3Link) {
-      // TODO: We need to get the actual MP3 file URL from the database
-      // For now, return the original URL
-      console.log(`🔗 Would switch to MP3 for track ${track.name}, but URL not implemented yet`)
+      // Find the MP3 file URL from the fileLinks data
+      // The MP3 file URL should be available in the link data
+      if (mp3Link.mp3_file_url) {
+        console.log(`🔗 Switching to MP3 for track ${track.name}: ${mp3Link.mp3_file_url}`)
+        return mp3Link.mp3_file_url
+      }
+      
+      console.log(`❌ Found MP3 link for track ${track.name} but no URL available:`, mp3Link)
       return track.audioUrl
     }
     
+    console.log(`❌ No MP3 link found for track ${track.name}, using original URL`)
     // Fallback to original URL if no MP3 link exists
     return track.audioUrl
   }
@@ -715,6 +733,26 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
     setShowGenreSelector(false)
     setSelectedTrackForGenre(null)
   }
+
+  // Effect to update track audio URLs when format preference changes
+  useEffect(() => {
+    if (onTrackAudioUrlChange) {
+      console.log(`🔄 Format preference changed to: ${preferMp3 ? 'MP3' : 'WAV'}`)
+      console.log(`📊 Available file links:`, fileLinks.length)
+      
+      tracks.forEach(track => {
+        if (track.audioUrl && track.audioFileId) {
+          const newAudioUrl = getTrackAudioUrl(track)
+          console.log(`🎵 Track ${track.name} (${track.audioFileId}): current=${track.audioUrl?.substring(0, 50)}..., new=${newAudioUrl?.substring(0, 50)}...`)
+          
+          if (newAudioUrl && newAudioUrl !== track.audioUrl) {
+            console.log(`🔄 Updating track ${track.name} audio URL from ${track.audioUrl} to ${newAudioUrl}`)
+            onTrackAudioUrlChange(track.id, newAudioUrl)
+          }
+        }
+      })
+    }
+  }, [preferMp3, fileLinks, tracks, onTrackAudioUrlChange])
 
   return (
     <>
@@ -993,9 +1031,12 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                                   ? 'text-green-300 bg-green-900/40 border-green-500/60' 
                                   : 'text-blue-300 bg-blue-900/40 border-blue-500/60'
                               }`}
-                              title={`Currently playing: ${getTrackFormat(track)} format`}
+                              title={`Currently playing: ${getTrackFormat(track)} format (${getTrackAudioUrl(track) === track.audioUrl ? 'Original' : 'Switched'})`}
                             >
                               {getTrackFormat(track)}
+                              {getTrackAudioUrl(track) !== track.audioUrl && (
+                                <span className="ml-1 text-xs">🔄</span>
+                              )}
                             </Badge>
                           )}
                         </>
@@ -1330,14 +1371,20 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 {track.audioUrl && (
                   <div className="mt-2">
                     <audio
-                      key={track.audioUrl} // Force re-render when audio URL changes
+                      key={`${track.audioUrl}-${preferMp3}-${Date.now()}`} // Force re-render when format preference changes
                       controls
                       className="w-full h-8"
                       preload="metadata"
                     >
-                      <source src={track.audioUrl} type="audio/mpeg" />
+                      <source src={getTrackAudioUrl(track) || track.audioUrl} type="audio/mpeg" />
                       Your browser does not support the audio element.
                     </audio>
+                    {/* Debug info */}
+                    <div className="text-xs text-gray-400 mt-1">
+                      Current: {getTrackAudioUrl(track) === track.audioUrl ? 'Original' : 'Switched'} | 
+                      Format: {getTrackFormat(track)} | 
+                      ID: {track.audioFileId}
+                    </div>
                   </div>
                 )}
 

@@ -66,7 +66,7 @@ export interface PianoRollData {
   [trackId: number]: AudioNote[]
 }
 
-export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling') {
+export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling', gridDivision: number = 4) {
   const [sequencerData, setSequencerData] = useState<SequencerData>({})
   const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
@@ -609,8 +609,9 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       // Set the BPM for Tone.js Transport
       Tone.Transport.bpm.value = bpm
       
-      // Calculate step duration
-      const stepDuration = 60 / bpm / 4 // 16th note duration
+      // Calculate step duration based on grid division (like loop editor)
+      const secondsPerBeat = 60 / bpm
+      const stepDuration = secondsPerBeat / (gridDivision / 4)
       
       // Create a sequence that loops perfectly
       const sequence = new Tone.Sequence((time, step) => {
@@ -642,7 +643,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
         intervalRef.current = null
       }
     }
-  }, [bpm, isSequencePlaying, playStep, steps])
+  }, [bpm, isSequencePlaying, playStep, steps, gridDivision])
 
   const toggleStep = useCallback((trackId: number, stepIndex: number) => {
     setSequencerData(prev => ({
@@ -671,8 +672,9 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     console.log(`[PIANO ROLL PLAYBACK] Starting piano roll playback at ${bpm} BPM`)
     console.log(`[PIANO ROLL PLAYBACK] Full piano roll data:`, pianoRollData)
     
-    // Calculate timing based on BPM
-    const stepDuration = (60 / bpm) / 4 // 16th note duration in seconds
+    // Calculate timing based on BPM and grid division
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (gridDivision / 4)
     console.log(`[PIANO ROLL PLAYBACK] Step duration: ${stepDuration}s (${stepDuration * 1000}ms)`)
     
     // Use the existing loaded samples instead of creating new ones
@@ -694,8 +696,9 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       
       // Play each note with proper timing based on step position
       trackPianoRollNotes.forEach((note) => {
-        // Calculate when this note should play based on its step position
-        const noteStepInBar = (note.startStep - 1) % 16 // Convert to 0-based step
+        // Calculate when this note should play based on its step position and grid division
+        const stepsPerBar = gridDivision // Each bar has gridDivision steps
+        const noteStepInBar = (note.startStep - 1) % stepsPerBar // Convert to 0-based step
         const playDelay = noteStepInBar * stepDuration * 1000 // Convert to milliseconds
         
         console.log(`[PIANO ROLL PLAYBACK] Note ${note.note} at step ${note.startStep} (bar step ${noteStepInBar}) will play in ${playDelay}ms`)

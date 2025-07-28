@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabaseClient'
+import { useToast } from '@/hooks/use-toast'
 import { 
   Play, 
   Pause, 
@@ -49,6 +50,7 @@ interface Marker {
   name: string
   category: string
   color?: string
+  positions?: number[] // Multiple positions within one marker
 }
 
 interface Region {
@@ -181,7 +183,7 @@ export default function LoopEditorPage() {
   // Markers and regions
   const [markers, setMarkers] = useState<Marker[]>([])
   const [regions, setRegions] = useState<Region[]>([])
-  const [selectedMarkers, setSelectedMarkers] = useState<string[]>([])
+  const [selectedMarkers, setSelectedMarkers] = useState<Set<string>>(new Set())
   const [selectedRegions, setSelectedRegions] = useState<string[]>([])
   
   // Marker editing state
@@ -195,6 +197,17 @@ export default function LoopEditorPage() {
   const [customCategories, setCustomCategories] = useState<string[]>([])
   const [showCategoryInput, setShowCategoryInput] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  
+  // Edit mode state - ONLY this
+  const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null)
+  
+  // Waveform selection state
+  const [waveSelectionStart, setWaveSelectionStart] = useState<number | null>(null)
+  const [waveSelectionEnd, setWaveSelectionEnd] = useState<number | null>(null)
+  const [isWaveSelecting, setIsWaveSelecting] = useState(false)
+  const [clipboardSegment, setClipboardSegment] = useState<{ start: number; end: number; audioData: Float32Array } | null>(null)
+  
+
   
   // Editing state
   const [editingRegion, setEditingRegion] = useState<string | null>(null)
@@ -216,6 +229,7 @@ export default function LoopEditorPage() {
   const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set())
   const [projectData, setProjectData] = useState<any>(null)
   const { user } = useAuth()
+  const { toast } = useToast()
   
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -253,6 +267,8 @@ export default function LoopEditorPage() {
       setGridLines(mainLines)
     }
   }, [bpm, gridDivision, totalDuration, stepDuration, showDetailedGrid])
+
+
   
   // Load audio file
   const loadAudioFile = useCallback(async (file: File) => {
@@ -799,10 +815,30 @@ export default function LoopEditorPage() {
       ctx.fillText(region.name, (startX + endX) / 2, 60)
     })
     
+    // Draw waveform selection highlight
+    if (waveSelectionStart !== null && waveSelectionEnd !== null) {
+      const start = Math.min(waveSelectionStart, waveSelectionEnd)
+      const end = Math.max(waveSelectionStart, waveSelectionEnd)
+      
+      const startX = (start / totalDuration) * effectiveWidth + waveformOffset
+      const endX = (end / totalDuration) * effectiveWidth + waveformOffset
+      
+      // Draw selection rectangle
+      ctx.fillStyle = 'rgba(255, 255, 0, 0.3)' // Semi-transparent yellow
+      ctx.fillRect(startX, 0, endX - startX, rect.height)
+      
+      // Draw selection border
+      ctx.strokeStyle = '#ffff00' // Yellow border
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 5])
+      ctx.strokeRect(startX, 0, endX - startX, rect.height)
+      ctx.setLineDash([])
+    }
+    
     // No need to restore since we're not using ctx.save()
     
   }, [waveformData, duration, totalDuration, showGrid, showWaveform, gridLines, 
-      selectionStart, selectionEnd, playheadPosition, currentTime, isPlaying, markers, regions, zoom, verticalZoom, waveformOffset])
+      selectionStart, selectionEnd, waveSelectionStart, waveSelectionEnd, playheadPosition, currentTime, isPlaying, markers, regions, zoom, verticalZoom, waveformOffset])
   
   // Remove this effect that was causing constant redraws
   
@@ -896,13 +932,14 @@ export default function LoopEditorPage() {
       setIsSelecting(true)
       dragTypeRef.current = 'selection'
     } else {
-      // Default behavior: Click anywhere on waveform - set playhead position only (don't auto-play)
+      // Start waveform selection for free selection
       const clampedTime = Math.max(0, Math.min(time, totalDuration))
-      const snappedTime = snapTimeToGrid(clampedTime)
-      console.log('🔍 SETTING PLAYHEAD - clampedTime:', clampedTime, 'snappedTime:', snappedTime, 'snapToGrid:', snapToGrid)
-      setPlayheadPosition(snappedTime)
+      const snappedTime = snapToGrid ? snapTimeToGrid(clampedTime) : clampedTime
+      startWaveSelection(snappedTime)
+      dragTypeRef.current = 'selection'
       
-      // If audio is currently playing, update the audio position but keep playing
+      // Also set playhead position
+      setPlayheadPosition(snappedTime)
       if (isPlaying && audioRef.current) {
         audioRef.current.currentTime = snappedTime
       }
@@ -924,6 +961,11 @@ export default function LoopEditorPage() {
     if (dragTypeRef.current === 'selection' && selectionStart !== null) {
       const snappedTime = snapTimeToGrid(time)
       setSelectionEnd(snappedTime)
+    } else if (dragTypeRef.current === 'selection' && isWaveSelecting) {
+      // Update waveform selection
+      const clampedTime = Math.max(0, Math.min(time, totalDuration))
+      const snappedTime = snapToGrid ? snapTimeToGrid(clampedTime) : clampedTime
+      updateWaveSelection(snappedTime)
     } else if (dragTypeRef.current === 'waveform') {
       // Calculate waveform offset based on mouse movement
       const deltaX = e.clientX - lastMouseXRef.current
@@ -976,6 +1018,11 @@ export default function LoopEditorPage() {
       setSelectionStart(null)
       setSelectionEnd(null)
       setIsSelecting(false)
+    }
+    
+    // End waveform selection if active
+    if (isWaveSelecting) {
+      endWaveSelection()
     }
   }
   
@@ -1102,7 +1149,7 @@ export default function LoopEditorPage() {
     setLoadingLibrary(true)
     
     try {
-      // Fetch all audio items
+      // Fetch all audio items (no limit)
       console.log('🔍 FETCHING AUDIO ITEMS...')
       const { data: audioData, error: audioError } = await supabase
         .from('audio_library_items')
@@ -1112,6 +1159,7 @@ export default function LoopEditorPage() {
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
+        .limit(1000000) // Set a very high limit to effectively remove the 1k limit
       
       if (audioError) {
         console.error('🔍 Error fetching audio library:', audioError)
@@ -1147,6 +1195,7 @@ export default function LoopEditorPage() {
             .select('id')
             .eq('user_id', user.id)
             .eq('pack_id', pack.id)
+            .limit(1000000) // Set a very high limit to effectively remove the 1k limit
           
           const fileCount = files ? files.length : 0
           return { ...pack, item_count: fileCount }
@@ -1163,11 +1212,17 @@ export default function LoopEditorPage() {
     }
   }
   
+  // Store the current audio library item for BPM updates
+  const [currentLibraryItem, setCurrentLibraryItem] = useState<AudioLibraryItem | null>(null)
+
   const loadAudioFromLibrary = async (item: AudioLibraryItem) => {
     if (!item.file_url) return
     
     try {
       setIsLoading(true)
+      
+      // Store the current item for BPM updates
+      setCurrentLibraryItem(item)
       
       // Fetch the audio file from the URL
       const response = await fetch(item.file_url)
@@ -1177,11 +1232,71 @@ export default function LoopEditorPage() {
       const file = new File([blob], item.name, { type: 'audio/wav' })
       
       await loadAudioFile(file)
+      
+      // Auto-set BPM from the audio library item if available
+      if (item.bpm && item.bpm > 0) {
+        console.log('🔍 AUTO-SETTING BPM FROM LIBRARY:', item.bpm)
+        setBpm(item.bpm)
+      } else {
+        console.log('🔍 BPM IS EMPTY - SETTING TO DEFAULT')
+        setBpm(120) // Default BPM when empty
+      }
+      
       setShowLibrary(false)
     } catch (error) {
       console.error('Error loading audio from library:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Function to update BPM in the database
+  const updateBPMInLibrary = async (newBpm: number) => {
+    if (!currentLibraryItem || !user?.id) return
+    
+    try {
+      console.log('🔍 UPDATING BPM IN LIBRARY:', newBpm, 'for item:', currentLibraryItem.id)
+      
+      const { error } = await supabase
+        .from('audio_library_items')
+        .update({ bpm: newBpm })
+        .eq('id', currentLibraryItem.id)
+        .eq('user_id', user.id)
+      
+      if (error) {
+        console.error('🔍 Error updating BPM in library:', error)
+        toast({
+          title: "Error updating BPM",
+          description: "Failed to save BPM to database. Please try again.",
+          variant: "destructive",
+        })
+      } else {
+        console.log('🔍 BPM UPDATED SUCCESSFULLY IN LIBRARY')
+        
+        // Show success notification
+        toast({
+          title: "BPM Updated",
+          description: `BPM saved to database: ${newBpm}`,
+          variant: "default",
+        })
+        
+        // Update the local state to reflect the change
+        setAudioLibraryItems(prev => prev.map(item => 
+          item.id === currentLibraryItem.id 
+            ? { ...item, bpm: newBpm }
+            : item
+        ))
+        
+        // Update the current library item
+        setCurrentLibraryItem(prev => prev ? { ...prev, bpm: newBpm } : null)
+      }
+    } catch (error) {
+      console.error('🔍 Error updating BPM in library:', error)
+      toast({
+        title: "Error updating BPM",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      })
     }
   }
   
@@ -1672,6 +1787,1008 @@ export default function LoopEditorPage() {
   const removeMarker = (markerId: string) => {
     setMarkers(prev => prev.filter(marker => marker.id !== markerId))
   }
+
+  // Multi-selection functions
+
+
+  const stopEditingMarker = () => {
+    if (editingMarkerId) {
+      console.log('🔍 Stopping marker editing')
+      setEditingMarkerId(null)
+      toast({
+        title: "Editing Stopped",
+        description: "Marker editing mode disabled",
+        variant: "default",
+      })
+    }
+  }
+
+  // Shuffle audio segments based on markers
+  const shuffleMarkers = async () => {
+    if (!audioRef.current || markers.length === 0) {
+      toast({
+        title: "Cannot Shuffle",
+        description: "Need audio file and markers to shuffle",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      console.log('🔍 Starting marker shuffle...')
+      
+      // Get all marker positions (including positions within markers)
+      const allPositions: number[] = []
+      markers.forEach(marker => {
+        if (marker.positions && marker.positions.length > 0) {
+          allPositions.push(...marker.positions)
+        } else {
+          allPositions.push(marker.time)
+        }
+      })
+      
+      // Sort positions and add start/end
+      const sortedPositions = [...new Set(allPositions)].sort((a, b) => a - b)
+      if (sortedPositions[0] !== 0) sortedPositions.unshift(0)
+      if (sortedPositions[sortedPositions.length - 1] !== totalDuration) {
+        sortedPositions.push(totalDuration)
+      }
+      
+      console.log('🔍 Positions for shuffling:', sortedPositions)
+      
+      // Create segments from positions
+      const segments: { start: number; end: number; duration: number }[] = []
+      for (let i = 0; i < sortedPositions.length - 1; i++) {
+        segments.push({
+          start: sortedPositions[i],
+          end: sortedPositions[i + 1],
+          duration: sortedPositions[i + 1] - sortedPositions[i]
+        })
+      }
+      
+      console.log('🔍 Audio segments:', segments)
+      
+      // Shuffle segments
+      const shuffledSegments = [...segments].sort(() => Math.random() - 0.5)
+      console.log('🔍 Shuffled segments:', shuffledSegments)
+      
+      // Create shuffled audio
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      
+      // Get original audio buffer
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // Calculate total duration of shuffled audio
+      const totalShuffledDuration = shuffledSegments.reduce((sum, seg) => sum + seg.duration, 0)
+      
+      // Create new buffer for shuffled audio
+      const shuffledBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        Math.ceil(totalShuffledDuration * originalBuffer.sampleRate),
+        originalBuffer.sampleRate
+      )
+      
+      // Copy shuffled segments to new buffer
+      let shuffledTime = 0
+      for (const segment of shuffledSegments) {
+        const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+        const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+        const segmentLength = endSample - startSample
+        
+        for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+          const originalData = originalBuffer.getChannelData(channel)
+          const shuffledData = shuffledBuffer.getChannelData(channel)
+          
+          // Copy segment data
+          for (let i = 0; i < segmentLength; i++) {
+            const shuffledIndex = Math.floor(shuffledTime * originalBuffer.sampleRate) + i
+            if (shuffledIndex < shuffledData.length) {
+              shuffledData[shuffledIndex] = originalData[startSample + i] || 0
+            }
+          }
+        }
+        
+        shuffledTime += segment.duration
+      }
+      
+      // Convert buffer to blob and create new audio source
+      const shuffledBlob = audioBufferToWav(shuffledBuffer)
+      const shuffledUrl = URL.createObjectURL(shuffledBlob)
+      
+      // Update audio source
+      if (audioRef.current) {
+        audioRef.current.src = shuffledUrl
+        audioRef.current.load()
+        
+        // Reset playhead
+        setPlayheadPosition(0)
+        setCurrentTime(0)
+        
+        // Update waveform to match shuffled audio
+        const shuffledAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const shuffledArrayBuffer = await shuffledBlob.arrayBuffer()
+        const shuffledAudioBuffer = await shuffledAudioContext.decodeAudioData(shuffledArrayBuffer)
+        
+        const shuffledChannelData = shuffledAudioBuffer.getChannelData(0)
+        const shuffledSampleRate = shuffledAudioBuffer.sampleRate
+        const shuffledDuration = shuffledAudioBuffer.duration
+        
+        // Update duration
+        setDuration(shuffledDuration)
+        
+        // Generate new waveform data for shuffled audio
+        const numPoints = Math.max(2000, Math.floor(shuffledDuration * 50))
+        const samplesPerPoint = Math.floor(shuffledChannelData.length / numPoints)
+        const shuffledWaveform: WaveformPoint[] = []
+        
+        for (let i = 0; i < numPoints; i++) {
+          const start = i * samplesPerPoint
+          const end = Math.min(start + samplesPerPoint, shuffledChannelData.length)
+          
+          let rms = 0
+          let peak = 0
+          let sampleCount = 0
+          
+          for (let j = start; j < end; j++) {
+            const sample = Math.abs(shuffledChannelData[j])
+            rms += sample * sample
+            peak = Math.max(peak, sample)
+            sampleCount++
+          }
+          
+          rms = Math.sqrt(rms / sampleCount)
+          
+          shuffledWaveform.push({
+            x: (i / numPoints) * shuffledDuration,
+            y: rms
+          })
+        }
+        
+        // Update waveform state
+        setWaveformData(shuffledWaveform)
+        setDuration(shuffledDuration)
+      }
+      
+      toast({
+        title: "Markers Shuffled!",
+        description: `Audio shuffled with ${segments.length} segments`,
+        variant: "default",
+      })
+      
+      console.log('🔍 Shuffle complete!')
+      
+    } catch (error) {
+      console.error('🔍 Shuffle error:', error)
+      toast({
+        title: "Shuffle Failed",
+        description: "Error shuffling audio segments",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Shuffle audio segments based on grid divisions
+  const shuffleGrid = async () => {
+    if (!audioRef.current || !bpm) {
+      toast({
+        title: "Cannot Shuffle Grid",
+        description: "Need audio file and BPM to create grid",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      console.log('🔍 Starting grid shuffle...')
+      
+      // Calculate grid divisions based on BPM
+      const beatsPerSecond = bpm / 60
+      const beatDuration = 1 / beatsPerSecond
+      
+      // Create grid positions (every beat)
+      const gridPositions: number[] = []
+      let currentTime = 0
+      
+      while (currentTime < totalDuration) {
+        gridPositions.push(currentTime)
+        currentTime += beatDuration
+      }
+      
+      // Add end position if not already included
+      if (gridPositions[gridPositions.length - 1] !== totalDuration) {
+        gridPositions.push(totalDuration)
+      }
+      
+      console.log('🔍 Grid positions for shuffling:', gridPositions)
+      console.log('🔍 Grid divisions:', gridPositions.length - 1)
+      
+      // Create segments from grid positions
+      const segments: { start: number; end: number; duration: number }[] = []
+      for (let i = 0; i < gridPositions.length - 1; i++) {
+        segments.push({
+          start: gridPositions[i],
+          end: gridPositions[i + 1],
+          duration: gridPositions[i + 1] - gridPositions[i]
+        })
+      }
+      
+      console.log('🔍 Grid segments:', segments)
+      
+      // Shuffle segments
+      const shuffledSegments = [...segments].sort(() => Math.random() - 0.5)
+      console.log('🔍 Shuffled grid segments:', shuffledSegments)
+      
+      // Create shuffled audio
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      
+      // Get original audio buffer
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // Calculate total duration of shuffled audio
+      const totalShuffledDuration = shuffledSegments.reduce((sum, seg) => sum + seg.duration, 0)
+      
+      // Create new buffer for shuffled audio
+      const shuffledBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        Math.ceil(totalShuffledDuration * originalBuffer.sampleRate),
+        originalBuffer.sampleRate
+      )
+      
+      // Copy shuffled segments to new buffer
+      let shuffledTime = 0
+      for (const segment of shuffledSegments) {
+        const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+        const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+        const segmentLength = endSample - startSample
+        
+        for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+          const originalData = originalBuffer.getChannelData(channel)
+          const shuffledData = shuffledBuffer.getChannelData(channel)
+          
+          // Copy segment data
+          for (let i = 0; i < segmentLength; i++) {
+            const shuffledIndex = Math.floor(shuffledTime * originalBuffer.sampleRate) + i
+            if (shuffledIndex < shuffledData.length) {
+              shuffledData[shuffledIndex] = originalData[startSample + i] || 0
+            }
+          }
+        }
+        
+        shuffledTime += segment.duration
+      }
+      
+      // Convert buffer to blob and create new audio source
+      const shuffledBlob = audioBufferToWav(shuffledBuffer)
+      const shuffledUrl = URL.createObjectURL(shuffledBlob)
+      
+      // Update audio source
+      if (audioRef.current) {
+        audioRef.current.src = shuffledUrl
+        audioRef.current.load()
+        
+        // Reset playhead
+        setPlayheadPosition(0)
+        setCurrentTime(0)
+        
+        // Update waveform to match shuffled audio
+        const shuffledAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const shuffledArrayBuffer = await shuffledBlob.arrayBuffer()
+        const shuffledAudioBuffer = await shuffledAudioContext.decodeAudioData(shuffledArrayBuffer)
+        
+        const shuffledChannelData = shuffledAudioBuffer.getChannelData(0)
+        const shuffledSampleRate = shuffledAudioBuffer.sampleRate
+        const shuffledDuration = shuffledAudioBuffer.duration
+        
+        // Update duration
+        setDuration(shuffledDuration)
+        
+        // Generate new waveform data for shuffled audio
+        const numPoints = Math.max(2000, Math.floor(shuffledDuration * 50))
+        const samplesPerPoint = Math.floor(shuffledChannelData.length / numPoints)
+        const shuffledWaveform: WaveformPoint[] = []
+        
+        for (let i = 0; i < numPoints; i++) {
+          const start = i * samplesPerPoint
+          const end = Math.min(start + samplesPerPoint, shuffledChannelData.length)
+          
+          let rms = 0
+          let peak = 0
+          let sampleCount = 0
+          
+          for (let j = start; j < end; j++) {
+            const sample = Math.abs(shuffledChannelData[j])
+            rms += sample * sample
+            peak = Math.max(peak, sample)
+            sampleCount++
+          }
+          
+          rms = Math.sqrt(rms / sampleCount)
+          
+          shuffledWaveform.push({
+            x: (i / numPoints) * shuffledDuration,
+            y: rms
+          })
+        }
+        
+        // Update waveform state
+        setWaveformData(shuffledWaveform)
+        setDuration(shuffledDuration)
+      }
+      
+      toast({
+        title: "Grid Shuffled!",
+        description: `Audio shuffled with ${segments.length} grid segments (${bpm} BPM)`,
+        variant: "default",
+      })
+      
+      console.log('🔍 Grid shuffle complete!')
+      
+    } catch (error) {
+      console.error('🔍 Grid shuffle error:', error)
+      toast({
+        title: "Grid Shuffle Failed",
+        description: "Error shuffling grid segments",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Manual continuous shuffling - each click shuffles differently
+  const handleShuffle = async (shuffleType: 'markers' | 'grid') => {
+    if (shuffleType === 'markers') {
+      await shuffleMarkers()
+    } else {
+      await shuffleGrid()
+    }
+  }
+
+  // Waveform selection functions
+  const startWaveSelection = (time: number) => {
+    setWaveSelectionStart(time)
+    setWaveSelectionEnd(time)
+    setIsWaveSelecting(true)
+  }
+
+  const updateWaveSelection = (time: number) => {
+    if (isWaveSelecting && waveSelectionStart !== null) {
+      setWaveSelectionEnd(time)
+    }
+  }
+
+  const endWaveSelection = () => {
+    setIsWaveSelecting(false)
+  }
+
+  const clearWaveSelection = () => {
+    setWaveSelectionStart(null)
+    setWaveSelectionEnd(null)
+    setIsWaveSelecting(false)
+  }
+
+  const getSelectedSegment = () => {
+    if (waveSelectionStart === null || waveSelectionEnd === null) return null
+    const start = Math.min(waveSelectionStart, waveSelectionEnd)
+    const end = Math.max(waveSelectionStart, waveSelectionEnd)
+    return { start, end, duration: end - start }
+  }
+
+  // Delete selected segment
+  const deleteSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    if (!segment || !audioRef.current) return
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Create new buffer without the selected segment
+      const newDuration = originalBuffer.duration - segment.duration
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        Math.ceil(newDuration * originalBuffer.sampleRate),
+        originalBuffer.sampleRate
+      )
+
+      // Copy audio data before and after the segment
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
+        
+        // Copy before segment
+        const beforeSamples = Math.floor(segment.start * originalBuffer.sampleRate)
+        for (let i = 0; i < beforeSamples; i++) {
+          newData[i] = originalData[i]
+        }
+        
+        // Copy after segment
+        const afterStart = Math.floor(segment.end * originalBuffer.sampleRate)
+        const afterSamples = originalData.length - afterStart
+        for (let i = 0; i < afterSamples; i++) {
+          newData[beforeSamples + i] = originalData[afterStart + i]
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        setPlayheadPosition(0)
+        setCurrentTime(0)
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      clearWaveSelection()
+      toast({
+        title: "Segment Deleted",
+        description: `Deleted ${segment.duration.toFixed(2)}s segment`,
+        variant: "default",
+      })
+
+    } catch (error) {
+      console.error('Delete segment error:', error)
+      toast({
+        title: "Delete Failed",
+        description: "Error deleting segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Copy selected segment
+  const copySelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    if (!segment || !audioRef.current) return
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Extract segment data
+      const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+      const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+      const segmentLength = endSample - startSample
+      
+      const segmentData = originalBuffer.getChannelData(0).slice(startSample, endSample)
+      
+      setClipboardSegment({
+        start: segment.start,
+        end: segment.end,
+        audioData: segmentData
+      })
+
+      toast({
+        title: "Segment Copied",
+        description: `Copied ${segment.duration.toFixed(2)}s segment`,
+        variant: "default",
+      })
+
+    } catch (error) {
+      console.error('Copy segment error:', error)
+      toast({
+        title: "Copy Failed",
+        description: "Error copying segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Paste segment at playhead
+  const pasteSegment = async () => {
+    if (!clipboardSegment || !audioRef.current) return
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Create new buffer with pasted segment
+      const segmentDuration = clipboardSegment.end - clipboardSegment.start
+      const newDuration = originalBuffer.duration + segmentDuration
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        Math.ceil(newDuration * originalBuffer.sampleRate),
+        originalBuffer.sampleRate
+      )
+
+      // Copy original data
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
+        
+        // Copy before paste point
+        const pasteSample = Math.floor(playheadPosition * originalBuffer.sampleRate)
+        for (let i = 0; i < pasteSample; i++) {
+          newData[i] = originalData[i]
+        }
+        
+        // Paste segment
+        for (let i = 0; i < clipboardSegment.audioData.length; i++) {
+          newData[pasteSample + i] = clipboardSegment.audioData[i]
+        }
+        
+        // Copy after paste point
+        for (let i = pasteSample; i < originalData.length; i++) {
+          newData[i + clipboardSegment.audioData.length] = originalData[i]
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      toast({
+        title: "Segment Pasted",
+        description: `Pasted ${segmentDuration.toFixed(2)}s segment`,
+        variant: "default",
+      })
+
+    } catch (error) {
+      console.error('Paste segment error:', error)
+      toast({
+        title: "Paste Failed",
+        description: "Error pasting segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Shuffle selected segment
+  const shuffleSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    if (!segment || !audioRef.current) return
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Extract segment
+      const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+      const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+      const segmentLength = endSample - startSample
+      
+      // Create segment buffer
+      const segmentBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        segmentLength,
+        originalBuffer.sampleRate
+      )
+
+      // Copy segment data
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const segmentChannelData = segmentBuffer.getChannelData(channel)
+        for (let i = 0; i < segmentLength; i++) {
+          segmentChannelData[i] = originalData[startSample + i]
+        }
+      }
+
+      // Shuffle segment (divide into smaller chunks and shuffle)
+      const chunkSize = Math.floor(segmentLength / 8) // 8 chunks
+      const chunks: Float32Array[] = []
+      
+      for (let i = 0; i < 8; i++) {
+        const chunkStart = i * chunkSize
+        const chunkEnd = i === 7 ? segmentLength : (i + 1) * chunkSize
+        chunks.push(segmentBuffer.getChannelData(0).slice(chunkStart, chunkEnd))
+      }
+
+      // Shuffle chunks
+      const shuffledChunks = [...chunks].sort(() => Math.random() - 0.5)
+
+      // Create new buffer with shuffled segment
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        originalBuffer.length,
+        originalBuffer.sampleRate
+      )
+
+      // Copy original data
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
+        
+        // Copy before segment
+        for (let i = 0; i < startSample; i++) {
+          newData[i] = originalData[i]
+        }
+        
+        // Copy shuffled segment
+        let chunkOffset = 0
+        for (const chunk of shuffledChunks) {
+          for (let i = 0; i < chunk.length; i++) {
+            newData[startSample + chunkOffset + i] = chunk[i]
+          }
+          chunkOffset += chunk.length
+        }
+        
+        // Copy after segment
+        for (let i = endSample; i < originalData.length; i++) {
+          newData[i] = originalData[i]
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      clearWaveSelection()
+      toast({
+        title: "Segment Shuffled",
+        description: `Shuffled ${segment.duration.toFixed(2)}s segment`,
+        variant: "default",
+      })
+
+    } catch (error) {
+      console.error('Shuffle segment error:', error)
+      toast({
+        title: "Shuffle Failed",
+        description: "Error shuffling segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Magic Shuffle selected segment - shuffles segment AND copies a sub-segment
+  const magicShuffleSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    if (!segment || !audioRef.current) return
+
+    try {
+      console.log('🔍 Starting Magic Shuffle Selected Segment...')
+      
+      // First: Shuffle the selected segment
+      await shuffleSelectedSegment()
+      
+      // Second: Find and copy an interesting sub-segment from the original segment
+      const interestingSubSegments = findInterestingSubSegments(segment)
+      
+      if (interestingSubSegments.length > 0) {
+        // Randomly select one of the interesting sub-segments
+        const randomSubSegment = interestingSubSegments[Math.floor(Math.random() * interestingSubSegments.length)]
+        
+        // Copy the selected sub-segment
+        await copySegmentToClipboard(randomSubSegment)
+        
+        // Set visual selection for the sub-segment
+        setWaveSelectionStart(randomSubSegment.start)
+        setWaveSelectionEnd(randomSubSegment.end)
+        
+        toast({
+          title: "Magic Shuffle Complete!",
+          description: `Segment shuffled + copied ${randomSubSegment.duration.toFixed(2)}s sub-segment`,
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "Magic Shuffle Complete!",
+          description: `Segment shuffled successfully`,
+          variant: "default",
+        })
+      }
+      
+      console.log('🔍 Magic shuffle selected segment complete!')
+      
+    } catch (error) {
+      console.error('🔍 Magic shuffle selected segment error:', error)
+      toast({
+        title: "Magic Shuffle Failed",
+        description: "Error performing magic shuffle on selected segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Find interesting sub-segments within a specific segment
+  const findInterestingSubSegments = (parentSegment: { start: number; end: number; duration: number }) => {
+    const subSegments: { start: number; end: number; duration: number; energy: number }[] = []
+    
+    // Find waveform points within the parent segment
+    const segmentPoints = waveformData.filter(point => 
+      point.x >= parentSegment.start && point.x <= parentSegment.end
+    )
+    
+    if (segmentPoints.length < 10) return subSegments // Need enough points
+    
+    // Analyze sub-segments within the parent segment
+    const windowSize = Math.floor(segmentPoints.length / 5) // 5 windows within segment
+    const minSubDuration = 0.2 // Minimum 0.2 seconds
+    const maxSubDuration = Math.min(parentSegment.duration * 0.8, 2.0) // Max 80% of parent or 2s
+    
+    for (let i = 0; i < segmentPoints.length - windowSize; i += windowSize) {
+      const windowData = segmentPoints.slice(i, i + windowSize)
+      
+      // Calculate average energy for this window
+      const avgEnergy = windowData.reduce((sum, point) => sum + point.y, 0) / windowData.length
+      
+      // Calculate energy variance
+      const variance = windowData.reduce((sum, point) => sum + Math.pow(point.y - avgEnergy, 2), 0) / windowData.length
+      
+      // Calculate start and end times
+      const startTime = windowData[0].x
+      const endTime = windowData[windowData.length - 1].x
+      const duration = endTime - startTime
+      
+      // Only include sub-segments within reasonable duration
+      if (duration >= minSubDuration && duration <= maxSubDuration) {
+        // Score based on energy and variance
+        const score = avgEnergy * (1 + variance)
+        
+        subSegments.push({
+          start: startTime,
+          end: endTime,
+          duration,
+          energy: score
+        })
+      }
+    }
+    
+    // Sort by energy score (most interesting first)
+    subSegments.sort((a, b) => b.energy - a.energy)
+    
+    // Return top 3 most interesting sub-segments
+    return subSegments.slice(0, 3)
+  }
+
+  // Helper function to update waveform from buffer
+  const updateWaveformFromBuffer = async (buffer: AudioBuffer) => {
+    const channelData = buffer.getChannelData(0)
+    const sampleRate = buffer.sampleRate
+    const duration = buffer.duration
+    
+    setDuration(duration)
+    
+    // Generate new waveform data
+    const numPoints = Math.max(2000, Math.floor(duration * 50))
+    const samplesPerPoint = Math.floor(channelData.length / numPoints)
+    const newWaveform: WaveformPoint[] = []
+    
+    for (let i = 0; i < numPoints; i++) {
+      const start = i * samplesPerPoint
+      const end = Math.min(start + samplesPerPoint, channelData.length)
+      
+      let rms = 0
+      let sampleCount = 0
+      
+      for (let j = start; j < end; j++) {
+        const sample = Math.abs(channelData[j])
+        rms += sample * sample
+        sampleCount++
+      }
+      
+      rms = Math.sqrt(rms / sampleCount)
+      
+      newWaveform.push({
+        x: (i / numPoints) * duration,
+        y: rms
+      })
+    }
+    
+    setWaveformData(newWaveform)
+  }
+
+  // Magic Shuffle - shuffles audio AND copies a random segment
+  const magicShuffle = async () => {
+    if (!audioRef.current || !waveformData.length) {
+      toast({
+        title: "Cannot Magic Shuffle",
+        description: "Need audio file to perform magic shuffle",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      console.log('🔍 Starting Magic Shuffle...')
+      
+      // First: Shuffle the audio (like other shuffle buttons)
+      await shuffleGrid()
+      
+      // Second: Find and copy an interesting segment
+      const interestingSegments = findInterestingSegments()
+      
+      if (interestingSegments.length > 0) {
+        // Randomly select one of the interesting segments
+        const randomSegment = interestingSegments[Math.floor(Math.random() * interestingSegments.length)]
+        
+        // Copy the selected segment
+        await copySegmentToClipboard(randomSegment)
+        
+        // Set visual selection
+        setWaveSelectionStart(randomSegment.start)
+        setWaveSelectionEnd(randomSegment.end)
+        
+        toast({
+          title: "Magic Shuffle Complete!",
+          description: `Audio shuffled + copied ${randomSegment.duration.toFixed(2)}s segment`,
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "Magic Shuffle Complete!",
+          description: "Audio shuffled successfully",
+          variant: "default",
+        })
+      }
+      
+      console.log('🔍 Magic shuffle complete!')
+      
+    } catch (error) {
+      console.error('🔍 Magic shuffle error:', error)
+      toast({
+        title: "Magic Shuffle Failed",
+        description: "Error performing magic shuffle",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Find interesting segments based on waveform analysis
+  const findInterestingSegments = () => {
+    const segments: { start: number; end: number; duration: number; energy: number }[] = []
+    
+    // Analyze waveform for high-energy regions
+    const windowSize = Math.floor(waveformData.length / 20) // 20 windows
+    const minSegmentDuration = 0.5 // Minimum 0.5 seconds
+    const maxSegmentDuration = 4.0 // Maximum 4 seconds
+    
+    for (let i = 0; i < waveformData.length - windowSize; i += windowSize) {
+      const windowData = waveformData.slice(i, i + windowSize)
+      
+      // Calculate average energy for this window
+      const avgEnergy = windowData.reduce((sum, point) => sum + point.y, 0) / windowData.length
+      
+      // Calculate energy variance (how dynamic this section is)
+      const variance = windowData.reduce((sum, point) => sum + Math.pow(point.y - avgEnergy, 2), 0) / windowData.length
+      
+      // Calculate start and end times
+      const startTime = windowData[0].x
+      const endTime = windowData[windowData.length - 1].x
+      const duration = endTime - startTime
+      
+      // Only include segments within reasonable duration
+      if (duration >= minSegmentDuration && duration <= maxSegmentDuration) {
+        // Score based on energy and variance (more dynamic = more interesting)
+        const score = avgEnergy * (1 + variance)
+        
+        segments.push({
+          start: startTime,
+          end: endTime,
+          duration,
+          energy: score
+        })
+      }
+    }
+    
+    // Sort by energy score (most interesting first)
+    segments.sort((a, b) => b.energy - a.energy)
+    
+    // Return top 5 most interesting segments
+    return segments.slice(0, 5)
+  }
+
+  // Copy segment to clipboard
+  const copySegmentToClipboard = async (segment: { start: number; end: number; duration: number }) => {
+    if (!audioRef.current) return
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Extract segment data
+      const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+      const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+      const segmentLength = endSample - startSample
+      
+      const segmentData = originalBuffer.getChannelData(0).slice(startSample, endSample)
+      
+      setClipboardSegment({
+        start: segment.start,
+        end: segment.end,
+        audioData: segmentData
+      })
+
+    } catch (error) {
+      console.error('Copy segment error:', error)
+      throw error
+    }
+  }
+
+  // ADD POSITIONS to existing marker or create new marker
+  const addMarkerToSelection = () => {
+    console.log('🔍 ===== FUNCTION CALLED =====')
+    console.log('🔍 editingMarkerId:', editingMarkerId)
+    
+    if (editingMarkerId) {
+      console.log('🔍 EDIT MODE ACTIVE - Adding position to marker')
+      // Add position to existing marker
+      const editingMarker = markers.find(m => m.id === editingMarkerId)
+      console.log('🔍 Found editing marker:', editingMarker)
+      
+      if (editingMarker) {
+        // Initialize positions array if it doesn't exist
+        const currentPositions = editingMarker.positions || [editingMarker.time]
+        
+        // Add new position if it's not already there
+        if (!currentPositions.includes(playheadPosition)) {
+          const updatedPositions = [...currentPositions, playheadPosition].sort((a, b) => a - b)
+          
+          console.log('🔍 ADDING POSITION TO MARKER:', editingMarker.name, 'at', playheadPosition)
+          console.log('🔍 All positions:', updatedPositions)
+          
+          setMarkers(prev => prev.map(marker => 
+            marker.id === editingMarkerId 
+              ? { ...marker, positions: updatedPositions }
+              : marker
+          ))
+          
+          toast({
+            title: "Position Added",
+            description: `${editingMarker.name} now has ${updatedPositions.length} positions`,
+            variant: "default",
+          })
+        } else {
+          toast({
+            title: "Position Already Exists",
+            description: `Position ${playheadPosition.toFixed(2)}s already in ${editingMarker.name}`,
+            variant: "default",
+          })
+        }
+      } else {
+        console.log('🔍 ERROR: Could not find editing marker!')
+        setEditingMarkerId(null) // Clear invalid state
+      }
+    } else {
+      console.log('🔍 NO EDIT MODE - Creating new marker')
+      // Create new marker
+      const newMarker: Marker = {
+        id: `marker-${Date.now()}`,
+        time: playheadPosition,
+        name: `Marker ${markers.length + 1}`,
+        category: 'General',
+        positions: [playheadPosition] // Initialize with first position
+      }
+      setMarkers(prev => [...prev, newMarker])
+      toast({
+        title: "New Marker Created",
+        description: `New marker created at ${playheadPosition.toFixed(2)}s`,
+        variant: "default",
+      })
+    }
+  }
   
   const jumpToMarker = (markerTime: number) => {
     const clampedTime = Math.max(0, Math.min(markerTime, totalDuration))
@@ -1749,7 +2866,7 @@ export default function LoopEditorPage() {
       // Marker shortcuts
       if (e.code === 'KeyM') {
         e.preventDefault()
-        addMarker()
+        addMarkerToSelection()
       }
       
       // Marker navigation
@@ -1779,6 +2896,14 @@ export default function LoopEditorPage() {
         if (e.code === 'Escape') {
           e.preventDefault()
           cancelMarkerEdit()
+        }
+      }
+      
+      // Continuous marker editing
+      if (editingMarkerId) {
+        if (e.code === 'Escape') {
+          e.preventDefault()
+          stopEditingMarker()
         }
       }
       
@@ -1823,7 +2948,7 @@ export default function LoopEditorPage() {
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [playheadPosition, editingMarker, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
+  }, [playheadPosition, editingMarker, editingMarkerId, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, addMarkerToSelection, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, stopEditingMarker, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
   
   return (
     <div className="min-h-screen bg-[#141414] text-white">
@@ -2280,6 +3405,11 @@ export default function LoopEditorPage() {
                       const newBpm = parseInt(e.target.value) || 120
                       console.log('🔍 BPM CHANGED - old:', bpm, 'new:', newBpm)
                       setBpm(newBpm)
+                      
+                      // Update BPM in the database if we have a current library item
+                      if (currentLibraryItem) {
+                        updateBPMInLibrary(newBpm)
+                      }
                     }}
                     className="w-20 h-8 text-sm bg-[#1a1a1a] border-gray-600 text-white font-mono text-center"
                   />
@@ -2784,6 +3914,119 @@ export default function LoopEditorPage() {
               </div>
             </div>
             
+            {/* Edit mode indicator and shuffle button */}
+            <div className="flex items-center gap-2 mb-4">
+              {editingMarkerId && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-orange-600 text-white rounded text-sm font-medium">
+                  <span>🎯 Editing Mode</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={stopEditingMarker}
+                    className="h-6 px-2 text-xs bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    Stop
+                  </Button>
+                </div>
+              )}
+              
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleShuffle('markers')}
+                disabled={markers.length === 0}
+                className="bg-purple-600 text-white hover:bg-purple-700 border-purple-500"
+              >
+                🔀 Shuffle Markers
+              </Button>
+              
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleShuffle('grid')}
+                disabled={!bpm}
+                className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
+              >
+                🎵 Shuffle Grid
+              </Button>
+              
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={magicShuffle}
+                disabled={!waveformData.length}
+                className="bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 border-purple-500"
+              >
+                ✨ Magic Shuffle
+              </Button>
+            </div>
+
+            {/* Waveform Selection Actions */}
+            {getSelectedSegment() && (
+              <div className="flex items-center gap-2 mt-2 p-2 bg-black rounded">
+                <span className="text-sm font-medium text-white">
+                  Selected: {getSelectedSegment()?.duration.toFixed(2)}s
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={deleteSelectedSegment}
+                  className="bg-red-600 text-white hover:bg-red-700 border-red-500"
+                >
+                  🗑️ Delete
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={copySelectedSegment}
+                  className="bg-green-600 text-white hover:bg-green-700 border-green-500"
+                >
+                  📋 Copy
+                </Button>
+                                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={shuffleSelectedSegment}
+                  className="bg-purple-600 text-white hover:bg-purple-700 border-purple-500"
+                >
+                  🔀 Shuffle
+                </Button>
+                
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={magicShuffleSelectedSegment}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 border-purple-500"
+                >
+                  ✨ Magic
+                </Button>
+                
+ 
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={clearWaveSelection}
+                  className="bg-gray-600 text-white hover:bg-gray-700 border-gray-500"
+                >
+                  ✕ Clear
+                </Button>
+              </div>
+            )}
+
+            {/* Paste Button */}
+            {clipboardSegment && (
+              <div className="flex items-center gap-2 mt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={pasteSegment}
+                  className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
+                >
+                  📋 Paste at Playhead
+                </Button>
+              </div>
+            )}
+            
             {showCategoryInput && (
               <div className="mb-4 p-4 bg-[#1a1a1a] rounded border border-gray-600">
                 <div className="flex items-center gap-2">
@@ -2824,8 +4067,17 @@ export default function LoopEditorPage() {
             
             <div className="space-y-3 max-h-64 overflow-y-auto overflow-x-hidden">
               {getFilteredMarkers().map((marker) => (
-                <div key={marker.id} className="flex items-center justify-between p-4 bg-[#1a1a1a] rounded border border-gray-600 min-w-0">
-                  <div className="flex items-center gap-4 flex-1">
+                <div 
+                  key={marker.id} 
+                  className={`flex items-center justify-between p-4 rounded border min-w-0 ${
+                    editingMarkerId === marker.id
+                      ? 'bg-orange-900/30 border-orange-500' 
+                      : selectedMarkers.has(marker.id) 
+                        ? 'bg-blue-900/30 border-blue-500' 
+                        : 'bg-[#1a1a1a] border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
                     <MapPin className="w-5 h-5 text-green-400" />
                     
                     {editingMarker === marker.id ? (
@@ -2896,14 +4148,49 @@ export default function LoopEditorPage() {
                     ) : (
                       // Display mode
                       <>
-                        <span 
-                          className="text-base text-white cursor-pointer hover:text-blue-300 font-medium"
-                          onClick={() => startEditingMarker(marker)}
-                          title="Click to edit name"
-                        >
-                          {marker.name}
-                        </span>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              console.log('🔍 ===== EDIT MODE BUTTON CLICKED =====')
+                              console.log('🔍 Marker ID:', marker.id)
+                              console.log('🔍 Marker Name:', marker.name)
+                              console.log('🔍 Current editingMarkerId before setting:', editingMarkerId)
+                              
+                              setEditingMarkerId(marker.id)
+                              setSelectedMarkers(new Set([marker.id]))
+                              
+                              console.log('🔍 Set editingMarkerId to:', marker.id)
+                              
+                              // Test: Log the current state after setting
+                              setTimeout(() => {
+                                console.log('🔍 TEST: Current editingMarkerId after setting:', editingMarkerId)
+                              }, 100)
+                              
+                              toast({
+                                title: "Edit Mode Activated",
+                                description: `Now editing ${marker.name}. Press 'M' to move it, 'Escape' to stop.`,
+                                variant: "default",
+                              })
+                            }}
+                            className={`h-6 px-2 text-xs ${
+                              editingMarkerId === marker.id 
+                                ? 'bg-orange-600 hover:bg-orange-700 text-white' 
+                                : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border-gray-500'
+                            }`}
+                          >
+                            Edit Mode
+                          </Button>
+                          <span 
+                            className="text-base text-white cursor-pointer hover:text-blue-300 font-medium min-w-0 flex-1 truncate"
+                            onClick={() => startEditingMarker(marker)}
+                            title="Click to edit name"
+                          >
+                            {marker.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           <span 
                             className="text-sm text-gray-400 font-mono cursor-pointer hover:text-blue-300"
                             onClick={() => startEditingMarker(marker)}
@@ -2990,10 +4277,13 @@ export default function LoopEditorPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={addMarker}
+              onClick={addMarkerToSelection}
               className="w-full mt-4 bg-[#1a1a1a] text-gray-300 hover:bg-gray-600 border-gray-500 h-10 text-base font-medium"
             >
-              Add Marker (M)
+              {editingMarkerId 
+                ? `Add Position to Marker (M) - ${playheadPosition.toFixed(2)}s`
+                : 'Add Marker (M)'
+              }
             </Button>
             
             <div className="text-sm text-gray-400 mt-3 text-center">

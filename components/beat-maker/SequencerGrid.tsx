@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Save, Download, Plus, FolderOpen, Music, Piano, Brain, MoreHorizontal } from 'lucide-react'
+import { Save, Download, Plus, FolderOpen, Music, Piano, Brain, MoreHorizontal, List } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
 import { TrackWaveform } from './TrackWaveform'
@@ -37,6 +37,10 @@ interface SequencerGridProps {
   onToggleWaveforms?: () => void // New prop for waveform toggle function
   trackWaveformStates?: {[trackId: number]: boolean} // Individual track waveform visibility
   onToggleTrackWaveform?: (trackId: number) => void // Toggle individual track waveform
+  gridDivision?: number // New prop for grid quantization
+  onGridDivisionChange?: (division: number) => void // New prop for grid division change
+  onQuantizeSequencerData?: (trackId: number, quantizedData: boolean[]) => void // New prop for quantizing sequencer data
+  onNavigateToSongArrangement?: () => void // New prop for navigating to song arrangement
 }
 
 export function SequencerGrid({
@@ -66,7 +70,11 @@ export function SequencerGrid({
   showWaveforms = false, // Default to false for better performance
   onToggleWaveforms,
   trackWaveformStates = {},
-  onToggleTrackWaveform
+  onToggleTrackWaveform,
+  gridDivision = 4, // Default to quarter notes (1/4)
+  onGridDivisionChange,
+  onQuantizeSequencerData,
+  onNavigateToSongArrangement
 }: SequencerGridProps) {
   
   const [patternName, setPatternName] = useState('')
@@ -78,7 +86,71 @@ export function SequencerGrid({
   const [showSaveForm, setShowSaveForm] = useState(false)
   const [savingTrackId, setSavingTrackId] = useState<number | null>(null)
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
-  const [stepWidth, setStepWidth] = useState(48)
+  const [stepWidth, setStepWidth] = useState(32)
+
+  // Calculate effective steps based on grid division (like loop editor)
+  const secondsPerBeat = 60 / bpm
+  const stepDuration = secondsPerBeat / (gridDivision / 4)
+  const effectiveSteps = Math.ceil((steps * stepDuration) / stepDuration)
+
+  // Function to calculate time position for a step
+  const getStepTime = (stepIndex: number) => {
+    const stepNumber = stepIndex + 1
+    const stepTime = (stepNumber - 1) * stepDuration
+    return stepTime
+  }
+
+  // Function to convert step to bar (like loop editor: ALWAYS 4 steps per bar)
+  const stepToBar = (stepIndex: number) => {
+    return Math.floor(stepIndex / 4) + 1
+  }
+
+  // Function to check if step is start of a bar
+  const isBarStart = (stepIndex: number) => {
+    return stepIndex % 4 === 0
+  }
+
+  // Function to convert step index to grid-aware step number
+  const getGridStepNumber = (stepIndex: number) => {
+    const stepNumber = stepIndex + 1
+    
+    // For now, just show step numbers (like loop editor)
+    // The grid division affects timing, not the visual step numbers
+    return stepNumber.toString()
+  }
+
+  // Function to handle grid-aware step toggling
+  const handleGridStepToggle = (trackId: number, stepIndex: number) => {
+    // For now, we'll use the original step index
+    // In the future, this could be enhanced to handle grid quantization properly
+    onToggleStep(trackId, stepIndex)
+  }
+
+  // Function to quantize sequencer data to current grid division
+  const quantizeSequencerData = (data: boolean[], fromGridDivision: number, toGridDivision: number) => {
+    if (fromGridDivision === toGridDivision) return data
+    
+    const newData = new Array(steps).fill(false)
+    const fromStepsPerBeat = fromGridDivision / 4
+    const toStepsPerBeat = toGridDivision / 4
+    
+    // Map old grid positions to new grid positions
+    for (let i = 0; i < data.length; i++) {
+      if (data[i]) {
+        const oldBeat = Math.floor(i / fromStepsPerBeat)
+        const oldStepInBeat = i % fromStepsPerBeat
+        const oldTime = oldBeat + (oldStepInBeat / fromStepsPerBeat)
+        
+        // Find the closest new grid position
+        const newStep = Math.round(oldTime * toStepsPerBeat)
+        if (newStep >= 0 && newStep < steps) {
+          newData[newStep] = true
+        }
+      }
+    }
+    
+    return newData
+  }
 
   // Function to get track display name with icons
   const getTrackDisplayName = (trackName: string) => {
@@ -141,6 +213,22 @@ export function SequencerGrid({
     }))
   }
 
+  // Handle grid division change with quantization
+  const handleGridDivisionChange = (newGridDivision: number) => {
+    if (onGridDivisionChange) {
+      onGridDivisionChange(newGridDivision)
+      
+      // Quantize sequencer data for all tracks
+      if (onQuantizeSequencerData) {
+        tracks.forEach(track => {
+          const currentData = sequencerData[track.id] || new Array(steps).fill(false)
+          const quantizedData = quantizeSequencerData(currentData, gridDivision, newGridDivision)
+          onQuantizeSequencerData(track.id, quantizedData)
+        })
+      }
+    }
+  }
+
   return (
     <Card className="!bg-[#141414] border-gray-700">
       <CardHeader>
@@ -163,7 +251,7 @@ export function SequencerGrid({
                 {bpm} BPM
               </Badge>
               <Badge variant="outline" className="text-xs">
-                {steps} Steps
+                {steps} Steps ({gridDivision === 4 ? '1/4' : gridDivision === 8 ? '1/8' : gridDivision === 16 ? '1/16' : '1/32'})
               </Badge>
               <Badge variant="outline" className="text-xs">
                 {tracks.length} Tracks
@@ -176,16 +264,31 @@ export function SequencerGrid({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                min="24"
-                max="96"
+                min="20"
+                max="64"
                 value={stepWidth}
                 onChange={(e) => setStepWidth(parseInt(e.target.value))}
                 className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
                 style={{
-                  background: `linear-gradient(to right, #fbbf24 0%, #fbbf24 ${((stepWidth - 24) / (96 - 24)) * 100}%, #374151 ${((stepWidth - 24) / (96 - 24)) * 100}%, #374151 100%)`
+                  background: `linear-gradient(to right, #fbbf24 0%, #fbbf24 ${((stepWidth - 20) / (64 - 20)) * 100}%, #374151 ${((stepWidth - 20) / (64 - 20)) * 100}%, #374151 100%)`
                 }}
               />
               <span className="text-white text-xs min-w-[2rem]">{stepWidth}px</span>
+            </div>
+            
+            {/* Grid Quantization Dropdown */}
+            <div className="flex items-center gap-2 ml-4">
+              <span className="text-white text-sm">Grid:</span>
+              <select
+                value={gridDivision}
+                onChange={(e) => handleGridDivisionChange(parseInt(e.target.value))}
+                className="w-20 h-8 text-sm bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
+              >
+                <option value={4}>1/4</option>
+                <option value={8}>1/8</option>
+                <option value={16}>1/16</option>
+                <option value={32}>1/32</option>
+              </select>
             </div>
           </div>
 
@@ -224,7 +327,26 @@ export function SequencerGrid({
               variant="outline"
               size="sm"
               onClick={() => window.open('/editpatterns', '_blank')}
+            >
+              <List className="w-4 h-4 mr-1" />
+              Edit Patterns
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onNavigateToSongArrangement}
               className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+            >
+              <Music className="w-4 h-4 mr-1" />
+              Song Arrangement
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open('/editpatterns', '_blank')}
+              className="text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
             >
               <FolderOpen className="w-4 h-4 mr-1" />
               Library
@@ -346,18 +468,23 @@ export function SequencerGrid({
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
-          <div className="min-w-max">
+          <div className="min-w-max overflow-x-auto">
+            {/* Step Numbers Row */}
             <div className="flex h-8">
               <div className="w-56 flex-shrink-0"></div>
               {Array.from({ length: steps }, (_, i) => {
-                const stepNumber = i + 1
-                const isDownbeat = stepNumber % 4 === 1
+                const stepLabel = getGridStepNumber(i)
+                const isDownbeat = isBarStart(i)
                 const isCurrentStep = i === currentStep
                 
                 return (
                   <div
                     key={`step-${i}`}
-                    style={{ width: `${stepWidth}px`, minWidth: `${stepWidth}px` }}
+                    style={{ 
+                      width: `${stepWidth}px`, 
+                      minWidth: gridDivision > 16 ? '40px' : `${stepWidth}px`,
+                      fontSize: gridDivision > 8 ? '10px' : '12px'
+                    }}
                     className={`flex items-center justify-center text-xs font-mono border-r ${
                       isDownbeat ? 'border-yellow-500 border-r-2' : 'border-gray-600'
                     } ${
@@ -368,7 +495,34 @@ export function SequencerGrid({
                           : 'bg-[#1f1f1f] text-gray-300'
                     }`}
                   >
-                    {stepNumber}
+                    {stepLabel}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Bar Numbers Row */}
+            <div className="flex h-6">
+              <div className="w-56 flex-shrink-0"></div>
+              {Array.from({ length: steps }, (_, i) => {
+                const barNumber = stepToBar(i)
+                const isBarStartStep = isBarStart(i)
+                
+                return (
+                  <div
+                    key={`bar-${i}`}
+                    style={{ 
+                      width: `${stepWidth}px`, 
+                      minWidth: gridDivision > 16 ? '40px' : `${stepWidth}px`,
+                      fontSize: '10px'
+                    }}
+                    className={`flex items-center justify-center text-xs font-mono border-r border-gray-600 ${
+                      isBarStartStep 
+                        ? 'bg-green-900/30 text-green-400 font-bold' 
+                        : 'bg-[#1a1a1a] text-gray-500'
+                    }`}
+                  >
+                    {isBarStartStep ? `Bar ${barNumber}` : ''}
                   </div>
                 )
               })}
@@ -530,7 +684,8 @@ export function SequencerGrid({
                           } ${
                             isCurrentStep ? 'ring-2 ring-white' : ''
                           }`}
-                          onClick={() => onToggleStep(track.id, stepIndex)}
+                          onClick={() => handleGridStepToggle(track.id, stepIndex)}
+                          title={`Step ${getGridStepNumber(stepIndex)}`}
                         >
                           {isActive && (
                             <div className="w-2 h-2 bg-white rounded-full"></div>
@@ -542,7 +697,10 @@ export function SequencerGrid({
                             className="h-2 bg-cyan-500/60 border-r border-gray-600 flex items-center justify-center"
                           >
                             <div className="w-1 h-1 bg-cyan-300 rounded-full"></div>
-                            <span className="text-xs text-cyan-300 ml-1">
+                            <span className="text-xs text-cyan-300 ml-1" title={`${getGridStepNumber(stepIndex)} - ${pianoRollData[track.id]?.filter(note => {
+                              const sequencerStep1Based = stepIndex + 1
+                              return note.startStep === sequencerStep1Based
+                            }).length || 0} notes`}>
                               {pianoRollData[track.id]?.filter(note => {
                                 const sequencerStep1Based = stepIndex + 1
                                 return note.startStep === sequencerStep1Based
@@ -556,6 +714,33 @@ export function SequencerGrid({
                 </div>
               </div>
             ))}
+
+            {/* Time Labels Row */}
+            <div className="flex h-6">
+              <div className="w-56 flex-shrink-0"></div>
+              {Array.from({ length: steps }, (_, i) => {
+                const stepTime = getStepTime(i)
+                const isBarStartStep = isBarStart(i)
+                
+                return (
+                  <div
+                    key={`time-${i}`}
+                    style={{ 
+                      width: `${stepWidth}px`, 
+                      minWidth: gridDivision > 16 ? '40px' : `${stepWidth}px`,
+                      fontSize: '9px'
+                    }}
+                    className={`flex items-center justify-center text-xs font-mono border-r border-gray-600 ${
+                      isBarStartStep 
+                        ? 'bg-green-900/20 text-green-500' 
+                        : 'bg-[#1a1a1a] text-gray-600'
+                    }`}
+                  >
+                    {stepTime.toFixed(1)}s
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       </CardContent>
