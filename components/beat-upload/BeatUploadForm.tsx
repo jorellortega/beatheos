@@ -36,6 +36,23 @@ const formSchema = z.object({
   }),
 })
 
+  // Helper function to normalize key notation
+  const normalizeKey = (key: string): string => {
+    if (!key) return key
+    
+    // Convert to lowercase for easier processing
+    const lowerKey = key.toLowerCase().trim()
+    
+    // Remove common suffixes and normalize
+    const normalized = lowerKey
+      .replace(/\s*(minor|min)\b/g, 'm')  // minor, min -> m
+      .replace(/\s*(major|maj)\b/g, '')   // major, maj -> (remove)
+      .replace(/\s+/g, '')                // remove spaces
+    
+    // Convert back to proper case (first letter uppercase)
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+  }
+
 export function BeatUploadForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [selectedWavFile, setSelectedWavFile] = useState<File | null>(null)
@@ -182,7 +199,14 @@ export function BeatUploadForm() {
             <FormItem>
               <FormLabel>Key</FormLabel>
               <FormControl>
-                <Input placeholder="Musical key" {...field} />
+                <Input 
+                  placeholder="e.g., C, Am, F#m, Bb" 
+                  {...field} 
+                  onChange={(e) => {
+                    const normalizedKey = normalizeKey(e.target.value)
+                    field.onChange(normalizedKey)
+                  }}
+                />
               </FormControl>
               <FormDescription>
                 The musical key of your beat.

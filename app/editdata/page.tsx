@@ -116,8 +116,21 @@ export default function EditData() {
   const [editError, setEditError] = useState<string | null>(null)
   const [currentEditIndex, setCurrentEditIndex] = useState<number>(0)
   const [editMode, setEditMode] = useState<'sequential' | 'shuffle'>('sequential')
+  const [shuffleFilter, setShuffleFilter] = useState<'all' | 'missing_bpm' | 'missing_key' | 'missing_both' | 'missing_genre' | 'missing_subgenre' | 'missing_audio_type' | 'missing_instrument_type' | 'missing_mood' | 'missing_energy' | 'missing_complexity' | 'missing_description' | 'missing_tags' | 'missing_multiple'>('missing_both')
   const [isPlayingPreview, setIsPlayingPreview] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  
+  // Pagination state
+  const [hasMoreData, setHasMoreData] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [totalCount, setTotalCount] = useState(0)
+  
+  // Navigation history for Previous button
+  const [navigationHistory, setNavigationHistory] = useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  
+  // Default tab state
+  const [defaultTab, setDefaultTab] = useState<string>('basic')
 
   // Bulk edit state
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -153,13 +166,28 @@ export default function EditData() {
     }
   }, [showEditModal, editingItem?.file_url])
 
-  const loadAudioData = async () => {
+  const loadAudioData = async (loadMore: boolean = false) => {
     if (!user) return
     
-    setLoading(true)
+    if (loadMore) {
+      setIsLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
+    
     try {
       console.log('🔄 Loading audio data for user:', user.id)
       
+      // First, get total count
+      const { count, error: countError } = await supabase
+        .from('audio_library_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+      
+      if (countError) throw countError
+      setTotalCount(count || 0)
+      
+      // Then load data with pagination
       const { data, error } = await supabase
         .from('audio_library_items')
         .select(`
@@ -168,15 +196,28 @@ export default function EditData() {
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
+        // .range(0, 4999) // Load first 5000 items - REMOVED to load all
 
       if (error) throw error
       
-      console.log(`✅ Loaded ${data?.length || 0} audio items`)
-      setAudioItems(data || [])
+      if (loadMore) {
+        setAudioItems(prev => [...prev, ...(data || [])])
+      } else {
+        setAudioItems(data || [])
+      }
+      
+      // Check if there's more data (since we're loading all, this will be false)
+      setHasMoreData(false)
+      
+      console.log(`✅ Loaded ${data?.length || 0} audio items (Total: ${count})`)
     } catch (error) {
       console.error('❌ Error loading audio data:', error)
     } finally {
-      setLoading(false)
+      if (loadMore) {
+        setIsLoadingMore(false)
+      } else {
+        setLoading(false)
+      }
     }
   }
 
@@ -220,7 +261,70 @@ export default function EditData() {
       const matchesNew = !showNewOnly || item.is_new
       const matchesReady = !showReadyOnly || item.is_ready
 
-      return matchesSearch && matchesPack && matchesGenre && matchesAudioType && matchesDistribution && matchesNew && matchesReady
+      // Apply shuffle filter for missing data
+      let matchesShuffleFilter = true
+      if (editMode === 'shuffle' && shuffleFilter !== 'all') {
+        const hasBpm = item.bpm !== null && item.bpm !== undefined
+        const hasKey = item.key !== null && item.key !== undefined && item.key !== ''
+        const hasGenre = item.genre !== null && item.genre !== undefined && item.genre !== ''
+        const hasSubgenre = item.subgenre !== null && item.subgenre !== undefined && item.subgenre !== ''
+        const hasAudioType = item.audio_type !== null && item.audio_type !== undefined && item.audio_type !== ''
+        const hasInstrumentType = item.instrument_type !== null && item.instrument_type !== undefined && item.instrument_type !== ''
+        const hasMood = item.mood !== null && item.mood !== undefined && item.mood !== ''
+        const hasEnergy = item.energy_level !== null && item.energy_level !== undefined
+        const hasComplexity = item.complexity !== null && item.complexity !== undefined
+        const hasDescription = item.description !== null && item.description !== undefined && item.description !== ''
+        const hasTags = item.tags !== null && item.tags !== undefined && item.tags.length > 0
+        
+        switch (shuffleFilter) {
+          case 'missing_bpm':
+            matchesShuffleFilter = !hasBpm
+            break
+          case 'missing_key':
+            matchesShuffleFilter = !hasKey
+            break
+          case 'missing_both':
+            matchesShuffleFilter = !hasBpm || !hasKey
+            break
+          case 'missing_genre':
+            matchesShuffleFilter = !hasGenre
+            break
+          case 'missing_subgenre':
+            matchesShuffleFilter = !hasSubgenre
+            break
+          case 'missing_audio_type':
+            matchesShuffleFilter = !hasAudioType
+            break
+          case 'missing_instrument_type':
+            matchesShuffleFilter = !hasInstrumentType
+            break
+          case 'missing_mood':
+            matchesShuffleFilter = !hasMood
+            break
+          case 'missing_energy':
+            matchesShuffleFilter = !hasEnergy
+            break
+          case 'missing_complexity':
+            matchesShuffleFilter = !hasComplexity
+            break
+          case 'missing_description':
+            matchesShuffleFilter = !hasDescription
+            break
+          case 'missing_tags':
+            matchesShuffleFilter = !hasTags
+            break
+          case 'missing_multiple':
+            // Items missing 3 or more important fields
+            const missingCount = [
+              !hasBpm, !hasKey, !hasGenre, !hasSubgenre, 
+              !hasAudioType, !hasDescription, !hasTags
+            ].filter(Boolean).length
+            matchesShuffleFilter = missingCount >= 3
+            break
+        }
+      }
+
+      return matchesSearch && matchesPack && matchesGenre && matchesAudioType && matchesDistribution && matchesNew && matchesReady && matchesShuffleFilter
     })
 
     // Sort items
@@ -310,6 +414,13 @@ export default function EditData() {
       return
     }
 
+    // Add current item to history before navigating
+    if (editingItem) {
+      const newHistory = [...navigationHistory.slice(0, historyIndex + 1), editingItem.id]
+      setNavigationHistory(newHistory)
+      setHistoryIndex(newHistory.length - 1)
+    }
+
     let nextIndex: number
     if (editMode === 'shuffle') {
       // Get random index different from current
@@ -336,6 +447,22 @@ export default function EditData() {
 
   const navigateToPreviousItem = () => {
     const filteredItems = getFilteredAndSortedItems()
+    
+    // Check if we have history to go back to
+    if (historyIndex > 0) {
+      const previousItemId = navigationHistory[historyIndex - 1]
+      const previousItem = filteredItems.find(item => item.id === previousItemId)
+      
+      if (previousItem) {
+        const previousIndex = filteredItems.findIndex(item => item.id === previousItemId)
+        setCurrentEditIndex(previousIndex)
+        setEditingItem(previousItem)
+        setHistoryIndex(historyIndex - 1)
+        return
+      }
+    }
+    
+    // Fallback to sequential navigation if no history
     if (filteredItems.length === 0) {
       setShowEditModal(false)
       setEditingItem(null)
@@ -373,6 +500,10 @@ export default function EditData() {
     setCurrentEditIndex(itemIndex >= 0 ? itemIndex : 0)
     setEditingItem(item)
     setShowEditModal(true)
+    
+    // Initialize navigation history with the first item
+    setNavigationHistory([item.id])
+    setHistoryIndex(0)
   }
 
   const handleBulkEdit = async (e: React.FormEvent) => {
@@ -661,9 +792,27 @@ export default function EditData() {
     }
   }
 
+  // Helper function to normalize key notation
+  const normalizeKey = (key: string): string => {
+    if (!key) return key
+    
+    // Convert to lowercase for easier processing
+    const lowerKey = key.toLowerCase().trim()
+    
+    // Remove common suffixes and normalize
+    const normalized = lowerKey
+      .replace(/\s*(minor|min)\b/g, 'm')  // minor, min -> m
+      .replace(/\s*(major|maj)\b/g, '')   // major, maj -> (remove)
+      .replace(/\s+/g, '')                // remove spaces
+    
+    // Convert back to proper case (first letter uppercase)
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+  }
+
   const handleKeyFromNameClick = (key: string) => {
     if (editingItem) {
-      setEditingItem({ ...editingItem, key })
+      const normalizedKey = normalizeKey(key)
+      setEditingItem({ ...editingItem, key: normalizedKey })
     }
   }
 
@@ -686,6 +835,26 @@ export default function EditData() {
           >
             <Edit className="w-4 h-4" />
             Start Editing
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              setEditMode('shuffle')
+              setShuffleFilter('missing_both')
+              setDefaultTab('musical')
+              const missingDataItems = audioItems.filter(item => 
+                !item.bpm || !item.key || item.key === ''
+              )
+              if (missingDataItems.length > 0) {
+                openEditModal(missingDataItems[0])
+              }
+            }}
+            disabled={audioItems.filter(item => !item.bpm || !item.key || item.key === '').length === 0}
+            className="flex items-center gap-2"
+            title="Start editing files missing BPM or Key"
+          >
+            <Edit className="w-4 h-4" />
+            Edit Missing Data
           </Button>
           <Button
             variant="outline"
@@ -871,11 +1040,44 @@ export default function EditData() {
       </Card>
 
       {/* Results */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-600">
-          Showing {filteredItems.length} of {audioItems.length} items
-        </p>
-                </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-sm text-gray-600">
+            Showing {filteredItems.length} of {audioItems.length} items
+            {totalCount > audioItems.length && (
+              <span className="text-gray-500"> (Total: {totalCount})</span>
+            )}
+          </p>
+          <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs">
+            <span className="text-orange-600">
+              BPM: {audioItems.filter(item => !item.bpm).length}
+            </span>
+            <span className="text-blue-600">
+              Key: {audioItems.filter(item => !item.key || item.key === '').length}
+            </span>
+            <span className="text-green-600">
+              Genre: {audioItems.filter(item => !item.genre || item.genre === '').length}
+            </span>
+            <span className="text-purple-600">
+              Desc: {audioItems.filter(item => !item.description || item.description === '').length}
+            </span>
+            <span className="text-red-600">
+              Tags: {audioItems.filter(item => !item.tags || item.tags.length === 0).length}
+            </span>
+          </div>
+        </div>
+        {hasMoreData && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadAudioData(true)}
+            disabled={isLoadingMore}
+            className="text-xs w-full sm:w-auto"
+          >
+            {isLoadingMore ? 'Loading...' : 'Load More'}
+          </Button>
+        )}
+      </div>
 
       {loading ? (
         <div className="text-center py-12">
@@ -1022,12 +1224,35 @@ export default function EditData() {
                     <SelectItem value="shuffle">Shuffle</SelectItem>
                   </SelectContent>
                 </Select>
+                {editMode === 'shuffle' && (
+                  <Select value={shuffleFilter} onValueChange={(value: 'all' | 'missing_bpm' | 'missing_key' | 'missing_both' | 'missing_genre' | 'missing_subgenre' | 'missing_audio_type' | 'missing_instrument_type' | 'missing_mood' | 'missing_energy' | 'missing_complexity' | 'missing_description' | 'missing_tags' | 'missing_multiple') => setShuffleFilter(value)}>
+                    <SelectTrigger className="w-40 sm:w-48 text-xs sm:text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Items</SelectItem>
+                      <SelectItem value="missing_both">Missing BPM/Key</SelectItem>
+                      <SelectItem value="missing_audio_type">Missing Audio Type</SelectItem>
+                      <SelectItem value="missing_bpm">Missing BPM</SelectItem>
+                      <SelectItem value="missing_key">Missing Key</SelectItem>
+                      <SelectItem value="missing_genre">Missing Genre</SelectItem>
+                      <SelectItem value="missing_subgenre">Missing Subgenre</SelectItem>
+                      <SelectItem value="missing_instrument_type">Missing Instrument Type</SelectItem>
+                      <SelectItem value="missing_mood">Missing Mood</SelectItem>
+                      <SelectItem value="missing_energy">Missing Energy Level</SelectItem>
+                      <SelectItem value="missing_complexity">Missing Complexity</SelectItem>
+                      <SelectItem value="missing_description">Missing Description</SelectItem>
+                      <SelectItem value="missing_tags">Missing Tags</SelectItem>
+                      <SelectItem value="missing_multiple">Missing Multiple (3+)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
           </DialogHeader>
           {editingItem && (
             <div className="space-y-6">
-              <Tabs defaultValue="basic" className="w-full">
+              <Tabs defaultValue={defaultTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1">
                   <TabsTrigger value="basic" className="text-xs sm:text-sm px-2 sm:px-3">Basic</TabsTrigger>
                   <TabsTrigger value="musical" className="text-xs sm:text-sm px-2 sm:px-3">Musical</TabsTrigger>
@@ -1102,7 +1327,11 @@ export default function EditData() {
                       <Label>Key</Label>
                       <Input
                         value={editingItem.key || ''}
-                        onChange={(e) => setEditingItem({...editingItem, key: e.target.value})}
+                        onChange={(e) => {
+                          const normalizedKey = normalizeKey(e.target.value)
+                          setEditingItem({...editingItem, key: normalizedKey})
+                        }}
+                        placeholder="e.g., C, Am, F#m, Bb"
                       />
                                          </div>
                                        </div>
