@@ -131,6 +131,15 @@ export default function EditData() {
   
   // Default tab state
   const [defaultTab, setDefaultTab] = useState<string>('basic')
+  
+  // Audio type suggestions for auto-complete
+  const audioTypeSuggestions = [
+    'Melody Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'FX Loop',
+    'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Percussion',
+    'Melody', 'Bass', 'Lead', 'Pad', 'Pluck', 'Arp', 'Chords', 'Stab',
+    'Vocal', 'Adlib', 'Hook', 'Verse', 'Chorus', 'Bridge',
+    'FX', 'Reverb', 'Delay', 'Filter', 'Sweep', 'Impact', 'Transition'
+  ]
 
   // Bulk edit state
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -1225,7 +1234,18 @@ export default function EditData() {
                   </SelectContent>
                 </Select>
                 {editMode === 'shuffle' && (
-                  <Select value={shuffleFilter} onValueChange={(value: 'all' | 'missing_bpm' | 'missing_key' | 'missing_both' | 'missing_genre' | 'missing_subgenre' | 'missing_audio_type' | 'missing_instrument_type' | 'missing_mood' | 'missing_energy' | 'missing_complexity' | 'missing_description' | 'missing_tags' | 'missing_multiple') => setShuffleFilter(value)}>
+                  <Select value={shuffleFilter} onValueChange={(value: 'all' | 'missing_bpm' | 'missing_key' | 'missing_both' | 'missing_genre' | 'missing_subgenre' | 'missing_audio_type' | 'missing_instrument_type' | 'missing_mood' | 'missing_energy' | 'missing_complexity' | 'missing_description' | 'missing_tags' | 'missing_multiple') => {
+                    setShuffleFilter(value)
+                    
+                    // Set appropriate default tab based on filter selection
+                    if (value === 'missing_audio_type') {
+                      setDefaultTab('metadata')
+                    } else if (value === 'missing_bpm' || value === 'missing_key' || value === 'missing_both') {
+                      setDefaultTab('musical')
+                    } else {
+                      setDefaultTab('basic')
+                    }
+                  }}>
                     <SelectTrigger className="w-40 sm:w-48 text-xs sm:text-sm">
                       <SelectValue />
                     </SelectTrigger>
@@ -1401,11 +1421,29 @@ export default function EditData() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label>Audio Type</Label>
-                      <Input
-                        value={editingItem.audio_type || ''}
-                        onChange={(e) => setEditingItem({...editingItem, audio_type: e.target.value})}
-                        placeholder="e.g., kick, snare, melody, loop"
-                      />
+                      <div className="relative">
+                        <Input
+                          value={editingItem.audio_type || ''}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setEditingItem({...editingItem, audio_type: value})
+                            
+                            // Auto-complete logic
+                            if (value.length >= 2) {
+                              const suggestion = audioTypeSuggestions.find(suggestion => 
+                                suggestion.toLowerCase().startsWith(value.toLowerCase())
+                              )
+                              if (suggestion && suggestion !== value) {
+                                // Auto-fill the suggestion
+                                setTimeout(() => {
+                                  setEditingItem(prev => prev ? {...prev, audio_type: suggestion} : null)
+                                }, 100)
+                              }
+                            }
+                          }}
+                          placeholder="e.g., kick, snare, melody, loop"
+                        />
+                      </div>
                     </div>
             <div>
                       <Label>Instrument Type</Label>

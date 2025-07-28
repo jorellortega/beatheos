@@ -53,6 +53,15 @@ const formSchema = z.object({
     return normalized.charAt(0).toUpperCase() + normalized.slice(1)
   }
 
+  // Audio type suggestions for auto-complete
+  const audioTypeSuggestions = [
+    'Melody Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'FX Loop',
+    'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Percussion',
+    'Melody', 'Bass', 'Lead', 'Pad', 'Pluck', 'Arp', 'Chords', 'Stab',
+    'Vocal', 'Adlib', 'Hook', 'Verse', 'Chorus', 'Bridge',
+    'FX', 'Reverb', 'Delay', 'Filter', 'Sweep', 'Impact', 'Transition'
+  ]
+
 export function BeatUploadForm() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [selectedWavFile, setSelectedWavFile] = useState<File | null>(null)
@@ -223,7 +232,27 @@ export function BeatUploadForm() {
             <FormItem>
               <FormLabel>Genre</FormLabel>
               <FormControl>
-                <Input placeholder="Genre" {...field} />
+                <Input 
+                  placeholder="Genre" 
+                  {...field} 
+                  onChange={(e) => {
+                    const value = e.target.value
+                    field.onChange(value)
+                    
+                    // Auto-complete logic for genre
+                    if (value.length >= 2) {
+                      const suggestion = audioTypeSuggestions.find(suggestion => 
+                        suggestion.toLowerCase().startsWith(value.toLowerCase())
+                      )
+                      if (suggestion && suggestion !== value) {
+                        // Auto-fill the suggestion
+                        setTimeout(() => {
+                          field.onChange(suggestion)
+                        }, 100)
+                      }
+                    }
+                  }}
+                />
               </FormControl>
               <FormDescription>
                 The genre of your beat.
