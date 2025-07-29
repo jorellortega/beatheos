@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3 } from 'lucide-react'
+import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import * as Tone from 'tone'
 import { TrackWaveform } from './TrackWaveform'
@@ -61,7 +61,7 @@ export function SongArrangement({
     console.log('[PLAYHEAD DEBUG] setCurrentBarSafe called with:', value, 'setting to:', safeValue, 'current currentBar:', currentBar)
     setCurrentBar(safeValue)
   }
-  const [totalBars, setTotalBars] = useState(32) // Default 32 bars
+  const [totalBars, setTotalBars] = useState(64) // Default 64 bars (8 patterns of 8 bars each)
   const [zoom, setZoom] = useState(50) // pixels per bar
   const [scrollX, setScrollX] = useState(0)
   const [selectedBlocks, setSelectedBlocks] = useState<string[]>([])
@@ -71,6 +71,10 @@ export function SongArrangement({
   const [loadedTrackId, setLoadedTrackId] = useState<number | null>(null) // which track is in "load" mode
   const [selectedDuration, setSelectedDuration] = useState(8) // default 8 bars for new patterns
   const [isDeleteMode, setIsDeleteMode] = useState(false) // delete mode state
+  const [isCutMode, setIsCutMode] = useState(false) // cut mode state for splitting patterns
+  const [isResizing, setIsResizing] = useState(false) // resize mode state
+  const [resizeHandle, setResizeHandle] = useState<'left' | 'right' | null>(null) // which handle is being dragged
+  const [resizeStart, setResizeStart] = useState({ x: 0, originalDuration: 0, originalStartBar: 0 })
 
   // Function to get track display name with icons (same as sequencer)
   const getTrackDisplayName = (trackName: string) => {
@@ -129,6 +133,7 @@ export function SongArrangement({
         
         // Only update if we have a valid position and it's significantly different
         // Allow playhead to go beyond the steps limit (8 bars) up to the actual arrangement duration
+        // Note: Steps are now 128 (8 bars at 1/16 resolution)
         if (currentBarPosition >= 1 && Math.abs(currentBarPosition - currentBar) > 0.01) {
           setCurrentBarSafe(currentBarPosition)
         }
@@ -159,18 +164,15 @@ export function SongArrangement({
         await Tone.start()
         console.log('[ARRANGEMENT AUDIO] Tone.js started successfully')
         
-        // IMPORTANT: Stop and reset the global transport completely
-        // This ensures arrangement doesn't interfere with sequencer
-        const globalTransport = Tone.getTransport()
-        globalTransport.stop()
-        globalTransport.cancel()
-        globalTransport.position = 0
-        
-        // Use the global transport but ensure it doesn't loop for arrangement
+        // CRITICAL FIX: Use the global transport but ensure it's properly configured for arrangement
+        // This allows both sequencer and arrangement to coexist
         arrangementTransportRef.current = Tone.getTransport()
         arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.cancel()
         arrangementTransportRef.current.loop = false // Explicitly disable looping for arrangement
         arrangementTransportRef.current.bpm.value = bpm
+        
+        console.log('[ARRANGEMENT AUDIO] Configured transport for arrangement use')
         
       // Load audio for tracks that have audio URLs
       const loadPromises = tracks.map(async (track) => {
@@ -388,11 +390,17 @@ export function SongArrangement({
     onPatternsChange?.(newPatternBlocks)
   }
 
-  // Handle pattern block click for delete mode
+  // Handle pattern block click for delete mode and cut mode
   const handlePatternBlockClick = (blockId: string) => {
     if (isDeleteMode) {
       console.log(`[DELETE MODE] Deleting pattern block: ${blockId}`)
       removePatternBlock(blockId)
+    } else if (isCutMode) {
+      const block = patternBlocks.find(b => b.id === blockId)
+      if (block) {
+        console.log(`[CUT MODE] Splitting pattern block: ${blockId}`)
+        splitPatternBlock(block)
+      }
     }
   }
 
@@ -410,6 +418,524 @@ export function SongArrangement({
     setPatternBlocks(newPatternBlocks)
     setTotalBars(Math.max(totalBars, newBlock.endBar))
     onPatternsChange?.(newPatternBlocks)
+  }
+
+  // Split a pattern block in half
+  const splitPatternBlock = (block: PatternBlock) => {
+    if (block.duration < 2) {
+      alert('Pattern must be at least 2 bars to split')
+      return
+    }
+
+    const halfDuration = Math.floor(block.duration / 2)
+    const remainingDuration = block.duration - halfDuration
+
+    // Create first half
+    const firstHalf: PatternBlock = {
+      ...block,
+      id: `pattern-${Date.now()}-${Math.random()}`,
+      name: `${block.name} (Part 1)`,
+      duration: halfDuration,
+      endBar: block.startBar + halfDuration - 1
+    }
+
+    // Create second half
+    const secondHalf: PatternBlock = {
+      ...block,
+      id: `pattern-${Date.now()}-${Math.random()}-2`,
+      name: `${block.name} (Part 2)`,
+      startBar: block.startBar + halfDuration,
+      duration: remainingDuration,
+      endBar: block.endBar
+    }
+
+    // Remove original and add both halves
+    const newPatternBlocks = patternBlocks
+      .filter(b => b.id !== block.id)
+      .concat([firstHalf, secondHalf])
+    
+    setPatternBlocks(newPatternBlocks)
+    onPatternsChange?.(newPatternBlocks)
+  }
+
+  // Handle resize start
+  const handleResizeStart = (e: React.MouseEvent, blockId: string, handle: 'left' | 'right') => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    const block = patternBlocks.find(b => b.id === blockId)
+    if (!block) return
+    
+    setIsResizing(true)
+    setResizeHandle(handle)
+    setResizeStart({
+      x: e.clientX,
+      originalDuration: block.duration,
+      originalStartBar: block.startBar
+    })
+    
+    // Select the block being resized
+    setSelectedBlocks([blockId])
+  }
+
+  // Handle resize move
+  const handleResizeMove = (e: React.MouseEvent) => {
+    if (!isResizing || !resizeHandle) return
+    
+    const deltaX = e.clientX - resizeStart.x
+    const deltaBars = Math.round(deltaX / zoom)
+    
+    const block = patternBlocks.find(b => b.id === selectedBlocks[0])
+    if (!block) return
+    
+    let newStartBar = block.startBar
+    let newDuration = block.duration
+    
+    if (resizeHandle === 'left') {
+      // Resize from left edge
+      newStartBar = Math.max(1, resizeStart.originalStartBar + deltaBars)
+      newDuration = Math.max(1, resizeStart.originalDuration - deltaBars)
+    } else {
+      // Resize from right edge
+      newDuration = Math.max(1, resizeStart.originalDuration + deltaBars)
+    }
+    
+    // Update the block
+    const newPatternBlocks = patternBlocks.map(b => 
+      b.id === block.id 
+        ? { 
+            ...b, 
+            startBar: newStartBar,
+            duration: newDuration,
+            endBar: newStartBar + newDuration - 1
+          }
+        : b
+    )
+    
+    setPatternBlocks(newPatternBlocks)
+    onPatternsChange?.(newPatternBlocks)
+  }
+
+  // Handle resize end
+  const handleResizeEnd = () => {
+    setIsResizing(false)
+    setResizeHandle(null)
+    setResizeStart({ x: 0, originalDuration: 0, originalStartBar: 0 })
+  }
+
+  // Load 11 patterns from each track automatically
+  const loadElevenPatternsFromEachTrack = () => {
+    console.log('[LOAD PATTERNS] Loading 11 patterns from each track')
+    
+    // Clear existing patterns first
+    const newPatternBlocks: PatternBlock[] = []
+    
+    tracks.forEach((track, trackIndex) => {
+      // Create 11 patterns for each track, starting from bar 1
+      for (let i = 0; i < 11; i++) {
+        const startBar = 1 + (i * selectedDuration) // Start from bar 1, then 1+8=9, 1+16=17, etc. (8-bar default)
+        const patternBlock: PatternBlock = {
+          id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
+          name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
+          tracks: [track],
+          sequencerData: { [track.id]: sequencerData[track.id] || [] },
+          bpm: bpm,
+          steps: steps,
+          duration: selectedDuration,
+          startBar: startBar,
+          endBar: startBar + selectedDuration - 1,
+          color: track.color,
+          trackId: track.id
+        }
+        
+        newPatternBlocks.push(patternBlock)
+      }
+    })
+    
+    // Replace all existing patterns with the new ones (don't add to existing)
+    setPatternBlocks(newPatternBlocks)
+    
+    // Update total bars to accommodate all patterns
+    const maxEndBar = Math.max(...newPatternBlocks.map(block => block.endBar))
+    setTotalBars(Math.max(totalBars, maxEndBar))
+    
+    // Notify parent component
+    onPatternsChange?.(newPatternBlocks)
+    
+    console.log(`[LOAD PATTERNS] Created ${newPatternBlocks.length} patterns across ${tracks.length} tracks (cleared existing patterns)`)
+  }
+
+  // Clear all patterns from the arrangement
+  const clearAllPatterns = () => {
+    console.log('[CLEAR PATTERNS] Clearing all patterns from arrangement')
+    
+    // Clear all patterns
+    setPatternBlocks([])
+    
+    // Reset total bars to default
+    setTotalBars(64) // Default 64 bars (8 patterns of 8 bars each)
+    
+    // Notify parent component
+    onPatternsChange?.([])
+    
+    console.log('[CLEAR PATTERNS] All patterns cleared')
+  }
+
+  // Create dynamic arrangement with drops by splitting patterns
+  const createDropArrangement = () => {
+    console.log('[DROP ARRANGEMENT] Creating dynamic arrangement with drops')
+    
+    // First, load the base 11 patterns
+    const basePatternBlocks: PatternBlock[] = []
+    
+    tracks.forEach((track, trackIndex) => {
+      // Create 11 patterns for each track, starting from bar 1
+      for (let i = 0; i < 11; i++) {
+        const startBar = 1 + (i * selectedDuration)
+        const patternBlock: PatternBlock = {
+          id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
+          name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
+          tracks: [track],
+          sequencerData: { [track.id]: sequencerData[track.id] || [] },
+          bpm: bpm,
+          steps: steps,
+          duration: selectedDuration,
+          startBar: startBar,
+          endBar: startBar + selectedDuration - 1,
+          color: track.color,
+          trackId: track.id
+        }
+        
+        basePatternBlocks.push(patternBlock)
+      }
+    })
+    
+    // Now create drop variations by splitting some patterns
+    const dropPatternBlocks: PatternBlock[] = []
+    
+    tracks.forEach((track, trackIndex) => {
+      const trackPatterns = basePatternBlocks.filter(p => p.trackId === track.id)
+      
+      trackPatterns.forEach((pattern, patternIndex) => {
+        // Create drop variations based on pattern position
+        const dropType = Math.floor(Math.random() * 4) // 0-3: full, first half, second half, or split
+        
+        if (dropType === 0) {
+          // Keep full pattern (no change)
+          dropPatternBlocks.push(pattern)
+        } else if (dropType === 1) {
+          // Split into first half only (build up)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-first-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Build ${patternIndex + 1}`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 2) {
+          // Split into second half only (drop)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-second-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Drop ${patternIndex + 1}`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 3) {
+          // Split into both halves (breakdown)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-breakdown-first-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Breakdown ${patternIndex + 1} A`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          }
+          
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-breakdown-second-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Breakdown ${patternIndex + 1} B`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          }
+        }
+      })
+    })
+    
+    // Replace all existing patterns with the drop arrangement
+    setPatternBlocks(dropPatternBlocks)
+    
+    // Update total bars to accommodate all patterns
+    const maxEndBar = Math.max(...dropPatternBlocks.map(block => block.endBar))
+    setTotalBars(Math.max(totalBars, maxEndBar))
+    
+    // Notify parent component
+    onPatternsChange?.(dropPatternBlocks)
+    
+    console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks`)
+  }
+
+  // Export the arrangement as a high-quality WAV file
+  const exportBeatAsWav = async () => {
+    console.log('[EXPORT] Starting WAV export of arrangement with advanced timing')
+    
+    if (patternBlocks.length === 0) {
+      alert('No patterns to export. Please add some patterns first.')
+      return
+    }
+
+    try {
+      // Calculate total duration in bars
+      const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      const totalDurationSeconds = maxEndBar * secondsPerBar
+      
+      console.log(`[EXPORT] Total duration: ${totalDurationSeconds}s (${maxEndBar} bars) at ${bpm} BPM`)
+
+      // Create offline audio context for rendering (stereo output)
+      const sampleRate = 44100
+      const offlineContext = new OfflineAudioContext(
+        2, // stereo output
+        Math.ceil(totalDurationSeconds * sampleRate), // length in samples
+        sampleRate
+      )
+
+      // Create a master gain node
+      const masterGain = offlineContext.createGain()
+      masterGain.gain.value = 0.8 // Prevent clipping
+      masterGain.connect(offlineContext.destination)
+
+      // Schedule all patterns with advanced timing
+      for (const block of patternBlocks) {
+        const track = tracks.find(t => t.id === block.trackId)
+        if (!track?.audioUrl || track.audioUrl === 'undefined') {
+          console.warn(`[EXPORT] No audio URL for track ${track?.name}`)
+          continue
+        }
+
+        try {
+          console.log(`[EXPORT] Processing ${block.name} from track ${track.name}`)
+          console.log(`[EXPORT] Track BPM: ${track.currentBpm || track.originalBpm || bpm}, Playback Rate: ${track.playbackRate || 1}`)
+          
+          // Fetch and decode audio
+          const response = await fetch(track.audioUrl)
+          const arrayBuffer = await response.arrayBuffer()
+          const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer)
+
+          // Create track gain for mixing
+          const trackGain = offlineContext.createGain()
+          trackGain.gain.value = 0.7 // Individual track volume
+
+          // Apply pitch shift with proper audio processing
+          let audioChain = trackGain
+          if (track.pitchShift && track.pitchShift !== 0) {
+            console.log(`[EXPORT] Applying pitch shift: ${track.pitchShift} semitones`)
+            
+            // Create a more sophisticated pitch shifter using multiple filters
+            const pitchShifter = offlineContext.createBiquadFilter()
+            pitchShifter.type = 'peaking'
+            pitchShifter.frequency.value = 1000 * Math.pow(2, track.pitchShift / 12)
+            pitchShifter.Q.value = 1.0
+            pitchShifter.gain.value = 3.0
+            
+            trackGain.connect(pitchShifter)
+            audioChain = pitchShifter
+          }
+
+          // Apply playback rate if track has different tempo
+          let effectivePlaybackRate = 1.0
+          if (track.playbackRate && track.playbackRate !== 1) {
+            effectivePlaybackRate = track.playbackRate
+            console.log(`[EXPORT] Applying playback rate: ${effectivePlaybackRate}x`)
+          }
+          
+          // Handle different track types for optimal export
+          const isDrumLoop = track.name.toLowerCase().includes('drum') || track.name.toLowerCase().includes('perc')
+          const isMelodyLoop = track.name.toLowerCase().includes('melody')
+          const isBassLoop = track.name.toLowerCase().includes('bass') || track.name.toLowerCase().includes('808')
+          
+          // Adjust gain based on track type
+          if (isDrumLoop) {
+            trackGain.gain.value = 0.8 // Drums slightly louder
+          } else if (isMelodyLoop) {
+            trackGain.gain.value = 0.6 // Melody balanced
+          } else if (isBassLoop) {
+            trackGain.gain.value = 0.7 // Bass balanced
+          } else {
+            trackGain.gain.value = 0.7 // Default
+          }
+
+          // Connect to master
+          audioChain.connect(masterGain)
+
+          // Calculate start time (convert from bars to seconds)
+          const startTimeSeconds = (block.startBar - 1) * secondsPerBar
+          
+          // Calculate pattern duration in seconds
+          const patternDurationSeconds = block.duration * secondsPerBar
+          
+          // Check if we have sequencer data for this track
+          const sequencerData = block.sequencerData[track.id]
+          const hasSequencerData = sequencerData && sequencerData.length > 0
+          
+          if (hasSequencerData) {
+            console.log(`[EXPORT] Using sequencer data for ${block.name} (${sequencerData.length} steps)`)
+            
+            // Export using sequencer data - create individual hits based on step data
+            const stepsPerBar = 16 // 16 steps per bar for 1/16 resolution
+            const stepDuration = secondsPerBeat / (stepsPerBar / 4) // Calculate step duration for 1/16 resolution
+            
+            for (let stepIndex = 0; stepIndex < sequencerData.length; stepIndex++) {
+              if (sequencerData[stepIndex]) {
+                // Calculate step position in the arrangement
+                const stepInPattern = stepIndex % (block.duration * stepsPerBar)
+                const barInPattern = Math.floor(stepInPattern / stepsPerBar)
+                const stepInBar = stepInPattern % stepsPerBar
+                
+                const stepTime = startTimeSeconds + (barInPattern * secondsPerBar) + (stepInBar * stepDuration)
+                
+                // Create a short hit for this step
+                const hitSource = offlineContext.createBufferSource()
+                hitSource.buffer = audioBuffer
+                hitSource.playbackRate.value = effectivePlaybackRate
+                hitSource.connect(trackGain)
+                
+                // Play a short segment (0.1 seconds) for each hit
+                hitSource.start(stepTime, 0, 0.1)
+                
+                console.log(`[EXPORT] Scheduled sequencer hit at step ${stepIndex} (time: ${stepTime.toFixed(2)}s)`)
+              }
+            }
+          } else {
+            // Fallback to looping audio for patterns without sequencer data
+            console.log(`[EXPORT] No sequencer data, using audio looping for ${block.name}`)
+            
+            const audioDuration = audioBuffer.duration / effectivePlaybackRate
+            const loopCount = Math.ceil(patternDurationSeconds / audioDuration)
+            
+            for (let i = 0; i < loopCount; i++) {
+              const loopSource = offlineContext.createBufferSource()
+              loopSource.buffer = audioBuffer
+              loopSource.playbackRate.value = effectivePlaybackRate
+              loopSource.connect(trackGain)
+              
+              const loopStartTime = startTimeSeconds + (i * audioDuration)
+              const loopEndTime = Math.min(loopStartTime + audioDuration, startTimeSeconds + patternDurationSeconds)
+              const loopDuration = loopEndTime - loopStartTime
+              
+              loopSource.start(loopStartTime, 0, loopDuration)
+              
+              console.log(`[EXPORT] Scheduled loop ${i + 1}/${loopCount} of ${block.name} at ${loopStartTime}s (duration: ${loopDuration.toFixed(2)}s)`)
+            }
+          }
+          
+        } catch (error) {
+          console.error(`[EXPORT] Error processing track ${track?.name}:`, error)
+        }
+      }
+
+      // Render the audio
+      console.log('[EXPORT] Rendering audio...')
+      const renderedBuffer = await offlineContext.startRendering()
+      
+      // Convert to WAV
+      const wavBlob = audioBufferToWav(renderedBuffer)
+      
+      // Create download link with enhanced filename
+      const url = URL.createObjectURL(wavBlob)
+      const a = document.createElement('a')
+      a.href = url
+      
+      // Create enhanced filename with arrangement info
+      const patternCount = patternBlocks.length
+      const trackCount = tracks.length
+      const durationMinutes = Math.floor(totalDurationSeconds / 60)
+      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+      
+      const filename = `ortega-ai-beat-arrangement-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+      
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      console.log(`[EXPORT] Exported: ${filename}`)
+      
+      console.log('[EXPORT] WAV file exported successfully')
+      
+    } catch (error) {
+      console.error('[EXPORT] Error exporting WAV:', error)
+      alert('Error exporting WAV file. Please try again.')
+    }
+  }
+
+  // Helper function to convert AudioBuffer to WAV format
+  const audioBufferToWav = (buffer: AudioBuffer): Blob => {
+    const length = buffer.length
+    const numberOfChannels = buffer.numberOfChannels
+    const sampleRate = buffer.sampleRate
+    const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2)
+    const view = new DataView(arrayBuffer)
+
+    // WAV header
+    const writeString = (offset: number, string: string) => {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i))
+      }
+    }
+
+    writeString(0, 'RIFF')
+    view.setUint32(4, 36 + length * numberOfChannels * 2, true)
+    writeString(8, 'WAVE')
+    writeString(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, numberOfChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numberOfChannels * 2, true)
+    view.setUint16(32, numberOfChannels * 2, true)
+    view.setUint16(34, 16, true)
+    writeString(36, 'data')
+    view.setUint32(40, length * numberOfChannels * 2, true)
+
+    // Convert audio data
+    let offset = 44
+    for (let i = 0; i < length; i++) {
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]))
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true)
+        offset += 2
+      }
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/wav' })
   }
 
   // View sequencer for a specific pattern
@@ -653,12 +1179,10 @@ export function SongArrangement({
   const isolateArrangementFromSequencer = () => {
     console.log('[ARRANGEMENT AUDIO] Isolating arrangement from sequencer...')
     
-    // Stop ALL global transport events and disable looping
+    // CRITICAL FIX: Don't stop the global transport - let sequencer keep running
+    // Instead, ensure our arrangement transport is properly isolated
     const globalTransport = Tone.getTransport()
-    globalTransport.stop()
-    globalTransport.cancel()
-    globalTransport.loop = false // Disable global transport looping
-    // Don't reset position to 0 - preserve current position
+    console.log('[ARRANGEMENT AUDIO] Global transport state:', globalTransport.state)
     
     // Stop all arrangement players
     Object.values(arrangementPlayersRef.current).forEach(player => {
@@ -667,15 +1191,41 @@ export function SongArrangement({
       }
     })
     
-    // Reset arrangement transport but preserve position
+    // Ensure arrangement transport is properly configured
     if (arrangementTransportRef.current) {
       arrangementTransportRef.current.stop()
       arrangementTransportRef.current.cancel()
       arrangementTransportRef.current.loop = false // Ensure arrangement transport doesn't loop
+      arrangementTransportRef.current.bpm.value = bpm // Sync BPM
       // Don't reset position to 0 - let it be set later based on current playhead
     }
     
     console.log('[ARRANGEMENT AUDIO] Arrangement isolated from sequencer')
+  }
+
+  // Reset arrangement audio system for fresh playback
+  const resetArrangementAudio = () => {
+    console.log('[ARRANGEMENT AUDIO] Resetting audio system for fresh playback...')
+    
+    // Stop all players
+    Object.values(arrangementPlayersRef.current).forEach(player => {
+      if (player.state === 'started') {
+        player.stop()
+      }
+    })
+    
+    // Reset transport
+    if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.stop()
+      arrangementTransportRef.current.cancel()
+    }
+    
+    // Clear progress interval
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+    }
+    
+    console.log('[ARRANGEMENT AUDIO] Audio system reset complete')
   }
 
   // Play the entire arrangement using arrangement audio system
@@ -690,9 +1240,11 @@ export function SongArrangement({
       return
     }
     
-    // CRITICAL: Isolate arrangement from sequencer before playing
+    // CRITICAL: Reset and isolate arrangement from sequencer before playing
+    resetArrangementAudio()
     isolateArrangementFromSequencer()
 
+    // CRITICAL FIX: Always ensure audio system is ready for each play
     if (!isArrangementAudioInitialized.current) {
       console.warn('[ARRANGEMENT AUDIO] Audio system not initialized, trying to initialize...')
       await Tone.start()
@@ -780,13 +1332,10 @@ export function SongArrangement({
       console.log(`[ARRANGEMENT AUDIO] Set transport position to ${transportPosition} (bar ${currentBar})`)
     }
     
-    // Also ensure the global transport is stopped and doesn't interfere
+    // CRITICAL FIX: Don't interfere with global transport - let sequencer keep running
+    // The arrangement transport is now properly isolated
     const globalTransport = Tone.getTransport()
-    if (globalTransport.state === 'started') {
-      globalTransport.stop()
-      globalTransport.cancel()
-    }
-    // Don't reset global transport position to 0 - let arrangement transport handle its own position
+    console.log('[ARRANGEMENT AUDIO] Global transport state before arrangement play:', globalTransport.state)
     
     // Sort pattern blocks by start bar
     const sortedBlocks = [...patternBlocks].sort((a, b) => a.startBar - b.startBar)
@@ -845,10 +1394,20 @@ export function SongArrangement({
         }
       })
       
-      // Start the transport
+      // CRITICAL FIX: Start the transport with proper timing
       console.log('[ARRANGEMENT AUDIO] Starting transport...')
+      
+      // Ensure we're starting from the correct position
+      const startBar = Math.floor(currentBar - 1) // Convert to 0-based
+      const startBeat = Math.floor((currentBar % 1) * 4) // Convert fractional bar to beats
+      const startSixteenth = Math.floor(((currentBar % 1) * 4 % 1) * 4) // Convert fractional beat to sixteenths
+      
+      const transportPosition = `${startBar}:${startBeat}:${startSixteenth}`
+      arrangementTransportRef.current.position = transportPosition
+      
+      // Start the transport
       arrangementTransportRef.current?.start()
-      console.log('[ARRANGEMENT AUDIO] Transport started successfully')
+      console.log('[ARRANGEMENT AUDIO] Transport started successfully at position:', transportPosition)
       
       // Update playhead every 16ms (60fps) for smooth movement
       progressIntervalRef.current = setInterval(updatePlayhead, 16)
@@ -868,15 +1427,19 @@ export function SongArrangement({
     setCurrentPattern(null)
     // Don't reset currentBar - preserve the playhead position
     
-    // Reset transport position
+    // CRITICAL FIX: Properly stop and reset arrangement transport
     if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.stop()
+      arrangementTransportRef.current.cancel() // Cancel all scheduled events
       // Don't reset position to 0 - preserve current position for restart
     }
     
-    // Stop arrangement transport
-    if (arrangementTransportRef.current) {
-      arrangementTransportRef.current.stop()
-    }
+    // Stop all arrangement players
+    Object.values(arrangementPlayersRef.current).forEach(player => {
+      if (player.state === 'started') {
+        player.stop()
+      }
+    })
     
     // Clear progress interval
     if (progressIntervalRef.current) {
@@ -951,8 +1514,13 @@ export function SongArrangement({
     setDragOffset({ x: 0, y: 0 })
   }
 
-  // Handle mouse move for dragging
+  // Handle mouse move for dragging and resizing
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (isResizing) {
+      handleResizeMove(e)
+      return
+    }
+    
     if (!isDragging) return
     
     const deltaX = e.clientX - dragStart.x
@@ -960,34 +1528,39 @@ export function SongArrangement({
     
     setDragOffset({ x: deltaX, y: deltaY })
     
-            // Update the pattern block position in real-time as you drag
-        if (selectedBlocks.length > 0) {
-          const block = patternBlocks.find(b => b.id === selectedBlocks[0])
-          if (block) {
-            const originalBarX = (block.startBar - 1) * zoom
-            const newBarX = originalBarX + deltaX
-            // Snap when the front edge enters a bar area (use floor instead of round)
-            let snappedBar = Math.floor(newBarX / zoom) + 1
-            snappedBar = Math.max(1, snappedBar) // Don't go before bar 1
-            
-            // Update the block position immediately
-            const newPatternBlocks = patternBlocks.map(b => 
-              b.id === block.id 
-                ? { 
-                    ...b, 
-                    startBar: snappedBar,
-                    endBar: snappedBar + b.duration - 1
-                  }
-                : b
-            )
-            setPatternBlocks(newPatternBlocks)
-            onPatternsChange?.(newPatternBlocks)
-          }
-        }
+    // Update the pattern block position in real-time as you drag
+    if (selectedBlocks.length > 0) {
+      const block = patternBlocks.find(b => b.id === selectedBlocks[0])
+      if (block) {
+        const originalBarX = (block.startBar - 1) * zoom
+        const newBarX = originalBarX + deltaX
+        // Snap when the front edge enters a bar area (use floor instead of round)
+        let snappedBar = Math.floor(newBarX / zoom) + 1
+        snappedBar = Math.max(1, snappedBar) // Don't go before bar 1
+        
+        // Update the block position immediately
+        const newPatternBlocks = patternBlocks.map(b => 
+          b.id === block.id 
+            ? { 
+                ...b, 
+                startBar: snappedBar,
+                endBar: snappedBar + b.duration - 1
+              }
+            : b
+        )
+        setPatternBlocks(newPatternBlocks)
+        onPatternsChange?.(newPatternBlocks)
+      }
+    }
   }
 
-  // Handle mouse up to end dragging
+  // Handle mouse up to end dragging and resizing
   const handleMouseUp = () => {
+    if (isResizing) {
+      handleResizeEnd()
+      return
+    }
+    
     // Position is already updated during drag, just clean up
     setIsDragging(false)
     setSelectedBlocks([])
@@ -997,7 +1570,7 @@ export function SongArrangement({
 
   // Add event listeners for mouse move and up
   useEffect(() => {
-    if (isDragging) {
+    if (isDragging || isResizing) {
       document.addEventListener('mousemove', handleMouseMove as any)
       document.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -1005,7 +1578,7 @@ export function SongArrangement({
         document.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [isDragging, dragStart])
+  }, [isDragging, isResizing])
 
   // Generate timeline markers
   const timelineMarkers = Array.from({ length: totalBars }, (_, i) => i + 1)
@@ -1037,7 +1610,16 @@ export function SongArrangement({
         event.stopPropagation()
         
         console.log('[SONG ARRANGEMENT] Delete key pressed - toggling delete mode')
-        setIsDeleteMode(!isDeleteMode)
+        setIsDeleteMode(prev => !prev)
+      }
+      
+      // C key to toggle cut mode
+      if (event.code === 'KeyC') {
+        event.preventDefault()
+        event.stopPropagation()
+        
+        console.log('[SONG ARRANGEMENT] C key pressed - toggling cut mode')
+        setIsCutMode(prev => !prev)
       }
     }
 
@@ -1048,7 +1630,7 @@ export function SongArrangement({
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isArrangementPlaying, patternBlocks, isDeleteMode]) // Include patternBlocks and isDeleteMode in dependencies
+  }, [isArrangementPlaying]) // Only depend on isArrangementPlaying
 
   return (
     <div className="space-y-4">
@@ -1139,7 +1721,7 @@ export function SongArrangement({
               {isArrangementPlaying ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` : 'Ready to play'}
             </div>
             <div className="text-gray-400 text-xs">
-              Press SPACEBAR to play/stop • Press DELETE to toggle delete mode
+              Press SPACEBAR to play/stop • Press DELETE to toggle delete mode • Press C to toggle cut mode
             </div>
             <Button
               onClick={() => {
@@ -1182,6 +1764,67 @@ export function SongArrangement({
               <Trash2 className="w-4 h-4 mr-1" />
               {isDeleteMode ? 'Delete Mode ON' : 'Delete'}
             </Button>
+            <Button
+              onClick={() => {
+                setIsCutMode(!isCutMode)
+                console.log(`[CUT MODE] ${!isCutMode ? 'Enabled' : 'Disabled'}`)
+              }}
+              variant={isCutMode ? "destructive" : "outline"}
+              size="sm"
+              className={`text-xs ${isCutMode ? 'bg-orange-600 hover:bg-orange-700 text-white' : ''}`}
+              title={isCutMode ? "Click to disable cut mode" : "Click to enable cut mode - then click on patterns to split them in half"}
+            >
+              <Scissors className="w-4 h-4 mr-1" />
+              {isCutMode ? 'Cut Mode ON' : 'Cut'}
+            </Button>
+            <Button
+              onClick={() => {
+                loadElevenPatternsFromEachTrack()
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+              title="Load 11 patterns from each track automatically"
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Load 11 Patterns
+            </Button>
+            <Button
+              onClick={() => {
+                clearAllPatterns()
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-red-600 hover:bg-red-700 text-white border-red-500"
+              title="Clear all patterns from the arrangement"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Clear All
+            </Button>
+            <Button
+              onClick={() => {
+                createDropArrangement()
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+              title="Create dynamic arrangement with drops by splitting patterns"
+            >
+              <Music className="w-4 h-4 mr-1" />
+              Create Drops
+            </Button>
+            <Button
+              onClick={() => {
+                exportBeatAsWav()
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-green-600 hover:bg-green-700 text-white border-green-500"
+              title="Export the arrangement as a high-quality WAV file"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              Export Beat
+            </Button>
             {isArrangementPlaying && (
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
@@ -1209,6 +1852,17 @@ export function SongArrangement({
                 </Badge>
                 <span className="text-red-400 text-sm">
                   Click on any pattern to delete it
+                </span>
+              </div>
+            )}
+            {isCutMode && (
+              <div className="flex items-center gap-2 ml-4">
+                <Badge variant="outline" className="text-xs bg-orange-600 text-white border-orange-500">
+                  <Scissors className="w-3 h-3 mr-1" />
+                  Cut Mode Active
+                </Badge>
+                <span className="text-orange-400 text-sm">
+                  Click on any pattern to split it in half
                 </span>
               </div>
             )}
@@ -1257,16 +1911,22 @@ export function SongArrangement({
               onScroll={(e) => setScrollX(e.currentTarget.scrollLeft)}
               onClick={handleGridClick}
             >
-              {/* Timeline Header - Scrolls with grid */}
+                            {/* Timeline Header - Scrolls with grid */}
               <div 
                 className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-gray-600 relative cursor-pointer hover:bg-[#222222] transition-colors"
-                style={{ height: '60px' }}
+                style={{ 
+                  height: '60px',
+                  minHeight: '60px',
+                  display: 'block',
+                  visibility: 'visible'
+                }}
                 onClick={(e) => {
                   console.log('[TIMELINE] Timeline header clicked! Event:', e)
                   handleTimelineHeaderClick(e)
                 }}
                 title="Click to set playhead position"
               >
+
                 {/* Timeline Playhead */}
                 {isArrangementPlaying && (
                   <div 
@@ -1291,7 +1951,7 @@ export function SongArrangement({
                   {/* Timeline markers - Start at position 0 */}
                   <div className="flex h-full"
                     style={{ 
-                      width: `${totalBars * zoom}px`
+                      width: `${Math.max(totalBars * zoom, 800)}px` // Ensure minimum width of 800px
                     }}
                   >
                     {timelineMarkers.map((bar) => (
@@ -1316,7 +1976,7 @@ export function SongArrangement({
               <div 
                 className="relative"
                 style={{ 
-                  width: `${totalBars * zoom}px`,
+                  width: `${Math.max(totalBars * zoom, 800)}px`, // Ensure minimum width of 800px
                   height: `${tracks.length * 60}px`
                 }}
               >
@@ -1349,7 +2009,7 @@ export function SongArrangement({
                     style={{ 
                       top: `${trackIndex * 60}px`,
                       height: '60px',
-                      width: `${totalBars * zoom}px`
+                      width: `${Math.max(totalBars * zoom, 800)}px` // Ensure minimum width of 800px
                     }}
                   >
                     {timelineMarkers.map((bar) => (
@@ -1389,6 +2049,8 @@ export function SongArrangement({
                         className={`absolute select-none ${
                           isDeleteMode 
                             ? 'cursor-crosshair' 
+                            : isCutMode
+                            ? 'cursor-pointer'
                             : 'cursor-move'
                         } ${
                           selectedBlocks.includes(block.id) 
@@ -1397,6 +2059,8 @@ export function SongArrangement({
                         } ${
                           isDeleteMode 
                             ? 'hover:ring-2 hover:ring-red-500 hover:ring-opacity-70' 
+                            : isCutMode
+                            ? 'hover:ring-2 hover:ring-orange-500 hover:ring-opacity-70'
                             : ''
                         }`}
                         style={{
@@ -1409,7 +2073,7 @@ export function SongArrangement({
                             : 'none'
                         }}
                         onMouseDown={(e) => {
-                          if (isDeleteMode) {
+                          if (isDeleteMode || isCutMode) {
                             e.preventDefault()
                             e.stopPropagation()
                             handlePatternBlockClick(block.id)
@@ -1417,9 +2081,36 @@ export function SongArrangement({
                             handleBlockMouseDown(e, block.id)
                           }
                         }}
-                        title={isDeleteMode ? `Click to delete ${block.name}` : `Drag to move ${block.name}`}
+                        title={
+                          isDeleteMode 
+                            ? `Click to delete ${block.name}` 
+                            : isCutMode
+                            ? `Click to split ${block.name} in half`
+                            : `Drag to move ${block.name}`
+                        }
                       >
-                        <div className={`h-full rounded border-2 ${isDeleteMode ? 'border-red-500' : 'border-gray-600'} ${block.color} bg-opacity-80 relative group`}>
+                        <div className={`h-full rounded border-2 ${isDeleteMode ? 'border-red-500' : isCutMode ? 'border-orange-500' : 'border-gray-600'} ${block.color} bg-opacity-80 relative group`}>
+                          {/* Left resize handle */}
+                          <div
+                            className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize bg-white bg-opacity-20 hover:bg-opacity-40 transition-all z-10"
+                            onMouseDown={(e) => handleResizeStart(e, block.id, 'left')}
+                            title="Drag to resize from left edge"
+                          >
+                            <div className="absolute left-1 top-1/2 transform -translate-y-1/2">
+                              <MoveHorizontal className="w-3 h-3 text-white" />
+                            </div>
+                          </div>
+                          
+                          {/* Right resize handle */}
+                          <div
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-white bg-opacity-20 hover:bg-opacity-40 transition-all z-10"
+                            onMouseDown={(e) => handleResizeStart(e, block.id, 'right')}
+                            title="Drag to resize from right edge"
+                          >
+                            <div className="absolute right-1 top-1/2 transform -translate-y-1/2">
+                              <MoveHorizontal className="w-3 h-3 text-white" />
+                            </div>
+                          </div>
                           {/* Block header */}
                           <div className="absolute top-0 left-0 right-0 h-6 bg-black bg-opacity-50 rounded-t flex items-center justify-between px-2">
                             <div className="flex items-center gap-2">
@@ -1518,6 +2209,18 @@ export function SongArrangement({
                                 title="Duplicate pattern"
                               >
                                 <Copy className="w-2 h-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="w-5 h-5 p-0 hover:bg-white hover:bg-opacity-20"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  splitPatternBlock(block)
+                                }}
+                                title="Split pattern in half"
+                              >
+                                <Scissors className="w-2 h-2" />
                               </Button>
                               <Button
                                 size="sm"

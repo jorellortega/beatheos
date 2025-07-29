@@ -71,7 +71,7 @@ export function SequencerGrid({
   onToggleWaveforms,
   trackWaveformStates = {},
   onToggleTrackWaveform,
-  gridDivision = 4, // Default to quarter notes (1/4)
+  gridDivision = 16, // Default to sixteenth notes (1/16)
   onGridDivisionChange,
   onQuantizeSequencerData,
   onNavigateToSongArrangement
@@ -141,14 +141,14 @@ export function SequencerGrid({
     return stepTime
   }
 
-  // Function to convert step to bar (like loop editor: ALWAYS 4 steps per bar)
+  // Function to convert step to bar (16 steps per bar for 1/16 resolution)
   const stepToBar = (stepIndex: number) => {
-    return Math.floor(stepIndex / 4) + 1
+    return Math.floor(stepIndex / 16) + 1
   }
 
   // Function to check if step is start of a bar
   const isBarStart = (stepIndex: number) => {
-    return stepIndex % 4 === 0
+    return stepIndex % 16 === 0
   }
 
   // Function to convert step index to grid-aware step number
@@ -292,7 +292,7 @@ export function SequencerGrid({
                 {bpm} BPM
               </Badge>
               <Badge variant="outline" className="text-xs">
-                {steps} Steps ({gridDivision === 4 ? '1/4' : gridDivision === 8 ? '1/8' : gridDivision === 16 ? '1/16' : '1/32'})
+                {steps} Steps
               </Badge>
               <Badge variant="outline" className="text-xs">
                 {tracks.length} Tracks
@@ -333,20 +333,7 @@ export function SequencerGrid({
               <span className="text-white text-xs min-w-[2rem]">{stepWidth}px</span>
             </div>
             
-            {/* Grid Quantization Dropdown */}
-            <div className="flex items-center gap-2 ml-4">
-              <span className="text-white text-sm">Grid:</span>
-              <select
-                value={gridDivision}
-                onChange={(e) => handleGridDivisionChange(parseInt(e.target.value))}
-                className="w-20 h-8 text-sm bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
-              >
-                <option value={4}>1/4</option>
-                <option value={8}>1/8</option>
-                <option value={16}>1/16</option>
-                <option value={32}>1/32</option>
-              </select>
-            </div>
+
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">

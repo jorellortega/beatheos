@@ -66,7 +66,7 @@ export interface PianoRollData {
   [trackId: number]: AudioNote[]
 }
 
-export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling', gridDivision: number = 4) {
+export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling', gridDivision: number = 16) {
   const [sequencerData, setSequencerData] = useState<SequencerData>({})
   const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
@@ -1142,10 +1142,11 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     
     console.log('[STOP SEQUENCE] All samples stopped')
     
-    // Stop Tone.js Transport
+    // Stop Tone.js Transport and disable looping
     import('tone').then(Tone => {
       Tone.Transport.stop()
-      console.log('[STOP SEQUENCE] Tone.js Transport stopped')
+      Tone.Transport.loop = false // Disable looping when stopping
+      console.log('[STOP SEQUENCE] Tone.js Transport stopped and loop disabled')
     }).catch(console.warn)
   }, [])
 

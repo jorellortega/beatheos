@@ -239,6 +239,10 @@ interface TrackListProps {
   onSwitchTrackType?: (trackId: number) => void
   onDuplicateTrackEmpty?: (trackId: number) => void
   onTrackGenreChange?: (trackId: number, genre: string, subgenre: string) => void
+  onSaveTrackPattern?: (track: Track) => void
+  onLoadTrackPattern?: (trackId: number) => void
+  onClearTrackPattern?: (trackId: number) => void
+  onShuffleTrackPattern?: (trackId: number) => void
   transportKey?: string
   melodyLoopMode?: 'transport-dominates' | 'melody-dominates'
   preferMp3?: boolean // Add format preference
@@ -248,7 +252,7 @@ interface TrackListProps {
   onTrackAudioUrlChange?: (trackId: number, newAudioUrl: string) => void // Add callback for URL changes
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, onSaveTrackPattern, onLoadTrackPattern, onClearTrackPattern, onShuffleTrackPattern, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [showGenreSelector, setShowGenreSelector] = useState(false)
@@ -1363,6 +1367,58 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                             title="Edit track metadata (BPM, key, audio type, tags)"
                           >
                             <Edit className="w-3 h-3" />
+                          </Button>
+                        )}
+
+                        {/* Save Pattern button - for tracks with sequencer data */}
+                        {sequencerData[track.id] && onSaveTrackPattern && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onSaveTrackPattern(track)}
+                            className="text-xs text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                            title="Save track pattern"
+                          >
+                            <Save className="w-3 h-3" />
+                          </Button>
+                        )}
+
+                        {/* Load Pattern button - for all tracks */}
+                        {onLoadTrackPattern && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onLoadTrackPattern(track.id)}
+                            className="text-xs text-orange-400 hover:text-orange-300 hover:bg-orange-900/20"
+                            title="Load track pattern"
+                          >
+                            <FolderOpen className="w-3 h-3" />
+                          </Button>
+                        )}
+
+                        {/* Clear Pattern button - for tracks with sequencer data */}
+                        {sequencerData[track.id] && onClearTrackPattern && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onClearTrackPattern(track.id)}
+                            className="text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                            title="Clear track pattern"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </Button>
+                        )}
+
+                        {/* Shuffle Pattern button - for tracks with sequencer data */}
+                        {sequencerData[track.id] && onShuffleTrackPattern && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onShuffleTrackPattern(track.id)}
+                            className="text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                            title="Shuffle track pattern"
+                          >
+                            <Brain className="w-3 h-3" />
                           </Button>
                         )}
 

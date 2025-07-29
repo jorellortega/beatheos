@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2 } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -90,8 +90,8 @@ export default function BeatMakerPage() {
   const [isHeliosMode, setIsHeliosMode] = useState(false) // Helios mode creates hybrid drum/loop track combinations
   const [isBpmToleranceEnabled, setIsBpmToleranceEnabled] = useState(false) // ±10 BPM tolerance rule
   const [timeStretchMode, setTimeStretchMode] = useState<'resampling' | 'flex-time'>('resampling') // RM vs FT mode
-  const [steps, setSteps] = useState(32)
-  const [gridDivision, setGridDivision] = useState(4) // Grid quantization (1/4, 1/8, 1/16, 1/32)
+  const [steps, setSteps] = useState(128) // 8 bars at 1/16 resolution (default)
+  const [gridDivision, setGridDivision] = useState(16) // Grid quantization (1/4, 1/8, 1/16, 1/32) - default to 1/16
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
   const [showPianoRoll, setShowPianoRoll] = useState(false)
@@ -573,10 +573,10 @@ export default function BeatMakerPage() {
   const secondsPerBeat = 60 / bpm
   const stepDuration = secondsPerBeat / (gridDivision / 4)
   
-  // EXACT SEQUENCER GRID BAR SYSTEM
-  const STEPS_PER_BAR = 4 // 4 steps per bar (ALWAYS)
-  const stepToBar = (stepIndex: number) => Math.floor(stepIndex / 4) + 1
-  const isBarStart = (stepIndex: number) => stepIndex % 4 === 0
+      // EXACT SEQUENCER GRID BAR SYSTEM
+    const STEPS_PER_BAR = 16 // 16 steps per bar for 1/16 resolution
+  const stepToBar = (stepIndex: number) => Math.floor(stepIndex / 16) + 1 // 16 steps per bar for 1/16 resolution
+  const isBarStart = (stepIndex: number) => stepIndex % 16 === 0 // 16 steps per bar for 1/16 resolution
   const getGridStepNumber = (stepIndex: number) => (stepIndex + 1).toString()
   
   // Initialize sequencer with first step active for each track when in Strata mode
@@ -4153,9 +4153,9 @@ export default function BeatMakerPage() {
         alert('Session closed. Shuffle All will create a new session state.')
       }
 
-      // Set transport to 32 steps when shuffling all
-      setSteps(32)
-      console.log('[SHUFFLE ALL] Set transport to 32 steps')
+      // Set transport to 8 bars (128 steps) when shuffling all
+      setSteps(128)
+      console.log('[SHUFFLE ALL] Set transport to 8 bars (128 steps)')
 
       // Handle track loading based on Strata mode, Latido mode, and Helios mode
       if (isAutoMode) {
@@ -5431,6 +5431,7 @@ export default function BeatMakerPage() {
   const [sessionCategory, setSessionCategory] = useState('')
   const [sessionTags, setSessionTags] = useState('')
   const [sessionStatus, setSessionStatus] = useState('draft')
+  const [sessionStatusFilter, setSessionStatusFilter] = useState('all')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -7030,7 +7031,7 @@ export default function BeatMakerPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Ortega Beat Maker</h1>
+          <h1 className="text-3xl font-bold text-white">Ortega AI Beat Maker</h1>
           <p className="text-gray-400">Create beats with our professional tools</p>
           {currentSessionId && (
             <div className="flex items-center gap-2 mt-2">
@@ -8124,21 +8125,24 @@ export default function BeatMakerPage() {
               
 
 
-              {/* Steps Controls */}
+              {/* Bars Controls */}
               <div className="flex items-center gap-2">
-                <span className="text-white text-sm">Steps:</span>
+                <span className="text-white text-sm">Bars:</span>
                 <div className="flex gap-1">
-                  {[8, 16, 32, 64].map((stepCount) => (
-                    <Button
-                      key={stepCount}
-                      variant={steps === stepCount ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSteps(stepCount)}
-                      className="w-8 h-8 p-0"
-                    >
-                      {stepCount}
-                    </Button>
-                  ))}
+                  {[2, 4, 8, 16].map((barCount) => {
+                    const stepCount = barCount * 16; // Convert bars to steps (16 steps per bar for 1/16 resolution)
+                    return (
+                      <Button
+                        key={stepCount}
+                        variant={steps === stepCount ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setSteps(stepCount)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {barCount}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -9097,7 +9101,11 @@ export default function BeatMakerPage() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between mb-4">
                     <div className="text-gray-400 text-sm">
-                      {savedSessions.length} session{savedSessions.length !== 1 ? 's' : ''} found
+                      {savedSessions.filter(session => 
+                        sessionStatusFilter === 'all' || session.status === sessionStatusFilter
+                      ).length} session{savedSessions.filter(session => 
+                        sessionStatusFilter === 'all' || session.status === sessionStatusFilter
+                      ).length !== 1 ? 's' : ''} found
                     </div>
                     <Button
                       onClick={loadSavedSessions}
@@ -9109,16 +9117,63 @@ export default function BeatMakerPage() {
                     </Button>
                   </div>
                   
+                  {/* Status Filter Tabs */}
+                  <div className="flex gap-2 mb-4 overflow-x-auto">
+                    <Button
+                      variant={sessionStatusFilter === 'all' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSessionStatusFilter('all')}
+                      className="whitespace-nowrap"
+                    >
+                      All ({savedSessions.length})
+                    </Button>
+                    <Button
+                      variant={sessionStatusFilter === 'draft' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSessionStatusFilter('draft')}
+                      className="whitespace-nowrap"
+                    >
+                      Draft ({savedSessions.filter(s => s.status === 'draft').length})
+                    </Button>
+                    <Button
+                      variant={sessionStatusFilter === 'in_progress' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSessionStatusFilter('in_progress')}
+                      className="whitespace-nowrap"
+                    >
+                      In Progress ({savedSessions.filter(s => s.status === 'in_progress').length})
+                    </Button>
+                    <Button
+                      variant={sessionStatusFilter === 'complete' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSessionStatusFilter('complete')}
+                      className="whitespace-nowrap"
+                    >
+                      Complete ({savedSessions.filter(s => s.status === 'complete').length})
+                    </Button>
+                    <Button
+                      variant={sessionStatusFilter === 'archived' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSessionStatusFilter('archived')}
+                      className="whitespace-nowrap"
+                    >
+                      Archived ({savedSessions.filter(s => s.status === 'archived').length})
+                    </Button>
+                  </div>
+                  
                   <div className="grid gap-4">
-                    {savedSessions.map((session) => (
+                    {savedSessions
+                      .filter(session => sessionStatusFilter === 'all' || session.status === sessionStatusFilter)
+                      .map((session) => (
                       <div
                         key={session.id}
-                        className={`p-4 rounded-lg border transition-colors ${
+                        className={`p-4 rounded-lg border transition-colors relative ${
                           currentSessionId === session.id
                             ? 'bg-[#2a2a2a] border-green-500'
                             : 'bg-[#1a1a1a] border-gray-600 hover:border-gray-500'
                         }`}
                       >
+
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
@@ -9160,6 +9215,20 @@ export default function BeatMakerPage() {
                                 }`}>
                                   {session.status?.replace('_', ' ') || 'draft'}
                                 </Badge>
+                                {/* Delete button next to status label */}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    if (confirm(`Are you sure you want to delete "${session.name}"? This action cannot be undone.`)) {
+                                      handleDeleteSession(session.id)
+                                    }
+                                  }}
+                                  className="h-5 w-5 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                                  title="Delete session"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
                               </div>
                             </div>
                           </div>
@@ -9169,17 +9238,9 @@ export default function BeatMakerPage() {
                               size="sm"
                               onClick={() => handleLoadSession(session.id)}
                               disabled={isLoading}
-                              className="text-green-400 hover:text-green-300"
+                              className="bg-black text-white hover:bg-yellow-400 hover:text-black transition-colors"
                             >
                               {isLoading ? 'Loading...' : 'Load'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDeleteSession(session.id)}
-                              className="text-red-400 hover:text-red-300"
-                            >
-                              Delete
                             </Button>
                           </div>
                         </div>
@@ -9298,11 +9359,14 @@ export default function BeatMakerPage() {
                   {savedSessions.map((session) => (
                     <div
                       key={session.id}
-                      className="p-4 rounded-lg border border-gray-600 bg-[#2a2a2a] hover:bg-[#3a3a3a] transition-colors"
+                      className="p-4 rounded-lg border border-gray-600 bg-[#2a2a2a] hover:bg-[#3a3a3a] transition-colors relative"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-white">{session.name}</h3>
+
+                                              <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                                                         <div className="flex items-center gap-2 mb-1">
+                               <h3 className="font-semibold text-white">{session.name}</h3>
+                             </div>
                           <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
                             <span>BPM: {session.bpm}</span>
                             <span>Steps: {session.steps}</span>
@@ -9313,6 +9377,20 @@ export default function BeatMakerPage() {
                               session.status === 'complete' ? 'text-green-400' :
                               'text-orange-400'
                             }`}>Status: {session.status.replace('_', ' ')}</span>
+                            {/* Delete button next to status label */}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to delete "${session.name}"? This action cannot be undone.`)) {
+                                  handleDeleteSession(session.id)
+                                }
+                              }}
+                              className="h-5 w-5 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                              title="Delete session"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
                           </div>
                           {session.description && (
                             <p className="text-sm text-gray-500 mt-1">{session.description}</p>
@@ -9335,7 +9413,7 @@ export default function BeatMakerPage() {
                             size="sm"
                             onClick={() => handleLoadSession(session.id)}
                             disabled={isLoading}
-                            className="w-full"
+                            className="w-full bg-black text-white hover:bg-yellow-400 hover:text-black transition-colors"
                           >
                             {isLoading ? (
                               <>
@@ -9348,14 +9426,6 @@ export default function BeatMakerPage() {
                                 Load
                               </>
                             )}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDeleteSession(session.id)}
-                            className="w-full text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                          >
-                            Delete
                           </Button>
                         </div>
                       </div>

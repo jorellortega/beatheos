@@ -75,10 +75,10 @@ export function QuantizeLoopModal({
   // Helper functions to convert between time, step, and bar
   const timeToStep = (time: number) => Math.floor(time / stepDuration)
   const stepToTime = (step: number) => step * stepDuration
-  const timeToBar = (time: number) => Math.floor(time / (stepDuration * 4)) + 1 // 4 steps per bar
-  const barToTime = (bar: number) => (bar - 1) * stepDuration * 4
-  const stepToBar = (step: number) => Math.floor(step / 4) + 1
-  const barToStep = (bar: number) => (bar - 1) * 4
+  const timeToBar = (time: number) => Math.floor(time / (stepDuration * 16)) + 1 // 16 steps per bar for 1/16 resolution
+  const barToTime = (bar: number) => (bar - 1) * stepDuration * 16
+  const stepToBar = (step: number) => Math.floor(step / 16) + 1 // 16 steps per bar for 1/16 resolution
+  const barToStep = (bar: number) => (bar - 1) * 16
 
   // Category helper functions
   const getCategoryColor = (category: string) => {
@@ -287,16 +287,16 @@ export function QuantizeLoopModal({
       
         // Draw step number
         ctx.setLineDash([])
-        ctx.fillStyle = stepIndex % 4 === 0 ? '#888' : '#555' // Highlight every 4th step
-        ctx.font = stepIndex % 4 === 0 ? 'bold 12px monospace' : '10px monospace'
+        ctx.fillStyle = stepIndex % 16 === 0 ? '#888' : '#555' // Highlight every 16th step (bar)
+        ctx.font = stepIndex % 16 === 0 ? 'bold 12px monospace' : '10px monospace'
         ctx.textAlign = 'center'
         
         // Draw step number at top
         ctx.fillText(stepIndex.toString(), x, 20)
         
-        // Draw bar number (every 4 steps = 1 bar)
-        if (stepIndex % 4 === 0) {
-          const barNumber = Math.floor(stepIndex / 4) + 1
+        // Draw bar number (every 16 steps = 1 bar)
+        if (stepIndex % 16 === 0) {
+          const barNumber = Math.floor(stepIndex / 16) + 1
           ctx.fillStyle = '#ffffff' // White color for bar numbers
           ctx.font = 'bold 24px monospace'
           
@@ -657,14 +657,14 @@ export function QuantizeLoopModal({
     setStartTime(quantizedStart)
     setEndTime(quantizedEnd)
     
-    console.log(`[AUTO-QUANTIZE] Set loop to cover all ${steps} steps (${totalDuration.toFixed(2)}s)`)
+    console.log(`[AUTO-QUANTIZE] Set loop to cover all ${stepToBar(steps)} bars (${totalDuration.toFixed(2)}s)`)
   }
 
   // Auto-quantize to natural loop length (4 bars for most loops)
   const autoQuantizeNatural = () => {
     // Auto-quantize to cover 4 bars (16 steps) which is typical for most loops
     const quantizedStart = 0
-    const naturalEnd = Math.min(totalDuration, stepDuration * 16) // 4 bars = 16 steps
+    const naturalEnd = Math.min(totalDuration, stepDuration * 64) // 4 bars = 64 steps (16 steps per bar)
     
     setStartTime(quantizedStart)
     setEndTime(naturalEnd)
@@ -674,9 +674,9 @@ export function QuantizeLoopModal({
 
   // Manual 4-bar loop setting
   const setManual4Bars = () => {
-    // Force exactly 4 bars (16 steps) regardless of audio length
+    // Force exactly 4 bars (64 steps) regardless of audio length
     const quantizedStart = 0
-    const fourBarEnd = stepDuration * 16 // Exactly 4 bars = 16 steps
+    const fourBarEnd = stepDuration * 64 // Exactly 4 bars = 64 steps (16 steps per bar)
     
     setStartTime(quantizedStart)
     setEndTime(fourBarEnd)
@@ -696,9 +696,9 @@ export function QuantizeLoopModal({
     // Only stretch if the loop is significantly shorter than 4 bars
     let newPlaybackRate = 1.0 // Default to normal speed
     
-    if (loopLength < stepDuration * 16 * 0.8) { // If loop is less than 80% of 4 bars
+    if (loopLength < stepDuration * 64 * 0.8) { // If loop is less than 80% of 4 bars
       // Stretch the loop to fit 4 bars
-      const fourBarLength = stepDuration * 16
+      const fourBarLength = stepDuration * 64
       newPlaybackRate = fourBarLength / loopLength
       console.log(`[QUANTIZE] Stretching loop from ${loopLength.toFixed(2)}s to 4 bars (${fourBarLength.toFixed(2)}s), rate: ${newPlaybackRate.toFixed(3)}`)
     } else {
@@ -734,7 +734,7 @@ export function QuantizeLoopModal({
       
       // Set the loop region to cover 4 bars by default (natural loop length)
       // Only extend to full 8 bars if the audio is actually longer
-      const naturalLoopLength = Math.min(duration, stepDuration * 16) // 4 bars = 16 steps
+      const naturalLoopLength = Math.min(duration, stepDuration * 64) // 4 bars = 64 steps (16 steps per bar)
       const fullLoopLength = Math.min(duration, totalDuration) // Full 8 bars
       
       // Use natural length if audio is shorter than 8 bars, otherwise use full length
@@ -1194,7 +1194,7 @@ export function QuantizeLoopModal({
           <div className="relative bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
             {/* Step Counter Overlay */}
             <div className="absolute top-2 left-2 z-10 bg-black/70 px-2 py-1 rounded text-xs text-white">
-              Showing {steps} steps ({totalDuration.toFixed(1)}s total)
+              Showing {stepToBar(steps)} bars ({totalDuration.toFixed(1)}s total)
             </div>
             {isLoading ? (
               <div className="flex items-center justify-center h-64">
