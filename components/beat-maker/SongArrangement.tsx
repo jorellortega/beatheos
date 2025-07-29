@@ -70,6 +70,33 @@ export function SongArrangement({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [loadedTrackId, setLoadedTrackId] = useState<number | null>(null) // which track is in "load" mode
   const [selectedDuration, setSelectedDuration] = useState(8) // default 8 bars for new patterns
+  const [isDeleteMode, setIsDeleteMode] = useState(false) // delete mode state
+
+  // Function to get track display name with icons (same as sequencer)
+  const getTrackDisplayName = (trackName: string) => {
+    if (trackName.includes(' Loop')) {
+      const baseName = trackName.replace(' Loop', '')
+      const loopIcon = '🔄'
+      
+      // Add specific icons for different loop types
+      if (baseName === 'Melody') return `${loopIcon} Melody`
+      if (baseName === 'Drum') return `${loopIcon} Drum`
+      if (baseName === 'Hihat') return `${loopIcon} Hihat`
+      if (baseName === 'Percussion') return `${loopIcon} Perc`
+      if (baseName === '808') return `${loopIcon} 808`
+      if (baseName === 'Bass') return `${loopIcon} Bass`
+      if (baseName === 'Piano') return `${loopIcon} Piano`
+      if (baseName === 'Guitar') return `${loopIcon} Guitar`
+      if (baseName === 'Synth') return `${loopIcon} Synth`
+      if (baseName === 'Vocal') return `${loopIcon} Vocal`
+      
+      // Default for other loop types
+      return `${loopIcon} ${baseName}`
+    }
+    
+    // For non-loop tracks, return the original name
+    return trackName
+  }
 
   // Separate audio system for arrangement
   const arrangementPlayersRef = useRef<{ [trackId: number]: Tone.Player }>({})
@@ -86,58 +113,72 @@ export function SongArrangement({
 
   // Fixed playhead update using transport position
   const updatePlayhead = () => {
-    console.log('[PLAYHEAD DEBUG] Update called - isPlayingRef:', isPlayingRef.current, 'transport exists:', !!arrangementTransportRef.current)
-    
     if (isPlayingRef.current && arrangementTransportRef.current) {
       try {
         // Get the current transport position as a string (e.g., "2:1:0")
         const positionStr = arrangementTransportRef.current.position
-        console.log('[PLAYHEAD DEBUG] Raw transport position string:', positionStr)
         
         // Convert position string to [bars, beats, sixteenths]
         const [bars, beats, sixteenths] = positionStr.split(':').map(Number)
-        console.log('[PLAYHEAD DEBUG] Parsed position - bars:', bars, 'beats:', beats, 'sixteenths:', sixteenths)
         
         // Calculate the current bar as a float
         const currentBarPosition = (bars || 0) + 1 + ((beats || 0) / 4) + ((sixteenths || 0) / 16 / 4)
         
-        console.log('[PLAYHEAD DEBUG] Calculated position:', currentBarPosition, 'Current state - currentBar:', currentBar)
+        // Calculate the maximum duration based on actual pattern blocks, not the steps prop
+        const maxEndBar = patternBlocks.length > 0 ? Math.max(...patternBlocks.map(block => block.endBar)) : totalBars
         
-        // Only update if we have a valid position
-        if (currentBarPosition >= 1) {
-          console.log('[PLAYHEAD DEBUG] Setting currentBar to:', currentBarPosition)
+        // Only update if we have a valid position and it's significantly different
+        // Allow playhead to go beyond the steps limit (8 bars) up to the actual arrangement duration
+        if (currentBarPosition >= 1 && Math.abs(currentBarPosition - currentBar) > 0.01) {
           setCurrentBarSafe(currentBarPosition)
-        } else {
-          console.log('[PLAYHEAD DEBUG] Position too low, not updating:', currentBarPosition)
+        }
+        
+        // Check if we've reached the end of the arrangement
+        if (currentBarPosition > maxEndBar) {
+          console.log(`[PLAYHEAD DEBUG] Reached end of arrangement at bar ${maxEndBar}, stopping playback`)
+          stopArrangement()
         }
       } catch (error) {
         console.error('[PLAYHEAD DEBUG] Error in update:', error)
       }
-    } else {
-      console.log('[PLAYHEAD DEBUG] Not updating - isPlayingRef:', isPlayingRef.current, 'transport exists:', !!arrangementTransportRef.current)
     }
   }
 
   // Initialize separate audio system for arrangement
   useEffect(() => {
     const initializeArrangementAudio = async () => {
-      if (isArrangementAudioInitialized.current) return
+      console.log('[ARRANGEMENT AUDIO] Starting audio initialization...')
+      if (isArrangementAudioInitialized.current) {
+        console.log('[ARRANGEMENT AUDIO] Already initialized, skipping')
+        return
+      }
       
-      await Tone.start()
-      
-      // Use the global transport but reset it for arrangement
-      arrangementTransportRef.current = Tone.getTransport()
-      arrangementTransportRef.current.stop()
-      arrangementTransportRef.current.position = 0
-      arrangementTransportRef.current.bpm.value = bpm
-      
+      try {
+        // Start Tone.js audio context
+        console.log('[ARRANGEMENT AUDIO] Starting Tone.js...')
+        await Tone.start()
+        console.log('[ARRANGEMENT AUDIO] Tone.js started successfully')
+        
+        // IMPORTANT: Stop and reset the global transport completely
+        // This ensures arrangement doesn't interfere with sequencer
+        const globalTransport = Tone.getTransport()
+        globalTransport.stop()
+        globalTransport.cancel()
+        globalTransport.position = 0
+        
+        // Use the global transport but ensure it doesn't loop for arrangement
+        arrangementTransportRef.current = Tone.getTransport()
+        arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.loop = false // Explicitly disable looping for arrangement
+        arrangementTransportRef.current.bpm.value = bpm
+        
       // Load audio for tracks that have audio URLs
       const loadPromises = tracks.map(async (track) => {
         if (track.audioUrl && track.audioUrl !== 'undefined') {
           try {
             console.log(`[ARRANGEMENT AUDIO] Loading audio for track ${track.name}: ${track.audioUrl}`)
             
-            // Create pitch shifter for arrangement
+            // Use the global context for pitch shifter and player
             const pitchShifter = new Tone.PitchShift({
               pitch: track.pitchShift || 0,
               windowSize: 0.1,
@@ -145,7 +186,6 @@ export function SongArrangement({
               feedback: 0.05
             }).toDestination()
             
-            // Create player for arrangement
             const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
             
             // Apply playback rate if specified
@@ -171,9 +211,12 @@ export function SongArrangement({
       
       isArrangementAudioInitialized.current = true
       console.log('[ARRANGEMENT AUDIO] Audio system initialized with players:', Object.keys(arrangementPlayersRef.current))
+    } catch (error) {
+      console.error('[ARRANGEMENT AUDIO] Error initializing audio system:', error)
     }
+  }
 
-    initializeArrangementAudio()
+  initializeArrangementAudio()
   }, [tracks, bpm])
 
   // Cleanup arrangement audio on unmount
@@ -234,6 +277,47 @@ export function SongArrangement({
     }
   }
 
+  // Handle clicking on the timeline header to set playhead position
+  const handleTimelineHeaderClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    console.log('[TIMELINE] Header click detected!')
+    
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) {
+      console.log('[TIMELINE] No grid ref found')
+      return
+    }
+    
+    // Calculate click position relative to the grid content
+    const clickX = e.clientX - rect.left + scrollX
+    
+    // Calculate which bar was clicked (grid content starts at 0)
+    const clickedBar = Math.floor(clickX / zoom) + 1
+    
+    console.log('[TIMELINE] Click calculation:', {
+      clientX: e.clientX,
+      rectLeft: rect.left,
+      scrollX: scrollX,
+      clickX: clickX,
+      zoom: zoom,
+      calculatedBar: clickedBar
+    })
+    
+    console.log('[TIMELINE] Header clicked at position:', clickX, 'setting playhead to bar:', clickedBar)
+    
+    // Set the playhead to the clicked position
+    setCurrentBarSafe(clickedBar)
+    
+    // If currently playing, restart from the new position
+    if (isArrangementPlaying) {
+      console.log('[TIMELINE] Restarting playback from new position')
+      stopArrangement()
+      setTimeout(() => playArrangement(), 100) // Small delay to ensure clean restart
+    }
+  }
+
   // Handle clicking in the grid to place a pattern or seek
   const handleGridClick = (e: React.MouseEvent) => {
     const rect = gridRef.current?.getBoundingClientRect()
@@ -257,7 +341,7 @@ export function SongArrangement({
       // Create a new pattern block at the clicked position
       const newBlock: PatternBlock = {
         id: `pattern-${Date.now()}-${Math.random()}`,
-        name: `${loadedTrack.name} Pattern`,
+        name: `${getTrackDisplayName(loadedTrack.name)} Pattern`,
         tracks: [loadedTrack], // Single track pattern
         sequencerData: { [loadedTrack.id]: sequencerData[loadedTrack.id] || [] },
         bpm: bpm,
@@ -302,6 +386,14 @@ export function SongArrangement({
     const newPatternBlocks = patternBlocks.filter(block => block.id !== blockId)
     setPatternBlocks(newPatternBlocks)
     onPatternsChange?.(newPatternBlocks)
+  }
+
+  // Handle pattern block click for delete mode
+  const handlePatternBlockClick = (blockId: string) => {
+    if (isDeleteMode) {
+      console.log(`[DELETE MODE] Deleting pattern block: ${blockId}`)
+      removePatternBlock(blockId)
+    }
   }
 
   // Duplicate a pattern block
@@ -557,6 +649,35 @@ export function SongArrangement({
     }
   }
 
+  // Function to completely isolate arrangement from sequencer
+  const isolateArrangementFromSequencer = () => {
+    console.log('[ARRANGEMENT AUDIO] Isolating arrangement from sequencer...')
+    
+    // Stop ALL global transport events and disable looping
+    const globalTransport = Tone.getTransport()
+    globalTransport.stop()
+    globalTransport.cancel()
+    globalTransport.loop = false // Disable global transport looping
+    // Don't reset position to 0 - preserve current position
+    
+    // Stop all arrangement players
+    Object.values(arrangementPlayersRef.current).forEach(player => {
+      if (player.state === 'started') {
+        player.stop()
+      }
+    })
+    
+    // Reset arrangement transport but preserve position
+    if (arrangementTransportRef.current) {
+      arrangementTransportRef.current.stop()
+      arrangementTransportRef.current.cancel()
+      arrangementTransportRef.current.loop = false // Ensure arrangement transport doesn't loop
+      // Don't reset position to 0 - let it be set later based on current playhead
+    }
+    
+    console.log('[ARRANGEMENT AUDIO] Arrangement isolated from sequencer')
+  }
+
   // Play the entire arrangement using arrangement audio system
   const playArrangement = async () => {
     console.log('[ARRANGEMENT AUDIO] Play arrangement called')
@@ -568,6 +689,9 @@ export function SongArrangement({
       alert('No pattern blocks to play')
       return
     }
+    
+    // CRITICAL: Isolate arrangement from sequencer before playing
+    isolateArrangementFromSequencer()
 
     if (!isArrangementAudioInitialized.current) {
       console.warn('[ARRANGEMENT AUDIO] Audio system not initialized, trying to initialize...')
@@ -576,10 +700,10 @@ export function SongArrangement({
       const initializeArrangementAudio = async () => {
         await Tone.start()
         
-        // Use the global transport but reset it for arrangement
+        // Use the global transport but ensure it doesn't loop for arrangement
         arrangementTransportRef.current = Tone.getTransport()
         arrangementTransportRef.current.stop()
-        arrangementTransportRef.current.position = 0
+        arrangementTransportRef.current.loop = false // Explicitly disable looping for arrangement
         arrangementTransportRef.current.bpm.value = bpm
         
         console.log('[ARRANGEMENT AUDIO] Starting to load audio for tracks:', tracks.length)
@@ -591,6 +715,7 @@ export function SongArrangement({
             try {
               console.log(`[ARRANGEMENT AUDIO] Loading audio for track ${track.name}: ${track.audioUrl}`)
               
+              // Use the arrangement context for pitch shifter and player
               const pitchShifter = new Tone.PitchShift({
                 pitch: track.pitchShift || 0,
                 windowSize: 0.1,
@@ -635,32 +760,40 @@ export function SongArrangement({
 
     setIsArrangementPlaying(true)
     isPlayingRef.current = true // Set ref immediately
-    setCurrentBar(1)
+    // Don't reset currentBar - preserve the playhead position
     arrangementStartTimeRef.current = Date.now()
     
     console.log('[PLAYHEAD DEBUG] Set isArrangementPlaying to true, isPlayingRef to true')
     
-    // Stop any currently playing arrangement and reset transport
+    // Stop any currently playing arrangement and set transport to current playhead position
     if (arrangementTransportRef.current) {
       arrangementTransportRef.current.stop()
-      arrangementTransportRef.current.position = 0
+      // Set transport position to start from current playhead position
+      // Convert current bar to transport position format (bars:beats:sixteenths)
+      const startBar = Math.floor(currentBar - 1) // Convert to 0-based
+      const startBeat = Math.floor((currentBar % 1) * 4) // Convert fractional bar to beats
+      const startSixteenth = Math.floor(((currentBar % 1) * 4 % 1) * 4) // Convert fractional beat to sixteenths
+      
+      const transportPosition = `${startBar}:${startBeat}:${startSixteenth}`
+      arrangementTransportRef.current.position = transportPosition
       arrangementTransportRef.current.cancel() // Cancel all scheduled events
+      console.log(`[ARRANGEMENT AUDIO] Set transport position to ${transportPosition} (bar ${currentBar})`)
     }
     
-    // Also ensure the global transport is stopped
+    // Also ensure the global transport is stopped and doesn't interfere
     const globalTransport = Tone.getTransport()
     if (globalTransport.state === 'started') {
       globalTransport.stop()
-      globalTransport.position = 0
       globalTransport.cancel()
     }
+    // Don't reset global transport position to 0 - let arrangement transport handle its own position
     
     // Sort pattern blocks by start bar
     const sortedBlocks = [...patternBlocks].sort((a, b) => a.startBar - b.startBar)
     console.log('[ARRANGEMENT AUDIO] Sorted blocks:', sortedBlocks)
     
     try {
-      // Calculate total arrangement duration in bars
+      // Calculate total arrangement duration in bars based on actual pattern blocks
       const maxEndBar = Math.max(...sortedBlocks.map(block => block.endBar))
       const totalDurationBars = maxEndBar
       
@@ -672,7 +805,7 @@ export function SongArrangement({
       console.log('[ARRANGEMENT AUDIO] Scheduling patterns with timing:', { bpm, secondsPerBeat, secondsPerBar, totalDurationBars })
       console.log('[ARRANGEMENT AUDIO] Available players before scheduling:', arrangementPlayersRef.current)
       
-      // Schedule each pattern to start at its calculated time
+      // Schedule each pattern to start at its calculated time, adjusted for current playhead position
       sortedBlocks.forEach((block, index) => {
         const track = block.tracks[0]
         const player = arrangementPlayersRef.current[track.id]
@@ -686,18 +819,24 @@ export function SongArrangement({
         })
         
         // Calculate start time in seconds (convert from bar number)
-        const startTimeInBars = block.startBar - 1 // Convert to 0-based
+        // Adjust for current playhead position - if playhead is at bar 3, patterns should start 2 bars later
+        const startTimeInBars = block.startBar - currentBar // Relative to current playhead
         const startTimeInSeconds = startTimeInBars * secondsPerBar
         const durationInSeconds = block.duration * secondsPerBar
         
-        console.log(`[ARRANGEMENT AUDIO] Scheduling pattern ${block.name}: start at ${startTimeInSeconds}s, duration ${durationInSeconds}s`)
+        console.log(`[ARRANGEMENT AUDIO] Scheduling pattern ${block.name}: start at ${startTimeInSeconds}s (bar ${block.startBar} - current ${currentBar} = ${startTimeInBars} bars), duration ${durationInSeconds}s`)
         
         if (player && player.loaded) {
           try {
-            // Schedule the player to start at the calculated time
-            console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
-            player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
-            console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
+            // Only schedule patterns that start after or at the current playhead position
+            if (startTimeInBars >= 0) {
+              // Schedule the player to start at the calculated time
+              console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
+              player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
+              console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
+            } else {
+              console.log(`[ARRANGEMENT AUDIO] Skipping pattern ${block.name} - it starts before current playhead position`)
+            }
           } catch (error) {
             console.error(`[ARRANGEMENT AUDIO] Error scheduling pattern ${block.name}:`, error)
           }
@@ -711,23 +850,10 @@ export function SongArrangement({
       arrangementTransportRef.current?.start()
       console.log('[ARRANGEMENT AUDIO] Transport started successfully')
       
-      // Update playhead every 50ms for smooth movement
-      console.log('[PLAYHEAD DEBUG] Setting up interval for playhead updates')
-      progressIntervalRef.current = setInterval(updatePlayhead, 50)
-      console.log('[PLAYHEAD DEBUG] Interval set up, ref:', progressIntervalRef.current)
+      // Update playhead every 16ms (60fps) for smooth movement
+      progressIntervalRef.current = setInterval(updatePlayhead, 16)
       
-      // Test: Force playhead to move every second to verify state updates work
-      const testInterval = setInterval(() => {
-        if (isPlayingRef.current) {
-          console.log('[PLAYHEAD DEBUG] TEST - Forcing playhead to move manually')
-          setCurrentBarSafe(currentBar + 0.1)
-        }
-      }, 1000)
-      
-      // Store test interval for cleanup
-      const testIntervalRef = { current: testInterval }
-      
-      console.log(`[ARRANGEMENT AUDIO] Started arrangement with ${sortedBlocks.length} patterns`)
+      console.log(`[ARRANGEMENT AUDIO] Started arrangement with ${sortedBlocks.length} patterns, total duration: ${totalDurationBars} bars`)
     } catch (error) {
       console.error('[ARRANGEMENT AUDIO] Error creating sequence:', error)
       setIsArrangementPlaying(false)
@@ -740,11 +866,11 @@ export function SongArrangement({
     setIsArrangementPlaying(false)
     isPlayingRef.current = false // Set ref to false
     setCurrentPattern(null)
-    setCurrentBar(1)
+    // Don't reset currentBar - preserve the playhead position
     
     // Reset transport position
     if (arrangementTransportRef.current) {
-      arrangementTransportRef.current.position = 0
+      // Don't reset position to 0 - preserve current position for restart
     }
     
     // Stop arrangement transport
@@ -778,7 +904,14 @@ export function SongArrangement({
       }
     })
     
-    console.log('[ARRANGEMENT AUDIO] Arrangement stopped')
+    // CRITICAL: Reset global transport to prevent interference with sequencer
+    const globalTransport = Tone.getTransport()
+    globalTransport.stop()
+    globalTransport.cancel()
+    globalTransport.loop = false // Ensure global transport doesn't loop
+    // Don't reset global transport position to 0 - let arrangement transport handle its own position
+    
+    console.log('[ARRANGEMENT AUDIO] Arrangement stopped and global transport reset')
   }
 
   // Calculate time position for a bar
@@ -897,6 +1030,15 @@ export function SongArrangement({
           playArrangement()
         }
       }
+      
+      // Delete key to toggle delete mode
+      if (event.code === 'Delete' || event.code === 'Backspace') {
+        event.preventDefault()
+        event.stopPropagation()
+        
+        console.log('[SONG ARRANGEMENT] Delete key pressed - toggling delete mode')
+        setIsDeleteMode(!isDeleteMode)
+      }
     }
 
     // Add event listener
@@ -906,7 +1048,7 @@ export function SongArrangement({
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isArrangementPlaying, patternBlocks]) // Include patternBlocks in dependencies
+  }, [isArrangementPlaying, patternBlocks, isDeleteMode]) // Include patternBlocks and isDeleteMode in dependencies
 
   return (
     <div className="space-y-4">
@@ -959,7 +1101,26 @@ export function SongArrangement({
         <CardContent className="pt-0">
           <div className="flex items-center gap-4">
             <Button
-              onClick={isArrangementPlaying ? stopArrangement : playArrangement}
+              onClick={() => {
+                            console.log('=== PLAY BUTTON DEBUG ===')
+            console.log('Current state:', { isArrangementPlaying, patternBlocksLength: patternBlocks.length, currentBar })
+            console.log('Audio system initialized:', isArrangementAudioInitialized.current)
+            console.log('Available players:', Object.keys(arrangementPlayersRef.current))
+            console.log('Transport exists:', !!arrangementTransportRef.current)
+            console.log('Transport state:', arrangementTransportRef.current?.state)
+            
+            // FORCE INITIALIZATION if no players available
+            if (Object.keys(arrangementPlayersRef.current).length === 0) {
+              console.log('[ARRANGEMENT AUDIO] No players available, forcing initialization...')
+              isArrangementAudioInitialized.current = false
+            }
+            
+            if (isArrangementPlaying) {
+              stopArrangement()
+            } else {
+              playArrangement()
+            }
+              }}
               variant={isArrangementPlaying ? "destructive" : "default"}
               size="lg"
               className="w-16 h-16 rounded-full"
@@ -978,8 +1139,49 @@ export function SongArrangement({
               {isArrangementPlaying ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` : 'Ready to play'}
             </div>
             <div className="text-gray-400 text-xs">
-              Press SPACEBAR to play/stop
+              Press SPACEBAR to play/stop • Press DELETE to toggle delete mode
             </div>
+            <Button
+              onClick={() => {
+                console.log('=== AUDIO SYSTEM DEBUG ===')
+                console.log('1. Audio context state:', Tone.context.state)
+                console.log('2. Audio system initialized:', isArrangementAudioInitialized.current)
+                console.log('3. Available players:', Object.keys(arrangementPlayersRef.current))
+                console.log('4. Transport exists:', !!arrangementTransportRef.current)
+                console.log('5. Transport state:', arrangementTransportRef.current?.state)
+                console.log('6. Pattern blocks:', patternBlocks.length)
+                console.log('7. Tracks with audio:', tracks.filter(t => t.audioUrl).length)
+                console.log('8. Current bar:', currentBar)
+                console.log('9. Is playing:', isArrangementPlaying)
+                
+                // Test if we can actually play audio
+                if (Object.keys(arrangementPlayersRef.current).length > 0) {
+                  const firstPlayer = Object.values(arrangementPlayersRef.current)[0]
+                  console.log('10. First player state:', firstPlayer.state)
+                  console.log('11. First player loaded:', firstPlayer.loaded)
+                } else {
+                  console.log('10. NO PLAYERS AVAILABLE!')
+                }
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs"
+            >
+              Debug Audio
+            </Button>
+            <Button
+              onClick={() => {
+                setIsDeleteMode(!isDeleteMode)
+                console.log(`[DELETE MODE] ${!isDeleteMode ? 'Enabled' : 'Disabled'}`)
+              }}
+              variant={isDeleteMode ? "destructive" : "outline"}
+              size="sm"
+              className={`text-xs ${isDeleteMode ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
+              title={isDeleteMode ? "Click to disable delete mode" : "Click to enable delete mode - then click on patterns to delete them"}
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              {isDeleteMode ? 'Delete Mode ON' : 'Delete'}
+            </Button>
             {isArrangementPlaying && (
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
@@ -995,7 +1197,18 @@ export function SongArrangement({
                   Load Mode Active
                 </Badge>
                 <span className="text-green-400 text-sm">
-                  Click in grid to place {tracks.find(t => t.id === loadedTrackId)?.name} pattern
+                  Click in grid to place {getTrackDisplayName(tracks.find(t => t.id === loadedTrackId)?.name || '')} pattern
+                </span>
+              </div>
+            )}
+            {isDeleteMode && (
+              <div className="flex items-center gap-2 ml-4">
+                <Badge variant="outline" className="text-xs bg-red-600 text-white border-red-500">
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  Delete Mode Active
+                </Badge>
+                <span className="text-red-400 text-sm">
+                  Click on any pattern to delete it
                 </span>
               </div>
             )}
@@ -1017,7 +1230,7 @@ export function SongArrangement({
                 >
                   <div className="flex items-center gap-2 flex-1">
                     <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
-                    <span className="text-white text-sm truncate">{track.name}</span>
+                    <span className="text-white text-sm truncate">{getTrackDisplayName(track.name)}</span>
                   </div>
                   <Button
                     size="sm"
@@ -1046,8 +1259,13 @@ export function SongArrangement({
             >
               {/* Timeline Header - Scrolls with grid */}
               <div 
-                className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-gray-600 relative"
+                className="sticky top-0 z-10 bg-[#1a1a1a] border-b border-gray-600 relative cursor-pointer hover:bg-[#222222] transition-colors"
                 style={{ height: '60px' }}
+                onClick={(e) => {
+                  console.log('[TIMELINE] Timeline header clicked! Event:', e)
+                  handleTimelineHeaderClick(e)
+                }}
+                title="Click to set playhead position"
               >
                 {/* Timeline Playhead */}
                 {isArrangementPlaying && (
@@ -1055,7 +1273,7 @@ export function SongArrangement({
                     className="absolute top-0 bottom-0 w-1 bg-red-500 z-30 shadow-lg"
                     style={{
                       left: `${Math.max(0, (currentBar - 1) * zoom)}px`,
-                      transition: 'none', // Remove transition for real-time movement
+                      transition: 'left 0.05s ease-out', // Smooth transition for playhead movement
                       boxShadow: '0 0 10px rgba(239, 68, 68, 0.8)'
                     }}
                   >
@@ -1067,6 +1285,8 @@ export function SongArrangement({
                     </div>
                   </div>
                 )}
+                
+
                 <div className="flex items-end h-full">
                   {/* Timeline markers - Start at position 0 */}
                   <div className="flex h-full"
@@ -1106,7 +1326,7 @@ export function SongArrangement({
                     className="absolute top-0 bottom-0 w-2 bg-yellow-400 z-20 animate-pulse shadow-lg"
                     style={{
                       left: `${Math.max(0, (currentBar - 1) * zoom)}px`,
-                      transition: 'none', // Remove transition for real-time movement
+                      transition: 'left 0.05s ease-out', // Smooth transition for playhead movement
                       boxShadow: '0 0 20px rgba(250, 204, 21, 0.9)'
                     }}
                   >
@@ -1166,9 +1386,17 @@ export function SongArrangement({
                     <React.Fragment key={block.id}>
                       <div
                         key={block.id}
-                        className={`absolute cursor-move select-none ${
+                        className={`absolute select-none ${
+                          isDeleteMode 
+                            ? 'cursor-crosshair' 
+                            : 'cursor-move'
+                        } ${
                           selectedBlocks.includes(block.id) 
                             ? 'ring-2 ring-blue-500 ring-opacity-50' 
+                            : ''
+                        } ${
+                          isDeleteMode 
+                            ? 'hover:ring-2 hover:ring-red-500 hover:ring-opacity-70' 
                             : ''
                         }`}
                         style={{
@@ -1180,9 +1408,18 @@ export function SongArrangement({
                             ? `translate(${dragOffset.x}px, ${dragOffset.y}px)` 
                             : 'none'
                         }}
-                        onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
+                        onMouseDown={(e) => {
+                          if (isDeleteMode) {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            handlePatternBlockClick(block.id)
+                          } else {
+                            handleBlockMouseDown(e, block.id)
+                          }
+                        }}
+                        title={isDeleteMode ? `Click to delete ${block.name}` : `Drag to move ${block.name}`}
                       >
-                        <div className={`h-full rounded border-2 border-gray-600 ${block.color} bg-opacity-80 relative group`}>
+                        <div className={`h-full rounded border-2 ${isDeleteMode ? 'border-red-500' : 'border-gray-600'} ${block.color} bg-opacity-80 relative group`}>
                           {/* Block header */}
                           <div className="absolute top-0 left-0 right-0 h-6 bg-black bg-opacity-50 rounded-t flex items-center justify-between px-2">
                             <div className="flex items-center gap-2">

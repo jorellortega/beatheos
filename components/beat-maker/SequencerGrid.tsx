@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Save, Download, Plus, FolderOpen, Music, Piano, Brain, MoreHorizontal, List } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { TrackWaveform } from './TrackWaveform'
 
 interface SequencerGridProps {
@@ -87,11 +87,52 @@ export function SequencerGrid({
   const [savingTrackId, setSavingTrackId] = useState<number | null>(null)
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
   const [stepWidth, setStepWidth] = useState(32)
+  const [showFullLoopWaveforms, setShowFullLoopWaveforms] = useState(true)
 
   // Calculate effective steps based on grid division (like loop editor)
   const secondsPerBeat = 60 / bpm
   const stepDuration = secondsPerBeat / (gridDivision / 4)
   const effectiveSteps = Math.ceil((steps * stepDuration) / stepDuration)
+
+  // Memoize current step to prevent unnecessary re-renders
+  const memoizedCurrentStep = useMemo(() => currentStep, [currentStep])
+
+  // Calculate loop lengths for each track
+  const getTrackLoopLength = (track: any) => {
+    if (!track.audioUrl || !track.loopStartTime || !track.loopEndTime) {
+      return null // No loop
+    }
+    
+    const loopDuration = track.loopEndTime - track.loopStartTime
+    const sequencerDuration = steps * stepDuration
+    
+    // For display purposes, show the actual loop length, not the extended length
+    const displayLoopDuration = loopDuration
+    const loopRatio = displayLoopDuration / sequencerDuration
+    
+    return {
+      loopDuration,
+      displayLoopDuration,
+      sequencerDuration,
+      loopRatio,
+      isLonger: loopRatio > 1.1, // 10% tolerance
+      isShorter: loopRatio < 0.9, // 10% tolerance
+      repeatCount: Math.ceil(sequencerDuration / loopDuration),
+      loopBars: Math.round((displayLoopDuration / stepDuration) / 4) // Convert to bars
+    }
+  }
+
+  // Get the longest loop length for comparison
+  const getLongestLoopLength = () => {
+    let maxLoopDuration = 0
+    tracks.forEach(track => {
+      const loopInfo = getTrackLoopLength(track)
+      if (loopInfo && loopInfo.displayLoopDuration > maxLoopDuration) {
+        maxLoopDuration = loopInfo.displayLoopDuration
+      }
+    })
+    return maxLoopDuration
+  }
 
   // Function to calculate time position for a step
   const getStepTime = (stepIndex: number) => {
@@ -256,6 +297,22 @@ export function SequencerGrid({
               <Badge variant="outline" className="text-xs">
                 {tracks.length} Tracks
               </Badge>
+              
+                      {/* Progress indicator */}
+        <div className="flex items-center gap-2 ml-4">
+          <div className="text-xs text-gray-400">
+            Step {memoizedCurrentStep + 1}/{steps}
+          </div>
+          <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-100"
+              style={{ width: `${((memoizedCurrentStep + 1) / steps) * 100}%` }}
+            />
+          </div>
+          <div className="text-xs text-gray-400">
+            {((memoizedCurrentStep + 1) / steps * 100).toFixed(0)}%
+          </div>
+        </div>
             </div>
           </div>
 
@@ -369,6 +426,25 @@ export function SequencerGrid({
               {showWaveforms ? 'Waveforms ON' : 'Waveforms OFF'}
             </Button>
             
+            {showWaveforms && (
+              <Button
+                variant={showFullLoopWaveforms ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowFullLoopWaveforms(!showFullLoopWaveforms)}
+                className={`${
+                  showFullLoopWaveforms 
+                    ? 'bg-purple-600 text-white hover:bg-purple-700 border-purple-500' 
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                }`}
+                title={showFullLoopWaveforms ? "Full loop waveforms ON - shows complete loop length" : "8-bar only - shows only sequencer area"}
+              >
+                <div className="w-4 h-4 mr-1 flex items-center justify-center">
+                  <div className="w-2 h-2 bg-current rounded-sm"></div>
+                </div>
+                {showFullLoopWaveforms ? 'Full Loop' : '8-Bar Only'}
+              </Button>
+            )}
+            
             <Button
               variant="outline"
               size="sm"
@@ -475,7 +551,7 @@ export function SequencerGrid({
               {Array.from({ length: steps }, (_, i) => {
                 const stepLabel = getGridStepNumber(i)
                 const isDownbeat = isBarStart(i)
-                const isCurrentStep = i === currentStep
+                const isCurrentStep = i === memoizedCurrentStep
                 
                 return (
                   <div
@@ -485,7 +561,7 @@ export function SequencerGrid({
                       minWidth: gridDivision > 16 ? '40px' : `${stepWidth}px`,
                       fontSize: gridDivision > 8 ? '10px' : '12px'
                     }}
-                    className={`flex items-center justify-center text-xs font-mono border-r ${
+                    className={`flex items-center justify-center text-xs font-mono border-r relative ${
                       isDownbeat ? 'border-yellow-500 border-r-2' : 'border-gray-600'
                     } ${
                       isCurrentStep 
@@ -496,6 +572,10 @@ export function SequencerGrid({
                     }`}
                   >
                     {stepLabel}
+                    {/* Playhead indicator */}
+                    {isCurrentStep && (
+                      <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-white animate-pulse"></div>
+                    )}
                   </div>
                 )
               })}
@@ -543,10 +623,22 @@ export function SequencerGrid({
                           width={steps * stepWidth}
                           bpm={bpm}
                           steps={steps}
-                          currentStep={currentStep}
+                          currentStep={memoizedCurrentStep}
                           activeSteps={sequencerData[track.id] || []}
                           isVisible={true}
+                          loopStartTime={track.loopStartTime}
+                          loopEndTime={track.loopEndTime}
+                          showFullLoop={showFullLoopWaveforms}
+                          playbackRate={track.playbackRate || 1.0}
                         />
+                        {/* Loop length indicator */}
+                        {track.loopStartTime !== undefined && track.loopEndTime !== undefined && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <div className="text-xs text-gray-400">
+                              Loop: {Math.round(((track.loopEndTime - track.loopStartTime) / stepDuration) / 4)} bars
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
@@ -578,6 +670,38 @@ export function SequencerGrid({
                       >
                         {getTrackDisplayName(track.name)}
                       </span>
+                      
+                      {/* Loop length indicator */}
+                      {(() => {
+                        const loopInfo = getTrackLoopLength(track)
+                        if (!loopInfo) return null
+                        
+                        const maxLoopDuration = getLongestLoopLength()
+                        const isLongest = loopInfo.loopDuration === maxLoopDuration
+                        
+                        return (
+                          <div className="flex items-center gap-1">
+                            {loopInfo.isLonger && (
+                              <div 
+                                className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"
+                                title={`Longer loop: ${loopInfo.displayLoopDuration.toFixed(2)}s (${loopInfo.loopBars} bars, ${(loopInfo.loopRatio * 100).toFixed(0)}% of sequencer)`}
+                              />
+                            )}
+                            {loopInfo.isShorter && (
+                              <div 
+                                className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"
+                                title={`Shorter loop: ${loopInfo.displayLoopDuration.toFixed(2)}s (${loopInfo.loopBars} bars, ${(loopInfo.loopRatio * 100).toFixed(0)}% of sequencer) - will repeat ${loopInfo.repeatCount}x`}
+                              />
+                            )}
+                            {!loopInfo.isLonger && !loopInfo.isShorter && (
+                              <div 
+                                className="w-2 h-2 bg-green-500 rounded-full"
+                                title={`Matched loop: ${loopInfo.displayLoopDuration.toFixed(2)}s (${loopInfo.loopBars} bars, ${(loopInfo.loopRatio * 100).toFixed(0)}% of sequencer)`}
+                              />
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     
                     <div className="flex items-center gap-0.5 mt-1">
@@ -665,7 +789,7 @@ export function SequencerGrid({
 
                   {Array.from({ length: steps }, (_, stepIndex) => {
                     const isActive = sequencerData[track.id]?.[stepIndex] || false
-                    const isCurrentStep = stepIndex === currentStep
+                    const isCurrentStep = stepIndex === memoizedCurrentStep
                     const sequencerStep1Based = stepIndex + 1
                     const hasPianoRollNotes = pianoRollData[track.id]?.some(note => {
                       const sequencerStep1Based = stepIndex + 1

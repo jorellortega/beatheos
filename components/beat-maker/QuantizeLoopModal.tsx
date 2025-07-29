@@ -660,11 +660,51 @@ export function QuantizeLoopModal({
     console.log(`[AUTO-QUANTIZE] Set loop to cover all ${steps} steps (${totalDuration.toFixed(2)}s)`)
   }
 
+  // Auto-quantize to natural loop length (4 bars for most loops)
+  const autoQuantizeNatural = () => {
+    // Auto-quantize to cover 4 bars (16 steps) which is typical for most loops
+    const quantizedStart = 0
+    const naturalEnd = Math.min(totalDuration, stepDuration * 16) // 4 bars = 16 steps
+    
+    setStartTime(quantizedStart)
+    setEndTime(naturalEnd)
+    
+    console.log(`[AUTO-QUANTIZE NATURAL] Set loop to cover 4 bars (${naturalEnd.toFixed(2)}s)`)
+  }
+
+  // Manual 4-bar loop setting
+  const setManual4Bars = () => {
+    // Force exactly 4 bars (16 steps) regardless of audio length
+    const quantizedStart = 0
+    const fourBarEnd = stepDuration * 16 // Exactly 4 bars = 16 steps
+    
+    setStartTime(quantizedStart)
+    setEndTime(fourBarEnd)
+    
+    console.log(`[MANUAL 4-BARS] Set loop to exactly 4 bars (${fourBarEnd.toFixed(2)}s)`)
+  }
+
   // Apply quantization
   const applyQuantization = () => {
     const loopLength = endTime - startTime
     const targetLength = steps * stepDuration
-    const newPlaybackRate = targetLength / loopLength
+    
+    // Calculate how many times the loop should repeat to fill the sequencer
+    const loopRepeatCount = Math.ceil(targetLength / loopLength)
+    
+    // For 4-bar loops, we want them to repeat naturally instead of being stretched
+    // Only stretch if the loop is significantly shorter than 4 bars
+    let newPlaybackRate = 1.0 // Default to normal speed
+    
+    if (loopLength < stepDuration * 16 * 0.8) { // If loop is less than 80% of 4 bars
+      // Stretch the loop to fit 4 bars
+      const fourBarLength = stepDuration * 16
+      newPlaybackRate = fourBarLength / loopLength
+      console.log(`[QUANTIZE] Stretching loop from ${loopLength.toFixed(2)}s to 4 bars (${fourBarLength.toFixed(2)}s), rate: ${newPlaybackRate.toFixed(3)}`)
+    } else {
+      // Keep natural speed, let the loop repeat
+      console.log(`[QUANTIZE] Keeping natural speed for ${loopLength.toFixed(2)}s loop, will repeat ${loopRepeatCount}x`)
+    }
     
     // Include waveform offset in the quantization
     const adjustedStartTime = startTime + waveformOffset
@@ -692,9 +732,16 @@ export function QuantizeLoopModal({
       
       setDuration(duration)
       
-      // Set the loop region to cover all transport steps by default
+      // Set the loop region to cover 4 bars by default (natural loop length)
+      // Only extend to full 8 bars if the audio is actually longer
+      const naturalLoopLength = Math.min(duration, stepDuration * 16) // 4 bars = 16 steps
+      const fullLoopLength = Math.min(duration, totalDuration) // Full 8 bars
+      
+      // Use natural length if audio is shorter than 8 bars, otherwise use full length
+      const defaultEndTime = duration < totalDuration ? naturalLoopLength : fullLoopLength
+      
       setStartTime(0)
-      setEndTime(totalDuration)
+      setEndTime(defaultEndTime)
       
       // Ensure we're using the total duration for the full step range
       const effectiveDuration = Math.max(duration, totalDuration)
@@ -980,7 +1027,27 @@ export function QuantizeLoopModal({
               className="flex items-center gap-2"
             >
               <Grid3X3 className="w-4 h-4" />
-              Auto-Quantize
+              Auto-Quantize (8 bars)
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={autoQuantizeNatural}
+              className="flex items-center gap-2"
+            >
+              <Grid3X3 className="w-4 h-4" />
+              Auto-Quantize (4 bars)
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={setManual4Bars}
+              className="flex items-center gap-2"
+            >
+              <Grid3X3 className="w-4 h-4" />
+              Manual 4 Bars
             </Button>
 
             <Button

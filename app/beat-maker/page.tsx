@@ -1,5 +1,13 @@
 'use client'
 
+// Extend Window interface to include our custom properties
+declare global {
+  interface Window {
+    audioPlayers?: { [key: number]: any }
+    shuffleIntervals?: NodeJS.Timeout[]
+  }
+}
+
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
@@ -123,8 +131,9 @@ export default function BeatMakerPage() {
       track.id === trackId ? { ...track, audioUrl: newAudioUrl } : track
     ))
     
-    // Force reload of Tone.js players for this track
-    if (forceReloadTrackSamples) {
+    // Only force reload if the format system is enabled
+    if (formatSystemEnabled && forceReloadTrackSamples) {
+      console.log(`[FORMAT CHANGE] Force reloading track ${trackId} due to format change`)
       forceReloadTrackSamples(trackId)
     }
   }
@@ -167,8 +176,13 @@ export default function BeatMakerPage() {
 
   // Fetch file links for format detection
   const fetchFileLinks = async () => {
-    // Always fetch to respect current query limit
+    // CRITICAL: Don't fetch file links if format system is disabled
+    if (!formatSystemEnabled) {
+      console.log('[FORMAT OFF] Skipping file links fetch - format system disabled')
+      return
+    }
     
+    // Always fetch to respect current query limit
     console.log(`[QUERY LIMIT] Fetching with limit: ${queryLimit}`)
     try {
       console.log('🔄 Fetching file links from API...')
@@ -362,6 +376,11 @@ export default function BeatMakerPage() {
     clearTrackPattern,
     clearPianoRollData,
     debugPianoRollPlayback,
+    debugLoopTiming,
+    getCurrentPlayheadPosition,
+    getCurrentStepFromTransport,
+    restartAllLoopsAtPatternBoundary,
+    stopAllLoops,
     samplesRef,
     pitchShiftersRef
   } = useBeatMaker(tracks, steps, bpm, timeStretchMode, gridDivision)
@@ -2138,38 +2157,46 @@ export default function BeatMakerPage() {
         updateAudioFileBpmInDatabase(currentTrack, tempoData.originalBpm)
       }
       
-      // Force reload of samples to ensure playback rate is applied correctly
-      console.log(`[TEMPO CHANGE] Forcing sample reload for track ${trackId} with playback rate ${tempoData.playbackRate}`)
+      // Only force reload if there's a significant change in playback rate
+      const currentPlaybackRate = currentTrack.playbackRate || 1.0
+      const newPlaybackRate = tempoData.playbackRate || 1.0
+      const playbackRateChange = Math.abs(newPlaybackRate - currentPlaybackRate)
       
-      // For Original BPM changes, we need to be more careful about the reload timing
-      if (isOriginalBpmChange) {
-        // Add a longer delay for Original BPM changes to ensure clean reload
-        setTimeout(async () => {
-          try {
-            await forceReloadTrackSamples(trackId)
-            console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after Original BPM change`)
-            
-            setTimeout(() => {
-              quantizeTrackTiming(trackId)
-            }, 200)
-          } catch (error) {
-            console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
-          }
-        }, 300) // Increased delay for Original BPM changes
+      if (playbackRateChange > 0.001) {
+        console.log(`[TEMPO CHANGE] Significant playback rate change detected: ${currentPlaybackRate} -> ${newPlaybackRate} (change: ${playbackRateChange.toFixed(4)})`)
+        
+        // For Original BPM changes, we need to be more careful about the reload timing
+        if (isOriginalBpmChange) {
+          // Add a longer delay for Original BPM changes to ensure clean reload
+          setTimeout(async () => {
+            try {
+              await forceReloadTrackSamples(trackId)
+              console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after Original BPM change`)
+              
+              setTimeout(() => {
+                quantizeTrackTiming(trackId)
+              }, 200)
+            } catch (error) {
+              console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
+            }
+          }, 300) // Increased delay for Original BPM changes
+        } else {
+          // Regular tempo change - use normal timing
+          setTimeout(async () => {
+            try {
+              await forceReloadTrackSamples(trackId)
+              console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after tempo change`)
+              
+              setTimeout(() => {
+                quantizeTrackTiming(trackId)
+              }, 200)
+            } catch (error) {
+              console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
+            }
+          }, 150) // Shorter delay for regular tempo changes
+        }
       } else {
-        // Regular tempo change - use normal timing
-        setTimeout(async () => {
-          try {
-            await forceReloadTrackSamples(trackId)
-            console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after tempo change`)
-            
-            setTimeout(() => {
-              quantizeTrackTiming(trackId)
-            }, 200)
-          } catch (error) {
-            console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
-          }
-        }, 150) // Shorter delay for regular tempo changes
+        console.log(`[TEMPO CHANGE] No significant playback rate change (${playbackRateChange.toFixed(4)}), skipping reload`)
       }
     }
   }
@@ -2992,6 +3019,35 @@ export default function BeatMakerPage() {
     try {
       const track = tracks.find(t => t.id === trackId)
       if (!track) return
+
+      // CRITICAL: Stop any existing audio for this track first
+      console.log(`[SHUFFLE AUDIO] Stopping existing audio for track: ${track.name}`)
+      
+      // Stop Tone.js Transport if it's running
+      const Tone = await import('tone')
+      if (Tone.Transport.state === 'started') {
+        Tone.Transport.stop()
+        Tone.Transport.cancel()
+        console.log(`[SHUFFLE AUDIO] Stopped Tone.js Transport for track: ${track.name}`)
+      }
+      
+      // Stop any existing audio players for this track
+      if (window.audioPlayers && window.audioPlayers[trackId]) {
+        try {
+          const player = window.audioPlayers[trackId]
+          if (player && player.stop) {
+            player.stop()
+            player.dispose()
+          }
+          delete window.audioPlayers[trackId]
+          console.log(`[SHUFFLE AUDIO] Stopped audio player for track: ${track.name}`)
+        } catch (error) {
+          console.warn(`[SHUFFLE AUDIO] Error stopping player for track ${track.name}:`, error)
+        }
+      }
+      
+      // Small delay to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 50))
 
       // Debug: Log the current state
       console.log(`[DEBUG] Shuffle triggered for track: ${track.name}`)
@@ -4039,6 +4095,48 @@ export default function BeatMakerPage() {
 
   const handleShuffleAll = async () => {
     try {
+      console.log('[SHUFFLE ALL] Starting shuffle all operation...')
+      
+      // CRITICAL: Stop all audio and clear any existing loops first
+      console.log('[SHUFFLE ALL] Stopping all audio and clearing loops...')
+      
+      // Stop Tone.js Transport
+      const Tone = await import('tone')
+      if (Tone.Transport.state === 'started') {
+        Tone.Transport.stop()
+        Tone.Transport.cancel()
+        Tone.Transport.position = 0
+        console.log('[SHUFFLE ALL] Stopped Tone.js Transport')
+      }
+      
+      // Stop all audio players
+      if (window.audioPlayers) {
+        Object.values(window.audioPlayers).forEach((player: any) => {
+          if (player && player.stop) {
+            try {
+              player.stop()
+              player.dispose()
+            } catch (error) {
+              console.warn('[SHUFFLE ALL] Error stopping player:', error)
+            }
+          }
+        })
+        window.audioPlayers = {}
+        console.log('[SHUFFLE ALL] Stopped all audio players')
+      }
+      
+      // Clear any intervals
+      if (window.shuffleIntervals) {
+        window.shuffleIntervals.forEach(interval => {
+          clearInterval(interval)
+        })
+        window.shuffleIntervals = []
+        console.log('[SHUFFLE ALL] Cleared all intervals')
+      }
+      
+      // Small delay to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       // Get current user
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -6597,17 +6695,27 @@ export default function BeatMakerPage() {
     console.log(`[QUANTIZE] Start: ${startTime}s, End: ${endTime}s, Rate: ${playbackRate}`)
     
     // Update track with new loop points and playback rate
-    setTracks(prev => prev.map(track => 
-      track.id === trackId ? { 
-        ...track, 
-        loopStartTime: startTime,
-        loopEndTime: endTime,
-        playbackRate: playbackRate
-      } : track
-    ))
+    setTracks(prev => {
+      const newTracks = prev.map(track => 
+        track.id === trackId ? { 
+          ...track, 
+          loopStartTime: startTime,
+          loopEndTime: endTime,
+          playbackRate: playbackRate
+        } : track
+      )
+      
+      // Debug: Log the updated track
+      const updatedTrack = newTracks.find(t => t.id === trackId)
+      console.log(`[QUANTIZE] Updated track:`, updatedTrack)
+      console.log(`[QUANTIZE] Track loop points: startTime=${updatedTrack?.loopStartTime}, endTime=${updatedTrack?.loopEndTime}`)
+      
+      return newTracks
+    })
     
     // Force reload the sample with new settings
     setTimeout(() => {
+      console.log(`[QUANTIZE] Force reloading track ${trackId} with new loop points`)
       forceReloadTrackSamples(trackId)
     }, 100)
   }
@@ -7314,6 +7422,86 @@ export default function BeatMakerPage() {
                   title={`Format system: ${formatSystemEnabled ? 'ENABLED (MP3/WAV conversion)' : 'DISABLED (direct loading)'} - Click to toggle`}
                 >
                   {formatSystemEnabled ? 'FORMAT ON' : 'FORMAT OFF'}
+                </button>
+
+                {/* Loop Debug Button */}
+                <button
+                  onClick={() => {
+                    console.log('[LOOP DEBUG] Debugging all tracks with loops...')
+                    tracks.forEach(track => {
+                      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+                        debugLoopTiming(track)
+                      }
+                    })
+                  }}
+                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-cyan-300 bg-cyan-900/40 border border-cyan-500/60 shadow-lg shadow-cyan-500/30"
+                  title="Debug loop timing for all tracks"
+                >
+                  LOOP DEBUG
+                </button>
+
+                {/* Transport Debug Button */}
+                <button
+                  onClick={async () => {
+                    console.log('[TRANSPORT DEBUG] Checking Transport synchronization...')
+                    const transportStep = await getCurrentStepFromTransport()
+                    const playheadStep = getCurrentPlayheadPosition()
+                    console.log(`[TRANSPORT DEBUG] Transport step: ${transportStep}, Playhead step: ${playheadStep}`)
+                    console.log(`[TRANSPORT DEBUG] Difference: ${Math.abs(transportStep - playheadStep)} steps`)
+                  }}
+                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30"
+                  title="Debug Transport synchronization"
+                >
+                  TRANSPORT DEBUG
+                </button>
+
+                {/* Loop Control Buttons */}
+                <button
+                  onClick={() => {
+                    console.log('[LOOP CONTROL] Manually restarting all loops at pattern boundary...')
+                    restartAllLoopsAtPatternBoundary()
+                  }}
+                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-green-300 bg-green-900/40 border border-green-500/60 shadow-lg shadow-green-500/30"
+                  title="Manually restart all loops at 8-bar boundary"
+                >
+                  RESTART LOOPS
+                </button>
+
+                <button
+                  onClick={() => {
+                    console.log('[LOOP CONTROL] Stopping all loops...')
+                    stopAllLoops()
+                  }}
+                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-red-300 bg-red-900/40 border border-red-500/60 shadow-lg shadow-red-500/30"
+                  title="Stop all loops"
+                >
+                  STOP LOOPS
+                </button>
+
+                {/* Waveform Debug Button */}
+                <button
+                  onClick={() => {
+                    console.log('[WAVEFORM DEBUG] Checking waveform loading status...')
+                    tracks.forEach(track => {
+                      if (track.audioUrl && track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+                        const loopDuration = track.loopEndTime - track.loopStartTime
+                        const secondsPerBeat = 60 / bpm
+                        const stepDuration = secondsPerBeat / (gridDivision / 4)
+                        const sequencerDuration = steps * stepDuration
+                        const extensionRatio = loopDuration / sequencerDuration
+                        
+                        console.log(`[WAVEFORM DEBUG] Track ${track.name}:`)
+                        console.log(`  - Loop: ${loopDuration.toFixed(2)}s`)
+                        console.log(`  - Sequencer: ${sequencerDuration.toFixed(2)}s`)
+                        console.log(`  - Extension ratio: ${extensionRatio.toFixed(2)}x`)
+                        console.log(`  - Audio URL: ${track.audioUrl?.substring(0, 50)}...`)
+                      }
+                    })
+                  }}
+                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-pink-300 bg-pink-900/40 border border-pink-500/60 shadow-lg shadow-pink-500/30"
+                  title="Debug waveform loading issues"
+                >
+                  WAVEFORM DEBUG
                 </button>
 
                 {/* Format Toggle (WAV/MP3) - Only show when format system is enabled */}
@@ -8040,7 +8228,7 @@ export default function BeatMakerPage() {
             onTrackGenreChange={handleTrackGenreChange}
             transportKey={transportKey}
             melodyLoopMode={melodyLoopMode}
-            preferMp3={preferMp3} // Add format preference
+            preferMp3={formatSystemEnabled ? preferMp3 : false} // Only use format preference if system is enabled
             fileLinks={fileLinks} // Add file links for format detection
             genres={genres} // Available genres for track selection
             genreSubgenres={genreSubgenres} // Genre to subgenre mapping
@@ -8106,7 +8294,7 @@ export default function BeatMakerPage() {
           isOpen={showSampleLibrary}
           onClose={() => setShowSampleLibrary(false)}
           onSelectAudio={(audioUrl, audioName, metadata) => handleTrackAudioSelect(selectedTrack, audioUrl, audioName, metadata)}
-          preferMp3={preferMp3} // Use transport format preference
+          preferMp3={formatSystemEnabled ? preferMp3 : false} // Only use format preference if system is enabled
           onToggleFormat={setPreferMp3} // Use transport format setter
         />
       )}
@@ -10597,7 +10785,7 @@ export default function BeatMakerPage() {
                 <div>Total Tracks: <span className="text-yellow-300 font-bold">{tracks.length}</span></div>
                 <div>Tracks with Audio: <span className="text-green-300 font-bold">{tracks.filter(t => t.audioUrl).length}</span></div>
                 <div>Tracks with File ID: <span className="text-blue-300 font-bold">{tracks.filter(t => t.audioFileId).length}</span></div>
-                <div>Current Format: <span className="text-purple-300 font-bold">{preferMp3 ? 'MP3' : 'WAV'}</span></div>
+                {formatSystemEnabled && <div>Current Format: <span className="text-purple-300 font-bold">{preferMp3 ? 'MP3' : 'WAV'}</span></div>}
               </div>
             </div>
             
@@ -10654,7 +10842,7 @@ export default function BeatMakerPage() {
                         <div className="font-semibold text-white">{track.name || `Track ${index + 1}`}</div>
                         <div className="text-xs text-gray-300">
                           File ID: {track.audioFileId || 'None'} | 
-                          Format: {preferMp3 ? 'MP3' : 'WAV'} | 
+                          {formatSystemEnabled && `Format: ${preferMp3 ? 'MP3' : 'WAV'} | `}
                           Status: {isSwitched ? '🔄 Switched' : '📌 Original'}
                         </div>
                         <div className="text-xs text-gray-400 mt-1">
@@ -10675,9 +10863,10 @@ export default function BeatMakerPage() {
             </div>
           </div>
           
-          {/* MP3/WAV Switch Status */}
-          <div className="bg-gray-800/50 p-4 rounded border border-gray-600">
-            <h4 className="font-semibold text-white mb-3">🔄 MP3/WAV Switch Status</h4>
+          {/* MP3/WAV Switch Status - Only show when format system is enabled */}
+          {formatSystemEnabled && (
+            <div className="bg-gray-800/50 p-4 rounded border border-gray-600">
+              <h4 className="font-semibold text-white mb-3">🔄 MP3/WAV Switch Status</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <h5 className="text-blue-300 font-semibold mb-2">Current Format: {preferMp3 ? 'MP3' : 'WAV'}</h5>
@@ -10712,6 +10901,7 @@ export default function BeatMakerPage() {
               </div>
             </div>
           </div>
+          )}
         </div>
     </div>
   )

@@ -72,6 +72,9 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const intervalRef = useRef<NodeJS.Timeout | any>(null)
+  const playheadRef = useRef<number>(0)
+  const animationFrameRef = useRef<number | null>(null)
+  const transportSyncRef = useRef<boolean>(false)
   const samplesRef = useRef<{ [key: string]: Tone.Player }>({})
   const pitchShiftersRef = useRef<{ [key: string]: Tone.PitchShift }>({})
   const playingSamplesRef = useRef<Set<Tone.Player>>(new Set())
@@ -184,29 +187,84 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     const loadSamples = async () => {
       const Tone = await import('tone')
       
-      // Clean up existing samples and pitch shifters
-      Object.values(samplesRef.current).forEach(player => {
-        if (player.state === 'started') {
-          player.stop()
+      // Only reload samples that have actually changed
+      const tracksToLoad = tracks.filter(track => {
+        if (!track.audioUrl || track.audioUrl === 'undefined') return false
+        
+        const existingPlayer = samplesRef.current[track.id]
+        const existingPitchShifter = pitchShiftersRef.current[track.id]
+        
+        // Check if we need to reload this track
+        const needsReload = !existingPlayer || 
+                           !existingPitchShifter ||
+                           (track.playbackRate !== undefined && Math.abs((existingPlayer.playbackRate || 1) - track.playbackRate) > 0.001) ||
+                           (track.pitchShift !== undefined && Math.abs((existingPitchShifter.pitch || 0) - track.pitchShift) > 0.1) ||
+                           (track.loopStartTime !== undefined && existingPlayer.loopStart !== track.loopStartTime) ||
+                           (track.loopEndTime !== undefined && existingPlayer.loopEnd !== track.loopEndTime)
+        
+        if (needsReload) {
+          console.log(`[AUDIO LOAD] Track ${track.name} needs reload:`, {
+            hasPlayer: !!existingPlayer,
+            hasPitchShifter: !!existingPitchShifter,
+            playbackRateChanged: existingPlayer ? Math.abs((existingPlayer.playbackRate || 1) - (track.playbackRate || 1)) > 0.001 : false,
+            pitchChanged: existingPitchShifter ? Math.abs((existingPitchShifter.pitch || 0) - (track.pitchShift || 0)) > 0.1 : false,
+            loopPointsChanged: existingPlayer ? (existingPlayer.loopStart !== track.loopStartTime || existingPlayer.loopEnd !== track.loopEndTime) : false
+          })
         }
-        player.dispose()
+        
+        return needsReload
       })
-      Object.values(pitchShiftersRef.current).forEach(shifter => {
-        shifter.dispose()
+      
+      if (tracksToLoad.length === 0) {
+        console.log('[AUDIO LOAD] No tracks need reloading')
+        return
+      }
+      
+      console.log(`[AUDIO LOAD] Reloading ${tracksToLoad.length} tracks`)
+      
+      // Clean up only the tracks that need reloading
+      tracksToLoad.forEach(track => {
+        const existingPlayer = samplesRef.current[track.id]
+        const existingPitchShifter = pitchShiftersRef.current[track.id]
+        
+        if (existingPlayer) {
+          try {
+            if (existingPlayer.state === 'started') {
+              existingPlayer.stop()
+            }
+            existingPlayer.dispose()
+          } catch (error) {
+            console.warn(`[AUDIO LOAD] Error disposing player for track ${track.name}:`, error)
+          }
+        }
+        
+        if (existingPitchShifter) {
+          try {
+            existingPitchShifter.dispose()
+          } catch (error) {
+            console.warn(`[AUDIO LOAD] Error disposing pitch shifter for track ${track.name}:`, error)
+          }
+        }
+        
+        // Remove from refs
+        delete samplesRef.current[track.id]
+        delete pitchShiftersRef.current[track.id]
       })
-      samplesRef.current = {}
-      pitchShiftersRef.current = {}
 
-      for (const track of tracks) {
+      // Load only the tracks that need reloading
+      for (const track of tracksToLoad) {
         if (track.audioUrl && track.audioUrl !== 'undefined') {
           try {
-            console.log(`[DEBUG] Creating Tone.Player for track ${track.name} (id: ${track.id}) with audioUrl: ${track.audioUrl}`)
+            console.log(`[AUDIO LOAD] Creating Tone.Player for track ${track.name} (id: ${track.id})`)
+            
+            // Special debugging for Percussion Loop
+            if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+              console.log(`[PERC LOAD] Loading Percussion Loop: audioUrl=${track.audioUrl}, loopStartTime=${track.loopStartTime}, loopEndTime=${track.loopEndTime}`)
+            }
             
             // Create pitch shifter using different techniques based on pitch amount
             const pitchAmount = Math.abs(track.pitchShift || 0)
             const pitchShifterConfig = createPitchShifter('auto', track.pitchShift || 0)
-            
-            console.log(`[PITCH SHIFT] Creating ${pitchShifterConfig.type} pitch shifter for track ${track.name} (pitch: ${track.pitchShift || 0})`)
             
             let pitchShift: any
             let player: any
@@ -274,30 +332,54 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               player = new Tone.Player(track.audioUrl).connect(pitchShift)
             }
             
-            // Apply loop start/end points if specified (from quantization)
+                        // Apply loop start/end points if specified (from quantization)
             if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
               player.loopStart = track.loopStartTime
               player.loopEnd = track.loopEndTime
               player.loop = true // Enable looping
               
-              // Calculate if we need to adjust playback rate to match sequencer timing
-              const loopDuration = track.loopEndTime - track.loopStartTime
-              const sequencerDuration = steps * (60 / bpm / 4) // Total sequencer duration
-              
-              // If loop duration doesn't match sequencer duration, adjust playback rate
-              if (Math.abs(loopDuration - sequencerDuration) > 0.01) {
-                const newPlaybackRate = sequencerDuration / loopDuration
-                player.playbackRate = newPlaybackRate
-                console.log(`[DEBUG] Adjusted playback rate for ${track.name}: ${newPlaybackRate.toFixed(3)} (loop: ${loopDuration.toFixed(2)}s, sequencer: ${sequencerDuration.toFixed(2)}s)`)
+              // Special debugging for Percussion Loop
+              if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+                console.log(`[PERC LOOP SET] Percussion Loop loop points set: start=${track.loopStartTime}s, end=${track.loopEndTime}s`)
               }
               
-              console.log(`[DEBUG] Set loop points for track ${track.name}: start=${track.loopStartTime}s, end=${track.loopEndTime}s, loop enabled`)
+              // Calculate loop and sequencer durations for reference
+              const loopDuration = track.loopEndTime - track.loopStartTime
+              const secondsPerBeat = 60 / bpm
+              const stepDuration = secondsPerBeat / (gridDivision / 4)
+              const sequencerDuration = steps * stepDuration // Total sequencer duration (8 bars)
+              
+              console.log(`[AUDIO LOAD] Loop timing for ${track.name}: loop=${loopDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s, ratio=${(loopDuration/sequencerDuration).toFixed(3)}`)
+              
+              // Store sequencer duration for boundary synchronization
+              player._sequencerDuration = sequencerDuration
+              player._loopDuration = loopDuration
+              
+              // Always extend loops to fill the sequencer duration, but handle differently based on playback rate
+              const loopRepeatCount = Math.ceil(sequencerDuration / loopDuration)
+              const adjustedLoopEnd = track.loopStartTime + (loopDuration * loopRepeatCount)
+              
+              // Set the loop to repeat enough times to fill the sequencer duration
+              player.loopEnd = adjustedLoopEnd
+              
+              if (track.playbackRate && track.playbackRate !== 1.0) {
+                // If playback rate is not 1.0, the loop is being stretched
+                console.log(`[AUDIO LOAD] Set loop points for track ${track.name}: start=${track.loopStartTime}s, end=${adjustedLoopEnd.toFixed(2)}s, repeats=${loopRepeatCount}x, loop enabled (stretched to fill sequencer)`)
+              } else {
+                // If playback rate is 1.0, the loop is repeating naturally
+                console.log(`[AUDIO LOAD] Set loop points for track ${track.name}: start=${track.loopStartTime}s, end=${adjustedLoopEnd.toFixed(2)}s, repeats=${loopRepeatCount}x, loop enabled (natural speed, repeating)`)
+              }
+            } else {
+              // Special debugging for Percussion Loop without loop points
+              if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+                console.log(`[PERC NO LOOP] Percussion Loop has no loop points: loopStartTime=${track.loopStartTime}, loopEndTime=${track.loopEndTime}`)
+              }
             }
             
             // Apply playback rate if specified
             if (track.playbackRate && track.playbackRate !== 1) {
               player.playbackRate = track.playbackRate
-              console.log(`[DEBUG] Set playback rate for track ${track.name} to ${track.playbackRate}`)
+              console.log(`[AUDIO LOAD] Set playback rate for track ${track.name} to ${track.playbackRate}`)
             }
             
             // Apply pitch shift based on time stretch mode and pitch shifter type
@@ -308,7 +390,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               } else if (pitchShift) {
                 pitchShift.pitch = 0
               }
-              console.log(`[DEBUG] FT mode: Set pitch shift to 0 to maintain original pitch for track ${track.name}`)
+              console.log(`[AUDIO LOAD] FT mode: Set pitch shift to 0 to maintain original pitch for track ${track.name}`)
             } else {
               // In resampling mode, apply the track's pitch shift
               if (track.pitchShift && track.pitchShift !== 0) {
@@ -317,14 +399,14 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
                 } else if (pitchShift) {
                   pitchShift.pitch = track.pitchShift
                 }
-                console.log(`[DEBUG] RM mode: Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
+                console.log(`[AUDIO LOAD] RM mode: Set pitch shift for track ${track.name} to ${track.pitchShift} semitones`)
               } else {
                 if (pitchShifterConfig.type === 'playback-rate') {
                   player.playbackRate = 1.0
                 } else if (pitchShift) {
                   pitchShift.pitch = 0
                 }
-                console.log(`[DEBUG] RM mode: No pitch shift applied for track ${track.name}`)
+                console.log(`[AUDIO LOAD] RM mode: No pitch shift applied for track ${track.name}`)
               }
             }
             
@@ -336,12 +418,12 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
             }
             
             samplesRef.current[track.id] = player
-            console.log(`[DEBUG] Created player and pitch shifter for track ${track.name}`)
+            console.log(`[AUDIO LOAD] Successfully created player for track ${track.name}`)
           } catch (error) {
-            console.error(`Failed to load audio for track ${track.id}:`, error)
+            console.error(`[AUDIO LOAD] Failed to load audio for track ${track.id}:`, error)
           }
         } else {
-          console.log(`[DEBUG] Skipping Tone.Player for track ${track.name} (id: ${track.id}) - audioUrl is invalid:`, track.audioUrl)
+          console.log(`[AUDIO LOAD] Skipping Tone.Player for track ${track.name} (id: ${track.id}) - audioUrl is invalid:`, track.audioUrl)
         }
       }
     }
@@ -349,24 +431,186 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     loadSamples()
   }, [tracks, timeStretchMode])
 
-  // Define playStep function first
-  const playStep = useCallback((step: number) => {
-    setCurrentStep(step)
-    console.log(`[PLAYSTEP DEBUG] Step ${step}, pianoRollData:`, pianoRollData)
-    console.log(`[PLAYSTEP DEBUG] Total piano roll notes across all tracks:`, Object.values(pianoRollData || {}).flat().length)
+  // Real-time playhead update function synchronized with Transport
+  const updatePlayhead = useCallback((step: number) => {
+    // Update ref immediately for real-time access
+    playheadRef.current = step
+    
+    // Use requestAnimationFrame for smooth visual updates
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+    }
+    
+    animationFrameRef.current = requestAnimationFrame(() => {
+      setCurrentStep(step)
+    })
+  }, [])
+
+  // Function to get current step from Transport position
+  const getCurrentStepFromTransport = useCallback(async () => {
+    const Tone = await import('tone')
+    const transportPosition = Tone.Transport.position as number
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (gridDivision / 4)
+    
+    // Convert transport position to step number
+    const currentStep = Math.floor(transportPosition / stepDuration) % steps
+    return currentStep
+  }, [bpm, steps, gridDivision])
+
+  // Real-time Transport-synchronized playhead update
+  const updatePlayheadFromTransport = useCallback(() => {
+    if (!transportSyncRef.current) return
+    
+    getCurrentStepFromTransport().then(step => {
+      if (step !== playheadRef.current) {
+        playheadRef.current = step
+        setCurrentStep(step)
+        
+        // Check if we need to restart loops at pattern boundary
+        if (step === 0) {
+          restartAllLoopsAtPatternBoundary()
+        }
+      }
+    }).catch(console.error)
+    
+    // Continue the animation loop
+    animationFrameRef.current = requestAnimationFrame(updatePlayheadFromTransport)
+  }, [getCurrentStepFromTransport])
+
+  // Function to restart all loops at the pattern boundary (8 bars)
+  const restartAllLoopsAtPatternBoundary = useCallback(() => {
+    console.log('[PATTERN BOUNDARY] Checking loops at 8-bar boundary')
+    
     tracks.forEach(track => {
       const player = samplesRef.current[track.id]
-      const shouldPlay = sequencerData[track.id]?.[step]
-      const validAudio = track.audioUrl && track.audioUrl !== 'undefined'
-      console.log(`[DEBUG] Step ${step} - Track ${track.name} (id: ${track.id}): shouldPlay=${shouldPlay}, playerLoaded=${player?.loaded}, audioUrl=${track.audioUrl}`)
+      if (!player || !player.loaded || !track.audioUrl || track.audioUrl === 'undefined') return
       
-      // Handle audio samples (main sequencer pattern)
-      if (
-        shouldPlay &&
-        player &&
-        player.loaded &&
-        validAudio
-      ) {
+      // Only handle tracks with loop points that are currently playing
+      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined && player.state === 'started') {
+        const loopDuration = track.loopEndTime - track.loopStartTime
+        const playbackRate = track.playbackRate || 1.0
+        const actualDuration = loopDuration / playbackRate
+        
+        // Calculate sequencer duration
+        const secondsPerBeat = 60 / bpm
+        const stepDuration = secondsPerBeat / (gridDivision / 4)
+        const sequencerDuration = steps * stepDuration
+        
+        console.log(`[PATTERN BOUNDARY DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s`)
+        
+        // Check if the loop is extended to fill the sequencer duration
+        // Compare the actual loop end time with the original loop end time
+        const currentLoopEnd = player.loopEnd
+        const isExtendedLoop = currentLoopEnd && 
+          (typeof currentLoopEnd === 'number' ? currentLoopEnd > track.loopEndTime : 
+           typeof currentLoopEnd === 'string' ? parseFloat(currentLoopEnd) > track.loopEndTime : false)
+        
+        if (isExtendedLoop) {
+          // This is an extended loop that should continue seamlessly
+          console.log(`[PATTERN BOUNDARY] Track ${track.name} has extended loop - letting it continue seamlessly`)
+          
+          // Special debugging for Percussion Loop
+          if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+            console.log(`[PERC PATTERN BOUNDARY] Percussion Loop extended - continuing seamlessly`)
+          }
+        } else {
+          // This is a short loop that needs to restart
+          console.log(`[PATTERN BOUNDARY] Restarting short loop for track ${track.name}`)
+          
+          // Special debugging for Percussion Loop
+          if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+            console.log(`[PERC PATTERN BOUNDARY] Restarting Percussion Loop at pattern boundary`)
+          }
+          
+          // Stop the current loop
+          player.stop()
+          
+          // Start the loop again from the beginning
+          const startTime = Tone.now()
+          player.start(startTime, track.loopStartTime)
+        }
+      }
+    })
+  }, [tracks, bpm, steps, gridDivision])
+
+  // Function to force stop all loops (for manual control)
+  const stopAllLoops = useCallback(() => {
+    console.log('[MANUAL STOP] Stopping all loops')
+    
+    tracks.forEach(track => {
+      const player = samplesRef.current[track.id]
+      if (!player || !player.loaded || !track.audioUrl || track.audioUrl === 'undefined') return
+      
+      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined && player.state === 'started') {
+        console.log(`[MANUAL STOP] Stopping loop for track ${track.name}`)
+        player.stop()
+      }
+    })
+  }, [tracks])
+
+  // Debug function to log the current state of all loops
+  const debugLoopStates = useCallback(() => {
+    console.log('[LOOP STATES DEBUG] Current state of all loops:')
+    
+    tracks.forEach(track => {
+      const player = samplesRef.current[track.id]
+      if (!player || !player.loaded || !track.audioUrl || track.audioUrl === 'undefined') return
+      
+      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+        const loopDuration = track.loopEndTime - track.loopStartTime
+        const playbackRate = track.playbackRate || 1.0
+        const actualDuration = loopDuration / playbackRate
+        const currentLoopEnd = player.loopEnd
+        const isExtended = currentLoopEnd && 
+          (typeof currentLoopEnd === 'number' ? currentLoopEnd > track.loopEndTime : 
+           typeof currentLoopEnd === 'string' ? parseFloat(currentLoopEnd) > track.loopEndTime : false)
+        
+        console.log(`[LOOP STATES] Track ${track.name}: state=${player.state}, loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualDuration.toFixed(2)}s, extended=${isExtended}, loopEnd=${currentLoopEnd}`)
+      }
+    })
+  }, [tracks])
+
+  // Define playStep function first
+  const playStep = useCallback((step: number) => {
+    // Update playhead immediately for real-time response
+    updatePlayhead(step)
+    
+    console.log(`[PLAYSTEP] Step ${step}/${steps} (${((step / steps) * 100).toFixed(1)}% through pattern)`)
+    
+    // Debug: Track which loops are playing at each step
+    const playingLoops: string[] = []
+    const stoppedLoops: string[] = []
+    
+          tracks.forEach(track => {
+        const player = samplesRef.current[track.id]
+        const shouldPlay = sequencerData[track.id]?.[step]
+        const validAudio = track.audioUrl && track.audioUrl !== 'undefined'
+        
+        // Debug: Track loop state for this track
+        const hasLoop = track.loopStartTime !== undefined && track.loopEndTime !== undefined
+        const loopDuration = hasLoop && track.loopStartTime !== undefined && track.loopEndTime !== undefined 
+          ? track.loopEndTime - track.loopStartTime : 0
+        const playbackRate = track.playbackRate || 1.0
+        const actualLoopDuration = loopDuration / playbackRate
+        
+        if (hasLoop) {
+          console.log(`[LOOP DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualLoopDuration.toFixed(2)}s`)
+        }
+        
+        // Special debugging for Percussion Loop
+        if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+          console.log(`[PERC DEBUG] Step ${step}: Track ${track.name} - shouldPlay=${shouldPlay}, playerState=${player?.state}, hasLoop=${hasLoop}`)
+          console.log(`[PERC DEBUG] Track details: loopStartTime=${track.loopStartTime}, loopEndTime=${track.loopEndTime}, audioUrl=${track.audioUrl}`)
+        }
+        
+        // Handle audio samples (main sequencer pattern)
+        if (
+          shouldPlay &&
+          player &&
+          player.loaded &&
+          validAudio
+        ) {
         // If track is muted, stop any playing loops
         if (track.mute) {
           if (player.state === 'started') {
@@ -380,16 +624,70 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
         try {
           // For tracks with loop points, we need to handle them differently
           if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
-            // Only start the loop on the first step (step 0)
-            if (step !== 0) {
-              console.log(`[DEBUG] Track ${track.name} is looping, skipping step ${step}`)
-              return
+            // For looping tracks, we only start once and let it loop continuously
+            if (step === 0) {
+              // Start the loop from the quantized start position on first step
+              const startTime = Tone.now()
+              player.start(startTime, track.loopStartTime)
+              console.log(`[LOOP START] Started loop for track ${track.name} at loop start: ${track.loopStartTime}s`)
+              
+              // Special debugging for Percussion Loop
+              if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+                console.log(`[PERC START] Percussion Loop started at step ${step}, player state: ${player.state}`)
+              }
+              
+              // Debug loop timing
+              debugLoopTiming(track)
+              
+              // Track that this loop is now playing
+              playingLoops.push(track.name)
+            } else {
+              // For subsequent steps, just ensure the loop is still playing
+              // But don't restart if it's already playing - let it continue naturally
+              if (player.state !== 'started') {
+                console.log(`[LOOP RESTART] Restarting loop for track ${track.name} at step ${step}`)
+                const startTime = Tone.now()
+                player.start(startTime, track.loopStartTime)
+                
+                // Special debugging for Percussion Loop
+                if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+                  console.log(`[PERC RESTART] Percussion Loop restarted at step ${step}, player state: ${player.state}`)
+                }
+                
+                playingLoops.push(track.name)
+              } else {
+                // Loop is still playing
+                playingLoops.push(track.name)
+                
+                // Special debugging for Percussion Loop
+                if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+                  console.log(`[PERC CONTINUE] Percussion Loop continuing at step ${step}, player state: ${player.state}`)
+                }
+              }
             }
             
-            // Start the loop from the quantized start position
-            const startTime = Tone.now()
-            player.start(startTime, track.loopStartTime)
-            console.log(`[DEBUG] Started loop for track ${track.name} at loop start: ${track.loopStartTime}s`)
+            // Always extend loops to fill the sequencer duration, but handle differently based on playback rate
+            const loopDuration = track.loopEndTime - track.loopStartTime
+            const secondsPerBeat = 60 / bpm
+            const stepDuration = secondsPerBeat / (gridDivision / 4)
+            const sequencerDuration = steps * stepDuration
+            
+            const loopRepeatCount = Math.ceil(sequencerDuration / loopDuration)
+            const adjustedLoopEnd = track.loopStartTime + (loopDuration * loopRepeatCount)
+            
+            // Debug: Log loop extension details
+            console.log(`[LOOP EXTEND DEBUG] Track ${track.name}: original=${loopDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s, repeats=${loopRepeatCount}, adjusted=${adjustedLoopEnd.toFixed(2)}s`)
+            
+            // Update the player's loop end point to ensure it plays for the full sequencer duration
+            if (player.loopEnd !== adjustedLoopEnd) {
+              player.loopEnd = adjustedLoopEnd
+              
+              if (track.playbackRate && track.playbackRate !== 1.0) {
+                console.log(`[LOOP EXTEND] Extended loop for track ${track.name} to ${adjustedLoopEnd.toFixed(2)}s (${loopRepeatCount}x repeats, stretched)`)
+              } else {
+                console.log(`[LOOP EXTEND] Extended loop for track ${track.name} to ${adjustedLoopEnd.toFixed(2)}s (${loopRepeatCount}x repeats, natural speed)`)
+              }
+            }
           } else {
             // For non-looping tracks, restart each time
             if (player.state === 'started') {
@@ -414,6 +712,14 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
           // Set up cleanup when sample stops (Tone.js way)
           player.onstop = () => {
             playingSamplesRef.current.delete(player)
+            console.log(`[LOOP STOPPED] Track ${track.name} stopped playing`)
+            
+            // Special debugging for Percussion Loop
+            if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+              console.log(`[PERC STOPPED] Percussion Loop stopped playing at step ${step}`)
+            }
+            
+            stoppedLoops.push(track.name)
           }
         } catch (error) {
           console.warn(`[DEBUG] Error playing sample for track ${track.name}:`, error)
@@ -555,7 +861,17 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
         })
       }
     })
-  }, [tracks, sequencerData, pianoRollData])
+    
+    // Debug: Log summary of loop states for this step
+    if (playingLoops.length > 0 || stoppedLoops.length > 0) {
+      console.log(`[STEP ${step} SUMMARY] Playing: [${playingLoops.join(', ')}], Stopped: [${stoppedLoops.join(', ')}]`)
+    }
+    
+    // Debug loop states every 8 steps (every 2 bars)
+    if (step % 8 === 0) {
+      debugLoopStates()
+    }
+  }, [tracks, sequencerData, pianoRollData, debugLoopStates])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -596,6 +912,18 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   useEffect(() => {
     if (!isSequencePlaying) return
     
+    console.log(`[SEQUENCER START] Starting sequencer with ${tracks.length} tracks, ${steps} steps, ${bpm} BPM`)
+    
+    // Debug: Log all tracks with loops
+    tracks.forEach(track => {
+      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+        const loopDuration = track.loopEndTime - track.loopStartTime
+        const playbackRate = track.playbackRate || 1.0
+        const actualDuration = loopDuration / playbackRate
+        console.log(`[SEQUENCER DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualDuration.toFixed(2)}s`)
+      }
+    })
+    
     // Clear any existing interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
@@ -613,16 +941,27 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       const secondsPerBeat = 60 / bpm
       const stepDuration = secondsPerBeat / (gridDivision / 4)
       
+      console.log(`[SEQUENCER SETUP] BPM: ${bpm}, Step duration: ${stepDuration}s, Steps: ${steps}`)
+      
       // Create a sequence that loops perfectly
       const sequence = new Tone.Sequence((time, step) => {
         console.log(`[TONE SEQUENCER] Step: ${step} at time ${time}`)
-        setCurrentStep(step)
+        // Only trigger audio playback, let Transport handle playhead
         playStep(step)
       }, Array.from({ length: steps }, (_, i) => i), stepDuration)
       
-      // Start the sequence
+      // Start the sequence with proper looping
       sequence.start(0)
+      Tone.Transport.loop = true
+      Tone.Transport.loopStart = 0
+      Tone.Transport.loopEnd = steps * stepDuration
       Tone.Transport.start()
+      
+      console.log(`[SEQUENCER SETUP] Started sequence with loop: ${Tone.Transport.loopStart}s to ${Tone.Transport.loopEnd}s`)
+      
+      // Start Transport-synchronized playhead updates
+      transportSyncRef.current = true
+      updatePlayheadFromTransport()
       
       // Store the sequence for cleanup
       intervalRef.current = sequence as any
@@ -730,6 +1069,16 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   const stopSequence = useCallback(() => {
     setIsSequencePlaying(false)
     setCurrentStep(0)
+    playheadRef.current = 0
+    
+    // Stop Transport-synchronized playhead updates
+    transportSyncRef.current = false
+    
+    // Cancel any pending animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
     
     // Stop the Tone.js sequence
     if (intervalRef.current) {
@@ -749,7 +1098,17 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     Object.values(samplesRef.current).forEach(player => {
       try {
         if (player && player.state === 'started') {
-          console.log('[STOP SEQUENCE] Stopping player that was still playing')
+          // Find which track this player belongs to
+          const trackId = Object.keys(samplesRef.current).find(key => samplesRef.current[parseInt(key)] === player)
+          const track = tracks.find(t => t.id === parseInt(trackId || '0'))
+          
+          console.log(`[STOP SEQUENCE] Stopping player that was still playing: ${track?.name || 'Unknown track'}`)
+          
+          // Special debugging for Percussion Loop
+          if (track?.name === 'Perc' || track?.name === 'Percussion Loop') {
+            console.log(`[PERC STOP SEQUENCE] Stopping Percussion Loop player at step ${currentStep}`)
+          }
+          
           player.stop()
         }
       } catch (error) {
@@ -828,6 +1187,40 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       playbackRate: playbackRate
     }
   }, [tracks])
+
+  // Function to get real-time playhead position
+  const getCurrentPlayheadPosition = useCallback(() => {
+    return playheadRef.current
+  }, [])
+
+  // Function to debug loop timing for a track
+  const debugLoopTiming = useCallback((track: any) => {
+    if (!track.loopStartTime || !track.loopEndTime) {
+      console.log(`[LOOP DEBUG] Track ${track.name}: No loop points set`)
+      return
+    }
+    
+    const loopDuration = track.loopEndTime - track.loopStartTime
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (gridDivision / 4)
+    const sequencerDuration = steps * stepDuration
+    
+    console.log(`[LOOP DEBUG] Track ${track.name}:`)
+    console.log(`  - Loop: ${track.loopStartTime.toFixed(2)}s to ${track.loopEndTime.toFixed(2)}s (${loopDuration.toFixed(2)}s)`)
+    console.log(`  - Sequencer: ${sequencerDuration.toFixed(2)}s (${steps} steps × ${stepDuration.toFixed(3)}s)`)
+    console.log(`  - Ratio: ${(loopDuration/sequencerDuration).toFixed(3)}`)
+    console.log(`  - Playback rate: ${track.playbackRate || 1.0}`)
+    
+    const player = samplesRef.current[track.id]
+    if (player) {
+      console.log(`  - Player loaded: ${player.loaded}`)
+      console.log(`  - Player state: ${player.state}`)
+      console.log(`  - Player loop: ${player.loop}`)
+      console.log(`  - Player loopStart: ${player.loopStart}`)
+      console.log(`  - Player loopEnd: ${player.loopEnd}`)
+      console.log(`  - Player playbackRate: ${player.playbackRate}`)
+    }
+  }, [bpm, steps, gridDivision])
 
   // Function to force reload samples for a specific track with improved sync
   const forceReloadTrackSamples = useCallback(async (trackId: number) => {
@@ -920,6 +1313,27 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       // Verify the player is properly loaded
       if (!player.loaded) {
         throw new Error(`Player failed to load for track ${track.name}`)
+      }
+      
+      // Apply loop points if specified
+      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+        player.loopStart = track.loopStartTime
+        player.loopEnd = track.loopEndTime
+        player.loop = true // Enable looping
+        
+        console.log(`[FORCE RELOAD] Applied loop points for track ${track.name}: start=${track.loopStartTime}s, end=${track.loopEndTime}s`)
+        
+        // Special debugging for Percussion Loop
+        if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+          console.log(`[PERC FORCE RELOAD] Percussion Loop loop points applied: start=${track.loopStartTime}s, end=${track.loopEndTime}s`)
+        }
+      } else {
+        console.log(`[FORCE RELOAD] No loop points for track ${track.name}`)
+        
+        // Special debugging for Percussion Loop
+        if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+          console.log(`[PERC FORCE RELOAD] Percussion Loop has no loop points: loopStartTime=${track.loopStartTime}, loopEndTime=${track.loopEndTime}`)
+        }
       }
       
       samplesRef.current[trackId] = player
@@ -1113,6 +1527,12 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     clearTrackPattern,
     clearPianoRollData,
     debugPianoRollPlayback,
+    debugLoopTiming,
+    debugLoopStates,
+    getCurrentPlayheadPosition,
+    getCurrentStepFromTransport,
+    restartAllLoopsAtPatternBoundary,
+    stopAllLoops,
     samplesRef,
     pitchShiftersRef,
     applyEQToTrack

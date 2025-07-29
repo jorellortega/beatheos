@@ -101,6 +101,12 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
 
   // Fetch file links for format switching
   const fetchFileLinks = async () => {
+    // CRITICAL: Don't fetch file links if format system is disabled
+    if (!preferMp3) {
+      console.log('[FORMAT OFF] Skipping file links fetch - format system disabled')
+      return
+    }
+    
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
@@ -163,11 +169,12 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
 
   // Get the preferred audio URL for a file
   const getPreferredAudioUrl = (file: AudioLibraryItem) => {
+    // If format system is disabled, always return original URL
     if (!preferMp3) {
       return file.file_url
     }
 
-    // Look for MP3 version in file links
+    // Only look for MP3 version if format system is enabled
     const mp3Link = fileLinks.find(link => 
       link.original_file_id === file.id && link.converted_format === 'mp3'
     )
@@ -474,45 +481,6 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Format Toggle */}
-          {onToggleFormat && (
-            <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-              <div className="flex items-center gap-4">
-                <div className="text-center">
-                  <div className={`text-lg font-bold ${!preferMp3 ? 'text-blue-600' : 'text-muted-foreground'}`}>
-                    WAV
-                  </div>
-                  <div className="text-xs text-muted-foreground">High Quality</div>
-                </div>
-                
-                <div 
-                  className="relative inline-flex h-8 w-16 items-center rounded-full bg-gray-200 cursor-pointer shadow-inner transition-colors hover:bg-gray-300"
-                  onClick={() => onToggleFormat(!preferMp3)}
-                >
-                  <div 
-                    className={`h-6 w-6 transform rounded-full bg-[#141414] shadow-md transition-all duration-200 ease-in-out ${
-                      preferMp3 ? 'translate-x-8' : 'translate-x-1'
-                    }`}
-                  />
-                </div>
-                
-                <div className="text-center">
-                  <div className={`text-lg font-bold ${preferMp3 ? 'text-green-600' : 'text-muted-foreground'}`}>
-                    MP3
-                  </div>
-                  <div className="text-xs text-muted-foreground">Compressed</div>
-                </div>
-              </div>
-              
-              <div className="text-center">
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                  <FileAudio className="h-3 w-3" />
-                  Loading: {preferMp3 ? 'MP3' : 'WAV'} files
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Upload Area */}
           <div
             onDragOver={handleDragOver}

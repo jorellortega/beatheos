@@ -571,12 +571,13 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   const getTrackFormat = (track: Track) => {
     if (!track.audioUrl) return null // No audio loaded
     
-    // If WAV is preferred, always show WAV
+    // If WAV is preferred (FORMAT OFF), always show WAV without any detection
     if (!preferMp3) {
+      console.log(`🎵 Track ${track.name}: Format detection skipped (FORMAT OFF)`)
       return 'WAV'
     }
     
-    // If MP3 is preferred, check if there's a linked MP3 file
+    // Only do MP3 detection if preferMp3 is true (FORMAT ON)
     // Use audioFileId if available, otherwise fallback to track.id
     const audioFileId = track.audioFileId || track.id.toString()
     
@@ -624,13 +625,13 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   const getTrackAudioUrl = (track: Track) => {
     if (!track.audioUrl) return null
     
-    // If WAV is preferred, return the original URL
+    // If WAV is preferred (FORMAT OFF), return the original URL immediately
     if (!preferMp3) {
-      console.log(`🎵 Track ${track.name}: Using WAV (original URL)`)
+      console.log(`🎵 Track ${track.name}: Using WAV (FORMAT OFF - no MP3 detection)`)
       return track.audioUrl
     }
     
-    // If MP3 is preferred, check if there's a linked MP3 file
+    // Only do MP3 detection if preferMp3 is true (FORMAT ON)
     const audioFileId = track.audioFileId || track.id.toString()
     
     console.log(`🔍 Looking for MP3 link for track ${track.name} (audioFileId: ${audioFileId})`)
@@ -736,23 +737,37 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
 
   // Effect to update track audio URLs when format preference changes
   useEffect(() => {
-    if (onTrackAudioUrlChange) {
+    if (onTrackAudioUrlChange && fileLinks.length > 0) {
       console.log(`🔄 Format preference changed to: ${preferMp3 ? 'MP3' : 'WAV'}`)
+      
+      // If FORMAT OFF, don't do any URL updates - just log and return
+      if (!preferMp3) {
+        console.log(`🎵 FORMAT OFF: Skipping URL updates (no MP3 detection)`)
+        return
+      }
+      
       console.log(`📊 Available file links:`, fileLinks.length)
       
+      let updatedTracks = 0
       tracks.forEach(track => {
         if (track.audioUrl && track.audioFileId) {
           const newAudioUrl = getTrackAudioUrl(track)
-          console.log(`🎵 Track ${track.name} (${track.audioFileId}): current=${track.audioUrl?.substring(0, 50)}..., new=${newAudioUrl?.substring(0, 50)}...`)
           
           if (newAudioUrl && newAudioUrl !== track.audioUrl) {
-            console.log(`🔄 Updating track ${track.name} audio URL from ${track.audioUrl} to ${newAudioUrl}`)
+            console.log(`🔄 Updating track ${track.name} audio URL`)
             onTrackAudioUrlChange(track.id, newAudioUrl)
+            updatedTracks++
           }
         }
       })
+      
+      if (updatedTracks === 0) {
+        console.log(`🔄 No tracks needed URL updates`)
+      } else {
+        console.log(`🔄 Updated ${updatedTracks} track URLs`)
+      }
     }
-  }, [preferMp3, fileLinks, tracks, onTrackAudioUrlChange])
+  }, [preferMp3, fileLinks, onTrackAudioUrlChange])
 
   return (
     <>
@@ -1022,8 +1037,8 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                               {track.audioName || 'Audio Loaded'}
                             </span>
                           </Badge>
-                          {/* Format Indicator */}
-                          {getTrackFormat(track) && (
+                          {/* Format Indicator - Only show when FORMAT ON */}
+                          {preferMp3 && getTrackFormat(track) && (
                             <Badge 
                               variant="outline" 
                               className={`text-xs font-bold ${
@@ -1370,19 +1385,9 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 {/* Audio preview if available */}
                 {track.audioUrl && (
                   <div className="mt-2">
-                    <audio
-                      key={`${track.audioUrl}-${preferMp3}-${Date.now()}`} // Force re-render when format preference changes
-                      controls
-                      className="w-full h-8"
-                      preload="metadata"
-                    >
-                      <source src={getTrackAudioUrl(track) || track.audioUrl} type="audio/mpeg" />
-                      Your browser does not support the audio element.
-                    </audio>
-                    {/* Debug info */}
+                    {/* Debug info - Only show format when FORMAT ON */}
                     <div className="text-xs text-gray-400 mt-1">
-                      Current: {getTrackAudioUrl(track) === track.audioUrl ? 'Original' : 'Switched'} | 
-                      Format: {getTrackFormat(track)} | 
+                      {preferMp3 && `Format: ${getTrackFormat(track)} | `}
                       ID: {track.audioFileId}
                     </div>
                   </div>
