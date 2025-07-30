@@ -55,11 +55,11 @@ const formSchema = z.object({
 
   // Audio type suggestions for auto-complete
   const audioTypeSuggestions = [
-    'Melody Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'FX Loop',
-    'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Percussion',
     'Melody', 'Bass', 'Lead', 'Pad', 'Pluck', 'Arp', 'Chords', 'Stab',
+    'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Percussion',
     'Vocal', 'Adlib', 'Hook', 'Verse', 'Chorus', 'Bridge',
-    'FX', 'Reverb', 'Delay', 'Filter', 'Sweep', 'Impact', 'Transition'
+    'FX', 'Reverb', 'Delay', 'Filter', 'Sweep', 'Impact', 'Transition',
+    'Melody Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'FX Loop'
   ]
 
 export function BeatUploadForm() {
@@ -241,9 +241,26 @@ export function BeatUploadForm() {
                     
                     // Auto-complete logic for genre
                     if (value.length >= 2) {
-                      const suggestion = audioTypeSuggestions.find(suggestion => 
-                        suggestion.toLowerCase().startsWith(value.toLowerCase())
+                      // First try to find an exact word match (preferred)
+                      let suggestion = audioTypeSuggestions.find(suggestion => 
+                        suggestion.toLowerCase() === value.toLowerCase()
                       )
+                      
+                      // If no exact match, try to find a starts-with match
+                      if (!suggestion) {
+                        suggestion = audioTypeSuggestions.find(suggestion => 
+                          suggestion.toLowerCase().startsWith(value.toLowerCase())
+                        )
+                      }
+                      
+                      // If still no match, try to find a word that contains the input as a complete word
+                      if (!suggestion) {
+                        suggestion = audioTypeSuggestions.find(suggestion => {
+                          const words = suggestion.toLowerCase().split(' ')
+                          return words.some(word => word === value.toLowerCase())
+                        })
+                      }
+                      
                       if (suggestion && suggestion !== value) {
                         // Auto-fill the suggestion
                         setTimeout(() => {

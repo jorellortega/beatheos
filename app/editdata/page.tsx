@@ -132,13 +132,16 @@ export default function EditData() {
   // Default tab state
   const [defaultTab, setDefaultTab] = useState<string>('basic')
   
+  // Track previous audio type value for smart autocomplete
+  const [previousAudioType, setPreviousAudioType] = useState<string>('')
+  
   // Audio type suggestions for auto-complete
   const audioTypeSuggestions = [
-    'Melody Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'FX Loop',
-    'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Percussion',
     'Melody', 'Bass', 'Lead', 'Pad', 'Pluck', 'Arp', 'Chords', 'Stab',
+    'Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Percussion',
     'Vocal', 'Adlib', 'Hook', 'Verse', 'Chorus', 'Bridge',
-    'FX', 'Reverb', 'Delay', 'Filter', 'Sweep', 'Impact', 'Transition'
+    'FX', 'Reverb', 'Delay', 'Filter', 'Sweep', 'Impact', 'Transition',
+    'Melody Loop', 'Drum Loop', 'Bass Loop', 'Vocal Loop', 'FX Loop'
   ]
 
   // Bulk edit state
@@ -1426,20 +1429,66 @@ export default function EditData() {
                           value={editingItem.audio_type || ''}
                           onChange={(e) => {
                             const value = e.target.value
+                            const currentValue = editingItem.audio_type || ''
+                            
                             setEditingItem({...editingItem, audio_type: value})
                             
-                            // Auto-complete logic
-                            if (value.length >= 2) {
-                              const suggestion = audioTypeSuggestions.find(suggestion => 
-                                suggestion.toLowerCase().startsWith(value.toLowerCase())
+                            // Auto-complete logic - only trigger when typing, not when deleting
+                            const isTyping = value.length > previousAudioType.length || 
+                                           (value.length === previousAudioType.length && value !== previousAudioType)
+                            
+                            // Smart deletion logic - if deleting from a multi-word suggestion, trim to first word
+                            if (!isTyping && value.length < previousAudioType.length) {
+                              const previousWords = previousAudioType.split(' ')
+                              const currentWords = value.split(' ')
+                              
+                              // If we had multiple words and now we have fewer or partial words
+                              if (previousWords.length > 1 && currentWords.length <= 1) {
+                                // Check if the current value matches the start of the first word
+                                const firstWord = previousWords[0]
+                                if (firstWord.toLowerCase().startsWith(value.toLowerCase()) && value.length > 0) {
+                                  // Auto-trim to just the first word
+                                  setTimeout(() => {
+                                    setEditingItem(prev => prev ? {...prev, audio_type: firstWord} : null)
+                                    setPreviousAudioType(firstWord)
+                                  }, 50)
+                                  return
+                                }
+                              }
+                            }
+                            
+                            if (value.length >= 2 && isTyping) {
+                              // First try to find an exact word match (preferred)
+                              let suggestion = audioTypeSuggestions.find(suggestion => 
+                                suggestion.toLowerCase() === value.toLowerCase()
                               )
+                              
+                              // If no exact match, try to find a starts-with match
+                              if (!suggestion) {
+                                suggestion = audioTypeSuggestions.find(suggestion => 
+                                  suggestion.toLowerCase().startsWith(value.toLowerCase())
+                                )
+                              }
+                              
+                              // If still no match, try to find a word that contains the input as a complete word
+                              if (!suggestion) {
+                                suggestion = audioTypeSuggestions.find(suggestion => {
+                                  const words = suggestion.toLowerCase().split(' ')
+                                  return words.some(word => word === value.toLowerCase())
+                                })
+                              }
+                              
                               if (suggestion && suggestion !== value) {
                                 // Auto-fill the suggestion
                                 setTimeout(() => {
                                   setEditingItem(prev => prev ? {...prev, audio_type: suggestion} : null)
+                                  setPreviousAudioType(suggestion)
                                 }, 100)
                               }
                             }
+                            
+                            // Update previous value for next comparison
+                            setPreviousAudioType(value)
                           }}
                           placeholder="e.g., kick, snare, melody, loop"
                         />
