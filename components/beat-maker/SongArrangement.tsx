@@ -11,6 +11,7 @@ import * as Tone from 'tone'
 import { supabase } from '@/lib/supabaseClient'
 import { TrackWaveform } from './TrackWaveform'
 import React from 'react' // Added missing import for React
+import { NotificationModal } from '@/components/ui/notification-modal'
 
 interface PatternBlock {
   id: string
@@ -99,9 +100,31 @@ export function SongArrangement({
   const [selectionBoxStart, setSelectionBoxStart] = useState({ x: 0, y: 0 })
   const [selectionBoxEnd, setSelectionBoxEnd] = useState({ x: 0, y: 0 })
   
+  // Notification modal state
+  const [notificationModal, setNotificationModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'success' | 'error' | 'info' | 'warning'
+  })
+  
   // Arrangement management state
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [showLoadDialog, setShowLoadDialog] = useState(false)
+  
+  // Helper function to show notification modal
+  const showNotification = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    setNotificationModal({
+      isOpen: true,
+      title,
+      message,
+      type
+    })
+  }
+  
+  const closeNotification = () => {
+    setNotificationModal(prev => ({ ...prev, isOpen: false }))
+  }
   const [currentTrackForArrangement, setCurrentTrackForArrangement] = useState<Track | null>(null)
   const [arrangementName, setArrangementName] = useState('')
   const [arrangementDescription, setArrangementDescription] = useState('')
@@ -135,6 +158,7 @@ export function SongArrangement({
   const [exportStartBar, setExportStartBar] = useState(1)
   const [exportEndBar, setExportEndBar] = useState(1)
   const [exportMarkersActive, setExportMarkersActive] = useState(false)
+  const [isExportLiveRecording, setIsExportLiveRecording] = useState(false)
 
   // Function to update export markers based on pattern blocks
   const updateExportMarkers = useCallback(() => {
@@ -163,9 +187,9 @@ export function SongArrangement({
       setExportEndBar(endBar)
       setExportMarkersActive(true)
       console.log(`[EXPORT MARKERS] Set active: Start=${startBar}, End=${endBar}`)
-      alert(`Export markers set! Start: Bar ${startBar}, End: Bar ${endBar}\n\nYou can now adjust the markers by clicking on the timeline, then click Export (Live) again to start recording.`)
+      showNotification('Export Markers Set', `Start: Bar ${startBar}, End: Bar ${endBar}\n\nYou can now adjust the markers by clicking on the timeline, then click Export (Live) again to start recording.`, 'info')
     } else {
-      alert('No patterns to export! Please add some patterns first.')
+      showNotification('No Patterns', 'No patterns to export! Please add some patterns first.', 'warning')
     }
   }
 
@@ -173,6 +197,65 @@ export function SongArrangement({
   const resetExportMarkers = () => {
     setExportMarkersActive(false)
     console.log('[EXPORT MARKERS] Reset - markers deactivated')
+  }
+
+  // Function to update export timer when markers change
+  const updateExportTimer = () => {
+    if (isExportLiveRecording && (window as any).exportTimer) {
+      console.log('[EXPORT TIMER] Updating timer due to marker change')
+      console.log(`[EXPORT TIMER] New markers - Start: ${exportStartBar}, End: ${exportEndBar}`)
+      
+      // Calculate new duration
+      const newExportDurationBars = exportEndBar - exportStartBar + 1
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      const newTotalDurationSeconds = newExportDurationBars * secondsPerBar
+      
+      console.log(`[EXPORT TIMER] New duration: ${newTotalDurationSeconds}s (${newExportDurationBars} bars)`)
+      
+      // Clear existing timer
+      clearTimeout((window as any).exportTimer)
+      
+      // Set new timer
+      (window as any).exportTimer = setTimeout(() => {
+        console.log('[EXPORT TIMER] Updated timer fired - stopping recording')
+        stopExportLive()
+      }, newTotalDurationSeconds * 1000)
+      
+      console.log(`[EXPORT TIMER] Timer updated to ${newTotalDurationSeconds}s`)
+    }
+  }
+
+  // Manual stop function for export live
+  const stopExportLive = () => {
+    try {
+      console.log('[EXPORT LIVE] Manual stop triggered')
+      
+      // Stop MediaRecorder if it exists
+      const mediaRecorder = (window as any).mediaRecorderForExport
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        console.log('[EXPORT LIVE] Stopping MediaRecorder')
+        mediaRecorder.stop()
+        console.log('[EXPORT LIVE] MediaRecorder.stop() called - onstop event should fire')
+      } else {
+        console.log('[EXPORT LIVE] MediaRecorder not found or not recording')
+      }
+      (window as any).mediaRecorderForExport = null
+      
+      // Stop arrangement
+      stopArrangement()
+      
+      // Reset recording state
+      setIsExportLiveRecording(false)
+      
+      console.log('[EXPORT LIVE] Manual stop completed')
+    } catch (error) {
+      console.error('[EXPORT LIVE] Error in manual stop:', error)
+      // Force reset state even if there's an error
+      setIsExportLiveRecording(false)
+      (window as any).mediaRecorderForExport = null
+    }
   }
 
   // Function to get track display name with icons (same as sequencer)
@@ -225,10 +308,18 @@ export function SongArrangement({
         const [bars, beats, sixteenths] = positionStr.split(':').map(Number)
         
         // Calculate the current bar as a float
-        const currentBarPosition = (bars || 0) + 1 + ((beats || 0) / 4) + ((sixteenths || 0) / 16 / 4)
+        let currentBarPosition = (bars || 0) + 1 + ((beats || 0) / 4) + ((sixteenths || 0) / 16 / 4)
+        
+        // In export mode, adjust the bar position to be relative to the export start marker
+        if (exportMarkersActive) {
+          currentBarPosition = exportStartBar + (currentBarPosition - 1)
+        }
         
         // Calculate the maximum duration based on actual pattern blocks, not the steps prop
         const maxEndBar = patternBlocks.length > 0 ? Math.max(...patternBlocks.map(block => block.endBar)) : totalBars
+        
+        // If export markers are active, use the export end marker as the stop point
+        const stopBar = exportMarkersActive ? exportEndBar : maxEndBar
         
         // Only update if we have a valid position and it's significantly different
         // Allow playhead to go beyond the steps limit (8 bars) up to the actual arrangement duration
@@ -237,9 +328,15 @@ export function SongArrangement({
           setCurrentBarSafe(currentBarPosition)
         }
         
-        // Check if we've reached the end of the arrangement
-        if (currentBarPosition > maxEndBar) {
-          console.log(`[PLAYHEAD DEBUG] Reached end of arrangement at bar ${maxEndBar}, stopping playback`)
+        // Check if we've reached the end of the arrangement or export marker
+        if (currentBarPosition > stopBar) {
+          console.log(`[PLAYHEAD DEBUG] Reached end of ${exportMarkersActive ? 'export' : 'arrangement'} at bar ${stopBar}, stopping playback`)
+          stopArrangement()
+        }
+        
+        // CRITICAL: In export mode, also check if we've reached the export end marker exactly
+        if (exportMarkersActive && currentBarPosition >= exportEndBar) {
+          console.log(`[PLAYHEAD DEBUG] Reached export end marker at bar ${exportEndBar}, stopping playback`)
           stopArrangement()
         }
       } catch (error) {
@@ -1105,9 +1202,13 @@ export function SongArrangement({
       if (startDistance <= endDistance) {
         setExportStartBar(clickedBar)
         console.log(`[EXPORT MARKERS] Start marker moved to bar ${clickedBar}`)
+        // Update timer if recording
+        setTimeout(() => updateExportTimer(), 100)
       } else {
         setExportEndBar(clickedBar)
         console.log(`[EXPORT MARKERS] End marker moved to bar ${clickedBar}`)
+        // Update timer if recording
+        setTimeout(() => updateExportTimer(), 100)
       }
       return
     }
@@ -2007,287 +2108,188 @@ export function SongArrangement({
 
   // Export by recording live audio output (Option 2: Real-time capture)
   const exportBeatAsWavLive = async () => {
-    console.log('[EXPORT LIVE] Starting live audio recording export')
+    console.log('[EXPORT LIVE] HIGH QUALITY RECORDING - Starting export')
     
-    if (patternBlocks.length === 0) {
-      alert('No patterns to export. Please add some patterns first.')
-      return
-    }
-
-    // Store current audio state to restore later
-    const currentIsPlaying = isArrangementPlaying
-    const currentBar = arrangementTransportRef.current?.position || 0
-    
-    // Stop current playback to prevent interference
-    if (currentIsPlaying) {
-      console.log('[EXPORT LIVE] Stopping current playback for export')
-      stopArrangement()
-      // Small delay to ensure stop is processed
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-
     try {
-      // Verify export markers are active
+      // HIGH QUALITY RECORDING: Verify export markers are active
       if (!exportMarkersActive) {
         throw new Error('Export markers not set! Please click Export (Live) first to set markers.')
       }
       
-      // Calculate total duration in bars using export markers
+      // HIGH QUALITY RECORDING: Calculate duration
       const exportDurationBars = exportEndBar - exportStartBar + 1
       const secondsPerBeat = 60 / bpm
       const beatsPerBar = 4
       const secondsPerBar = secondsPerBeat * beatsPerBar
       const totalDurationSeconds = exportDurationBars * secondsPerBar
       
-      console.log(`[EXPORT LIVE] Export markers: Start=${exportStartBar}, End=${exportEndBar}, Duration=${exportDurationBars} bars`)
-      console.log(`[EXPORT LIVE] Total duration: ${totalDurationSeconds}s (${exportDurationBars} bars) at ${bpm} BPM`)
+      console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Duration = ${totalDurationSeconds}s (${exportDurationBars} bars)`)
       
-      if (exportDurationBars <= 0) {
-        throw new Error('Invalid export duration! End marker must be after start marker.')
-      }
-
-      // Import Tone.js for live recording
+      // HIGH QUALITY RECORDING: Import Tone.js
       const Tone = await import('tone')
       await Tone.start()
-
-      // Get the current audio context and ensure it's running
+      
+      // HIGH QUALITY RECORDING: Create audio context
       const audioContext = Tone.context
       if (audioContext.state !== 'running') {
         await audioContext.resume()
       }
       
-      console.log(`[EXPORT LIVE] Audio context state: ${audioContext.state}`)
-      
-      // Create a MediaStreamDestination to capture the audio output
+      // HIGH QUALITY RECORDING: Create MediaStreamDestination
       const mediaStreamDestination = audioContext.createMediaStreamDestination()
-      
-      // Connect Tone.js destination to our recording stream
-      // This will capture all audio that goes through Tone.js
       Tone.Destination.connect(mediaStreamDestination)
       
-      console.log('[EXPORT LIVE] Set up audio capture from Tone.js destination')
-      
-      // Create MediaRecorder to capture the stream
+      // HIGH QUALITY RECORDING: Create MediaRecorder with high quality settings
       let mimeType = 'audio/webm;codecs=opus'
       
-      // Check if the browser supports the preferred format
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        if (MediaRecorder.isTypeSupported('audio/webm')) {
+      // HIGH QUALITY RECORDING: Check MIME type support
+      if (!window.MediaRecorder.isTypeSupported(mimeType)) {
+        if (window.MediaRecorder.isTypeSupported('audio/webm')) {
           mimeType = 'audio/webm'
-        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        } else if (window.MediaRecorder.isTypeSupported('audio/mp4')) {
           mimeType = 'audio/mp4'
-        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-          mimeType = 'audio/ogg;codecs=opus'
         } else {
           mimeType = ''
         }
       }
       
-      console.log(`[EXPORT LIVE] Using MIME type: ${mimeType || 'default'}`)
+      // HIGH QUALITY RECORDING: Create MediaRecorder with high quality settings
+      let mediaRecorder: any
       
-      const mediaRecorder = new MediaRecorder(mediaStreamDestination.stream, {
-        mimeType: mimeType || undefined
-      })
+      try {
+        // Try different approaches to create MediaRecorder
+        if (typeof window.MediaRecorder === 'function') {
+          mediaRecorder = new window.MediaRecorder(mediaStreamDestination.stream, {
+            mimeType: mimeType || undefined,
+            audioBitsPerSecond: 320000 // High quality bitrate
+          })
+        } else if ((window as any).MediaRecorder) {
+          mediaRecorder = new (window as any).MediaRecorder(mediaStreamDestination.stream, {
+            mimeType: mimeType || undefined,
+            audioBitsPerSecond: 320000 // High quality bitrate
+          })
+        } else {
+          // Fallback: try to get MediaRecorder from global scope
+          const MediaRecorderGlobal = (globalThis as any).MediaRecorder || (window as any).MediaRecorder
+          if (MediaRecorderGlobal) {
+            mediaRecorder = new MediaRecorderGlobal(mediaStreamDestination.stream, {
+              mimeType: mimeType || undefined,
+              audioBitsPerSecond: 320000 // High quality bitrate
+            })
+          } else {
+            throw new Error('MediaRecorder not available in this browser')
+          }
+        }
+      } catch (error) {
+        console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: MediaRecorder creation failed:', error)
+        throw new Error('Failed to create MediaRecorder: ' + (error as Error).message)
+      }
       
+      // HIGH QUALITY RECORDING: Store globally
+      (window as any).mediaRecorderForExport = mediaRecorder
+      
+      // HIGH QUALITY RECORDING: Setup chunks array
       const recordedChunks: Blob[] = []
       
-      mediaRecorder.ondataavailable = (event) => {
-        console.log(`[EXPORT LIVE] Data available: ${event.data.size} bytes`)
+      // HIGH QUALITY RECORDING: Setup data handler
+      mediaRecorder.ondataavailable = (event: any) => {
         if (event.data.size > 0) {
           recordedChunks.push(event.data)
-          console.log(`[EXPORT LIVE] Added chunk: ${event.data.size} bytes, total chunks: ${recordedChunks.length}`)
-        } else {
-          console.log('[EXPORT LIVE] Empty data chunk received')
+          console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Chunk ${recordedChunks.length} - ${event.data.size} bytes`)
         }
       }
       
+      // HIGH QUALITY RECORDING: Setup stop handler
       mediaRecorder.onstop = () => {
-        console.log(`[EXPORT LIVE] MediaRecorder stopped. Total chunks: ${recordedChunks.length}`)
+        console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: MediaRecorder stopped - ${recordedChunks.length} chunks`)
+        
+        // HIGH QUALITY RECORDING: Process immediately
+        setTimeout(async () => {
+          try {
+            if (recordedChunks.length > 0) {
+              const recordedBlob = new Blob(recordedChunks, { type: mimeType || 'audio/webm' })
+              console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Blob created - ${recordedBlob.size} bytes`)
+              
+              if (recordedBlob.size > 0) {
+                const wavBlob = await convertBlobToWav(recordedBlob, totalDurationSeconds)
+                
+                if (wavBlob) {
+                  // HIGH QUALITY RECORDING: Download immediately
+                  const url = URL.createObjectURL(wavBlob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `HIGH-QUALITY-RECORDING-${bpm}bpm-${exportDurationBars}bars-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                  URL.revokeObjectURL(url)
+                  
+                  console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Export completed and downloaded!')
+                  
+                  // HIGH QUALITY RECORDING: Clean up
+                  (window as any).mediaRecorderForExport = null
+                  Tone.Destination.disconnect(mediaStreamDestination)
+                  setIsExportLiveRecording(false)
+                }
+              }
+            }
+          } catch (error) {
+            console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Error in onstop:', error)
+          }
+        }, 100)
       }
       
-      mediaRecorder.onerror = (event) => {
-        console.error('[EXPORT LIVE] MediaRecorder error:', event)
-      }
-
-      console.log('[EXPORT LIVE] Starting live recording...')
+      // HIGH QUALITY RECORDING: Start recording with high quality settings
+      setIsExportLiveRecording(true)
+      mediaRecorder.start(100) // Smaller chunks for better quality
+      console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Recording started')
       
-      // Start recording
-      mediaRecorder.start(1000) // Collect data every second
+      // HIGH QUALITY RECORDING: Play the arrangement for the exact duration
+      console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Starting arrangement playback...')
       
-      console.log('[EXPORT LIVE] MediaRecorder started, arrangement should already be playing')
+      // Start playback from the export start bar
+      const startTime = (exportStartBar - 1) * secondsPerBar
+      const endTime = exportEndBar * secondsPerBar
       
-      // Wait for the arrangement to finish playing
-      console.log(`[EXPORT LIVE] Recording for ${totalDurationSeconds} seconds...`)
+      // Schedule the arrangement to play for the exact duration
+      const playPromise = playArrangement()
       
-      // Start playing the arrangement first
-      console.log('[EXPORT LIVE] Starting arrangement playback...')
-      await playArrangement()
+      // Set a timer to stop recording after exact duration
+      const timerMs = Math.floor(totalDurationSeconds * 1000)
+      console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Timer set for ${timerMs}ms`)
       
-      // Wait a moment to ensure the arrangement is actually playing
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      console.log(`[EXPORT LIVE] Arrangement playing state: ${isArrangementPlaying}`)
-      console.log(`[EXPORT LIVE] Expected duration: ${totalDurationSeconds} seconds`)
-      
-      // Create a promise that resolves when the arrangement stops
-      const waitForArrangementToStop = new Promise<void>((resolve) => {
-        let checkCount = 0
-        const checkIfStopped = () => {
-          checkCount++
-          console.log(`[EXPORT LIVE] Check ${checkCount}: isArrangementPlaying = ${isArrangementPlaying}`)
+      setTimeout(() => {
+        console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Timer fired - stopping recording')
+        
+        try {
+          if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop()
+            console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: MediaRecorder.stop() called')
+          }
           
-          if (!isArrangementPlaying) {
-            console.log('[EXPORT LIVE] Arrangement stopped - completing export')
-            resolve()
-          } else {
-            setTimeout(checkIfStopped, 500) // Check every 500ms
-          }
+          // Stop arrangement playback
+          stopArrangement()
+          
+          // HIGH QUALITY RECORDING: Clean up
+          (window as any).mediaRecorderForExport = null
+          Tone.Destination.disconnect(mediaStreamDestination)
+          setIsExportLiveRecording(false)
+          
+          console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Timer cleanup complete')
+        } catch (error) {
+          console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Timer error:', error)
         }
-        checkIfStopped()
-      })
+      }, timerMs)
       
-      // Wait for the exact export duration (from start marker to end marker)
-      console.log(`[EXPORT LIVE] Waiting for exact export duration: ${totalDurationSeconds} seconds`)
-      console.log(`[EXPORT LIVE] Export will stop at bar ${exportEndBar}`)
+      console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Export setup complete - recording with high quality...')
       
-      // Set a timer to stop MediaRecorder at exactly the right time
-      const stopTimer = setTimeout(() => {
-        console.log('[EXPORT LIVE] TIMER: Exact duration reached - FORCE STOPPING MediaRecorder')
-        
-        // Force stop MediaRecorder immediately
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.stop()
-          console.log('[EXPORT LIVE] TIMER: MediaRecorder.stop() called')
-        }
-        
-        // Disconnect audio source immediately
-        Tone.Destination.disconnect(mediaStreamDestination)
-        console.log('[EXPORT LIVE] TIMER: Audio source disconnected')
-        
-        // Force stop arrangement
-        stopArrangement()
-        console.log('[EXPORT LIVE] TIMER: Arrangement stopped')
-      }, totalDurationSeconds * 1000)
-      
-      // Wait for the timer to complete
-      await new Promise(resolve => {
-        setTimeout(() => {
-          clearTimeout(stopTimer) // Clean up timer
-          resolve(true)
-        }, totalDurationSeconds * 1000 + 100) // +100ms buffer
-      })
-      
-      console.log('[EXPORT LIVE] Export duration reached - cleanup complete')
-      
-      // Wait a moment for the MediaRecorder to process the stop
-      console.log('[EXPORT LIVE] Waiting for MediaRecorder to process stop...')
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      console.log('[EXPORT LIVE] Recording completed')
-      
-      // Wait for the final data to be available
-      await new Promise(resolve => {
-        const checkData = () => {
-          if (recordedChunks.length > 0) {
-            console.log(`[EXPORT LIVE] Final data check: ${recordedChunks.length} chunks, total size: ${recordedChunks.reduce((sum, chunk) => sum + chunk.size, 0)} bytes`)
-            resolve(true)
-          } else {
-            setTimeout(checkData, 100)
-          }
-        }
-        checkData()
-      })
-      
-      // Additional wait to ensure all data is processed
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Create the recorded blob
-      const recordedBlob = new Blob(recordedChunks, { type: mimeType || 'audio/webm' })
-      console.log(`[EXPORT LIVE] Created blob: ${recordedBlob.size} bytes`)
-      
-      if (recordedBlob.size === 0) {
-        throw new Error('Recorded blob is empty - no audio was captured')
-      }
-      
-      // Clean up audio connections
-      Tone.Destination.disconnect()
-      
-      // Convert the recorded blob to WAV format
-      console.log('[EXPORT LIVE] Converting to WAV...')
-      const wavBlob = await convertBlobToWav(recordedBlob, totalDurationSeconds)
-      
-      if (!wavBlob) {
-        throw new Error('Failed to convert to WAV format')
-      }
-      
-      console.log(`[EXPORT LIVE] WAV blob created: ${wavBlob.size} bytes`)
-      
-      console.log('[EXPORT LIVE] Live capture export completed successfully')
-      
-      // Reset export markers after successful export
-      resetExportMarkers()
-      
-      // Automatically download the file
-      if (wavBlob) {
-        console.log('[EXPORT LIVE] Starting file download...')
-        
-        const url = URL.createObjectURL(wavBlob)
-        const a = document.createElement('a')
-        a.href = url
-        
-        // Create enhanced filename with arrangement info
-        const patternCount = patternBlocks.length
-        const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
-        const secondsPerBeat = 60 / bpm
-        const beatsPerBar = 4
-        const secondsPerBar = secondsPerBeat * beatsPerBar
-        const totalDurationSeconds = maxEndBar * secondsPerBar
-        const durationMinutes = Math.floor(totalDurationSeconds / 60)
-        const durationSeconds = Math.floor(totalDurationSeconds % 60)
-        
-        const filename = `beat-arrangement-LIVE-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
-        
-        console.log(`[EXPORT LIVE] Downloading file: ${filename}`)
-        
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-        
-        console.log(`[EXPORT LIVE] Auto-downloaded: ${filename}`)
-      } else {
-        console.error('[EXPORT LIVE] No WAV blob to download')
-      }
-      
-      // Restore audio state if it was playing before
-      if (currentIsPlaying) {
-        console.log('[EXPORT LIVE] Restoring previous playback state')
-        setTimeout(() => {
-          if (arrangementTransportRef.current) {
-            arrangementTransportRef.current.position = currentBar
-          }
-          playArrangement()
-        }, 200)
-      }
-      
-      return wavBlob
+      // HIGH QUALITY RECORDING: Return success immediately
+      return true
       
     } catch (error) {
-      console.error('[EXPORT LIVE] Error during live capture export:', error)
-      alert('Error during live capture export. Please check the console for details.')
-      
-      // Restore audio state even on error
-      if (currentIsPlaying) {
-        console.log('[EXPORT LIVE] Restoring playback state after error')
-        setTimeout(() => {
-          if (arrangementTransportRef.current) {
-            arrangementTransportRef.current.position = currentBar
-          }
-          playArrangement()
-        }, 200)
-      }
-      
+      console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Error:', error)
+      alert('HIGH QUALITY RECORDING ERROR: ' + (error as Error).message)
+      setIsExportLiveRecording(false)
       throw error
     }
   }
@@ -2330,12 +2332,12 @@ export function SongArrangement({
       // Create enhanced filename with arrangement info
       const patternCount = patternBlocks.length
       const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
-      const secondsPerBeat = 60 / bpm
-      const beatsPerBar = 4
-      const secondsPerBar = secondsPerBeat * beatsPerBar
-      const totalDurationSeconds = maxEndBar * secondsPerBar
-      const durationMinutes = Math.floor(totalDurationSeconds / 60)
-      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+      const downloadSecondsPerBeat = 60 / bpm
+      const downloadBeatsPerBar = 4
+      const downloadSecondsPerBar = downloadSecondsPerBeat * downloadBeatsPerBar
+      const downloadTotalDurationSeconds = maxEndBar * downloadSecondsPerBar
+      const durationMinutes = Math.floor(downloadTotalDurationSeconds / 60)
+      const durationSeconds = Math.floor(downloadTotalDurationSeconds % 60)
       
       const filename = `beat-arrangement-LIVE-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
       
@@ -2750,8 +2752,15 @@ export function SongArrangement({
     
     // CRITICAL: Reset playhead position when starting fresh
     console.log('[PLAY DEBUG] Resetting playhead position for fresh start')
-    setCurrentBarSafe(1) // Always start from bar 1 when playing fresh
-    console.log('[PLAY DEBUG] Playhead reset to bar 1')
+    // If export markers are active, start from the export start marker
+    const startBar = exportMarkersActive ? exportStartBar : 1
+    setCurrentBarSafe(startBar) // Start from export start marker or bar 1
+    console.log(`[PLAY DEBUG] Playhead reset to bar ${startBar}`)
+    
+    // CRITICAL: If export markers are active, we need to schedule patterns differently
+    if (exportMarkersActive) {
+      console.log(`[PLAY DEBUG] Export mode: will play from bar ${exportStartBar} to bar ${exportEndBar}`)
+    }
     
     // CRITICAL: Reset and isolate arrangement from sequencer before playing
     resetArrangementAudio()
@@ -2839,9 +2848,10 @@ export function SongArrangement({
       arrangementTransportRef.current.stop()
       arrangementTransportRef.current.cancel() // Cancel all scheduled events first
       
-      // CRITICAL FIX: Always start from position 0 for fresh playback
-      console.log('[PLAY DEBUG] Setting transport position to 0 for fresh start')
-      arrangementTransportRef.current.position = 0
+      // CRITICAL FIX: In export mode, always start from position 0 since patterns are scheduled relative to export start
+      const startPosition = exportMarkersActive ? 0 : 0 // Always start from 0, patterns are scheduled relative to export start
+      console.log(`[PLAY DEBUG] Setting transport position to ${startPosition} for fresh start (export mode: ${exportMarkersActive})`)
+      arrangementTransportRef.current.position = startPosition
       
       console.log('[PLAY DEBUG] Transport state after setup:', arrangementTransportRef.current.state)
       console.log('[PLAY DEBUG] Transport position after setup:', arrangementTransportRef.current.position)
@@ -2883,12 +2893,33 @@ export function SongArrangement({
         })
         
         // Calculate start time in seconds (convert from bar number)
-        // CRITICAL FIX: Since we're starting from position 0, use absolute bar positions
-        const startTimeInBars = block.startBar - 1 // Convert to 0-based (bar 1 = position 0)
-        const startTimeInSeconds = startTimeInBars * secondsPerBar
-        const durationInSeconds = block.duration * secondsPerBar
+        let startTimeInBars, startTimeInSeconds, durationInSeconds
         
-        console.log(`[ARRANGEMENT AUDIO] Scheduling pattern ${block.name}: start at ${startTimeInSeconds}s (bar ${block.startBar} = position ${startTimeInBars} bars), duration ${durationInSeconds}s`)
+        if (exportMarkersActive) {
+          // CRITICAL: In export mode, schedule patterns relative to the export start marker
+          // If pattern starts before export start, adjust it to start at export start
+          const effectiveStartBar = Math.max(block.startBar, exportStartBar)
+          const effectiveEndBar = Math.min(block.endBar, exportEndBar)
+          
+          if (effectiveStartBar > effectiveEndBar) {
+            console.log(`[ARRANGEMENT AUDIO] Skipping pattern ${block.name} - outside export range (${exportStartBar}-${exportEndBar})`)
+            return
+          }
+          
+          // Calculate timing relative to export start marker
+          startTimeInBars = effectiveStartBar - exportStartBar // Relative to export start
+          startTimeInSeconds = startTimeInBars * secondsPerBar
+          durationInSeconds = (effectiveEndBar - effectiveStartBar + 1) * secondsPerBar
+          
+          console.log(`[ARRANGEMENT AUDIO] Export mode: Pattern ${block.name} scheduled at +${startTimeInSeconds}s (bar ${effectiveStartBar} relative to export start), duration ${durationInSeconds}s`)
+        } else {
+          // Normal mode: use absolute bar positions
+          startTimeInBars = block.startBar - 1 // Convert to 0-based (bar 1 = position 0)
+          startTimeInSeconds = startTimeInBars * secondsPerBar
+          durationInSeconds = block.duration * secondsPerBar
+          
+          console.log(`[ARRANGEMENT AUDIO] Normal mode: Pattern ${block.name} scheduled at +${startTimeInSeconds}s (bar ${block.startBar} = position ${startTimeInBars} bars), duration ${durationInSeconds}s`)
+        }
         
         if (player && player.loaded) {
           try {
@@ -2925,6 +2956,16 @@ export function SongArrangement({
 
   // Stop the arrangement - AGGRESSIVE STOP to prevent any audio from continuing
   const stopArrangement = () => {
+    // CRITICAL: If we're in export mode and the arrangement stops, we need to stop the MediaRecorder too
+    if (exportMarkersActive && (window as any).mediaRecorderForExport) {
+      console.log('[STOP] Export mode detected - stopping MediaRecorder')
+      if ((window as any).mediaRecorderForExport.state === 'recording') {
+        (window as any).mediaRecorderForExport.stop()
+        console.log('[STOP] MediaRecorder stopped due to arrangement stop')
+      }
+      // Clean up the global reference
+      (window as any).mediaRecorderForExport = null
+    }
     console.log('[STOP] AGGRESSIVE STOP - Stopping all audio immediately')
     
     // Set state to stopped immediately
@@ -3481,6 +3522,19 @@ export function SongArrangement({
                   <Download className="w-4 h-4 mr-1" />
                   {exportMarkersActive ? 'Export (Live) - READY' : 'Export (Live) - SET MARKERS'}
                 </Button>
+                {/* Manual Stop Button - Only show when recording */}
+                {isExportLiveRecording && (
+                  <Button
+                    onClick={stopExportLive}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs bg-orange-600 hover:bg-orange-700 text-white border-orange-500 animate-pulse"
+                    title="Manually stop the live export recording"
+                  >
+                    <Square className="w-4 h-4 mr-1" />
+                    STOP EXPORT
+                  </Button>
+                )}
             </div>
             <Button
               onClick={openSaveBeatDialog}
@@ -3497,6 +3551,14 @@ export function SongArrangement({
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                 <span className="text-red-400 text-xs font-mono">
                   Bar {Math.floor(currentBar)}.{Math.floor((currentBar % 1) * 4)} / {totalBars}
+                </span>
+              </div>
+            )}
+            {isExportLiveRecording && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                <span className="text-orange-400 text-xs font-mono">
+                  EXPORT RECORDING - Click STOP EXPORT to end
                 </span>
               </div>
             )}
@@ -4639,6 +4701,15 @@ export function SongArrangement({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={notificationModal.isOpen}
+        onClose={closeNotification}
+        title={notificationModal.title}
+        message={notificationModal.message}
+        type={notificationModal.type}
+      />
     </div>
   )
 } 

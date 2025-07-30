@@ -44,6 +44,7 @@ import { useUndoRedo, BeatMakerState } from '@/hooks/useUndoRedo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { calculatePitchShift, validatePitchShift, applyPitchShiftWithEnhancement } from '@/lib/utils'
 import { toast } from '@/hooks/use-toast'
+import { NotificationModal } from '@/components/ui/notification-modal'
 
 export default function BeatMakerPage() {
   const searchParams = useSearchParams()
@@ -90,6 +91,14 @@ export default function BeatMakerPage() {
   const [bpmRange, setBpmRange] = useState<[number, number]>([70, 165])
   const [showBpmRangeControls, setShowBpmRangeControls] = useState(false)
   
+  // Notification modal state
+  const [notificationModal, setNotificationModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'success' | 'error' | 'info' | 'warning'
+  })
+  
   const [tracks, setTracks] = useState<Track[]>([])
   const [isAutoMode, setIsAutoMode] = useState(false) // Strata mode is on by default when no template is loaded
   const [isLatidoMode, setIsLatidoMode] = useState(false) // Latido mode controls drum track loading in shuffle all
@@ -134,6 +143,20 @@ export default function BeatMakerPage() {
 
   // Helper to check if any track has a valid audio file
   const hasLoadedAudio = tracks.some(track => track.audioUrl && track.audioUrl !== 'undefined')
+  
+  // Helper function to show notification modal
+  const showNotification = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    setNotificationModal({
+      isOpen: true,
+      title,
+      message,
+      type
+    })
+  }
+  
+  const closeNotification = () => {
+    setNotificationModal(prev => ({ ...prev, isOpen: false }))
+  }
 
   // Handler for track audio URL changes when format preference changes
   const handleTrackAudioUrlChange = (trackId: number, newAudioUrl: string) => {
@@ -600,6 +623,11 @@ export default function BeatMakerPage() {
       }
       
       console.log(`Successfully loaded pattern from database: ${pattern.name}`)
+      
+      // Always go to sequencer tab after loading a pattern (with a small delay to ensure state updates)
+      setTimeout(() => {
+        setActiveTab('sequencer')
+      }, 100)
     } catch (error) {
       console.error('Error loading pattern from database:', error)
     }
@@ -1678,8 +1706,13 @@ export default function BeatMakerPage() {
     }
     
     // Show success message
-    alert(`Loaded pattern: ${selectedPattern.name}`)
+    showNotification('Success', `Loaded pattern: ${selectedPattern.name}`, 'success')
     console.log(`Loaded pattern "${selectedPattern.name}" - sequencer data and track metadata updated`)
+    
+    // Always go to sequencer tab after loading a pattern (with a small delay to ensure state updates)
+    setTimeout(() => {
+      setActiveTab('sequencer')
+    }, 100)
     
     setShowLoadPatternDialog(false)
   }
@@ -3244,7 +3277,7 @@ export default function BeatMakerPage() {
       console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
       
       // Check if this is a drum track (should not be pitch-shifted or key-filtered)
-      const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
+      const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion', 'Drum Loop'].includes(track.name)
       
                 // Check if this track should be filtered by key (skip drum tracks - they don't need key filtering)
       const shouldFilterByKey = !isDrumTrack
@@ -4218,7 +4251,7 @@ export default function BeatMakerPage() {
         setCurrentSessionId(null)
         setCurrentSessionName('')
         setHasUnsavedChanges(false)
-        alert('Session closed. Shuffle All will create a new session state.')
+        showNotification('Info', 'Session closed. Shuffle All will create a new session state.', 'info')
       }
 
       // Set transport to 8 bars (128 steps) when shuffling all
@@ -4484,7 +4517,7 @@ export default function BeatMakerPage() {
         try {
           // Helios mode: Shuffle all tracks (both drum and loop tracks)
           if (isHeliosMode) {
-            const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion'].includes(track.name)
+            const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Bass', 'Percussion', 'Drum Loop'].includes(track.name)
             const isLoopTrack = track.name.includes(' Loop')
             
             console.log(`[HELIOS MODE] Processing ${isDrumTrack ? 'drum' : isLoopTrack ? 'loop' : 'other'} track: ${track.name}`)
@@ -4506,7 +4539,7 @@ export default function BeatMakerPage() {
           console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
           
                   // Check if this track should be filtered by key (skip drum tracks - they don't need key filtering)
-        const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion'].includes(track.name)
+        const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion', 'Drum Loop'].includes(track.name)
           const isDrumLoop = ['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
           const shouldFilterByKey = !isDrumTrack && !isDrumLoop
           const keyToUse = shouldFilterByKey ? transportKey : undefined
@@ -5888,7 +5921,7 @@ export default function BeatMakerPage() {
 
       if (result.error) {
         console.error('Error saving session:', result.error)
-        alert('Failed to save session')
+        showNotification('Error', 'Failed to save session', 'error')
         return
       }
 
@@ -5901,13 +5934,13 @@ export default function BeatMakerPage() {
       setSessionTags('')
       setSessionStatus('draft')
       setShowSessionDialog(false)
-      alert(`Session "${result.data.name}" saved successfully!`)
+      showNotification('Success', `Session "${result.data.name}" saved successfully!`, 'success')
       
       // Refresh saved sessions list
       loadSavedSessions()
     } catch (error) {
       console.error('Error saving session:', error)
-      alert('Failed to save session')
+      showNotification('Error', 'Failed to save session', 'error')
     } finally {
       setIsSaving(false)
     }
@@ -5916,7 +5949,7 @@ export default function BeatMakerPage() {
   // Update current session function
   const handleUpdateSession = async () => {
     if (!currentSessionId) {
-      alert('No session loaded to update')
+      showNotification('Warning', 'No session loaded to update', 'warning')
       return
     }
 
@@ -5924,7 +5957,7 @@ export default function BeatMakerPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        alert('Please log in to update sessions')
+        showNotification('Error', 'Please log in to update sessions', 'error')
         return
       }
 
@@ -6073,49 +6106,28 @@ export default function BeatMakerPage() {
         setSongArrangementPatterns(data.song_arrangement_data)
       }
 
-      // Restore playback state
+      // Restore playback state (but don't auto-play)
       if (data.playback_state) {
-        const wasPlaying = data.playback_state.isPlaying || false
         setCurrentStep(data.playback_state.currentStep || 0)
-        
-        // If the session was playing when saved, we need to restart the sequencer
-        // But we need to wait for the tracks and sequencer data to be fully loaded first
-        if (wasPlaying) {
-          // Use setTimeout to ensure all state updates are complete
-          setTimeout(async () => {
-            console.log('[SESSION LOAD] Restarting sequencer after session load')
-            try {
-              // Check if there are tracks with audio before starting
-              const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
-              if (tracksWithAudio.length === 0) {
-                console.log('[SESSION LOAD] No tracks with audio found, not starting playback')
-                setIsPlaying(false)
-                return
-              }
-              
-              // Start the sequencer directly through the hook
-              await playSequence()
-              console.log('[SESSION LOAD] Sequencer started successfully')
-            } catch (error) {
-              console.error('[SESSION LOAD] Failed to start sequencer:', error)
-              // If playback fails, set playing to false
-              setIsPlaying(false)
-            }
-          }, 200) // Increased delay to ensure audio samples are loaded
-        } else {
-          // If not playing, just set the state
-          setIsPlaying(false)
-        }
+        // Always set to not playing when loading a session
+        setIsPlaying(false)
       }
 
       // Restore UI state
       if (data.ui_state) {
-        setActiveTab(data.ui_state.activeTab || 'sequencer')
         setShowSampleLibrary(data.ui_state.showSampleLibrary || false)
         setShowPianoRoll(data.ui_state.showPianoRoll || false)
         setSelectedTrack(data.ui_state.selectedTrack || null)
         setPianoRollTrack(data.ui_state.pianoRollTrack || null)
       }
+      
+      // Always go to sequencer tab after loading session
+      setActiveTab('sequencer')
+      
+      // Force a re-render to ensure tab change takes effect
+      setTimeout(() => {
+        setActiveTab('sequencer')
+      }, 50)
 
       setCurrentSessionId(sessionId)
       setCurrentSessionName(data.name)
@@ -7311,7 +7323,7 @@ export default function BeatMakerPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="sequencer" className="w-full" onValueChange={setActiveTab}>
+      <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-5 bg-[#141414] border-gray-700">
           <TabsTrigger value="sequencer" className="data-[state=active]:bg-[#2a2a2a] text-white">
             <Disc className="w-4 h-4 mr-2" />
@@ -10875,6 +10887,14 @@ export default function BeatMakerPage() {
           />
         )}
 
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={notificationModal.isOpen}
+        onClose={closeNotification}
+        title={notificationModal.title}
+        message={notificationModal.message}
+        type={notificationModal.type}
+      />
 
     </div>
   )
