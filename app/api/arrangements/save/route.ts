@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         zoom_level: zoomLevel,
         bpm,
         steps,
-        tags: tags ? JSON.stringify(tags) : null,
+        tags: tags && tags.length > 0 ? tags : null,
         category,
         genre,
         subgenre,

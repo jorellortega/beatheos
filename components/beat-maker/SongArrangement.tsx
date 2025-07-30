@@ -95,6 +95,9 @@ export function SongArrangement({
   const [resizeHandle, setResizeHandle] = useState<'left' | 'right' | null>(null) // which handle is being dragged
   const [resizeStart, setResizeStart] = useState({ x: 0, originalDuration: 0, originalStartBar: 0 })
   
+  // A-B toggle state for shuffle modes
+  const [shuffleMode, setShuffleMode] = useState<'A' | 'B'>('A') // A = pattern drops, B = saved arrangements
+  
   // Selection box state for click-and-drag selection
   const [isSelectionBoxActive, setIsSelectionBoxActive] = useState(false)
   const [selectionBoxStart, setSelectionBoxStart] = useState({ x: 0, y: 0 })
@@ -714,15 +717,45 @@ export function SongArrangement({
     return blockLeft < right && blockRight > left && blockTop < bottom && blockBottom > top
   }
 
+  // Helper function to detect genre from track name
+  const detectGenreFromTrackName = (trackName: string): { genre: string; subgenre: string } => {
+    const name = trackName.toLowerCase()
+    
+    // Genre detection based on track name patterns
+    if (name.includes('kick') || name.includes('drum') || name.includes('beat')) {
+      return { genre: 'Hip Hop', subgenre: 'Trap' }
+    }
+    if (name.includes('melody') || name.includes('piano') || name.includes('synth')) {
+      return { genre: 'Hip Hop', subgenre: 'R&B' }
+    }
+    if (name.includes('bass') || name.includes('808')) {
+      return { genre: 'Hip Hop', subgenre: 'Trap' }
+    }
+    if (name.includes('snare') || name.includes('clap')) {
+      return { genre: 'Hip Hop', subgenre: 'Boom Bap' }
+    }
+    if (name.includes('hihat') || name.includes('hat')) {
+      return { genre: 'Hip Hop', subgenre: 'Trap' }
+    }
+    
+    // Default fallback
+    return { genre: 'Hip Hop', subgenre: 'Trap' }
+  }
+
   // Arrangement management functions
   const openSaveDialog = (track: Track) => {
     setCurrentTrackForArrangement(track)
     setArrangementName(`${getTrackDisplayName(track.name)} Arrangement`)
     setArrangementDescription('')
     setArrangementCategory('')
-    setArrangementTags('')
-    setArrangementGenre('')
-    setArrangementSubgenre('')
+    // Auto-fill tags from track data if available
+    setArrangementTags(track.tags ? track.tags.join(', ') : '')
+    
+    // Auto-fill genre and subgenre from track data or detect from name
+    const detectedGenre = detectGenreFromTrackName(track.name)
+    setArrangementGenre(track.genre || detectedGenre.genre)
+    setArrangementSubgenre(track.subgenre || detectedGenre.subgenre)
+    
     setArrangementBpm(bpm.toString())
     setArrangementAudioType(track.name)
     setShowSaveDialog(true)
@@ -877,7 +910,7 @@ export function SongArrangement({
       })
 
       if (response.ok) {
-        alert('Arrangement saved successfully!')
+        showNotification('Success', 'Arrangement saved successfully!', 'success')
         setShowSaveDialog(false)
         setArrangementName('')
         setArrangementDescription('')
@@ -889,11 +922,11 @@ export function SongArrangement({
         setArrangementAudioType('')
       } else {
         const error = await response.json()
-        alert(`Failed to save arrangement: ${error.error}`)
+        showNotification('Error', `Failed to save arrangement: ${error.error}`, 'error')
       }
     } catch (error) {
       console.error('Error saving arrangement:', error)
-      alert('Failed to save arrangement')
+      showNotification('Error', 'Failed to save arrangement', 'error')
     } finally {
       setIsSaving(false)
     }
@@ -906,7 +939,7 @@ export function SongArrangement({
       // Get user token
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) {
-        alert('Please log in to load arrangements')
+        showNotification('Error', 'Please log in to load arrangements', 'error')
         return
       }
 
@@ -936,15 +969,15 @@ export function SongArrangement({
         // Update parent component
         onPatternsChange?.(newPatternBlocks)
         
-        alert(`Arrangement "${arrangement.name}" loaded successfully!`)
+        console.log(`[LOAD ARRANGEMENT] Arrangement "${arrangement.name}" loaded successfully!`)
         setShowLoadDialog(false)
       } else {
         const error = await response.json()
-        alert(`Failed to load arrangement: ${error.error}`)
+        showNotification('Error', `Failed to load arrangement: ${error.error}`, 'error')
       }
     } catch (error) {
       console.error('Error loading arrangement:', error)
-      alert('Failed to load arrangement')
+      showNotification('Error', 'Failed to load arrangement', 'error')
     } finally {
       setIsLoading(false)
     }
@@ -1493,6 +1526,79 @@ export function SongArrangement({
     onPatternsChange?.([])
     
     console.log('[CLEAR PATTERNS] All patterns cleared')
+  }
+
+  // Mode B: Shuffle through saved arrangements for each track
+  const shuffleSavedArrangements = async () => {
+    console.log('[SHUFFLE ARRANGEMENTS] Mode B: Shuffling through saved arrangements for each track')
+    
+    try {
+      // Get user session
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        showNotification('Error', 'Please log in to shuffle arrangements', 'error')
+        return
+      }
+
+      let loadedCount = 0
+      const loadedArrangements: string[] = []
+
+      // Shuffle arrangements for each track
+      for (const track of tracks) {
+        // Search for arrangements for this specific track
+        const response = await fetch('/api/arrangements/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({
+            filters: {
+              searchTerm: track.name
+            },
+            limit: 50
+          })
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          const trackArrangements = data.arrangements || []
+          
+          if (trackArrangements.length > 0) {
+            // Randomly select an arrangement for this track
+            const randomArrangement = trackArrangements[Math.floor(Math.random() * trackArrangements.length)]
+            console.log(`[SHUFFLE ARRANGEMENTS] Loading arrangement for ${track.name}:`, randomArrangement)
+
+            // Load the selected arrangement
+            await loadArrangement(randomArrangement.arrangementId)
+            loadedCount++
+            loadedArrangements.push(randomArrangement.arrangementName || 'Unknown')
+          }
+        }
+      }
+
+      if (loadedCount > 0) {
+        console.log(`[SHUFFLE ARRANGEMENTS] Successfully shuffled ${loadedCount} tracks with arrangements: ${loadedArrangements.join(', ')}`)
+      } else {
+        console.log('[SHUFFLE ARRANGEMENTS] No saved arrangements found for any tracks')
+      }
+    } catch (error) {
+      console.error('Error shuffling arrangements:', error)
+      showNotification('Error', 'Failed to shuffle arrangements', 'error')
+    }
+  }
+
+  // Main shuffle function that toggles between A and B modes
+  const handleShuffleToggle = () => {
+    if (shuffleMode === 'A') {
+      // Mode A: Create drop arrangement (current logic)
+      createDropArrangement()
+      setShuffleMode('B') // Switch to mode B for next click
+    } else {
+      // Mode B: Shuffle saved arrangements
+      shuffleSavedArrangements()
+      setShuffleMode('A') // Switch to mode A for next click
+    }
   }
 
   // Create dynamic arrangement with drops by splitting patterns
@@ -3481,15 +3587,21 @@ export function SongArrangement({
               Clear All
             </Button>
             <Button
-              onClick={() => {
-                createDropArrangement()
-              }}
+              onClick={handleShuffleToggle}
               variant="outline"
               size="sm"
-              className="text-xs bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
-              title="Create dynamic arrangement with drops by splitting patterns"
+              className={`text-xs ${
+                shuffleMode === 'A' 
+                  ? 'bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600' 
+                  : 'bg-purple-600 text-white hover:bg-purple-700 border-purple-500'
+              }`}
+              title={shuffleMode === 'A' 
+                ? "Mode A: Create dynamic arrangement with drops by splitting patterns (Click to switch to Mode B)" 
+                : "Mode B: Shuffle through saved arrangements (Click to switch to Mode A)"
+              }
             >
-              <Brain className="w-4 h-4" />
+              <Brain className="w-4 h-4 mr-1" />
+              {shuffleMode === 'A' ? 'A: Drops' : 'B: Shuffle'}
             </Button>
             <div className="flex gap-2">
             <Button

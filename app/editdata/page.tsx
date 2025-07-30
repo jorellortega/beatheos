@@ -35,7 +35,7 @@ import {
   Square,
   RefreshCw
 } from 'lucide-react'
-import AudioWaveformEditor from '@/components/AudioWaveformEditor'
+import { useRouter } from 'next/navigation'
 
 interface AudioLibraryItem {
   id: string
@@ -95,6 +95,7 @@ interface AudioSubfolder {
 
 export default function EditData() {
   const { user } = useAuth()
+  const router = useRouter()
   const [audioItems, setAudioItems] = useState<AudioLibraryItem[]>([])
   const [audioPacks, setAudioPacks] = useState<AudioPack[]>([])
   const [loading, setLoading] = useState(true)
@@ -829,24 +830,26 @@ export default function EditData() {
   }
 
     return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Audio Library Manager</h1>
-          <p className="text-gray-600 mt-2">Manage and edit your audio files with advanced metadata</p>
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+      {/* Mobile-optimized header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold truncate">Audio Library Manager</h1>
+          <p className="text-gray-600 mt-1 sm:mt-2 text-sm sm:text-base">Manage and edit your audio files with advanced metadata</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Button
             variant="default"
             onClick={() => {
               if (filteredItems.length > 0) openEditModal(filteredItems[0])
             }}
             disabled={filteredItems.length === 0}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1 sm:gap-2 text-sm"
             title="Start editing files"
           >
             <Edit className="w-4 h-4" />
-            Start Editing
+            <span className="hidden sm:inline">Start Editing</span>
+            <span className="sm:hidden">Edit</span>
           </Button>
           <Button
             variant="destructive"
@@ -862,15 +865,17 @@ export default function EditData() {
               }
             }}
             disabled={audioItems.filter(item => !item.bpm || !item.key || item.key === '').length === 0}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1 sm:gap-2 text-sm"
             title="Start editing files missing BPM or Key"
           >
             <Edit className="w-4 h-4" />
-            Edit Missing Data
+            <span className="hidden sm:inline">Edit Missing Data</span>
+            <span className="sm:hidden">Missing</span>
           </Button>
           <Button
             variant="outline"
             onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
+            className="text-sm"
           >
             {viewMode === 'grid' ? <List className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
           </Button>
@@ -878,22 +883,23 @@ export default function EditData() {
             variant="outline"
             onClick={refreshData}
             disabled={loading}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1 sm:gap-2 text-sm"
             title="Refresh data"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           {selectedItems.size > 0 && (
-            <Button onClick={() => setShowBulkEditModal(true)}>
-              <Edit className="w-4 h-4 mr-2" />
-              Bulk Edit ({selectedItems.size})
+            <Button onClick={() => setShowBulkEditModal(true)} className="text-sm">
+              <Edit className="w-4 h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Bulk Edit ({selectedItems.size})</span>
+              <span className="sm:hidden">Bulk ({selectedItems.size})</span>
             </Button>
           )}
-      </div>
+        </div>
       </div>
 
-      {/* Filters */}
+      {/* Mobile-optimized Filters */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -902,18 +908,19 @@ export default function EditData() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
+          {/* Search and main filters - mobile optimized */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="sm:col-span-2 lg:col-span-1">
               <Label>Search</Label>
-          <div className="relative">
+              <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-            <Input
+                <Input
                   placeholder="Search files..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
                 />
-          </div>
+              </div>
             </div>
             
             <div>
@@ -929,7 +936,7 @@ export default function EditData() {
                   ))}
                 </SelectContent>
               </Select>
-        </div>
+            </div>
 
             <div>
               <Label>Genre</Label>
@@ -944,7 +951,7 @@ export default function EditData() {
                   ))}
                 </SelectContent>
               </Select>
-      </div>
+            </div>
 
             <div>
               <Label>Audio Type</Label>
@@ -959,10 +966,11 @@ export default function EditData() {
                   ))}
                 </SelectContent>
               </Select>
-        </div>
-      </div>
+            </div>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Secondary filters - mobile optimized */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <div>
               <Label>Distribution Type</Label>
               <Select value={selectedDistributionType} onValueChange={setSelectedDistributionType}>
@@ -1007,9 +1015,9 @@ export default function EditData() {
                   <SelectItem value="desc">Descending</SelectItem>
                 </SelectContent>
               </Select>
-              </div>
+            </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
@@ -1018,7 +1026,7 @@ export default function EditData() {
                   onChange={(e) => setShowNewOnly(e.target.checked)}
                   className="rounded"
                 />
-                <Label htmlFor="showNewOnly">New Only</Label>
+                <Label htmlFor="showNewOnly" className="text-sm">New Only</Label>
               </div>
               <div className="flex items-center space-x-2">
                 <input
@@ -1028,9 +1036,9 @@ export default function EditData() {
                   onChange={(e) => setShowReadyOnly(e.target.checked)}
                   className="rounded"
                 />
-                <Label htmlFor="showReadyOnly">Ready Only</Label>
+                <Label htmlFor="showReadyOnly" className="text-sm">Ready Only</Label>
               </div>
-              </div>
+            </div>
           </div>
 
           {selectedItems.size > 0 && (
@@ -1051,44 +1059,51 @@ export default function EditData() {
         </CardContent>
       </Card>
 
-      {/* Results */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+      {/* Mobile-optimized Results */}
+      <div className="flex flex-col gap-3 sm:gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
           <p className="text-sm text-gray-600">
             Showing {filteredItems.length} of {audioItems.length} items
             {totalCount > audioItems.length && (
               <span className="text-gray-500"> (Total: {totalCount})</span>
             )}
           </p>
-          <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs">
-            <span className="text-orange-600">
-              BPM: {audioItems.filter(item => !item.bpm).length}
-            </span>
-            <span className="text-blue-600">
-              Key: {audioItems.filter(item => !item.key || item.key === '').length}
-            </span>
-            <span className="text-green-600">
-              Genre: {audioItems.filter(item => !item.genre || item.genre === '').length}
-            </span>
-            <span className="text-purple-600">
-              Desc: {audioItems.filter(item => !item.description || item.description === '').length}
-            </span>
-            <span className="text-red-600">
-              Tags: {audioItems.filter(item => !item.tags || item.tags.length === 0).length}
-            </span>
+          {hasMoreData && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadAudioData(true)}
+              disabled={isLoadingMore}
+              className="text-xs w-full sm:w-auto"
+            >
+              {isLoadingMore ? 'Loading...' : 'Load More'}
+            </Button>
+          )}
+        </div>
+        
+        {/* Mobile-optimized statistics */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+          <div className="flex items-center justify-between p-2 bg-orange-50 rounded">
+            <span className="text-orange-600 font-medium">BPM:</span>
+            <span className="text-orange-800 font-bold">{audioItems.filter(item => !item.bpm).length}</span>
+          </div>
+          <div className="flex items-center justify-between p-2 bg-blue-50 rounded">
+            <span className="text-blue-600 font-medium">Key:</span>
+            <span className="text-blue-800 font-bold">{audioItems.filter(item => !item.key || item.key === '').length}</span>
+          </div>
+          <div className="flex items-center justify-between p-2 bg-green-50 rounded">
+            <span className="text-green-600 font-medium">Genre:</span>
+            <span className="text-green-800 font-bold">{audioItems.filter(item => !item.genre || item.genre === '').length}</span>
+          </div>
+          <div className="flex items-center justify-between p-2 bg-purple-50 rounded">
+            <span className="text-purple-600 font-medium">Desc:</span>
+            <span className="text-purple-800 font-bold">{audioItems.filter(item => !item.description || item.description === '').length}</span>
+          </div>
+          <div className="flex items-center justify-between p-2 bg-red-50 rounded">
+            <span className="text-red-600 font-medium">Tags:</span>
+            <span className="text-red-800 font-bold">{audioItems.filter(item => !item.tags || item.tags.length === 0).length}</span>
           </div>
         </div>
-        {hasMoreData && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => loadAudioData(true)}
-            disabled={isLoadingMore}
-            className="text-xs w-full sm:w-auto"
-          >
-            {isLoadingMore ? 'Loading...' : 'Load More'}
-          </Button>
-        )}
       </div>
 
       {loading ? (
@@ -1104,10 +1119,10 @@ export default function EditData() {
           </CardContent>
         </Card>
       ) : (
-        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' : 'space-y-2'}>
+        <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4' : 'space-y-2'}>
           {filteredItems.map(item => (
             <Card key={item.id} className={`${viewMode === 'list' ? 'flex' : ''} hover:shadow-md transition-shadow`}>
-              <CardContent className={`${viewMode === 'list' ? 'flex-1 flex items-center gap-4' : 'p-4'}`}>
+              <CardContent className={`${viewMode === 'list' ? 'flex-1 flex items-center gap-4' : 'p-3 sm:p-4'}`}>
                 {viewMode === 'list' && (
                   <input
                     type="checkbox"
@@ -1117,45 +1132,45 @@ export default function EditData() {
                   />
                 )}
                 
-                <div className={`${viewMode === 'list' ? 'flex-1' : ''} space-y-3`}>
-                  <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                      <h3 className="font-semibold text-lg truncate">{item.name}</h3>
-                      <p className="text-sm text-gray-600 truncate">{item.description}</p>
-                          </div>
+                <div className={`${viewMode === 'list' ? 'flex-1' : ''} space-y-2 sm:space-y-3`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-base sm:text-lg truncate" title={item.name}>{item.name}</h3>
+                      <p className="text-xs sm:text-sm text-gray-600 truncate" title={item.description}>{item.description}</p>
+                    </div>
                     {viewMode === 'grid' && (
                       <input
                         type="checkbox"
                         checked={selectedItems.has(item.id)}
                         onChange={() => toggleItemSelection(item.id)}
-                        className="rounded ml-2"
+                        className="rounded ml-2 flex-shrink-0"
                       />
                     )}
                   </div>
 
-                            <div className="flex flex-wrap gap-1">
+                  <div className="flex flex-wrap gap-1">
                     {item.genre && (
-                                <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs">
                         {item.genre}
-                                </Badge>
-                              )}
+                      </Badge>
+                    )}
                     {item.subgenre && (
                       <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
                         {item.subgenre}
-                            </Badge>
-                          )}
+                      </Badge>
+                    )}
                     {item.is_new && (
                       <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">
                         <Star className="w-3 h-3 mr-1" />
                         New
-                            </Badge>
-                          )}
+                      </Badge>
+                    )}
                     {item.is_ready && (
                       <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
                         <CheckCircle className="w-3 h-3 mr-1" />
                         Ready
-                            </Badge>
-                          )}
+                      </Badge>
+                    )}
                     {item.distribution_type && (
                       <Badge variant="secondary" className={`text-xs ${
                         item.distribution_type === 'public' ? 'bg-green-100 text-green-800' :
@@ -1164,124 +1179,134 @@ export default function EditData() {
                         'bg-blue-100 text-blue-800'
                       }`}>
                         {item.distribution_type}
-                            </Badge>
-                          )}
-                        </div>
+                      </Badge>
+                    )}
+                  </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                  <div className="grid grid-cols-2 gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
                     {item.bpm && <span>BPM: {item.bpm}</span>}
                     {item.key && <span>Key: {item.key}</span>}
                     {item.energy_level && <span>Energy: {item.energy_level}/10</span>}
                     {item.complexity && <span>Complexity: {item.complexity}/10</span>}
-                          </div>
+                  </div>
 
                   <div className="flex items-center gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
                       onClick={() => openEditModal(item)}
-                        >
-                      <Edit className="w-4 h-4 mr-1" />
+                      className="flex-1 sm:flex-none text-xs"
+                    >
+                      <Edit className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                       Edit
-                        </Button>
+                    </Button>
                     {item.file_url && (
-                      <Button size="sm" variant="outline" asChild>
+                      <Button size="sm" variant="outline" asChild className="flex-1 sm:flex-none text-xs">
                         <a href={item.file_url} download>
-                          <Download className="w-4 h-4" />
+                          <Download className="w-3 h-3 sm:w-4 sm:h-4" />
                         </a>
-                        </Button>
+                      </Button>
                     )}
-                      </div>
+                  </div>
                 </div>
               </CardContent>
-                    </Card>
-                  ))}
-                        </div>
+            </Card>
+          ))}
+        </div>
       )}
 
-      {/* Edit Modal */}
+      {/* Mobile-optimized Edit Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] overflow-y-auto p-4 sm:p-6">
+        <DialogContent className="w-[98vw] sm:w-[95vw] max-w-4xl max-h-[98vh] sm:max-h-[95vh] overflow-y-auto p-3 sm:p-6">
           <DialogHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <DialogTitle className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-lg sm:text-xl">
-                <span className="text-sm sm:text-base text-gray-500 mb-2 sm:mb-0">
-                  {currentEditIndex + 1} of {getFilteredAndSortedItems().length}
-                </span>
+            <div className="flex flex-col gap-3 sm:gap-4">
+              {/* Mobile-optimized header */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+                <DialogTitle className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-base sm:text-xl">
+                  <span className="text-xs sm:text-base text-gray-500">
+                    {currentEditIndex + 1} of {getFilteredAndSortedItems().length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="hidden sm:inline">Edit Audio File:</span>
+                    <span className="sm:hidden">File:</span>
+                    <div className="max-w-[200px] sm:max-w-none truncate">
+                      {editingItem?.name ? highlightMusicInfoInFileName(editingItem.name, handleBpmFromNameClick, handleKeyFromNameClick) : ''}
+                    </div>
+                    {editingItem?.file_url && (
+                      <Button 
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={handleTogglePreview}
+                        className="ml-2 flex-shrink-0"
+                        title={isPlayingPreview ? 'Stop Preview' : 'Play Preview'}
+                      >
+                        {isPlayingPreview ? <Square className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}
+                      </Button>
+                    )}
+                  </div>
+                </DialogTitle>
+              </div>
+              
+              {/* Mobile-optimized controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                 <div className="flex items-center gap-2">
-                  <span className="hidden sm:inline">Edit Audio File:</span>
-                  <span className="sm:hidden">File:</span>
-                  {editingItem?.name ? highlightMusicInfoInFileName(editingItem.name, handleBpmFromNameClick, handleKeyFromNameClick) : ''}
-                  {editingItem?.file_url && (
-                    <Button 
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      onClick={handleTogglePreview}
-                      className="ml-2"
-                      title={isPlayingPreview ? 'Stop Preview' : 'Play Preview'}
-                    >
-                      {isPlayingPreview ? <Square className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" />}
-                    </Button>
-                  )}
-                </div>
-              </DialogTitle>
-              <div className="flex items-center gap-2">
-                <Select value={editMode} onValueChange={(value: 'sequential' | 'shuffle') => setEditMode(value)}>
-                  <SelectTrigger className="w-28 sm:w-32 text-xs sm:text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sequential">Sequential</SelectItem>
-                    <SelectItem value="shuffle">Shuffle</SelectItem>
-                  </SelectContent>
-                </Select>
-                {editMode === 'shuffle' && (
-                  <Select value={shuffleFilter} onValueChange={(value: 'all' | 'missing_bpm' | 'missing_key' | 'missing_both' | 'missing_genre' | 'missing_subgenre' | 'missing_audio_type' | 'missing_instrument_type' | 'missing_mood' | 'missing_energy' | 'missing_complexity' | 'missing_description' | 'missing_tags' | 'missing_multiple') => {
-                    setShuffleFilter(value)
-                    
-                    // Set appropriate default tab based on filter selection
-                    if (value === 'missing_audio_type') {
-                      setDefaultTab('metadata')
-                    } else if (value === 'missing_bpm' || value === 'missing_key' || value === 'missing_both') {
-                      setDefaultTab('musical')
-                    } else {
-                      setDefaultTab('basic')
-                    }
-                  }}>
-                    <SelectTrigger className="w-40 sm:w-48 text-xs sm:text-sm">
+                  <Select value={editMode} onValueChange={(value: 'sequential' | 'shuffle') => setEditMode(value)}>
+                    <SelectTrigger className="w-24 sm:w-32 text-xs sm:text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Items</SelectItem>
-                      <SelectItem value="missing_both">Missing BPM/Key</SelectItem>
-                      <SelectItem value="missing_audio_type">Missing Audio Type</SelectItem>
-                      <SelectItem value="missing_bpm">Missing BPM</SelectItem>
-                      <SelectItem value="missing_key">Missing Key</SelectItem>
-                      <SelectItem value="missing_genre">Missing Genre</SelectItem>
-                      <SelectItem value="missing_subgenre">Missing Subgenre</SelectItem>
-                      <SelectItem value="missing_instrument_type">Missing Instrument Type</SelectItem>
-                      <SelectItem value="missing_mood">Missing Mood</SelectItem>
-                      <SelectItem value="missing_energy">Missing Energy Level</SelectItem>
-                      <SelectItem value="missing_complexity">Missing Complexity</SelectItem>
-                      <SelectItem value="missing_description">Missing Description</SelectItem>
-                      <SelectItem value="missing_tags">Missing Tags</SelectItem>
-                      <SelectItem value="missing_multiple">Missing Multiple (3+)</SelectItem>
+                      <SelectItem value="sequential">Sequential</SelectItem>
+                      <SelectItem value="shuffle">Shuffle</SelectItem>
                     </SelectContent>
                   </Select>
-                )}
+                  {editMode === 'shuffle' && (
+                    <Select value={shuffleFilter} onValueChange={(value: 'all' | 'missing_bpm' | 'missing_key' | 'missing_both' | 'missing_genre' | 'missing_subgenre' | 'missing_audio_type' | 'missing_instrument_type' | 'missing_mood' | 'missing_energy' | 'missing_complexity' | 'missing_description' | 'missing_tags' | 'missing_multiple') => {
+                      setShuffleFilter(value)
+                      
+                      // Set appropriate default tab based on filter selection
+                      if (value === 'missing_audio_type') {
+                        setDefaultTab('metadata')
+                      } else if (value === 'missing_bpm' || value === 'missing_key' || value === 'missing_both') {
+                        setDefaultTab('musical')
+                      } else {
+                        setDefaultTab('basic')
+                      }
+                    }}>
+                      <SelectTrigger className="w-32 sm:w-48 text-xs sm:text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Items</SelectItem>
+                        <SelectItem value="missing_both">Missing BPM/Key</SelectItem>
+                        <SelectItem value="missing_audio_type">Missing Audio Type</SelectItem>
+                        <SelectItem value="missing_bpm">Missing BPM</SelectItem>
+                        <SelectItem value="missing_key">Missing Key</SelectItem>
+                        <SelectItem value="missing_genre">Missing Genre</SelectItem>
+                        <SelectItem value="missing_subgenre">Missing Subgenre</SelectItem>
+                        <SelectItem value="missing_instrument_type">Missing Instrument Type</SelectItem>
+                        <SelectItem value="missing_mood">Missing Mood</SelectItem>
+                        <SelectItem value="missing_energy">Missing Energy Level</SelectItem>
+                        <SelectItem value="missing_complexity">Missing Complexity</SelectItem>
+                        <SelectItem value="missing_description">Missing Description</SelectItem>
+                        <SelectItem value="missing_tags">Missing Tags</SelectItem>
+                        <SelectItem value="missing_multiple">Missing Multiple (3+)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               </div>
             </div>
           </DialogHeader>
           {editingItem && (
             <div className="space-y-6">
               <Tabs defaultValue={defaultTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1">
-                  <TabsTrigger value="basic" className="text-xs sm:text-sm px-2 sm:px-3">Basic</TabsTrigger>
-                  <TabsTrigger value="musical" className="text-xs sm:text-sm px-2 sm:px-3">Musical</TabsTrigger>
-                  <TabsTrigger value="metadata" className="text-xs sm:text-sm px-2 sm:px-3">Metadata</TabsTrigger>
-                  <TabsTrigger value="advanced" className="text-xs sm:text-sm px-2 sm:px-3">Advanced</TabsTrigger>
-                  <TabsTrigger value="waveform" className="text-xs sm:text-sm px-2 sm:px-3">Waveform</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 gap-1">
+                  <TabsTrigger value="basic" className="text-xs px-1 sm:px-3">Basic</TabsTrigger>
+                  <TabsTrigger value="musical" className="text-xs px-1 sm:px-3">Musical</TabsTrigger>
+                  <TabsTrigger value="metadata" className="text-xs px-1 sm:px-3">Metadata</TabsTrigger>
+                  <TabsTrigger value="advanced" className="text-xs px-1 sm:px-3 hidden sm:block">Advanced</TabsTrigger>
+                  <TabsTrigger value="loop-editor" className="text-xs px-1 sm:px-3 hidden sm:block">Loop Editor</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="basic" className="space-y-4">
@@ -1616,29 +1641,47 @@ export default function EditData() {
               </div>
             </TabsContent>
 
-            <TabsContent value="waveform" className="space-y-4">
+            <TabsContent value="loop-editor" className="space-y-4">
               {editingItem?.file_url ? (
-                <div onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}>
-                  <AudioWaveformEditor
-                    audioUrl={editingItem.file_url}
-                    bpm={editingItem.bpm || 120}
-                    musicalKey={editingItem.key || 'C'}
-                    timeSignature={editingItem.time_signature || '4/4'}
-                    onBpmChange={(bpm) => setEditingItem({...editingItem, bpm})}
-                    onKeyChange={(key) => setEditingItem({...editingItem, key})}
-                    onTimeSignatureChange={(timeSignature) => setEditingItem({...editingItem, time_signature: timeSignature})}
-                    onMarkerAdd={(position, label) => {
-                      console.log(`Marker added at ${position}s: ${label}`)
-                    }}
-                    onPatternAdd={(startBar, endBar, label) => {
-                      console.log(`Pattern added from bar ${startBar} to ${endBar}: ${label}`)
-                    }}
-                  />
+                <div className="text-center py-8">
+                  <div className="mb-6">
+                    <FileAudio className="w-16 h-16 mx-auto mb-4 text-blue-400" />
+                    <h3 className="text-lg font-semibold text-white mb-2">Audio Waveform Editor</h3>
+                    <p className="text-gray-400 mb-6">
+                      Open this audio file in the advanced loop editor for waveform analysis, 
+                      editing, and pattern creation.
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-300 mb-2">File Details</h4>
+                      <div className="text-sm text-gray-400 space-y-1">
+                        <p><span className="text-gray-300">Name:</span> {editingItem.name}</p>
+                        <p><span className="text-gray-300">BPM:</span> {editingItem.bpm || 'Not set'}</p>
+                        <p><span className="text-gray-300">Key:</span> {editingItem.key || 'Not set'}</p>
+                        <p><span className="text-gray-300">Time Signature:</span> {editingItem.time_signature || 'Not set'}</p>
+                      </div>
+                    </div>
+                    
+                    <Button
+                      onClick={() => {
+                        // Close the edit modal first
+                        setShowEditModal(false)
+                        // Navigate to loop editor with the audio file URL as a parameter
+                        router.push(`/loop-editor?audio=${encodeURIComponent(editingItem.file_url)}&name=${encodeURIComponent(editingItem.name)}&bpm=${editingItem.bpm || 120}&key=${editingItem.key || 'C'}&timeSignature=${editingItem.time_signature || '4/4'}`)
+                      }}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors"
+                    >
+                      <Play className="w-4 h-4 mr-2" />
+                      Open in Loop Editor
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   <FileAudio className="w-12 h-12 mx-auto mb-4" />
-                  <p>No audio file available for waveform editing</p>
+                  <p>No audio file available for loop editing</p>
                 </div>
               )}
             </TabsContent>
@@ -1648,14 +1691,14 @@ export default function EditData() {
                 <div className="text-red-500 text-sm">{editError}</div>
               )}
 
-              <DialogFooter className="flex flex-col gap-6 mt-4">
-                {/* Navigation controls */}
+              <DialogFooter className="flex flex-col gap-4 sm:gap-6 mt-4">
+                {/* Mobile-optimized navigation controls */}
                 <div className="flex justify-center gap-2 sm:gap-4">
                   <Button
                     variant="outline"
                     onClick={navigateToPreviousItem}
                     disabled={currentEditIndex === 0}
-                    className="min-w-[100px] sm:min-w-[120px] text-sm"
+                    className="min-w-[80px] sm:min-w-[120px] text-xs sm:text-sm"
                   >
                     ← Previous
                   </Button>
@@ -1663,15 +1706,15 @@ export default function EditData() {
                     variant="outline"
                     onClick={navigateToNextItem}
                     disabled={currentEditIndex >= filteredItems.length - 1}
-                    className="min-w-[100px] sm:min-w-[120px] text-sm"
+                    className="min-w-[80px] sm:min-w-[120px] text-xs sm:text-sm"
                   >
                     Next →
                   </Button>
                 </div>
                 
-                {/* Ready status and action controls */}
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                  <div className="flex items-center gap-2">
+                {/* Mobile-optimized ready status and action controls */}
+                <div className="flex flex-col gap-3 sm:gap-4">
+                  <div className="flex items-center justify-center sm:justify-start gap-2">
                     <input
                       type="checkbox"
                       id="mark-as-ready"
@@ -1684,15 +1727,15 @@ export default function EditData() {
                     </label>
                   </div>
                   
-                  <div className="flex flex-col sm:flex-row justify-end gap-2">
-                    <Button variant="outline" onClick={() => setShowEditModal(false)} className="text-sm">
+                  <div className="flex flex-col sm:flex-row justify-center sm:justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowEditModal(false)} className="text-xs sm:text-sm">
                       Close
                     </Button>
                     <Button 
                       type="button" 
                       onClick={(e) => handleEditItem(e as any, false)}
                       disabled={saving}
-                      className="text-sm"
+                      className="text-xs sm:text-sm"
                     >
                       {saving ? 'Saving...' : 'Save'}
                     </Button>
@@ -1700,7 +1743,7 @@ export default function EditData() {
                       type="button" 
                       onClick={(e) => handleEditItem(e as any, true)}
                       disabled={saving}
-                      className="text-sm"
+                      className="text-xs sm:text-sm"
                     >
                       {saving ? 'Saving...' : 'Save & Continue'}
                     </Button>

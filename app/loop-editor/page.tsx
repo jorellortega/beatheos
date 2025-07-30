@@ -2997,17 +2997,17 @@ export default function LoopEditorPage() {
   
   return (
     <div className="min-h-screen bg-[#141414] text-white">
-      {/* Header */}
-      <div className="bg-[#141414] border-b border-gray-700 p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-white">Audio Science Lab</h1>
-              <p className="text-sm text-gray-400">Professional Waveform Analysis & Editing Suite</p>
+      {/* Mobile-optimized Header */}
+      <div className="bg-[#141414] border-b border-gray-700 p-3 sm:p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-white truncate">Audio Science Lab</h1>
+              <p className="text-xs sm:text-sm text-gray-400">Professional Waveform Analysis & Editing Suite</p>
               {audioFile && (
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                   <span className="text-xs text-gray-500">Current File:</span>
-                  <span className="text-sm text-blue-400 font-mono bg-blue-900/20 px-2 py-1 rounded border border-blue-800">
+                  <span className="text-xs sm:text-sm text-blue-400 font-mono bg-blue-900/20 px-2 py-1 rounded border border-blue-800 truncate">
                     {audioFile.name}
                   </span>
                   <span className="text-xs text-gray-500">
@@ -3015,8 +3015,8 @@ export default function LoopEditorPage() {
                   </span>
                 </div>
               )}
-              {/* Debug Info */}
-              <div className="mt-1 flex items-center gap-2 text-xs text-gray-400">
+              {/* Mobile-optimized Debug Info */}
+              <div className="mt-1 grid grid-cols-2 sm:flex sm:items-center sm:gap-2 text-xs text-gray-400">
                 <span>Audio: {audioRef.current ? '✓' : '✗'}</span>
                 <span>Playing: {isPlaying ? '✓' : '✗'}</span>
                 <span>Time: {currentTime.toFixed(2)}s</span>
@@ -3027,13 +3027,13 @@ export default function LoopEditorPage() {
                 <span>Offset: {waveformOffset.toFixed(0)}px</span>
                 <span>Saved: {projectData ? '✓' : '✗'}</span>
                 {duplicateWave && (
-                  <span className="text-blue-400">
-                    Duplicate: {duplicateWave.isReversed ? 'Reversed' : 'Normal'} | Main: {isDuplicateMain ? 'Duplicate' : 'Original'} | Mode: {playBothMode ? 'Both' : 'Single'}
+                  <span className="text-blue-400 col-span-2 sm:col-span-1">
+                    Dup: {duplicateWave.isReversed ? 'Rev' : 'Norm'} | Main: {isDuplicateMain ? 'Dup' : 'Orig'} | Mode: {playBothMode ? 'Both' : 'Single'}
                   </span>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="file"
                 accept="audio/*"
@@ -3042,13 +3042,14 @@ export default function LoopEditorPage() {
                 id="audio-file-input"
               />
               <label htmlFor="audio-file-input">
-                <Button variant="outline" className="cursor-pointer border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
-                  Load Audio
+                <Button variant="outline" className="cursor-pointer border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Load Audio</span>
+                  <span className="sm:hidden">Load</span>
                 </Button>
               </label>
               <Button 
                 variant="outline" 
-                className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+                className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white text-xs sm:text-sm"
                 onClick={() => {
                   setShowLibrary(true)
                   fetchAudioLibrary()
@@ -3089,16 +3090,16 @@ export default function LoopEditorPage() {
         </div>
       </div>
       
-      {/* Toolbar */}
+      {/* Mobile-optimized Toolbar */}
       <div className="bg-[#141414] border-b border-gray-700 p-2">
-        <div className="flex items-center gap-4">
-          {/* Playback Controls */}
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          {/* Mobile-optimized Playback Controls */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
             <Button
               size="sm"
               onClick={togglePlayback}
               disabled={!audioFile}
-              className="bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none"
+              className="bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none flex-shrink-0"
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </Button>
@@ -3107,7 +3108,7 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={() => setPlayheadPosition(0)}
               disabled={!audioFile}
-              className="bg-gray-800 text-white font-bold hover:bg-gray-700 transition-colors border-gray-600"
+              className="bg-gray-800 text-white font-bold hover:bg-gray-700 transition-colors border-gray-600 flex-shrink-0"
             >
               <RotateCcw className="w-4 h-4" />
             </Button>
@@ -3116,7 +3117,7 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={togglePlayBothMode}
               disabled={!duplicateWave}
-              className={`font-bold transition-colors border-gray-600 ${
+              className={`font-bold transition-colors border-gray-600 flex-shrink-0 ${
                 playBothMode 
                   ? 'bg-green-800 text-white hover:bg-green-700' 
                   : 'bg-gray-800 text-white hover:bg-gray-700'
@@ -3131,7 +3132,7 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={swapMainWave}
               disabled={!duplicateWave}
-              className={`font-bold transition-colors border-gray-600 ${
+              className={`font-bold transition-colors border-gray-600 flex-shrink-0 ${
                 isDuplicateMain 
                   ? 'bg-blue-800 text-white hover:bg-blue-700' 
                   : 'bg-gray-800 text-white hover:bg-gray-700'
@@ -3143,16 +3144,16 @@ export default function LoopEditorPage() {
             </Button>
           </div>
           
-          {/* Tools */}
-          <div className="flex items-center gap-1">
+          {/* Mobile-optimized Tools */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-2 sm:pb-0">
             <Button
               size="sm"
               variant={activeTool === 'select' ? 'default' : 'outline'}
               onClick={() => setActiveTool(activeTool === 'select' ? 'select' : 'select')}
-              className={activeTool === 'select' 
+              className={`flex-shrink-0 ${activeTool === 'select' 
                 ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title="Select tool (default)"
             >
               <Target className="w-4 h-4" />
@@ -3161,10 +3162,10 @@ export default function LoopEditorPage() {
               size="sm"
               variant={activeTool === 'cut' ? 'default' : 'outline'}
               onClick={() => setActiveTool(activeTool === 'cut' ? 'select' : 'cut')}
-              className={activeTool === 'cut' 
+              className={`flex-shrink-0 ${activeTool === 'cut' 
                 ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title={activeTool === 'cut' ? 'Click to turn off cut mode' : 'Click to enable cut mode'}
             >
               <Scissors className="w-4 h-4" />
@@ -3173,10 +3174,10 @@ export default function LoopEditorPage() {
               size="sm"
               variant={activeTool === 'fade' ? 'default' : 'outline'}
               onClick={() => setActiveTool(activeTool === 'fade' ? 'select' : 'fade')}
-              className={activeTool === 'fade' 
+              className={`flex-shrink-0 ${activeTool === 'fade' 
                 ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title={activeTool === 'fade' ? 'Click to turn off fade mode' : 'Click to enable fade mode'}
             >
               <BarChart3 className="w-4 h-4" />
@@ -3185,10 +3186,10 @@ export default function LoopEditorPage() {
               size="sm"
               variant={activeTool === 'marker' ? 'default' : 'outline'}
               onClick={() => setActiveTool(activeTool === 'marker' ? 'select' : 'marker')}
-              className={activeTool === 'marker' 
+              className={`flex-shrink-0 ${activeTool === 'marker' 
                 ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title={activeTool === 'marker' ? 'Click to turn off marker mode' : 'Click to enable marker mode'}
             >
               <MapPin className="w-4 h-4" />
@@ -3197,10 +3198,10 @@ export default function LoopEditorPage() {
               size="sm"
               variant={activeTool === 'region' ? 'default' : 'outline'}
               onClick={() => setActiveTool(activeTool === 'region' ? 'select' : 'region')}
-              className={activeTool === 'region' 
+              className={`flex-shrink-0 ${activeTool === 'region' 
                 ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title={activeTool === 'region' ? 'Click to turn off region mode' : 'Click to enable region mode'}
             >
               <Type className="w-4 h-4" />
@@ -3209,24 +3210,24 @@ export default function LoopEditorPage() {
               size="sm"
               variant={activeTool === 'drag' ? 'default' : 'outline'}
               onClick={() => setActiveTool(activeTool === 'drag' ? 'select' : 'drag')}
-              className={activeTool === 'drag' 
+              className={`flex-shrink-0 ${activeTool === 'drag' 
                 ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title={activeTool === 'drag' ? 'Click to turn off drag mode' : 'Click to enable drag mode'}
             >
               <Move className="w-4 h-4" />
             </Button>
           </div>
           
-          {/* Edit Operations */}
-          <div className="flex items-center gap-1">
+          {/* Mobile-optimized Edit Operations */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-2 sm:pb-0">
             <Button
               size="sm"
               variant="outline"
               onClick={cutSelection}
               disabled={selectionStart === null || selectionEnd === null}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
               <Scissors className="w-4 h-4" />
             </Button>
@@ -3235,7 +3236,7 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={copySelection}
               disabled={selectionStart === null || selectionEnd === null}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
               <Copy className="w-4 h-4" />
             </Button>
@@ -3244,7 +3245,7 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={pasteAtPlayhead}
               disabled={!clipboard}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
               <Clipboard className="w-4 h-4" />
             </Button>
@@ -3253,7 +3254,7 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={undo}
               disabled={historyIndex < 0}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
               <Undo className="w-4 h-4" />
             </Button>
@@ -3262,31 +3263,31 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={redo}
               disabled={historyIndex >= editHistory.length - 1}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
               <Redo className="w-4 h-4" />
             </Button>
           </div>
           
-          {/* Grid Controls */}
+          {/* Mobile-optimized Grid Controls */}
           <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant={snapToGrid ? "default" : "outline"}
               onClick={() => setSnapToGrid(!snapToGrid)}
-              className={snapToGrid 
+              className={`flex-shrink-0 ${snapToGrid 
                 ? 'bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors border-none' 
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
+              }`}
               title={`Snap to Grid: ${snapToGrid ? 'ON' : 'OFF'}`}
             >
               <Grid3X3 className="w-4 h-4" />
             </Button>
           </div>
           
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
+          {/* Mobile-optimized Zoom Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 overflow-x-auto pb-2 sm:pb-0">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <Label className="text-xs text-gray-300 min-w-[1rem]">H:</Label>
               <div className="flex items-center gap-1">
                 <Button
@@ -3319,7 +3320,7 @@ export default function LoopEditorPage() {
                   min={0.1}
                   max={5}
                   step={0.1}
-                  className="w-20"
+                  className="w-16 sm:w-20"
                 />
                 <Button
                   size="sm"
@@ -3338,11 +3339,11 @@ export default function LoopEditorPage() {
                 >
                   <ZoomIn className="w-4 h-4" />
                 </Button>
-                <span className="text-xs min-w-[3rem] text-gray-300">{Math.round(zoom * 100)}%</span>
+                <span className="text-xs min-w-[2rem] sm:min-w-[3rem] text-gray-300">{Math.round(zoom * 100)}%</span>
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <Label className="text-xs text-gray-300 min-w-[1rem]">V:</Label>
               <div className="flex items-center gap-1">
                 <Button
@@ -3365,7 +3366,7 @@ export default function LoopEditorPage() {
                   min={0.1}
                   max={5}
                   step={0.1}
-                  className="w-20"
+                  className="w-16 sm:w-20"
                 />
                 <Button
                   size="sm"
@@ -3378,7 +3379,7 @@ export default function LoopEditorPage() {
                 >
                   <ZoomIn className="w-4 h-4" />
                 </Button>
-                <span className="text-xs min-w-[3rem] text-gray-300">{Math.round(verticalZoom * 100)}%</span>
+                <span className="text-xs min-w-[2rem] sm:min-w-[3rem] text-gray-300">{Math.round(verticalZoom * 100)}%</span>
               </div>
             </div>
             
@@ -3389,9 +3390,10 @@ export default function LoopEditorPage() {
                 setWaveformOffset(0)
                 console.log('🔍 WAVEFORM OFFSET RESET')
               }}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
-              Reset Wave
+              <span className="hidden sm:inline">Reset Wave</span>
+              <span className="sm:hidden">Reset</span>
             </Button>
             
             <Button
@@ -3418,9 +3420,10 @@ export default function LoopEditorPage() {
                   loadAudioFile(audioFile)
                 }
               }}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
-              Reset All
+              <span className="hidden sm:inline">Reset All</span>
+              <span className="sm:hidden">Reset</span>
             </Button>
           </div>
         </div>
@@ -3430,19 +3433,19 @@ export default function LoopEditorPage() {
       <div className="flex h-[calc(100vh-120px)]">
         {/* Left Side - Transport, Waveform, and Toolbar */}
         <div className="flex-1 flex flex-col">
-          {/* Transport Controls - Above Waveform */}
-          <div className="bg-[#0f0f0f] border-b border-gray-600 p-4">
-          <div className="flex items-center justify-between max-w-none">
-            {/* Left Section - Transport Info */}
-              <div className="flex items-center gap-8">
-                <div className="flex items-center gap-4">
-                  <span className="text-gray-400 text-sm font-medium min-w-[3rem]">Time:</span>
-                  <span className="text-white text-sm font-mono bg-[#1a1a1a] px-3 py-1 rounded border border-gray-600 min-w-[7rem] text-center">
+          {/* Mobile-optimized Transport Controls - Above Waveform */}
+          <div className="bg-[#0f0f0f] border-b border-gray-600 p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8">
+            {/* Mobile-optimized Left Section - Transport Info */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+                <div className="flex items-center gap-2 sm:gap-4">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Time:</span>
+                  <span className="text-white text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-gray-600 min-w-[5rem] sm:min-w-[7rem] text-center">
                     {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
                   </span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-gray-400 text-sm font-medium min-w-[3rem]">BPM:</span>
+                <div className="flex items-center gap-2 sm:gap-4">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">BPM:</span>
                   <Input
                     type="number"
                     value={bpm}
@@ -3456,15 +3459,15 @@ export default function LoopEditorPage() {
                         updateBPMInLibrary(newBpm)
                       }
                     }}
-                    className="w-20 h-8 text-sm bg-[#1a1a1a] border-gray-600 text-white font-mono text-center"
+                    className="w-16 sm:w-20 h-8 text-xs sm:text-sm bg-[#1a1a1a] border-gray-600 text-white font-mono text-center"
                   />
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-gray-400 text-sm font-medium min-w-[3rem]">Grid:</span>
+                <div className="flex items-center gap-2 sm:gap-4">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Grid:</span>
                   <select
                     value={gridDivision}
                     onChange={(e) => setGridDivision(parseInt(e.target.value))}
-                    className="w-20 h-8 text-sm bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
+                    className="w-16 sm:w-20 h-8 text-xs sm:text-sm bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
                   >
                     <option value={4}>1/4</option>
                     <option value={8}>1/8</option>
@@ -3511,9 +3514,9 @@ export default function LoopEditorPage() {
                   </div>
                 </div>
                 
-                {/* Half Time Button - Like Fruity Loops Half Time Plugin */}
+                {/* Mobile-optimized Half Time Button - Like Fruity Loops Half Time Plugin */}
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-sm font-medium min-w-[3rem]">Speed:</span>
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Speed:</span>
                   <Button
                     variant={isHalfTime ? "default" : "outline"}
                     size="sm"
@@ -3529,7 +3532,7 @@ export default function LoopEditorPage() {
                         console.log('🔍 HALFTIME DISABLED - playback rate restored to 1.0x');
                       }
                     }}
-                    className="px-3 py-1 text-xs font-mono"
+                    className="px-2 sm:px-3 py-1 text-xs font-mono"
                     title={isHalfTime ? `Disable Half Time (restore normal speed)` : `Enable Half Time (slow down to ${halfTimeRatio}x speed)`}
                   >
                     {isHalfTime ? `${halfTimeRatio}x ✓` : `${halfTimeRatio}x`}
@@ -3545,7 +3548,7 @@ export default function LoopEditorPage() {
                         console.log(`🔍 HALFTIME RATIO CHANGED - playback rate updated to ${newRatio}x`);
                       }
                     }}
-                    className="w-16 h-8 text-xs bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
+                    className="w-12 sm:w-16 h-8 text-xs bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
                     title="Select halftime ratio"
                   >
                     <option value={0.25}>1/4</option>
@@ -3557,43 +3560,43 @@ export default function LoopEditorPage() {
                 </div>
             </div>
             
-            {/* Center Section - Playback Controls */}
-              <div className="flex items-center gap-8">
-                <div className="flex items-center gap-4">
-                <Label className="text-gray-400 text-sm font-medium min-w-[3rem]">Rate:</Label>
+            {/* Mobile-optimized Center Section - Playback Controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+                <div className="flex items-center gap-2 sm:gap-4">
+                <Label className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Rate:</Label>
                 <Slider
                   value={[playbackRate]}
                   onValueChange={(value) => setPlaybackRate(value[0])}
                   min={0.1}
                   max={4}
                   step={0.1}
-                    className="w-32"
+                    className="w-24 sm:w-32"
                 />
-                  <span className="text-white text-sm font-mono min-w-[3rem] bg-[#1a1a1a] px-2 py-1 rounded border border-gray-600 text-center">
+                  <span className="text-white text-xs sm:text-sm font-mono min-w-[2rem] sm:min-w-[3rem] bg-[#1a1a1a] px-2 py-1 rounded border border-gray-600 text-center">
                   {playbackRate}x
                 </span>
               </div>
-                <div className="flex items-center gap-4">
-                <Label className="text-gray-400 text-sm font-medium min-w-[4rem]">Volume:</Label>
+                <div className="flex items-center gap-2 sm:gap-4">
+                <Label className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Volume:</Label>
                 <Slider
                   value={[volume]}
                   onValueChange={(value) => setVolume(value[0])}
                   min={0}
                   max={1}
                   step={0.01}
-                    className="w-32"
+                    className="w-24 sm:w-32"
                 />
-                  <span className="text-white text-sm font-mono min-w-[3rem] bg-[#1a1a1a] px-2 py-1 rounded border border-gray-600 text-center">
+                  <span className="text-white text-xs sm:text-sm font-mono min-w-[2rem] sm:min-w-[3rem] bg-[#1a1a1a] px-2 py-1 rounded border border-gray-600 text-center">
                   {Math.round(volume * 100)}%
                 </span>
               </div>
             </div>
             
-            {/* Right Section - Status Information */}
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-3">
-                <span className="text-gray-400 text-sm font-medium min-w-[3rem]">Status:</span>
-                  <span className={`text-sm font-mono px-3 py-1 rounded border min-w-[4rem] text-center ${
+            {/* Mobile-optimized Right Section - Status Information */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Status:</span>
+                  <span className={`text-xs sm:text-sm font-mono px-2 sm:px-3 py-1 rounded border min-w-[3rem] sm:min-w-[4rem] text-center ${
                   isPlaying 
                     ? 'text-green-400 border-green-400 bg-green-900/20' 
                     : 'text-gray-400 border-gray-600 bg-[#1a1a1a]'
@@ -3601,15 +3604,15 @@ export default function LoopEditorPage() {
                   {isPlaying ? 'LIVE' : 'STOPPED'}
                 </span>
               </div>
-                <div className="flex items-center gap-3">
-                <span className="text-gray-400 text-sm font-medium min-w-[4rem]">Markers:</span>
-                  <span className="text-blue-400 text-sm font-mono bg-[#1a1a1a] px-3 py-1 rounded border border-blue-600 min-w-[2rem] text-center">
+                <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Markers:</span>
+                  <span className="text-blue-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-blue-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
                   {markers.length}
                 </span>
               </div>
-                <div className="flex items-center gap-3">
-                <span className="text-gray-400 text-sm font-medium min-w-[4rem]">Regions:</span>
-                  <span className="text-purple-400 text-sm font-mono bg-[#1a1a1a] px-3 py-1 rounded border border-purple-600 min-w-[2rem] text-center">
+                <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Regions:</span>
+                  <span className="text-purple-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-purple-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
                   {regions.length}
                 </span>
               </div>
@@ -3648,20 +3651,56 @@ export default function LoopEditorPage() {
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (rect) {
+                  const x = touch.clientX - rect.left;
+                  const y = touch.clientY - rect.top;
+                  const syntheticEvent = {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY,
+                    preventDefault: () => e.preventDefault(),
+                    target: e.target
+                  } as React.MouseEvent;
+                  handleMouseDown(syntheticEvent);
+                }
+              }}
+              onTouchMove={(e) => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (rect) {
+                  const x = touch.clientX - rect.left;
+                  const y = touch.clientY - rect.top;
+                  const syntheticEvent = {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY,
+                    preventDefault: () => e.preventDefault(),
+                    target: e.target
+                  } as React.MouseEvent;
+                  handleMouseMove(syntheticEvent);
+                }
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleMouseUp();
+              }}
             />
           )}
         </div>
         
-        {/* Toolbar - Below Waveform */}
+        {/* Mobile-optimized Toolbar - Below Waveform */}
         <div className="bg-[#141414] border-t border-gray-700 p-2">
-          <div className="flex items-center gap-4">
-            {/* Playback Controls */}
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            {/* Mobile-optimized Playback Controls */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
               <Button
                 size="sm"
                 onClick={togglePlayback}
                 disabled={!audioFile}
-                className="bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none"
+                className="bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none flex-shrink-0"
               >
                 {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
               </Button>
@@ -3670,7 +3709,7 @@ export default function LoopEditorPage() {
                 variant="outline"
                 onClick={() => setPlayheadPosition(0)}
                 disabled={!audioFile}
-                className="bg-gray-800 text-white font-bold hover:bg-gray-700 transition-colors border-gray-600"
+                className="bg-gray-800 text-white font-bold hover:bg-gray-700 transition-colors border-gray-600 flex-shrink-0"
               >
                 <RotateCcw className="w-4 h-4" />
               </Button>

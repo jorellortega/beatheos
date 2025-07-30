@@ -63,10 +63,10 @@ export function NotificationModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md bg-[#141414] border-gray-700 text-white">
         <DialogHeader className="flex flex-row items-center gap-3">
           {getIcon()}
-          <DialogTitle className="text-lg font-semibold">
+          <DialogTitle className="text-lg font-semibold text-white">
             {getTitle()}
           </DialogTitle>
         </DialogHeader>
@@ -82,7 +82,7 @@ export function NotificationModal({
             <Button
               variant={getButtonVariant()}
               onClick={onClose}
-              className="min-w-[80px]"
+              className="min-w-[80px] bg-yellow-500 hover:bg-yellow-600 text-black border-none font-bold"
             >
               Close
             </Button>

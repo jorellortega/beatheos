@@ -7137,14 +7137,14 @@ export default function BeatMakerPage() {
 
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white">Ortega AI Beat Maker</h1>
-          <p className="text-gray-400">Create beats with our professional tools</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">Ortega AI Beat Maker</h1>
+          <p className="text-gray-400 text-sm sm:text-base">Create beats with our professional tools</p>
           {currentSessionId && (
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
               <Badge variant="outline" className="text-green-500 border-green-500 text-xs">
                 Session: {currentSessionName}
               </Badge>
@@ -7156,7 +7156,7 @@ export default function BeatMakerPage() {
             </div>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           
           {/* AI Prompt Window */}
           <div className="relative">
@@ -7324,28 +7324,35 @@ export default function BeatMakerPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-5 bg-[#141414] border-gray-700">
-          <TabsTrigger value="sequencer" className="data-[state=active]:bg-[#2a2a2a] text-white">
-            <Disc className="w-4 h-4 mr-2" />
-            Sequencer
-          </TabsTrigger>
-          <TabsTrigger value="song-arrangement" className="data-[state=active]:bg-[#2a2a2a] text-white">
-            <Music className="w-4 h-4 mr-2" />
-            Song Arrangement
-          </TabsTrigger>
-          <TabsTrigger value="mixer" className="data-[state=active]:bg-[#2a2a2a] text-white">
-            <Settings className="w-4 h-4 mr-2" />
-            Mixer
-          </TabsTrigger>
-          <TabsTrigger value="record" className="data-[state=active]:bg-[#2a2a2a] text-white">
-            <Mic className="w-4 h-4 mr-2" />
-            Record
-          </TabsTrigger>
-          <TabsTrigger value="sessions" className="data-[state=active]:bg-[#2a2a2a] text-white">
-            <List className="w-4 h-4 mr-2" />
-            Sessions
-          </TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto">
+          <TabsList className="grid w-full grid-cols-5 bg-[#141414] border-gray-700 min-w-[600px] sm:min-w-0">
+            <TabsTrigger value="sequencer" className="data-[state=active]:bg-[#2a2a2a] text-white text-xs sm:text-sm">
+              <Disc className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Sequencer</span>
+              <span className="sm:hidden">Seq</span>
+            </TabsTrigger>
+            <TabsTrigger value="song-arrangement" className="data-[state=active]:bg-[#2a2a2a] text-white text-xs sm:text-sm">
+              <Music className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Song Arrangement</span>
+              <span className="sm:hidden">Song</span>
+            </TabsTrigger>
+            <TabsTrigger value="mixer" className="data-[state=active]:bg-[#2a2a2a] text-white text-xs sm:text-sm">
+              <Settings className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Mixer</span>
+              <span className="sm:hidden">Mix</span>
+            </TabsTrigger>
+            <TabsTrigger value="record" className="data-[state=active]:bg-[#2a2a2a] text-white text-xs sm:text-sm">
+              <Mic className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Record</span>
+              <span className="sm:hidden">Rec</span>
+            </TabsTrigger>
+            <TabsTrigger value="sessions" className="data-[state=active]:bg-[#2a2a2a] text-white text-xs sm:text-sm">
+              <List className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Sessions</span>
+              <span className="sm:hidden">Sess</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Sequencer Tab */}
         <TabsContent value="sequencer" className="space-y-6 mt-6">
@@ -7367,9 +7374,9 @@ export default function BeatMakerPage() {
         <CardContent>
           <div className="flex flex-col gap-4">
             {/* Main Transport Controls Row */}
-            <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 overflow-x-auto">
               {/* Playback Controls */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -7378,10 +7385,10 @@ export default function BeatMakerPage() {
                           onClick={handlePlayPause}
                           variant={isPlaying ? "destructive" : "default"}
                           size="lg"
-                          className="w-16 h-16 rounded-full"
+                          className="w-12 h-12 sm:w-16 sm:h-16 rounded-full"
                           disabled={!hasLoadedAudio}
                         >
-                          {isPlaying ? <Square className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                          {isPlaying ? <Square className="w-4 h-4 sm:w-6 sm:h-6" /> : <Play className="w-4 h-4 sm:w-6 sm:h-6" />}
                         </Button>
                       </span>
                     </TooltipTrigger>
@@ -7396,6 +7403,7 @@ export default function BeatMakerPage() {
                   onClick={handleReset}
                   variant="outline"
                   size="sm"
+                  className="flex-shrink-0"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </Button>
@@ -7403,7 +7411,7 @@ export default function BeatMakerPage() {
                   onClick={handleShuffleAll}
                   variant="outline"
                   size="sm"
-                  className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
+                  className="bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600 flex-shrink-0"
                 >
                   <Brain className="w-4 h-4 mr-1" />
                   AI
@@ -7412,17 +7420,18 @@ export default function BeatMakerPage() {
                   onClick={handleClearAll}
                   variant="outline"
                   size="sm"
-                  className="bg-red-900 text-red-400 hover:text-red-300 hover:bg-red-800 border-red-600"
+                  className="bg-red-900 text-red-400 hover:text-red-300 hover:bg-red-800 border-red-600 flex-shrink-0"
                   title="Clear all data and reset to fresh start"
                 >
                   <RotateCcw className="w-4 h-4 mr-1" />
-                  Clear All
+                  <span className="hidden sm:inline">Clear All</span>
+                  <span className="sm:hidden">Clear</span>
                 </Button>
                 <Button
                   onClick={() => setIsAutoMode(!isAutoMode)}
                   variant="outline"
                   size="sm"
-                  className={`${
+                  className={`flex-shrink-0 ${
                     isAutoMode 
                       ? 'bg-green-600 text-white hover:bg-green-700 border-green-500 shadow-lg shadow-green-500/30' 
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
@@ -7435,7 +7444,7 @@ export default function BeatMakerPage() {
                   onClick={() => setIsLatidoMode(!isLatidoMode)}
                   variant="outline"
                   size="sm"
-                  className={`${
+                  className={`flex-shrink-0 ${
                     isLatidoMode 
                       ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500 shadow-lg shadow-blue-500/30' 
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
@@ -7456,7 +7465,7 @@ export default function BeatMakerPage() {
                   onClick={() => setIsHeliosMode(!isHeliosMode)}
                   variant="outline"
                   size="sm"
-                  className={`${
+                  className={`flex-shrink-0 ${
                     isHeliosMode 
                       ? 'bg-yellow-600 text-white hover:bg-yellow-700 border-yellow-500 shadow-lg shadow-yellow-500/30' 
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
@@ -7464,7 +7473,8 @@ export default function BeatMakerPage() {
                   title={isHeliosMode ? "Helios mode is ON - Click to turn off" : "Helios mode is OFF - Click to turn on"}
                 >
                   <div className="flex items-center gap-1">
-                    <span>Helios</span>
+                    <span className="hidden sm:inline">Helios</span>
+                    <span className="sm:hidden">H</span>
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
                     </svg>
@@ -7779,7 +7789,7 @@ export default function BeatMakerPage() {
               </div>
 
               {/* BPM Controls */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <span 
                   className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
                     isBpmLocked 
@@ -7843,7 +7853,7 @@ export default function BeatMakerPage() {
               </div>
               
               {/* Key Controls */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <span 
                   className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
                     isKeyLocked 
@@ -7902,7 +7912,7 @@ export default function BeatMakerPage() {
               </div>
 
               {/* Pitch Shifter Controls */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <span className="text-sm text-white">
                   Pitch:
                 </span>
