@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download } from 'lucide-react'
+import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download, MousePointer, Save, FolderOpen, Brain } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import * as Tone from 'tone'
+import { supabase } from '@/lib/supabaseClient'
 import { TrackWaveform } from './TrackWaveform'
 import React from 'react' // Added missing import for React
 
@@ -35,6 +36,8 @@ interface SongArrangementProps {
   patterns?: PatternBlock[] // Patterns from session
   onPatternsChange?: (patterns: PatternBlock[]) => void // Callback to update patterns
   onSwitchToSequencerTab?: () => void // Callback to switch to sequencer tab
+  onArrangementPlayPause?: () => void // Callback to trigger arrangement play/pause
+  onArrangementPlayStateChange?: (isPlaying: boolean) => void // Callback when arrangement play state changes
 }
 
 export function SongArrangement({
@@ -47,7 +50,9 @@ export function SongArrangement({
   isPlaying = false,
   patterns = [],
   onPatternsChange,
-  onSwitchToSequencerTab
+  onSwitchToSequencerTab,
+  onArrangementPlayPause,
+  onArrangementPlayStateChange
 }: SongArrangementProps) {
   const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>(patterns)
   const [currentPattern, setCurrentPattern] = useState<PatternBlock | null>(null)
@@ -73,8 +78,43 @@ export function SongArrangement({
   const [isDeleteMode, setIsDeleteMode] = useState(false) // delete mode state
   const [isCutMode, setIsCutMode] = useState(false) // cut mode state for splitting patterns
   const [isResizing, setIsResizing] = useState(false) // resize mode state
+  const [isSelectorMode, setIsSelectorMode] = useState(false) // selector mode state for multi-selection
   const [resizeHandle, setResizeHandle] = useState<'left' | 'right' | null>(null) // which handle is being dragged
   const [resizeStart, setResizeStart] = useState({ x: 0, originalDuration: 0, originalStartBar: 0 })
+  
+  // Selection box state for click-and-drag selection
+  const [isSelectionBoxActive, setIsSelectionBoxActive] = useState(false)
+  const [selectionBoxStart, setSelectionBoxStart] = useState({ x: 0, y: 0 })
+  const [selectionBoxEnd, setSelectionBoxEnd] = useState({ x: 0, y: 0 })
+  
+  // Arrangement management state
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showLoadDialog, setShowLoadDialog] = useState(false)
+  const [currentTrackForArrangement, setCurrentTrackForArrangement] = useState<Track | null>(null)
+  const [arrangementName, setArrangementName] = useState('')
+  const [arrangementDescription, setArrangementDescription] = useState('')
+  const [arrangementCategory, setArrangementCategory] = useState('')
+  const [arrangementTags, setArrangementTags] = useState('')
+  const [arrangementGenre, setArrangementGenre] = useState('')
+  const [arrangementSubgenre, setArrangementSubgenre] = useState('')
+  const [arrangementBpm, setArrangementBpm] = useState('')
+  const [arrangementAudioType, setArrangementAudioType] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [availableArrangements, setAvailableArrangements] = useState<any[]>([])
+  
+  // Save Beat states
+  const [isSavingBeat, setIsSavingBeat] = useState(false)
+  const [showSaveBeatDialog, setShowSaveBeatDialog] = useState(false)
+  const [beatTitle, setBeatTitle] = useState('')
+  const [beatDescription, setBeatDescription] = useState('')
+  const [beatGenre, setBeatGenre] = useState('')
+  const [beatBpm, setBeatBpm] = useState('')
+  const [beatKey, setBeatKey] = useState('')
+  const [beatPrice, setBeatPrice] = useState('')
+  const [beatCoverImage, setBeatCoverImage] = useState<File | null>(null)
+  const [beatCoverPreview, setBeatCoverPreview] = useState('')
+  const [beatUploadError, setBeatUploadError] = useState('')
 
   // Function to get track display name with icons (same as sequencer)
   const getTrackDisplayName = (trackName: string) => {
@@ -265,9 +305,96 @@ export function SongArrangement({
     setPatternBlocks(patterns)
   }, [patterns])
 
+  // Auto-initialize patterns ONLY when component mounts and there are truly NO patterns at all
+  useEffect(() => {
+    // Only auto-initialize if we have tracks but absolutely no patterns anywhere
+    // This prevents interference with existing patterns from sessions or manual creation
+    if (tracks.length > 0 && patternBlocks.length === 0 && patterns.length === 0) {
+      console.log('[AUTO INIT] No patterns found anywhere - auto-initializing patterns for song arrangement')
+      loadElevenPatternsFromEachTrack()
+    } else if (patternBlocks.length > 0 || patterns.length > 0) {
+      console.log('[AUTO INIT] Patterns already exist - skipping auto-initialization')
+    }
+  }, [tracks, patternBlocks.length, patterns.length])
+
   // Debug: Monitor isArrangementPlaying state changes
   useEffect(() => {
     console.log('[PLAYHEAD DEBUG] isArrangementPlaying state changed to:', isArrangementPlaying)
+  }, [isArrangementPlaying])
+
+  // Monitor for unexpected audio playback
+  useEffect(() => {
+    if (!isArrangementPlaying) {
+      // Set up a monitoring interval to check if audio is playing when it shouldn't be
+      const monitorInterval = setInterval(() => {
+        const anyPlayerPlaying = Object.values(arrangementPlayersRef.current).some(player => 
+          player && player.state === 'started'
+        )
+        const transportPlaying = arrangementTransportRef.current?.state === 'started'
+        
+        if (anyPlayerPlaying || transportPlaying) {
+          console.warn('[AUDIO MONITOR] Unexpected audio detected when stopped!')
+          console.warn('[AUDIO MONITOR] Players playing:', Object.entries(arrangementPlayersRef.current).filter(([id, player]) => player?.state === 'started').map(([id]) => id))
+          console.warn('[AUDIO MONITOR] Transport state:', arrangementTransportRef.current?.state)
+          
+          // Force stop everything with aggressive cleanup
+          if (arrangementTransportRef.current) {
+            try {
+              arrangementTransportRef.current.stop()
+              arrangementTransportRef.current.cancel()
+              console.log('[AUDIO MONITOR] Transport force stopped')
+            } catch (error) {
+              console.error('[AUDIO MONITOR] Error stopping transport:', error)
+            }
+          }
+          
+          // Force stop all players with multiple attempts
+          let stuckPlayers = 0
+          Object.entries(arrangementPlayersRef.current).forEach(([trackId, player]) => {
+            if (player && player.state === 'started') {
+              console.warn(`[AUDIO MONITOR] Force stopping player for track ${trackId}`)
+              try {
+                player.stop()
+                // Double-check
+                if (player.state === 'started') {
+                  console.warn(`[AUDIO MONITOR] Player ${trackId} still playing, trying again...`)
+                  player.stop()
+                  // If still stuck after second attempt, mark for disposal
+                  if (player.state === 'started') {
+                    stuckPlayers++
+                    console.error(`[AUDIO MONITOR] Player ${trackId} is stuck! Will dispose.`)
+                  }
+                }
+                console.log(`[AUDIO MONITOR] Player ${trackId} force stopped, final state: ${player.state}`)
+              } catch (error) {
+                console.error(`[AUDIO MONITOR] Error stopping unexpected player ${trackId}:`, error)
+                stuckPlayers++
+                // Try dispose as last resort
+                try {
+                  if (player.dispose) {
+                    player.dispose()
+                    console.log(`[AUDIO MONITOR] Disposed player ${trackId} as last resort`)
+                  }
+                } catch (disposeError) {
+                  console.error(`[AUDIO MONITOR] Error disposing player ${trackId}:`, disposeError)
+                }
+              }
+            }
+          })
+          
+          // If we have stuck players, force reinitialize the audio system
+          if (stuckPlayers > 0) {
+            console.error(`[AUDIO MONITOR] ${stuckPlayers} players are stuck! Forcing audio system reinitialization...`)
+            isArrangementAudioInitialized.current = false
+            // Clear all players and force reinit on next play
+            arrangementPlayersRef.current = {}
+            arrangementPitchShiftersRef.current = {}
+          }
+        }
+      }, 500) // Check every 500ms for faster response
+      
+      return () => clearInterval(monitorInterval)
+    }
   }, [isArrangementPlaying])
 
   // Toggle load mode for a track
@@ -276,6 +403,609 @@ export function SongArrangement({
       setLoadedTrackId(null) // Turn off load mode
     } else {
       setLoadedTrackId(trackId) // Turn on load mode for this track
+    }
+  }
+
+  // Toggle selector mode for multi-selection
+  const toggleSelectorMode = () => {
+    setIsSelectorMode(!isSelectorMode)
+    // Clear other modes when entering selector mode
+    if (!isSelectorMode) {
+      setIsDeleteMode(false)
+      setIsCutMode(false)
+      setLoadedTrackId(null)
+    }
+    // Clear selections when exiting selector mode
+    if (isSelectorMode) {
+      setSelectedBlocks([])
+    }
+  }
+
+  // Toggle pattern selection in selector mode
+  const togglePatternSelection = (blockId: string) => {
+    if (!isSelectorMode) return
+    
+    setSelectedBlocks(prev => {
+      if (prev.includes(blockId)) {
+        return prev.filter(id => id !== blockId)
+      } else {
+        return [...prev, blockId]
+      }
+    })
+  }
+
+  // Clear all selections
+  const clearAllSelections = () => {
+    setSelectedBlocks([])
+  }
+
+  // Delete selected patterns
+  const deleteSelectedPatterns = () => {
+    if (selectedBlocks.length === 0) return
+    
+    const updatedPatterns = patternBlocks.filter(block => !selectedBlocks.includes(block.id))
+    setPatternBlocks(updatedPatterns)
+    setSelectedBlocks([])
+    onPatternsChange?.(updatedPatterns)
+    console.log(`[SELECTOR] Deleted ${selectedBlocks.length} selected patterns`)
+  }
+
+  // Duplicate selected patterns
+  const duplicateSelectedPatterns = () => {
+    if (selectedBlocks.length === 0) return
+    
+    const selectedPatterns = patternBlocks.filter(block => selectedBlocks.includes(block.id))
+    const duplicatedPatterns = selectedPatterns.map(pattern => ({
+      ...pattern,
+      id: `pattern-${Date.now()}-${pattern.trackId}-duplicate-${Math.random()}`,
+      name: `${pattern.name} (Copy)`,
+      startBar: pattern.startBar + 8, // Offset by 8 bars
+      endBar: pattern.endBar + 8
+    }))
+    
+    const updatedPatterns = [...patternBlocks, ...duplicatedPatterns]
+    setPatternBlocks(updatedPatterns)
+    setSelectedBlocks([])
+    onPatternsChange?.(updatedPatterns)
+    console.log(`[SELECTOR] Duplicated ${selectedPatterns.length} patterns`)
+  }
+
+  // Start selection box
+  const startSelectionBox = (e: React.MouseEvent) => {
+    if (!isSelectorMode) return
+    
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    const x = e.clientX - rect.left + scrollX
+    const y = e.clientY - rect.top
+    
+    setIsSelectionBoxActive(true)
+    setSelectionBoxStart({ x, y })
+    setSelectionBoxEnd({ x, y })
+    
+    console.log('[SELECTION BOX] Started selection box at:', { x, y })
+  }
+
+  // Update selection box
+  const updateSelectionBox = (e: React.MouseEvent) => {
+    if (!isSelectionBoxActive || !isSelectorMode) return
+    
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    const x = e.clientX - rect.left + scrollX
+    const y = e.clientY - rect.top
+    
+    setSelectionBoxEnd({ x, y })
+  }
+
+  // End selection box and select patterns
+  const endSelectionBox = () => {
+    if (!isSelectionBoxActive || !isSelectorMode) return
+    
+    setIsSelectionBoxActive(false)
+    
+    // Calculate selection box bounds
+    const left = Math.min(selectionBoxStart.x, selectionBoxEnd.x)
+    const right = Math.max(selectionBoxStart.x, selectionBoxEnd.x)
+    const top = Math.min(selectionBoxStart.y, selectionBoxEnd.y)
+    const bottom = Math.max(selectionBoxStart.y, selectionBoxEnd.y)
+    
+    // Find patterns that intersect with the selection box
+    const selectedPatternIds: string[] = []
+    
+    patternBlocks.forEach(block => {
+      const blockLeft = (block.startBar - 1) * zoom
+      const blockRight = blockLeft + (block.duration * zoom)
+      const blockTop = tracks.findIndex(t => t.id === block.trackId) * 60 + 5
+      const blockBottom = blockTop + 50 // Assuming 50px height
+      
+      // Check if block intersects with selection box
+      if (blockLeft < right && blockRight > left && blockTop < bottom && blockBottom > top) {
+        selectedPatternIds.push(block.id)
+      }
+    })
+    
+    // Update selected blocks
+    setSelectedBlocks(prev => {
+      const newSelection = [...prev]
+      selectedPatternIds.forEach(id => {
+        if (!newSelection.includes(id)) {
+          newSelection.push(id)
+        }
+      })
+      return newSelection
+    })
+    
+    console.log('[SELECTION BOX] Selected patterns:', selectedPatternIds)
+  }
+
+  // Check if a pattern is in the current selection box
+  const isPatternInSelectionBox = (block: PatternBlock) => {
+    if (!isSelectionBoxActive) return false
+    
+    const left = Math.min(selectionBoxStart.x, selectionBoxEnd.x)
+    const right = Math.max(selectionBoxStart.x, selectionBoxEnd.x)
+    const top = Math.min(selectionBoxStart.y, selectionBoxEnd.y)
+    const bottom = Math.max(selectionBoxStart.y, selectionBoxEnd.y)
+    
+    const blockLeft = (block.startBar - 1) * zoom
+    const blockRight = blockLeft + (block.duration * zoom)
+    const blockTop = tracks.findIndex(t => t.id === block.trackId) * 60 + 5
+    const blockBottom = blockTop + 50
+    
+    return blockLeft < right && blockRight > left && blockTop < bottom && blockBottom > top
+  }
+
+  // Arrangement management functions
+  const openSaveDialog = (track: Track) => {
+    setCurrentTrackForArrangement(track)
+    setArrangementName(`${getTrackDisplayName(track.name)} Arrangement`)
+    setArrangementDescription('')
+    setArrangementCategory('')
+    setArrangementTags('')
+    setArrangementGenre('')
+    setArrangementSubgenre('')
+    setArrangementBpm(bpm.toString())
+    setArrangementAudioType(track.name)
+    setShowSaveDialog(true)
+  }
+
+  const openLoadDialog = async (track: Track) => {
+    setCurrentTrackForArrangement(track)
+    setIsLoading(true)
+    
+    try {
+      // Get user token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        alert('Please log in to load arrangements')
+        return
+      }
+
+      // Search for arrangements for this track
+      const response = await fetch('/api/arrangements/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          filters: {
+            searchTerm: track.name
+          },
+          limit: 50
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableArrangements(data.arrangements || [])
+      } else {
+        console.error('Failed to load arrangements')
+        setAvailableArrangements([])
+      }
+    } catch (error) {
+      console.error('Error loading arrangements:', error)
+      setAvailableArrangements([])
+    } finally {
+      setIsLoading(false)
+      setShowLoadDialog(true)
+    }
+  }
+
+  const saveArrangement = async () => {
+    if (!currentTrackForArrangement || !arrangementName.trim()) {
+      alert('Please enter a name for the arrangement')
+      return
+    }
+
+    setIsSaving(true)
+    
+    try {
+      // Get user session with better error handling
+      console.log('[SAVE ARRANGEMENT] Checking authentication...')
+      
+      // Try multiple authentication methods
+      let user = null
+      let session = null
+      
+      // Method 1: Try getSession
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+        console.log('[SAVE ARRANGEMENT] getSession result:', { session: !!sessionData.session, error: sessionError })
+        
+        if (sessionData.session) {
+          session = sessionData.session
+          user = sessionData.session.user
+        }
+      } catch (error) {
+        console.error('[SAVE ARRANGEMENT] getSession error:', error)
+      }
+      
+      // Method 2: If no session, try getUser
+      if (!user) {
+        try {
+          const { data: userData, error: userError } = await supabase.auth.getUser()
+          console.log('[SAVE ARRANGEMENT] getUser result:', { user: !!userData.user, error: userError })
+          
+          if (userData.user) {
+            user = userData.user
+          }
+        } catch (error) {
+          console.error('[SAVE ARRANGEMENT] getUser error:', error)
+        }
+      }
+      
+      // Method 3: Try to refresh the session
+      if (!session && user) {
+        try {
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+          console.log('[SAVE ARRANGEMENT] refreshSession result:', { session: !!refreshData.session, error: refreshError })
+          
+          if (refreshData.session) {
+            session = refreshData.session
+          }
+        } catch (error) {
+          console.error('[SAVE ARRANGEMENT] refreshSession error:', error)
+        }
+      }
+      
+      console.log('[SAVE ARRANGEMENT] Final auth check:', { user: !!user, session: !!session, accessToken: !!session?.access_token })
+      
+      if (!user) {
+        alert('Please log in to save arrangements. No user found.')
+        return
+      }
+      
+      if (!session?.access_token) {
+        alert('Authentication token expired. Please refresh the page and try again.')
+        return
+      }
+
+      // Get patterns for this track
+      const trackPatterns = patternBlocks.filter(block => block.trackId === currentTrackForArrangement.id)
+      
+      if (trackPatterns.length === 0) {
+        alert('No patterns found for this track. Please add some patterns first.')
+        return
+      }
+
+            const arrangementData = {
+        trackId: currentTrackForArrangement.id,
+        trackName: currentTrackForArrangement.name,
+        name: arrangementName.trim(),
+        description: arrangementDescription.trim(),
+        patternBlocks: trackPatterns,
+        totalBars,
+        zoomLevel: zoom,
+        bpm: parseInt(arrangementBpm) || bpm,
+        steps,
+        tags: arrangementTags.trim() ? arrangementTags.split(',').map(tag => tag.trim()) : [],
+        category: arrangementCategory === 'none' ? undefined : arrangementCategory.trim() || undefined,
+        genre: arrangementGenre.trim() || undefined,
+        subgenre: arrangementSubgenre.trim() || undefined,
+        audioType: arrangementAudioType.trim() || undefined,
+        isFavorite: false,
+        isTemplate: false
+      }
+
+      const response = await fetch('/api/arrangements/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(arrangementData)
+      })
+
+      if (response.ok) {
+        alert('Arrangement saved successfully!')
+        setShowSaveDialog(false)
+        setArrangementName('')
+        setArrangementDescription('')
+        setArrangementCategory('')
+        setArrangementTags('')
+        setArrangementGenre('')
+        setArrangementSubgenre('')
+        setArrangementBpm('')
+        setArrangementAudioType('')
+      } else {
+        const error = await response.json()
+        alert(`Failed to save arrangement: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('Error saving arrangement:', error)
+      alert('Failed to save arrangement')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const loadArrangement = async (arrangementId: string) => {
+    setIsLoading(true)
+    
+    try {
+      // Get user token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        alert('Please log in to load arrangements')
+        return
+      }
+
+      const response = await fetch('/api/arrangements/load', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ arrangementId })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const arrangement = data.arrangement
+        
+        // Remove existing patterns for this track
+        const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== arrangement.trackId)
+        
+        // Add the loaded patterns
+        const newPatternBlocks = [...otherTrackPatterns, ...arrangement.patternBlocks]
+        
+        setPatternBlocks(newPatternBlocks)
+        setTotalBars(Math.max(totalBars, arrangement.totalBars))
+        setZoom(arrangement.zoomLevel)
+        
+        // Update parent component
+        onPatternsChange?.(newPatternBlocks)
+        
+        alert(`Arrangement "${arrangement.name}" loaded successfully!`)
+        setShowLoadDialog(false)
+      } else {
+        const error = await response.json()
+        alert(`Failed to load arrangement: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('Error loading arrangement:', error)
+      alert('Failed to load arrangement')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Save Beat functions
+  const openSaveBeatDialog = () => {
+    setBeatTitle('')
+    setBeatDescription('')
+    setBeatGenre('')
+    setBeatBpm(bpm.toString())
+    setBeatKey('')
+    setBeatPrice('')
+    setBeatCoverImage(null)
+    setBeatCoverPreview('')
+    setBeatUploadError('')
+    setShowSaveBeatDialog(true)
+  }
+
+  const uploadBeatCoverImage = async (file: File): Promise<string | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        setBeatUploadError('Please log in to upload cover image')
+        return null
+      }
+
+      const fileExt = file.name.split('.').pop()
+      const filePath = `beat-covers/${session.user.id}/${Date.now()}.${fileExt}`
+      
+      const { error } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file, { upsert: true })
+      
+      if (error) {
+        setBeatUploadError(`Cover upload failed: ${error.message}`)
+        return null
+      }
+
+      const { data } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+      
+      return data?.publicUrl || null
+    } catch (error) {
+      console.error('Cover upload error:', error)
+      setBeatUploadError('Failed to upload cover image')
+      return null
+    }
+  }
+
+  const saveBeat = async () => {
+    if (!beatTitle.trim()) {
+      setBeatUploadError('Please enter a beat title')
+      return
+    }
+
+    setIsSavingBeat(true)
+    setBeatUploadError('')
+
+    try {
+      // Get user session with better error handling
+      console.log('[SAVE BEAT] Checking authentication...')
+      
+      // Try multiple authentication methods
+      let user = null
+      let session = null
+      
+      // Method 1: Try getSession
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+        console.log('[SAVE BEAT] getSession result:', { session: !!sessionData.session, error: sessionError })
+        
+        if (sessionData.session) {
+          session = sessionData.session
+          user = sessionData.session.user
+        }
+      } catch (error) {
+        console.error('[SAVE BEAT] getSession error:', error)
+      }
+      
+      // Method 2: If no session, try getUser
+      if (!user) {
+        try {
+          const { data: userData, error: userError } = await supabase.auth.getUser()
+          console.log('[SAVE BEAT] getUser result:', { user: !!userData.user, error: userError })
+          
+          if (userData.user) {
+            user = userData.user
+          }
+        } catch (error) {
+          console.error('[SAVE BEAT] getUser error:', error)
+        }
+      }
+      
+      // Method 3: Try to refresh the session
+      if (!session && user) {
+        try {
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+          console.log('[SAVE BEAT] refreshSession result:', { session: !!refreshData.session, error: refreshError })
+          
+          if (refreshData.session) {
+            session = refreshData.session
+          }
+        } catch (error) {
+          console.error('[SAVE BEAT] refreshSession error:', error)
+        }
+      }
+      
+      console.log('[SAVE BEAT] Final auth check:', { user: !!user, session: !!session, accessToken: !!session?.access_token })
+      
+      if (!user) {
+        setBeatUploadError('Please log in to save beats. No user found.')
+        return
+      }
+      
+      if (!session?.access_token) {
+        setBeatUploadError('Authentication token expired. Please refresh the page and try again.')
+        return
+      }
+
+      // Export WAV (this will handle audio state preservation internally)
+      console.log('[SAVE BEAT] Exporting WAV for beat save...')
+      const wavBlob = await exportBeatAsWav()
+      
+      if (!wavBlob || wavBlob.size === 0) {
+        setBeatUploadError('Failed to export WAV file')
+        return
+      }
+
+      // Upload WAV to storage
+      const wavFileName = `${beatTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.wav`
+      const wavFilePath = `beats/${session.user.id}/${wavFileName}`
+      
+      const { error: wavUploadError } = await supabase.storage
+        .from('beats')
+        .upload(wavFilePath, wavBlob, { 
+          upsert: true,
+          contentType: 'audio/wav'
+        })
+      
+      if (wavUploadError) {
+        setBeatUploadError(`WAV upload failed: ${wavUploadError.message}`)
+        return
+      }
+
+      const { data: wavUrlData } = supabase.storage
+        .from('beats')
+        .getPublicUrl(wavFilePath)
+
+      // Upload cover image if provided
+      let coverImageUrl = null
+      if (beatCoverImage) {
+        coverImageUrl = await uploadBeatCoverImage(beatCoverImage)
+        if (!coverImageUrl) {
+          setBeatUploadError('Failed to upload cover image')
+          return
+        }
+      }
+
+      // Save beat to database - using only columns that exist in the actual database
+      const beatData = {
+        producer_id: session.user.id,
+        title: beatTitle.trim(),
+        description: beatDescription.trim() || null,
+        mp3_url: wavUrlData.publicUrl, // Use WAV as primary audio (matching upload page)
+        play_count: 0,
+        price: beatPrice ? parseFloat(beatPrice) : 0
+      }
+
+      const { data: beat, error: beatError } = await supabase
+        .from('beats')
+        .insert([beatData])
+        .select()
+        .single()
+
+      if (beatError) {
+        setBeatUploadError(`Failed to save beat: ${beatError.message}`)
+        return
+      }
+
+      // Success!
+      alert('Beat saved successfully!')
+      setShowSaveBeatDialog(false)
+      setBeatTitle('')
+      setBeatDescription('')
+      setBeatGenre('')
+      setBeatBpm('')
+      setBeatKey('')
+      setBeatPrice('')
+      setBeatCoverImage(null)
+      setBeatCoverPreview('')
+
+    } catch (error) {
+      console.error('Save beat error:', error)
+      setBeatUploadError('Failed to save beat')
+    } finally {
+      setIsSavingBeat(false)
+    }
+  }
+
+  // Handle mouse down on the grid for selection box
+  const handleGridMouseDown = (e: React.MouseEvent) => {
+    // Only start selection box if in selector mode
+    if (isSelectorMode) {
+      // Check if the click is on a pattern block - if so, don't start selection box
+      const target = e.target as HTMLElement
+      const isOnPatternBlock = target.closest('[data-pattern-block]') || target.closest('.pattern-block')
+      
+      if (isOnPatternBlock) {
+        console.log('[SELECTION BOX] Click is on pattern block - not starting selection box')
+        return
+      }
+      
+      console.log('[SELECTION BOX] Mouse down detected in selector mode on empty grid - starting selection box')
+      startSelectionBox(e)
+      return
     }
   }
 
@@ -331,6 +1061,11 @@ export function SongArrangement({
     
     // Calculate which bar was clicked (grid content starts at 0)
     const clickedBar = Math.floor(clickX / zoom) + 1
+    
+    // If in selector mode, don't do anything on click - selection box is handled by mouse down
+    if (isSelectorMode) {
+      return
+    }
     
     // If we're in load mode, place a pattern
     if (loadedTrackId) {
@@ -390,9 +1125,12 @@ export function SongArrangement({
     onPatternsChange?.(newPatternBlocks)
   }
 
-  // Handle pattern block click for delete mode and cut mode
+  // Handle pattern block click for delete mode, cut mode, and selector mode
   const handlePatternBlockClick = (blockId: string) => {
-    if (isDeleteMode) {
+    if (isSelectorMode) {
+      console.log(`[SELECTOR MODE] Toggling selection for pattern block: ${blockId}`)
+      togglePatternSelection(blockId)
+    } else if (isDeleteMode) {
       console.log(`[DELETE MODE] Deleting pattern block: ${blockId}`)
       removePatternBlock(blockId)
     } else if (isCutMode) {
@@ -585,6 +1323,149 @@ export function SongArrangement({
   const createDropArrangement = () => {
     console.log('[DROP ARRANGEMENT] Creating dynamic arrangement with drops')
     
+    // Check if we have selected patterns
+    const hasSelectedPatterns = selectedBlocks.length > 0
+    
+    if (hasSelectedPatterns) {
+      console.log(`[DROP ARRANGEMENT] Applying drops to ${selectedBlocks.length} selected patterns`)
+      
+      // Get the selected patterns
+      const selectedPatterns = patternBlocks.filter(block => selectedBlocks.includes(block.id))
+      const nonSelectedPatterns = patternBlocks.filter(block => !selectedBlocks.includes(block.id))
+      
+      // Create drop variations for selected patterns only
+      const dropPatternBlocks: PatternBlock[] = []
+      
+      selectedPatterns.forEach((pattern) => {
+        // Create drop variations based on pattern position
+        const dropType = Math.floor(Math.random() * 4) // 0-3: full, first half, second half, or split
+        
+        if (dropType === 0) {
+          // Keep full pattern (no change)
+          dropPatternBlocks.push(pattern)
+        } else if (dropType === 1) {
+          // Split into first half only (build up)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-first-${Math.random()}`,
+              name: `${pattern.name} Build`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 2) {
+          // Split into second half only (drop)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-second-${Math.random()}`,
+              name: `${pattern.name} Drop`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 3) {
+          // Split into both halves (breakdown)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-breakdown-first-${Math.random()}`,
+              name: `${pattern.name} Breakdown A`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          }
+          
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-breakdown-second-${Math.random()}`,
+              name: `${pattern.name} Breakdown B`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          }
+        }
+      })
+      
+      // NEW: Add special drop at bar 8 for selected patterns (not too often - 30% chance)
+      const shouldAddBar8Drop = Math.random() < 0.3 // 30% chance
+      if (shouldAddBar8Drop) {
+        console.log('[DROP ARRANGEMENT] Adding special bar 8 drop to selected patterns')
+        
+        // Find selected patterns that extend past bar 8 and cut them off
+        const patternsWithBar8Drop = dropPatternBlocks.map(pattern => {
+          if (pattern.endBar >= 8 && pattern.startBar < 8) {
+            // This pattern extends into bar 8, cut it off at bar 7
+            const cutPattern: PatternBlock = {
+              ...pattern,
+              id: `${pattern.id}-bar8-cut`,
+              name: `${pattern.name} (Cut at Bar 8)`,
+              endBar: 7,
+              duration: 7 - pattern.startBar + 1
+            }
+            console.log(`[DROP ARRANGEMENT] Cut selected pattern "${pattern.name}" at bar 8, new end: bar 7`)
+            return cutPattern
+          }
+          return pattern
+        })
+        
+        // Combine non-selected patterns with drop patterns (including bar 8 cuts)
+        const finalPatterns = [...nonSelectedPatterns, ...patternsWithBar8Drop]
+        
+        // Replace patterns and clear selection
+        setPatternBlocks(finalPatterns)
+        setSelectedBlocks([])
+        
+        // Update total bars to accommodate all patterns
+        const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+        setTotalBars(Math.max(totalBars, maxEndBar))
+        
+        // Notify parent component
+        onPatternsChange?.(finalPatterns)
+        
+        console.log(`[DROP ARRANGEMENT] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
+        return
+      }
+      
+      // Combine non-selected patterns with drop patterns
+      const finalPatterns = [...nonSelectedPatterns, ...dropPatternBlocks]
+      
+      // Replace patterns and clear selection
+      setPatternBlocks(finalPatterns)
+      setSelectedBlocks([])
+      
+      // Update total bars to accommodate all patterns
+      const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+      setTotalBars(Math.max(totalBars, maxEndBar))
+      
+      // Notify parent component
+      onPatternsChange?.(finalPatterns)
+      
+      console.log(`[DROP ARRANGEMENT] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations`)
+      return
+    }
+    
+    // Original behavior: Create drops for all patterns (when no selection)
+    console.log('[DROP ARRANGEMENT] Creating drops for all patterns (no selection)')
+    
     // First, load the base 11 patterns
     const basePatternBlocks: PatternBlock[] = []
     
@@ -686,6 +1567,61 @@ export function SongArrangement({
       })
     })
     
+    // NEW: Add special drop at bar 8 (not too often - 30% chance)
+    const shouldAddBar8Drop = Math.random() < 0.3 // 30% chance
+    if (shouldAddBar8Drop) {
+      console.log('[DROP ARRANGEMENT] Adding special drop at bar 8')
+      
+      // Find patterns that extend past bar 8 and cut them off
+      const patternsWithBar8Drop = dropPatternBlocks.map(pattern => {
+        if (pattern.endBar >= 8 && pattern.startBar < 8) {
+          // This pattern extends into bar 8, cut it off at bar 7
+          const cutPattern: PatternBlock = {
+            ...pattern,
+            id: `${pattern.id}-bar8-cut`,
+            name: `${pattern.name} (Cut at Bar 8)`,
+            endBar: 7,
+            duration: 7 - pattern.startBar + 1
+          }
+          console.log(`[DROP ARRANGEMENT] Cut pattern "${pattern.name}" at bar 8, new end: bar 7`)
+          return cutPattern
+        }
+        return pattern
+      })
+      
+      // Also randomly cut off some tracks completely at bar 8 for more dramatic effect
+      tracks.forEach((track) => {
+        const trackPatterns = patternsWithBar8Drop.filter(p => p.trackId === track.id)
+        const shouldCutTrack = Math.random() < 0.4 // 40% chance per track
+        
+        if (shouldCutTrack && trackPatterns.length > 0) {
+          console.log(`[DROP ARRANGEMENT] Cutting off entire ${getTrackDisplayName(track.name)} track at bar 8`)
+          
+          // Remove all patterns for this track that start at or after bar 8
+          const filteredPatterns = patternsWithBar8Drop.filter(pattern => 
+            !(pattern.trackId === track.id && pattern.startBar >= 8)
+          )
+          
+          // Cut patterns that extend into bar 8
+          const updatedPatterns = filteredPatterns.map(pattern => {
+            if (pattern.trackId === track.id && pattern.endBar >= 8 && pattern.startBar < 8) {
+              return {
+                ...pattern,
+                id: `${pattern.id}-bar8-cut`,
+                name: `${pattern.name} (Cut at Bar 8)`,
+                endBar: 7,
+                duration: 7 - pattern.startBar + 1
+              }
+            }
+            return pattern
+          })
+          
+          dropPatternBlocks.length = 0
+          dropPatternBlocks.push(...updatedPatterns)
+        }
+      })
+    }
+    
     // Replace all existing patterns with the drop arrangement
     setPatternBlocks(dropPatternBlocks)
     
@@ -696,16 +1632,28 @@ export function SongArrangement({
     // Notify parent component
     onPatternsChange?.(dropPatternBlocks)
     
-    console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks`)
+    console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
   }
 
   // Export the arrangement as a high-quality WAV file
   const exportBeatAsWav = async () => {
-    console.log('[EXPORT] Starting WAV export of arrangement with advanced timing')
+    console.log('[EXPORT] Starting WAV export of arrangement')
     
     if (patternBlocks.length === 0) {
       alert('No patterns to export. Please add some patterns first.')
       return
+    }
+
+    // Store current audio state to restore later
+    const currentIsPlaying = isArrangementPlaying
+    const currentBar = arrangementTransportRef.current?.position || 0
+    
+    // Stop current playback to prevent interference
+    if (currentIsPlaying) {
+      console.log('[EXPORT] Stopping current playback for export')
+      stopArrangement()
+      // Small delay to ensure stop is processed
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
 
     try {
@@ -718,7 +1666,7 @@ export function SongArrangement({
       
       console.log(`[EXPORT] Total duration: ${totalDurationSeconds}s (${maxEndBar} bars) at ${bpm} BPM`)
 
-      // Create offline audio context for rendering (stereo output)
+      // Create completely isolated offline audio context for rendering (stereo output)
       const sampleRate = 44100
       const offlineContext = new OfflineAudioContext(
         2, // stereo output
@@ -731,7 +1679,20 @@ export function SongArrangement({
       masterGain.gain.value = 0.8 // Prevent clipping
       masterGain.connect(offlineContext.destination)
 
-      // Schedule all patterns with advanced timing
+      // Helper function to get public audio URL
+      const getPublicAudioUrl = (audioUrlOrPath: string) => {
+        if (audioUrlOrPath.startsWith('http')) {
+          return audioUrlOrPath
+        }
+        // Handle relative paths - assume they're in the public folder
+        if (audioUrlOrPath.startsWith('/')) {
+          return `${window.location.origin}${audioUrlOrPath}`
+        }
+        // Handle relative paths without leading slash
+        return `${window.location.origin}/${audioUrlOrPath}`
+      }
+
+      // Schedule all patterns
       for (const block of patternBlocks) {
         const track = tracks.find(t => t.id === block.trackId)
         if (!track?.audioUrl || track.audioUrl === 'undefined') {
@@ -741,39 +1702,23 @@ export function SongArrangement({
 
         try {
           console.log(`[EXPORT] Processing ${block.name} from track ${track.name}`)
-          console.log(`[EXPORT] Track BPM: ${track.currentBpm || track.originalBpm || bpm}, Playback Rate: ${track.playbackRate || 1}`)
+          
+          // Get the public URL for the audio file
+          const publicAudioUrl = getPublicAudioUrl(track.audioUrl)
+          console.log(`[EXPORT] Fetching audio from: ${publicAudioUrl}`)
           
           // Fetch and decode audio
-          const response = await fetch(track.audioUrl)
+          const response = await fetch(publicAudioUrl)
+          if (!response.ok) {
+            throw new Error(`Failed to fetch audio: ${response.status} ${response.statusText}`)
+          }
+          
           const arrayBuffer = await response.arrayBuffer()
           const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer)
+          console.log(`[EXPORT] Audio loaded: ${audioBuffer.duration}s duration`)
 
           // Create track gain for mixing
           const trackGain = offlineContext.createGain()
-          trackGain.gain.value = 0.7 // Individual track volume
-
-          // Apply pitch shift with proper audio processing
-          let audioChain = trackGain
-          if (track.pitchShift && track.pitchShift !== 0) {
-            console.log(`[EXPORT] Applying pitch shift: ${track.pitchShift} semitones`)
-            
-            // Create a more sophisticated pitch shifter using multiple filters
-            const pitchShifter = offlineContext.createBiquadFilter()
-            pitchShifter.type = 'peaking'
-            pitchShifter.frequency.value = 1000 * Math.pow(2, track.pitchShift / 12)
-            pitchShifter.Q.value = 1.0
-            pitchShifter.gain.value = 3.0
-            
-            trackGain.connect(pitchShifter)
-            audioChain = pitchShifter
-          }
-
-          // Apply playback rate if track has different tempo
-          let effectivePlaybackRate = 1.0
-          if (track.playbackRate && track.playbackRate !== 1) {
-            effectivePlaybackRate = track.playbackRate
-            console.log(`[EXPORT] Applying playback rate: ${effectivePlaybackRate}x`)
-          }
           
           // Handle different track types for optimal export
           const isDrumLoop = track.name.toLowerCase().includes('drum') || track.name.toLowerCase().includes('perc')
@@ -791,8 +1736,15 @@ export function SongArrangement({
             trackGain.gain.value = 0.7 // Default
           }
 
+          // Apply playback rate if track has different tempo
+          let effectivePlaybackRate = 1.0
+          if (track.playbackRate && track.playbackRate !== 1) {
+            effectivePlaybackRate = track.playbackRate
+            console.log(`[EXPORT] Applying playback rate: ${effectivePlaybackRate}x`)
+          }
+
           // Connect to master
-          audioChain.connect(masterGain)
+          trackGain.connect(masterGain)
 
           // Calculate start time (convert from bars to seconds)
           const startTimeSeconds = (block.startBar - 1) * secondsPerBar
@@ -800,100 +1752,107 @@ export function SongArrangement({
           // Calculate pattern duration in seconds
           const patternDurationSeconds = block.duration * secondsPerBar
           
-          // Check if we have sequencer data for this track
-          const sequencerData = block.sequencerData[track.id]
-          const hasSequencerData = sequencerData && sequencerData.length > 0
+          // Simplified export logic - just loop the audio for the pattern duration
+          console.log(`[EXPORT] Scheduling ${block.name} at ${startTimeSeconds}s for ${patternDurationSeconds}s`)
           
-          if (hasSequencerData) {
-            console.log(`[EXPORT] Using sequencer data for ${block.name} (${sequencerData.length} steps)`)
+          const audioDuration = audioBuffer.duration / effectivePlaybackRate
+          const loopCount = Math.ceil(patternDurationSeconds / audioDuration)
+          
+          for (let i = 0; i < loopCount; i++) {
+            const loopSource = offlineContext.createBufferSource()
+            loopSource.buffer = audioBuffer
+            loopSource.playbackRate.value = effectivePlaybackRate
+            loopSource.connect(trackGain)
             
-            // Export using sequencer data - create individual hits based on step data
-            const stepsPerBar = 16 // 16 steps per bar for 1/16 resolution
-            const stepDuration = secondsPerBeat / (stepsPerBar / 4) // Calculate step duration for 1/16 resolution
+            const loopStartTime = startTimeSeconds + (i * audioDuration)
+            const loopEndTime = Math.min(loopStartTime + audioDuration, startTimeSeconds + patternDurationSeconds)
+            const loopDuration = loopEndTime - loopStartTime
             
-            for (let stepIndex = 0; stepIndex < sequencerData.length; stepIndex++) {
-              if (sequencerData[stepIndex]) {
-                // Calculate step position in the arrangement
-                const stepInPattern = stepIndex % (block.duration * stepsPerBar)
-                const barInPattern = Math.floor(stepInPattern / stepsPerBar)
-                const stepInBar = stepInPattern % stepsPerBar
-                
-                const stepTime = startTimeSeconds + (barInPattern * secondsPerBar) + (stepInBar * stepDuration)
-                
-                // Create a short hit for this step
-                const hitSource = offlineContext.createBufferSource()
-                hitSource.buffer = audioBuffer
-                hitSource.playbackRate.value = effectivePlaybackRate
-                hitSource.connect(trackGain)
-                
-                // Play a short segment (0.1 seconds) for each hit
-                hitSource.start(stepTime, 0, 0.1)
-                
-                console.log(`[EXPORT] Scheduled sequencer hit at step ${stepIndex} (time: ${stepTime.toFixed(2)}s)`)
-              }
-            }
-          } else {
-            // Fallback to looping audio for patterns without sequencer data
-            console.log(`[EXPORT] No sequencer data, using audio looping for ${block.name}`)
+            loopSource.start(loopStartTime, 0, loopDuration)
             
-            const audioDuration = audioBuffer.duration / effectivePlaybackRate
-            const loopCount = Math.ceil(patternDurationSeconds / audioDuration)
-            
-            for (let i = 0; i < loopCount; i++) {
-              const loopSource = offlineContext.createBufferSource()
-              loopSource.buffer = audioBuffer
-              loopSource.playbackRate.value = effectivePlaybackRate
-              loopSource.connect(trackGain)
-              
-              const loopStartTime = startTimeSeconds + (i * audioDuration)
-              const loopEndTime = Math.min(loopStartTime + audioDuration, startTimeSeconds + patternDurationSeconds)
-              const loopDuration = loopEndTime - loopStartTime
-              
-              loopSource.start(loopStartTime, 0, loopDuration)
-              
-              console.log(`[EXPORT] Scheduled loop ${i + 1}/${loopCount} of ${block.name} at ${loopStartTime}s (duration: ${loopDuration.toFixed(2)}s)`)
-            }
+            console.log(`[EXPORT] Scheduled loop ${i + 1}/${loopCount} of ${block.name} at ${loopStartTime}s (duration: ${loopDuration.toFixed(2)}s)`)
           }
           
         } catch (error) {
           console.error(`[EXPORT] Error processing track ${track?.name}:`, error)
+          // Continue with other tracks instead of failing completely
         }
       }
 
       // Render the audio
       console.log('[EXPORT] Rendering audio...')
       const renderedBuffer = await offlineContext.startRendering()
+      console.log('[EXPORT] Audio rendered successfully')
       
       // Convert to WAV
       const wavBlob = audioBufferToWav(renderedBuffer)
       
-      // Create download link with enhanced filename
-      const url = URL.createObjectURL(wavBlob)
-      const a = document.createElement('a')
-      a.href = url
+      console.log('[EXPORT] WAV blob created successfully')
       
-      // Create enhanced filename with arrangement info
-      const patternCount = patternBlocks.length
-      const trackCount = tracks.length
-      const durationMinutes = Math.floor(totalDurationSeconds / 60)
-      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+      // Restore audio state if it was playing before
+      if (currentIsPlaying) {
+        console.log('[EXPORT] Restoring previous playback state')
+        // Small delay to ensure cleanup is complete
+        setTimeout(() => {
+          // Reset transport to where it was
+          if (arrangementTransportRef.current) {
+            arrangementTransportRef.current.position = currentBar
+          }
+          // Resume playback
+          playArrangement()
+        }, 200)
+      }
       
-      const filename = `ortega-ai-beat-arrangement-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
-      
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      
-      console.log(`[EXPORT] Exported: ${filename}`)
-      
-      console.log('[EXPORT] WAV file exported successfully')
+      return wavBlob
       
     } catch (error) {
       console.error('[EXPORT] Error exporting WAV:', error)
-      alert('Error exporting WAV file. Please try again.')
+      alert('Error exporting WAV file. Please check the console for details and try again.')
+      
+      // Restore audio state even on error
+      if (currentIsPlaying) {
+        console.log('[EXPORT] Restoring playback state after error')
+        setTimeout(() => {
+          if (arrangementTransportRef.current) {
+            arrangementTransportRef.current.position = currentBar
+          }
+          playArrangement()
+        }, 200)
+      }
+      
+      return null
     }
+  }
+
+  // Separate function for downloading WAV (for the existing export button)
+  const downloadBeatAsWav = async () => {
+    const wavBlob = await exportBeatAsWav()
+    if (!wavBlob) return
+
+    // Create download link with enhanced filename
+    const url = URL.createObjectURL(wavBlob)
+    const a = document.createElement('a')
+    a.href = url
+    
+    // Create enhanced filename with arrangement info
+    const patternCount = patternBlocks.length
+    const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+    const secondsPerBeat = 60 / bpm
+    const beatsPerBar = 4
+    const secondsPerBar = secondsPerBeat * beatsPerBar
+    const totalDurationSeconds = maxEndBar * secondsPerBar
+    const durationMinutes = Math.floor(totalDurationSeconds / 60)
+    const durationSeconds = Math.floor(totalDurationSeconds % 60)
+    
+    const filename = `beat-arrangement-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+    
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    
+    console.log(`[EXPORT] Downloaded: ${filename}`)
   }
 
   // Helper function to convert AudioBuffer to WAV format
@@ -1207,23 +2166,55 @@ export function SongArrangement({
   const resetArrangementAudio = () => {
     console.log('[ARRANGEMENT AUDIO] Resetting audio system for fresh playback...')
     
-    // Stop all players
-    Object.values(arrangementPlayersRef.current).forEach(player => {
-      if (player.state === 'started') {
-        player.stop()
+    // Stop all players with better error handling
+    Object.entries(arrangementPlayersRef.current).forEach(([trackId, player]) => {
+      console.log(`[RESET DEBUG] Stopping player for track ${trackId}, state: ${player?.state}`)
+      if (player) {
+        try {
+          // Force stop regardless of state
+          player.stop()
+          // Double-check the stop worked
+          if (player.state === 'started') {
+            console.warn(`[RESET DEBUG] Player for track ${trackId} still started after stop, trying again...`)
+            player.stop()
+          }
+          console.log(`[RESET DEBUG] Player for track ${trackId} stopped successfully, final state: ${player.state}`)
+        } catch (error) {
+          console.error(`[RESET DEBUG] Error stopping player for track ${trackId}:`, error)
+          // Try alternative stop method
+          try {
+            if (player.dispose) {
+              player.dispose()
+              console.log(`[RESET DEBUG] Disposed player for track ${trackId} as fallback`)
+            }
+          } catch (disposeError) {
+            console.error(`[RESET DEBUG] Error disposing player for track ${trackId}:`, disposeError)
+          }
+        }
       }
     })
     
-    // Reset transport
+    // Reset transport with better error handling
     if (arrangementTransportRef.current) {
-      arrangementTransportRef.current.stop()
-      arrangementTransportRef.current.cancel()
+      console.log('[RESET DEBUG] Stopping and cancelling transport...')
+      try {
+        arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.cancel()
+        console.log('[RESET DEBUG] Transport stopped and cancelled successfully')
+      } catch (error) {
+        console.error('[RESET DEBUG] Error resetting transport:', error)
+      }
     }
     
     // Clear progress interval
     if (progressIntervalRef.current) {
+      console.log('[RESET DEBUG] Clearing progress interval')
       clearInterval(progressIntervalRef.current)
+      progressIntervalRef.current = null
     }
+    
+    // Reset state flags
+    isPlayingRef.current = false
     
     console.log('[ARRANGEMENT AUDIO] Audio system reset complete')
   }
@@ -1231,14 +2222,35 @@ export function SongArrangement({
   // Play the entire arrangement using arrangement audio system
   const playArrangement = async () => {
     console.log('[ARRANGEMENT AUDIO] Play arrangement called')
+    console.log('[PLAY DEBUG] Current state:', { 
+      isArrangementPlaying, 
+      patternBlocksLength: patternBlocks.length, 
+      currentBar,
+      transportState: arrangementTransportRef.current?.state,
+      playersCount: Object.keys(arrangementPlayersRef.current).length
+    })
     console.log('[ARRANGEMENT AUDIO] Pattern blocks:', patternBlocks)
     console.log('[ARRANGEMENT AUDIO] Available tracks:', tracks)
     console.log('[ARRANGEMENT AUDIO] Current players:', arrangementPlayersRef.current)
     
     if (patternBlocks.length === 0) {
-      alert('No pattern blocks to play')
+      console.log('[ARRANGEMENT AUDIO] No pattern blocks found')
+      alert('No patterns to play. Please add some patterns first.')
       return
     }
+    
+    // CRITICAL: Ensure we're completely stopped before starting
+    if (isArrangementPlaying) {
+      console.log('[PLAY DEBUG] Already playing, stopping first...')
+      stopArrangement()
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+    
+    // CRITICAL: Reset playhead position when starting fresh
+    console.log('[PLAY DEBUG] Resetting playhead position for fresh start')
+    setCurrentBarSafe(1) // Always start from bar 1 when playing fresh
+    console.log('[PLAY DEBUG] Playhead reset to bar 1')
     
     // CRITICAL: Reset and isolate arrangement from sequencer before playing
     resetArrangementAudio()
@@ -1312,6 +2324,7 @@ export function SongArrangement({
 
     setIsArrangementPlaying(true)
     isPlayingRef.current = true // Set ref immediately
+    onArrangementPlayStateChange?.(true) // Notify parent of play state change
     // Don't reset currentBar - preserve the playhead position
     arrangementStartTimeRef.current = Date.now()
     
@@ -1319,17 +2332,18 @@ export function SongArrangement({
     
     // Stop any currently playing arrangement and set transport to current playhead position
     if (arrangementTransportRef.current) {
-      arrangementTransportRef.current.stop()
-      // Set transport position to start from current playhead position
-      // Convert current bar to transport position format (bars:beats:sixteenths)
-      const startBar = Math.floor(currentBar - 1) // Convert to 0-based
-      const startBeat = Math.floor((currentBar % 1) * 4) // Convert fractional bar to beats
-      const startSixteenth = Math.floor(((currentBar % 1) * 4 % 1) * 4) // Convert fractional beat to sixteenths
+      console.log('[PLAY DEBUG] Transport state before setup:', arrangementTransportRef.current.state)
+      console.log('[PLAY DEBUG] Transport position before setup:', arrangementTransportRef.current.position)
       
-      const transportPosition = `${startBar}:${startBeat}:${startSixteenth}`
-      arrangementTransportRef.current.position = transportPosition
-      arrangementTransportRef.current.cancel() // Cancel all scheduled events
-      console.log(`[ARRANGEMENT AUDIO] Set transport position to ${transportPosition} (bar ${currentBar})`)
+      arrangementTransportRef.current.stop()
+      arrangementTransportRef.current.cancel() // Cancel all scheduled events first
+      
+      // CRITICAL FIX: Always start from position 0 for fresh playback
+      console.log('[PLAY DEBUG] Setting transport position to 0 for fresh start')
+      arrangementTransportRef.current.position = 0
+      
+      console.log('[PLAY DEBUG] Transport state after setup:', arrangementTransportRef.current.state)
+      console.log('[PLAY DEBUG] Transport position after setup:', arrangementTransportRef.current.position)
     }
     
     // CRITICAL FIX: Don't interfere with global transport - let sequencer keep running
@@ -1368,24 +2382,19 @@ export function SongArrangement({
         })
         
         // Calculate start time in seconds (convert from bar number)
-        // Adjust for current playhead position - if playhead is at bar 3, patterns should start 2 bars later
-        const startTimeInBars = block.startBar - currentBar // Relative to current playhead
+        // CRITICAL FIX: Since we're starting from position 0, use absolute bar positions
+        const startTimeInBars = block.startBar - 1 // Convert to 0-based (bar 1 = position 0)
         const startTimeInSeconds = startTimeInBars * secondsPerBar
         const durationInSeconds = block.duration * secondsPerBar
         
-        console.log(`[ARRANGEMENT AUDIO] Scheduling pattern ${block.name}: start at ${startTimeInSeconds}s (bar ${block.startBar} - current ${currentBar} = ${startTimeInBars} bars), duration ${durationInSeconds}s`)
+        console.log(`[ARRANGEMENT AUDIO] Scheduling pattern ${block.name}: start at ${startTimeInSeconds}s (bar ${block.startBar} = position ${startTimeInBars} bars), duration ${durationInSeconds}s`)
         
         if (player && player.loaded) {
           try {
-            // Only schedule patterns that start after or at the current playhead position
-            if (startTimeInBars >= 0) {
-              // Schedule the player to start at the calculated time
-              console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
-              player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
-              console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
-            } else {
-              console.log(`[ARRANGEMENT AUDIO] Skipping pattern ${block.name} - it starts before current playhead position`)
-            }
+            // Schedule all patterns since we're starting from the beginning
+            console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
+            player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
+            console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
           } catch (error) {
             console.error(`[ARRANGEMENT AUDIO] Error scheduling pattern ${block.name}:`, error)
           }
@@ -1396,18 +2405,12 @@ export function SongArrangement({
       
       // CRITICAL FIX: Start the transport with proper timing
       console.log('[ARRANGEMENT AUDIO] Starting transport...')
+      console.log('[PLAY DEBUG] Transport position before start:', arrangementTransportRef.current.position)
       
-      // Ensure we're starting from the correct position
-      const startBar = Math.floor(currentBar - 1) // Convert to 0-based
-      const startBeat = Math.floor((currentBar % 1) * 4) // Convert fractional bar to beats
-      const startSixteenth = Math.floor(((currentBar % 1) * 4 % 1) * 4) // Convert fractional beat to sixteenths
-      
-      const transportPosition = `${startBar}:${startBeat}:${startSixteenth}`
-      arrangementTransportRef.current.position = transportPosition
-      
-      // Start the transport
+      // Start the transport from position 0 (already set earlier)
       arrangementTransportRef.current?.start()
-      console.log('[ARRANGEMENT AUDIO] Transport started successfully at position:', transportPosition)
+      console.log('[ARRANGEMENT AUDIO] Transport started successfully at position 0')
+      console.log('[PLAY DEBUG] Transport state after start:', arrangementTransportRef.current.state)
       
       // Update playhead every 16ms (60fps) for smooth movement
       progressIntervalRef.current = setInterval(updatePlayhead, 16)
@@ -1419,62 +2422,91 @@ export function SongArrangement({
     }
   }
 
-  // Stop the arrangement
+  // Stop the arrangement - AGGRESSIVE STOP to prevent any audio from continuing
   const stopArrangement = () => {
-    console.log('[PLAYHEAD DEBUG] stopArrangement called, setting isArrangementPlaying to false')
-    setIsArrangementPlaying(false)
-    isPlayingRef.current = false // Set ref to false
-    setCurrentPattern(null)
-    // Don't reset currentBar - preserve the playhead position
+    console.log('[STOP] AGGRESSIVE STOP - Stopping all audio immediately')
     
-    // CRITICAL FIX: Properly stop and reset arrangement transport
-    if (arrangementTransportRef.current) {
-      arrangementTransportRef.current.stop()
-      arrangementTransportRef.current.cancel() // Cancel all scheduled events
-      // Don't reset position to 0 - preserve current position for restart
+    // Set state to stopped immediately
+    setIsArrangementPlaying(false)
+    isPlayingRef.current = false
+    setCurrentPattern(null)
+    onArrangementPlayStateChange?.(false)
+    
+    // CRITICAL: Stop ALL transports first (most important)
+    try {
+      // Stop arrangement transport
+      if (arrangementTransportRef.current) {
+        console.log('[STOP] Stopping arrangement transport')
+        arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.cancel()
+        arrangementTransportRef.current.position = 0 // Reset to beginning
+      }
+      
+      // Stop global transport
+      const globalTransport = Tone.getTransport()
+      console.log('[STOP] Stopping global transport')
+      globalTransport.stop()
+      globalTransport.cancel()
+      globalTransport.position = 0
+      globalTransport.loop = false
+    } catch (error) {
+      console.error('[STOP] Error stopping transports:', error)
     }
     
-    // Stop all arrangement players
-    Object.values(arrangementPlayersRef.current).forEach(player => {
-      if (player.state === 'started') {
-        player.stop()
+    // AGGRESSIVE: Stop ALL players immediately
+    Object.entries(arrangementPlayersRef.current).forEach(([trackId, player]) => {
+      if (player) {
+        try {
+          console.log(`[STOP] Force stopping player for track ${trackId}`)
+          player.stop()
+          player.stop() // Double stop to be sure
+          
+          // If still playing, dispose and recreate
+          if (player.state === 'started') {
+            console.log(`[STOP] Player ${trackId} still playing, disposing...`)
+            player.dispose()
+            delete arrangementPlayersRef.current[Number(trackId)]
+          }
+        } catch (error) {
+          console.error(`[STOP] Error stopping player ${trackId}:`, error)
+          // Force dispose as last resort
+          try {
+            player.dispose()
+            delete arrangementPlayersRef.current[Number(trackId)]
+          } catch (disposeError) {
+            console.error(`[STOP] Error disposing player ${trackId}:`, disposeError)
+          }
+        }
       }
     })
     
-    // Clear progress interval
+    // Clear all intervals
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
     }
     
-    // Clear any test intervals
+    // Nuclear option: Clear ALL intervals on the page
     if (typeof window !== 'undefined') {
-      // Clear all intervals that might be running (nuclear option for debugging)
       const highestIntervalId = window.setInterval(() => {}, 0)
       for (let i = 1; i <= highestIntervalId; i++) {
         window.clearInterval(i)
       }
     }
     
-    // Stop all arrangement players safely
-    Object.values(arrangementPlayersRef.current).forEach(player => {
-      try {
-        if (player && player.state === 'started') {
-          player.stop()
-        }
-      } catch (error) {
-        console.warn('[ARRANGEMENT AUDIO] Error stopping player:', error)
+    // Reset playhead to beginning
+    setCurrentBarSafe(1)
+    
+    // Force audio context to stop if needed
+    try {
+      if (Tone.context.state === 'running') {
+        console.log('[STOP] Audio context is running - will be handled by transport stops')
       }
-    })
+    } catch (error) {
+      console.error('[STOP] Error checking audio context:', error)
+    }
     
-    // CRITICAL: Reset global transport to prevent interference with sequencer
-    const globalTransport = Tone.getTransport()
-    globalTransport.stop()
-    globalTransport.cancel()
-    globalTransport.loop = false // Ensure global transport doesn't loop
-    // Don't reset global transport position to 0 - let arrangement transport handle its own position
-    
-    console.log('[ARRANGEMENT AUDIO] Arrangement stopped and global transport reset')
+    console.log('[STOP] AGGRESSIVE STOP COMPLETE - All audio should be stopped')
   }
 
   // Calculate time position for a bar
@@ -1514,10 +2546,16 @@ export function SongArrangement({
     setDragOffset({ x: 0, y: 0 })
   }
 
-  // Handle mouse move for dragging and resizing
+  // Handle mouse move for dragging, resizing, and selection box
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isResizing) {
       handleResizeMove(e)
+      return
+    }
+    
+    // Handle selection box
+    if (isSelectionBoxActive) {
+      updateSelectionBox(e)
       return
     }
     
@@ -1554,10 +2592,16 @@ export function SongArrangement({
     }
   }
 
-  // Handle mouse up to end dragging and resizing
+  // Handle mouse up to end dragging, resizing, and selection box
   const handleMouseUp = () => {
     if (isResizing) {
       handleResizeEnd()
+      return
+    }
+    
+    // Handle selection box end
+    if (isSelectionBoxActive) {
+      endSelectionBox()
       return
     }
     
@@ -1570,7 +2614,7 @@ export function SongArrangement({
 
   // Add event listeners for mouse move and up
   useEffect(() => {
-    if (isDragging || isResizing) {
+    if (isDragging || isResizing || isSelectionBoxActive) {
       document.addEventListener('mousemove', handleMouseMove as any)
       document.addEventListener('mouseup', handleMouseUp)
       return () => {
@@ -1578,7 +2622,7 @@ export function SongArrangement({
         document.removeEventListener('mouseup', handleMouseUp)
       }
     }
-  }, [isDragging, isResizing])
+  }, [isDragging, isResizing, isSelectionBoxActive])
 
   // Generate timeline markers
   const timelineMarkers = Array.from({ length: totalBars }, (_, i) => i + 1)
@@ -1621,6 +2665,15 @@ export function SongArrangement({
         console.log('[SONG ARRANGEMENT] C key pressed - toggling cut mode')
         setIsCutMode(prev => !prev)
       }
+      
+      // S key to toggle selector mode
+      if (event.code === 'KeyS') {
+        event.preventDefault()
+        event.stopPropagation()
+        
+        console.log('[SONG ARRANGEMENT] S key pressed - toggling selector mode')
+        toggleSelectorMode()
+      }
     }
 
     // Add event listener
@@ -1637,9 +2690,9 @@ export function SongArrangement({
       {/* Toolbar */}
       <Card className="!bg-[#141414] border-gray-700">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <CardTitle className="text-white text-lg">Song Arrangement</CardTitle>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-gray-300 text-sm">Pattern Duration:</span>
                 <Select value={selectedDuration.toString()} onValueChange={(value) => setSelectedDuration(parseInt(value))}>
@@ -1681,32 +2734,35 @@ export function SongArrangement({
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-4">
+            {/* Main controls row */}
+            <div className="flex flex-wrap items-center gap-4">
             <Button
               onClick={() => {
-                            console.log('=== PLAY BUTTON DEBUG ===')
-            console.log('Current state:', { isArrangementPlaying, patternBlocksLength: patternBlocks.length, currentBar })
-            console.log('Audio system initialized:', isArrangementAudioInitialized.current)
-            console.log('Available players:', Object.keys(arrangementPlayersRef.current))
-            console.log('Transport exists:', !!arrangementTransportRef.current)
-            console.log('Transport state:', arrangementTransportRef.current?.state)
-            
-            // FORCE INITIALIZATION if no players available
-            if (Object.keys(arrangementPlayersRef.current).length === 0) {
-              console.log('[ARRANGEMENT AUDIO] No players available, forcing initialization...')
-              isArrangementAudioInitialized.current = false
-            }
-            
-            if (isArrangementPlaying) {
-              stopArrangement()
-            } else {
-              playArrangement()
-            }
+                console.log('=== PLAY BUTTON DEBUG ===')
+                console.log('Current state:', { isArrangementPlaying, patternBlocksLength: patternBlocks.length, currentBar })
+                console.log('Audio system initialized:', isArrangementAudioInitialized.current)
+                console.log('Available players:', Object.keys(arrangementPlayersRef.current))
+                console.log('Transport exists:', !!arrangementTransportRef.current)
+                console.log('Transport state:', arrangementTransportRef.current?.state)
+                
+                // FORCE INITIALIZATION if no players available
+                if (Object.keys(arrangementPlayersRef.current).length === 0) {
+                  console.log('[ARRANGEMENT AUDIO] No players available, forcing initialization...')
+                  isArrangementAudioInitialized.current = false
+                }
+                
+                if (isArrangementPlaying) {
+                  stopArrangement()
+                } else {
+                  playArrangement()
+                }
               }}
-              variant={isArrangementPlaying ? "destructive" : "default"}
+              variant={isArrangementPlaying ? "destructive" : patternBlocks.length === 0 ? "outline" : "default"}
               size="lg"
-              className="w-16 h-16 rounded-full"
-              disabled={patternBlocks.length === 0}
+              className={`w-16 h-16 rounded-full ${patternBlocks.length === 0 ? 'border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white' : ''}`}
+              disabled={false}
+              title={patternBlocks.length === 0 ? "Click to auto-load patterns and play" : isArrangementPlaying ? "Stop arrangement" : "Play arrangement"}
             >
               {isArrangementPlaying ? <Square className="w-6 h-6" /> : <Play className="w-6 h-6" />}
             </Button>
@@ -1718,11 +2774,19 @@ export function SongArrangement({
               <RotateCcw className="w-4 h-4" />
             </Button>
             <div className="text-gray-300 text-sm">
-              {isArrangementPlaying ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` : 'Ready to play'}
+              {isArrangementPlaying 
+                ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` 
+                : patternBlocks.length === 0 
+                  ? 'No patterns loaded - click play to auto-load' 
+                  : 'Ready to play'
+              }
             </div>
-            <div className="text-gray-400 text-xs">
-              Press SPACEBAR to play/stop • Press DELETE to toggle delete mode • Press C to toggle cut mode
-            </div>
+            {patternBlocks.length === 0 && (
+              <Badge variant="outline" className="text-xs bg-orange-600 text-white border-orange-500">
+                <Plus className="w-3 h-3 mr-1" />
+                No Patterns - Click Play to Auto-Load
+              </Badge>
+            )}
             <Button
               onClick={() => {
                 console.log('=== AUDIO SYSTEM DEBUG ===')
@@ -1735,14 +2799,41 @@ export function SongArrangement({
                 console.log('7. Tracks with audio:', tracks.filter(t => t.audioUrl).length)
                 console.log('8. Current bar:', currentBar)
                 console.log('9. Is playing:', isArrangementPlaying)
+                console.log('10. Is playing ref:', isPlayingRef.current)
+                console.log('11. Progress interval:', progressIntervalRef.current)
                 
                 // Test if we can actually play audio
                 if (Object.keys(arrangementPlayersRef.current).length > 0) {
                   const firstPlayer = Object.values(arrangementPlayersRef.current)[0]
-                  console.log('10. First player state:', firstPlayer.state)
-                  console.log('11. First player loaded:', firstPlayer.loaded)
+                  console.log('12. First player state:', firstPlayer.state)
+                  console.log('13. First player loaded:', firstPlayer.loaded)
                 } else {
-                  console.log('10. NO PLAYERS AVAILABLE!')
+                  console.log('12. NO PLAYERS AVAILABLE!')
+                }
+                
+                // Check for any playing players
+                const playingPlayers = Object.entries(arrangementPlayersRef.current).filter(([id, player]) => player?.state === 'started')
+                console.log('14. Currently playing players:', playingPlayers.map(([id]) => id))
+                
+                // Check transport state
+                if (arrangementTransportRef.current) {
+                  console.log('15. Transport position:', arrangementTransportRef.current.position)
+                  console.log('16. Transport loop:', arrangementTransportRef.current.loop)
+                }
+                
+                // Check if transport is stuck
+                if (arrangementTransportRef.current && arrangementTransportRef.current.state === 'started') {
+                  console.log('17. ⚠️ TRANSPORT IS STILL RUNNING!')
+                } else {
+                  console.log('17. ✅ Transport is stopped')
+                }
+                
+                // Check if any players are stuck
+                const stuckPlayers = Object.entries(arrangementPlayersRef.current).filter(([id, player]) => player?.state === 'started')
+                if (stuckPlayers.length > 0) {
+                  console.log('18. ⚠️ STUCK PLAYERS:', stuckPlayers.map(([id]) => id))
+                } else {
+                  console.log('18. ✅ All players are stopped')
                 }
               }}
               variant="outline"
@@ -1778,6 +2869,52 @@ export function SongArrangement({
               {isCutMode ? 'Cut Mode ON' : 'Cut'}
             </Button>
             <Button
+              onClick={toggleSelectorMode}
+              variant={isSelectorMode ? "destructive" : "outline"}
+              size="sm"
+              className={`text-xs ${isSelectorMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}
+              title={isSelectorMode ? "Click to disable selector mode" : "Click to enable selector mode - then click on patterns to select them"}
+            >
+              <MousePointer className="w-4 h-4 mr-1" />
+              {isSelectorMode ? 'Selector ON' : 'Select'}
+            </Button>
+            {selectedBlocks.length > 0 && (
+              <div className="flex items-center gap-2 ml-2">
+                <Badge variant="outline" className="text-xs bg-blue-600 text-white border-blue-500">
+                  {selectedBlocks.length} Selected
+                </Badge>
+                <Button
+                  onClick={deleteSelectedPatterns}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs bg-red-600 hover:bg-red-700 text-white border-red-500"
+                  title="Delete selected patterns"
+                >
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  Delete
+                </Button>
+                <Button
+                  onClick={duplicateSelectedPatterns}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs bg-green-600 hover:bg-green-700 text-white border-green-500"
+                  title="Duplicate selected patterns"
+                >
+                  <Copy className="w-3 h-3 mr-1" />
+                  Duplicate
+                </Button>
+                <Button
+                  onClick={clearAllSelections}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs bg-gray-600 hover:bg-gray-700 text-white border-gray-500"
+                  title="Clear all selections"
+                >
+                  Clear
+                </Button>
+              </div>
+            )}
+            <Button
               onClick={() => {
                 loadElevenPatternsFromEachTrack()
               }}
@@ -1807,15 +2944,14 @@ export function SongArrangement({
               }}
               variant="outline"
               size="sm"
-              className="text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+              className="text-xs bg-black text-yellow-400 hover:text-yellow-300 hover:bg-gray-900 border-gray-600"
               title="Create dynamic arrangement with drops by splitting patterns"
             >
-              <Music className="w-4 h-4 mr-1" />
-              Create Drops
+              <Brain className="w-4 h-4" />
             </Button>
             <Button
               onClick={() => {
-                exportBeatAsWav()
+                downloadBeatAsWav()
               }}
               variant="outline"
               size="sm"
@@ -1824,6 +2960,16 @@ export function SongArrangement({
             >
               <Download className="w-4 h-4 mr-1" />
               Export Beat
+            </Button>
+            <Button
+              onClick={openSaveBeatDialog}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+              title="Save beat to your library"
+            >
+              <Save className="w-4 h-4 mr-1" />
+              Save Beat
             </Button>
             {isArrangementPlaying && (
               <div className="flex items-center gap-2">
@@ -1866,6 +3012,23 @@ export function SongArrangement({
                 </span>
               </div>
             )}
+            {isSelectorMode && (
+              <div className="flex items-center gap-2 ml-4">
+                <Badge variant="outline" className="text-xs bg-blue-600 text-white border-blue-500">
+                  <MousePointer className="w-3 h-3 mr-1" />
+                  Selector Mode Active
+                </Badge>
+                <span className="text-blue-400 text-sm">
+                  Click on patterns to select them • {selectedBlocks.length} selected
+                </span>
+              </div>
+            )}
+            </div>
+            
+            {/* Status messages row */}
+            <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+              <span>Press SPACEBAR to play/stop • Press DELETE to toggle delete mode • Press C to toggle cut mode • Press S to toggle selector mode</span>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1875,7 +3038,7 @@ export function SongArrangement({
         <CardContent className="p-0">
           <div className="relative">
             {/* Track names - Fixed outside the grid */}
-            <div className="absolute left-0 top-0 w-48 h-full bg-[#1a1a1a] border-r border-gray-600 z-30" style={{ marginTop: '60px' }}>
+            <div className="absolute left-0 top-0 w-40 sm:w-48 h-full bg-[#1a1a1a] border-r border-gray-600 z-30" style={{ marginTop: '60px' }}>
               {tracks.map((track, index) => (
                 <div
                   key={track.id}
@@ -1886,19 +3049,39 @@ export function SongArrangement({
                     <div className={`w-3 h-3 rounded-full ${track.color}`}></div>
                     <span className="text-white text-sm truncate">{getTrackDisplayName(track.name)}</span>
                   </div>
-                  <Button
-                    size="sm"
-                    variant={loadedTrackId === track.id ? "default" : "outline"}
-                    className={`w-8 h-8 p-0 text-xs ${
-                      loadedTrackId === track.id 
-                        ? 'bg-green-600 hover:bg-green-700 text-white' 
-                        : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-                    }`}
-                    onClick={() => toggleLoadMode(track.id)}
-                    title={loadedTrackId === track.id ? "Click to turn off load mode" : "Click to load pattern for placement"}
-                  >
-                    {loadedTrackId === track.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "L"}
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                      onClick={() => openSaveDialog(track)}
+                      title="Save arrangement for this track"
+                    >
+                      <Save className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                      onClick={() => openLoadDialog(track)}
+                      title="Load arrangement for this track"
+                    >
+                      <FolderOpen className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={loadedTrackId === track.id ? "default" : "outline"}
+                      className={`w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs ${
+                        loadedTrackId === track.id 
+                          ? 'bg-green-600 hover:bg-green-700 text-white' 
+                          : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                      }`}
+                      onClick={() => toggleLoadMode(track.id)}
+                      title={loadedTrackId === track.id ? "Click to turn off load mode" : "Click to load pattern for placement"}
+                    >
+                      {loadedTrackId === track.id ? <Loader2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin" /> : "L"}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1906,10 +3089,11 @@ export function SongArrangement({
             {/* Main scrollable container that includes both header and grid */}
             <div 
               ref={gridRef}
-              className="relative overflow-auto ml-48"
+              className="relative overflow-auto ml-40 sm:ml-48"
               style={{ height: '460px' }}
               onScroll={(e) => setScrollX(e.currentTarget.scrollLeft)}
               onClick={handleGridClick}
+              onMouseDown={handleGridMouseDown}
             >
                             {/* Timeline Header - Scrolls with grid */}
               <div 
@@ -2046,8 +3230,11 @@ export function SongArrangement({
                     <React.Fragment key={block.id}>
                       <div
                         key={block.id}
+                        data-pattern-block="true"
                         className={`absolute select-none ${
-                          isDeleteMode 
+                          isSelectorMode
+                            ? 'cursor-pointer'
+                            : isDeleteMode 
                             ? 'cursor-crosshair' 
                             : isCutMode
                             ? 'cursor-pointer'
@@ -2055,9 +3242,13 @@ export function SongArrangement({
                         } ${
                           selectedBlocks.includes(block.id) 
                             ? 'ring-2 ring-blue-500 ring-opacity-50' 
+                            : isPatternInSelectionBox(block)
+                            ? 'ring-2 ring-blue-400 ring-opacity-30'
                             : ''
                         } ${
-                          isDeleteMode 
+                          isSelectorMode
+                            ? 'hover:ring-2 hover:ring-blue-500 hover:ring-opacity-70'
+                            : isDeleteMode 
                             ? 'hover:ring-2 hover:ring-red-500 hover:ring-opacity-70' 
                             : isCutMode
                             ? 'hover:ring-2 hover:ring-orange-500 hover:ring-opacity-70'
@@ -2073,7 +3264,7 @@ export function SongArrangement({
                             : 'none'
                         }}
                         onMouseDown={(e) => {
-                          if (isDeleteMode || isCutMode) {
+                          if (isSelectorMode || isDeleteMode || isCutMode) {
                             e.preventDefault()
                             e.stopPropagation()
                             handlePatternBlockClick(block.id)
@@ -2082,7 +3273,9 @@ export function SongArrangement({
                           }
                         }}
                         title={
-                          isDeleteMode 
+                          isSelectorMode
+                            ? `Click to ${selectedBlocks.includes(block.id) ? 'deselect' : 'select'} ${block.name}`
+                            : isDeleteMode 
                             ? `Click to delete ${block.name}` 
                             : isCutMode
                             ? `Click to split ${block.name} in half`
@@ -2352,6 +3545,21 @@ export function SongArrangement({
                   )
                 })}
 
+                {/* Selection Box Overlay */}
+                {isSelectionBoxActive && (
+                  <div
+                    className="absolute pointer-events-none z-20"
+                    style={{
+                      left: Math.min(selectionBoxStart.x, selectionBoxEnd.x),
+                      top: Math.min(selectionBoxStart.y, selectionBoxEnd.y),
+                      width: Math.abs(selectionBoxEnd.x - selectionBoxStart.x),
+                      height: Math.abs(selectionBoxEnd.y - selectionBoxStart.y),
+                      border: '2px dashed #3b82f6',
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                      borderRadius: '4px'
+                    }}
+                  />
+                )}
 
               </div>
             </div>
@@ -2423,6 +3631,411 @@ export function SongArrangement({
               >
                 Close
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Arrangement Dialog */}
+      {showSaveDialog && currentTrackForArrangement && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-600 rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-lg font-semibold">
+                Save Arrangement: {getTrackDisplayName(currentTrackForArrangement.name)}
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSaveDialog(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Name</label>
+                <Input
+                  value={arrangementName}
+                  onChange={(e) => setArrangementName(e.target.value)}
+                  placeholder="Enter arrangement name"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Description (optional)</label>
+                <Input
+                  value={arrangementDescription}
+                  onChange={(e) => setArrangementDescription(e.target.value)}
+                  placeholder="Describe this arrangement"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Category (optional)</label>
+                <Select value={arrangementCategory} onValueChange={setArrangementCategory}>
+                  <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-600">
+                    <SelectItem value="none">No category</SelectItem>
+                    <SelectItem value="intro">Intro</SelectItem>
+                    <SelectItem value="verse">Verse</SelectItem>
+                    <SelectItem value="chorus">Chorus</SelectItem>
+                    <SelectItem value="bridge">Bridge</SelectItem>
+                    <SelectItem value="drop">Drop</SelectItem>
+                    <SelectItem value="breakdown">Breakdown</SelectItem>
+                    <SelectItem value="outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Tags (optional)</label>
+                <Input
+                  value={arrangementTags}
+                  onChange={(e) => setArrangementTags(e.target.value)}
+                  placeholder="drops, energy, verse (comma separated)"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Genre (optional)</label>
+                <Input
+                  value={arrangementGenre}
+                  onChange={(e) => setArrangementGenre(e.target.value)}
+                  placeholder="Hip Hop, Trap, R&B, etc."
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Subgenre (optional)</label>
+                <Input
+                  value={arrangementSubgenre}
+                  onChange={(e) => setArrangementSubgenre(e.target.value)}
+                  placeholder="Boom Bap, Drill, Neo Soul, etc."
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">BPM</label>
+                <Input
+                  type="number"
+                  value={arrangementBpm}
+                  onChange={(e) => setArrangementBpm(e.target.value)}
+                  placeholder="140"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">Audio Type</label>
+                <Input
+                  value={arrangementAudioType}
+                  onChange={(e) => setArrangementAudioType(e.target.value)}
+                  placeholder="Melody Loop, Drum Loop, etc."
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div className="flex items-center gap-4 pt-4">
+                <Button
+                  onClick={saveArrangement}
+                  disabled={isSaving || !arrangementName.trim()}
+                  className="flex-1"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  {isSaving ? 'Saving...' : 'Save Arrangement'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSaveDialog(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Arrangement Dialog */}
+      {showLoadDialog && currentTrackForArrangement && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-600 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-lg font-semibold">
+                Load Arrangement: {getTrackDisplayName(currentTrackForArrangement.name)}
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowLoadDialog(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </Button>
+            </div>
+            
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                <span className="text-gray-300 ml-2">Loading arrangements...</span>
+              </div>
+            ) : availableArrangements.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-400">No arrangements found for this track.</p>
+                <p className="text-gray-500 text-sm mt-2">Save some arrangements first to see them here.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {availableArrangements.map((arrangement) => (
+                  <div
+                    key={arrangement.arrangementId}
+                    className="bg-gray-800 border border-gray-600 rounded-lg p-4 hover:bg-gray-700 transition-colors cursor-pointer"
+                    onClick={() => loadArrangement(arrangement.arrangementId)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h4 className="text-white font-medium">{arrangement.arrangementName}</h4>
+                        <p className="text-gray-400 text-sm">
+                          {arrangement.category && (
+                            <span className="inline-block bg-blue-600 text-white text-xs px-2 py-1 rounded mr-2">
+                              {arrangement.category}
+                            </span>
+                          )}
+                          {arrangement.totalBars} bars • {arrangement.patternCount} patterns
+                        </p>
+                        <p className="text-gray-500 text-xs mt-1">
+                          Created: {new Date(arrangement.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-4"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          loadArrangement(arrangement.arrangementId)
+                        }}
+                      >
+                        <FolderOpen className="w-4 h-4 mr-2" />
+                        Load
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex justify-end pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setShowLoadDialog(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Beat Dialog */}
+      {showSaveBeatDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-600 rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-lg font-semibold">Save Beat</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSaveBeatDialog(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Title *</label>
+                <Input
+                  value={beatTitle}
+                  onChange={(e) => setBeatTitle(e.target.value)}
+                  placeholder="Enter beat title"
+                  className="w-full"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Description</label>
+                <textarea
+                  value={beatDescription}
+                  onChange={(e) => setBeatDescription(e.target.value)}
+                  placeholder="Describe your beat"
+                  className="w-full p-2 border border-gray-600 rounded-md bg-gray-800 text-white resize-none"
+                  rows={3}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Genre</label>
+                  <Input
+                    value={beatGenre}
+                    onChange={(e) => setBeatGenre(e.target.value)}
+                    placeholder="Hip Hop, Trap, etc."
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">BPM</label>
+                  <Input
+                    type="number"
+                    value={beatBpm}
+                    onChange={(e) => setBeatBpm(e.target.value)}
+                    placeholder="140"
+                    className="w-full"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Key</label>
+                  <Input
+                    value={beatKey}
+                    onChange={(e) => setBeatKey(e.target.value)}
+                    placeholder="C, F#, etc."
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Price ($)</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={beatPrice}
+                    onChange={(e) => setBeatPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Cover Image</label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      setBeatCoverImage(file)
+                      const reader = new FileReader()
+                      reader.onload = (e) => setBeatCoverPreview(e.target?.result as string)
+                      reader.readAsDataURL(file)
+                    }
+                  }}
+                  className="w-full"
+                />
+                {beatCoverPreview && (
+                  <img 
+                    src={beatCoverPreview} 
+                    alt="Cover preview" 
+                    className="w-24 h-24 object-cover rounded mt-2" 
+                  />
+                )}
+              </div>
+              
+              {beatUploadError && (
+                <div className="text-red-400 text-sm bg-red-900/20 border border-red-600 rounded p-2">
+                  {beatUploadError}
+                </div>
+              )}
+              
+              <div className="flex gap-3 pt-4">
+                <Button
+                  onClick={saveBeat}
+                  disabled={isSavingBeat || !beatTitle.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {isSavingBeat ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  {isSavingBeat ? 'Saving...' : 'Save Beat'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    console.log('[AUTH DEBUG] Checking authentication status...')
+                    
+                    // Try to get session
+                    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+                    console.log('[AUTH DEBUG] Session result:', { session: !!session, error: sessionError })
+                    
+                    // Try to get user
+                    const { data: { user }, error: userError } = await supabase.auth.getUser()
+                    console.log('[AUTH DEBUG] User result:', { user: !!user, error: userError })
+                    
+                    // Try to get user profile from database
+                    if (user) {
+                      const { data: profile, error: profileError } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', user.id)
+                        .single()
+                      console.log('[AUTH DEBUG] Profile result:', { profile: !!profile, error: profileError })
+                    }
+                    
+                    // Check localStorage for auth tokens
+                    const authToken = localStorage.getItem('beatheos-auth-token')
+                    console.log('[AUTH DEBUG] LocalStorage token:', !!authToken)
+                    
+                    alert(`Auth Status:\nSession: ${!!session}\nUser: ${!!user}\nAccess Token: ${!!session?.access_token}\nLocalStorage Token: ${!!authToken}`)
+                  }}
+                  className="text-xs"
+                >
+                  Check Auth
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    console.log('[AUTH DEBUG] Attempting to refresh authentication...')
+                    
+                    try {
+                      // Try to refresh the session
+                      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+                      console.log('[AUTH DEBUG] Refresh result:', { session: !!refreshData.session, error: refreshError })
+                      
+                      if (refreshData.session) {
+                        alert('Authentication refreshed successfully! Try saving again.')
+                      } else {
+                        alert('Failed to refresh authentication. Please log out and log back in.')
+                      }
+                    } catch (error) {
+                      console.error('[AUTH DEBUG] Refresh error:', error)
+                      alert('Error refreshing authentication. Please log out and log back in.')
+                    }
+                  }}
+                  className="text-xs"
+                >
+                  Refresh Auth
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSaveBeatDialog(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
         </div>

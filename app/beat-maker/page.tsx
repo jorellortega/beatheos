@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2 } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -5497,8 +5497,8 @@ export default function BeatMakerPage() {
       // Only handle spacebar if not typing and quantize modal is not open
       if (event.code === 'Space' && !isTyping && !showQuantizeModal) {
         // Don't handle spacebar in song arrangement tab - let it handle its own spacebar
-        if (activeTab === 'song') {
-          console.log('[SPACEBAR DEBUG] Spacebar pressed in song tab - letting song arrangement handle it')
+        if (activeTab === 'song-arrangement') {
+          console.log('[SPACEBAR DEBUG] Spacebar pressed in song arrangement tab - letting song arrangement handle it')
           return // Don't prevent default, let song arrangement handle it
         }
         
@@ -5527,7 +5527,7 @@ export default function BeatMakerPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isPlaying, hasLoadedAudio, activeTab, showQuantizeModal])
+  }, [isPlaying, hasLoadedAudio, activeTab, showQuantizeModal, currentSessionId, hasUnsavedChanges])
   
   // EQ Panel state
   const [showEQPanel, setShowEQPanel] = useState(false)
@@ -5672,6 +5672,8 @@ export default function BeatMakerPage() {
   const [showSavePatternDialog, setShowSavePatternDialog] = useState(false)
   const [showLoadPatternDialog, setShowLoadPatternDialog] = useState(false)
   const [showSaveTrackPatternDialog, setShowSaveTrackPatternDialog] = useState(false)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
   const [selectedTrackForPattern, setSelectedTrackForPattern] = useState<Track | null>(null)
   const [patternName, setPatternName] = useState('')
   const [patternDescription, setPatternDescription] = useState('')
@@ -6033,10 +6035,13 @@ export default function BeatMakerPage() {
       setSessionTags(data.tags ? data.tags.join(', ') : '')
       setSessionStatus(data.status || 'draft')
       
-      alert(`Session "${data.name}" loaded successfully!`)
+      // Show modern success dialog instead of alert
+      setSuccessMessage(`Session "${data.name}" loaded successfully!`)
+      setShowSuccessDialog(true)
     } catch (error) {
       console.error('Error loading session:', error)
-      alert('Failed to load session')
+      setSuccessMessage('Failed to load session')
+      setShowSuccessDialog(true)
     } finally {
       setIsLoading(false)
     }
@@ -8364,6 +8369,9 @@ export default function BeatMakerPage() {
             isPlaying={isPlaying}
             patterns={songArrangementPatterns}
             onPatternsChange={handleSongArrangementPatternsChange}
+            onArrangementPlayStateChange={(isPlaying) => {
+              console.log('[BEAT MAKER] Song arrangement play state changed:', isPlaying)
+            }}
           />
         </TabsContent>
 
@@ -10724,6 +10732,31 @@ export default function BeatMakerPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <CheckCircle className="h-12 w-12 text-green-500" />
+            </div>
+            <DialogTitle className="text-xl font-semibold text-white">
+              {successMessage.includes('Failed') ? 'Error' : 'Success'}
+            </DialogTitle>
+            <DialogDescription className="text-gray-300 mt-2">
+              {successMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex justify-center">
+            <Button 
+              onClick={() => setShowSuccessDialog(false)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
               {/* EQ Panel */}
         {showEQPanel && selectedTrackForEQ && (
           <EQPanel
@@ -10746,233 +10779,7 @@ export default function BeatMakerPage() {
           />
         )}
 
-        {/* Performance Monitoring Section */}
-        <div className="mt-8 p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
-          <h3 className="text-lg font-bold text-white mb-4">🔍 Performance Monitor</h3>
-          
-          {/* Resource Usage by Component */}
-          <div className="bg-red-900/20 p-4 rounded border border-red-600 mb-4">
-            <h4 className="font-semibold text-red-300 mb-3">⚠️ Resource Usage by Component</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="text-sm">
-                  <span className="text-yellow-300">TrackList:</span> 
-                  <span className="text-white ml-2">
-                    {tracks.length} tracks × ~2KB = {Math.round(tracks.length * 2)}KB
-                  </span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">FileLinks:</span> 
-                  <span className="text-white ml-2">
-                    {fileLinks.length} links × ~1KB = {Math.round(fileLinks.length * 1)}KB
-                  </span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">Sequencer:</span> 
-                  <span className="text-white ml-2">
-                    {tracks.length} tracks × 64 steps × ~0.1KB = {Math.round(tracks.length * 64 * 0.1)}KB
-                  </span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">Audio Players:</span> 
-                  <span className="text-white ml-2">
-                    {tracks.filter(t => t.audioUrl).length} players × ~{preferMp3 ? '1.5' : '5'}MB = {Math.round(tracks.filter(t => t.audioUrl).length * (preferMp3 ? 1.5 : 5))}MB
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm">
-                  <span className="text-yellow-300">Total Estimated Memory:</span> 
-                  <span className="text-red-300 font-bold ml-2">
-                    {Math.round((tracks.length * 2 + fileLinks.length * 1 + tracks.length * 64 * 0.1) / 1024 + tracks.filter(t => t.audioUrl).length * (preferMp3 ? 1.5 : 5))}MB
-                  </span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">Real Memory Usage:</span> 
-                  <span className="text-green-300 font-bold ml-2">
-                    {(() => {
-                      const mem = (performance as any).memory
-                      return mem ? Math.round(mem.usedJSHeapSize / 1024 / 1024) : 'N/A'
-                    })()}MB
-                  </span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">DOM Elements:</span> 
-                  <span className="text-white ml-2">{document.querySelectorAll('*').length}</span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">React Components:</span> 
-                  <span className="text-white ml-2">{tracks.length * 3 + fileLinks.length / 10}</span>
-                </div>
-                <div className="text-sm">
-                  <span className="text-yellow-300">Performance Score:</span> 
-                  <span className={`font-bold ml-2 ${
-                    document.querySelectorAll('*').length > 10000 ? 'text-red-300' : 
-                    document.querySelectorAll('*').length > 5000 ? 'text-yellow-300' : 'text-green-300'
-                  }`}>
-                    {document.querySelectorAll('*').length > 10000 ? 'POOR' : 
-                     document.querySelectorAll('*').length > 5000 ? 'FAIR' : 'GOOD'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* File Loading Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-gray-800/50 p-3 rounded border border-gray-600">
-              <h4 className="font-semibold text-blue-300 mb-2">📊 File Loading Stats</h4>
-              <div className="space-y-1 text-sm">
-                <div>Format System: <span className={`font-bold ${formatSystemEnabled ? 'text-purple-300' : 'text-gray-300'}`}>
-                  {formatSystemEnabled ? 'ENABLED' : 'DISABLED'}
-                </span></div>
-                <div>Query Limit: <span className="text-orange-300 font-bold">{queryLimit}</span></div>
-                <div>Total Audio Items: <span className="text-purple-300 font-bold">
-                  {totalAudioItems > 0 ? totalAudioItems : 'Not loaded yet'}
-                </span></div>
-                <div>Total File Links: <span className="text-yellow-300 font-bold">
-                  {fileLinks.length > 0 ? fileLinks.length : 'Not loaded yet'}
-                </span></div>
-                {formatSystemEnabled && (
-                  <>
-                    <div>MP3 Links: <span className="text-green-300 font-bold">
-                      {fileLinks.length > 0 ? fileLinks.filter((l: any) => l.converted_format === 'mp3').length : 'Not loaded yet'}
-                    </span></div>
-                    <div>WAV Links: <span className="text-blue-300 font-bold">
-                      {fileLinks.length > 0 ? fileLinks.filter((l: any) => l.converted_format === 'wav').length : 'Not loaded yet'}
-                    </span></div>
-                    <div>Other Formats: <span className="text-gray-300 font-bold">
-                      {fileLinks.length > 0 ? fileLinks.filter((l: any) => !['mp3', 'wav'].includes(l.converted_format)).length : 'Not loaded yet'}
-                    </span></div>
-                  </>
-                )}
-              </div>
-            </div>
-            
-            <div className="bg-gray-800/50 p-3 rounded border border-gray-600">
-              <h4 className="font-semibold text-purple-300 mb-2">🎵 Track Status</h4>
-              <div className="space-y-1 text-sm">
-                <div>Total Tracks: <span className="text-yellow-300 font-bold">{tracks.length}</span></div>
-                <div>Tracks with Audio: <span className="text-green-300 font-bold">{tracks.filter(t => t.audioUrl).length}</span></div>
-                <div>Tracks with File ID: <span className="text-blue-300 font-bold">{tracks.filter(t => t.audioFileId).length}</span></div>
-                {formatSystemEnabled && <div>Current Format: <span className="text-purple-300 font-bold">{preferMp3 ? 'MP3' : 'WAV'}</span></div>}
-              </div>
-            </div>
-            
-            <div className="bg-gray-800/50 p-3 rounded border border-gray-600">
-              <h4 className="font-semibold text-orange-300 mb-2">⚡ Performance</h4>
-              <div className="space-y-1 text-sm">
-                <div>Memory Usage: <span className="text-yellow-300 font-bold">
-                  {(() => {
-                    const mem = (performance as any).memory
-                    return mem ? Math.round(mem.usedJSHeapSize / 1024 / 1024) : 'N/A'
-                  })()}MB
-                </span></div>
-                <div>Total Memory: <span className="text-blue-300 font-bold">
-                  {(() => {
-                    const mem = (performance as any).memory
-                    return mem ? Math.round(mem.totalJSHeapSize / 1024 / 1024) : 'N/A'
-                  })()}MB
-                </span></div>
-                <div>Page Load Time: <span className="text-green-300 font-bold">{Math.round(performance.now())}ms</span></div>
-                <div>DOM Nodes: <span className="text-purple-300 font-bold">{document.querySelectorAll('*').length}</span></div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Track Performance Details */}
-          <div className="bg-gray-800/50 p-4 rounded border border-gray-600 mb-4">
-            <h4 className="font-semibold text-white mb-3">🎛️ Track Performance Details</h4>
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {tracks.map((track, index) => {
-                const mp3Link = fileLinks.find((l: any) => l.original_file_id === track.audioFileId && l.converted_format === 'mp3')
-                const currentUrl = track.audioUrl || 'No audio'
-                const isSwitched = mp3Link && preferMp3 && mp3Link.mp3_file_url && mp3Link.mp3_file_url !== track.audioUrl
-                
-                // Debug: Log the matching process
-                if (track.audioFileId) {
-                  const matchingLinks = fileLinks.filter((l: any) => l.original_file_id === track.audioFileId)
-                  console.log(`🔍 Track "${track.name}" (${track.audioFileId}): Found ${matchingLinks.length} matching links`)
-                  if (matchingLinks.length > 0) {
-                    console.log(`🔍 Matching links:`, matchingLinks.map((l: any) => ({
-                      id: l.id,
-                      original: l.original_file_id,
-                      converted: l.converted_file_id,
-                      originalFormat: l.original_format,
-                      convertedFormat: l.converted_format,
-                      hasMp3Url: !!l.mp3_file_url
-                    })))
-                  }
-                }
-                
-                return (
-                  <div key={track.id} className="bg-gray-700/50 p-2 rounded border border-gray-600">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="font-semibold text-white">{track.name || `Track ${index + 1}`}</div>
-                        <div className="text-xs text-gray-300">
-                          File ID: {track.audioFileId || 'None'} | 
-                          {formatSystemEnabled && `Format: ${preferMp3 ? 'MP3' : 'WAV'} | `}
-                          Status: {isSwitched ? '🔄 Switched' : '📌 Original'}
-                        </div>
-                        <div className="text-xs text-gray-400 mt-1">
-                          URL: {currentUrl.substring(0, 60)}...
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {mp3Link ? (
-                          <div className="text-xs text-green-300">✅ MP3 Available</div>
-                        ) : (
-                          <div className="text-xs text-red-300">❌ No MP3</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          
-          {/* MP3/WAV Switch Status - Only show when format system is enabled */}
-          {formatSystemEnabled && (
-            <div className="bg-gray-800/50 p-4 rounded border border-gray-600">
-              <h4 className="font-semibold text-white mb-3">🔄 MP3/WAV Switch Status</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h5 className="text-blue-300 font-semibold mb-2">Current Format: {preferMp3 ? 'MP3' : 'WAV'}</h5>
-                <div className="space-y-1 text-sm">
-                  <div>Tracks that can switch: <span className="text-green-300 font-bold">
-                    {tracks.filter(t => {
-                      const mp3Link = fileLinks.find((l: any) => l.original_file_id === t.audioFileId && l.converted_format === 'mp3')
-                      return mp3Link && mp3Link.mp3_file_url
-                    }).length}
-                  </span></div>
-                  <div>Tracks using switched URL: <span className="text-yellow-300 font-bold">
-                    {tracks.filter(t => {
-                      const mp3Link = fileLinks.find((l: any) => l.original_file_id === t.audioFileId && l.converted_format === 'mp3')
-                      return mp3Link && preferMp3 && mp3Link.mp3_file_url && mp3Link.mp3_file_url !== t.audioUrl
-                    }).length}
-                  </span></div>
-                </div>
-              </div>
-              <div>
-                <h5 className="text-purple-300 font-semibold mb-2">Sample MP3 Links</h5>
-                <div className="space-y-1 text-sm max-h-32 overflow-y-auto">
-                  {fileLinks.filter((l: any) => l.converted_format === 'mp3').slice(0, 5).map((link, index) => (
-                    <div key={link.id} className="text-xs text-gray-300">
-                      {index + 1}. {link.mp3_file_name || `Link ${link.id}`} 
-                      {link.mp3_file_url ? ' ✅' : ' ❌'}
-                    </div>
-                  ))}
-                  {fileLinks.filter((l: any) => l.converted_format === 'mp3').length === 0 && (
-                    <div className="text-xs text-red-300">No MP3 links found</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          )}
-        </div>
+
     </div>
   )
 }
