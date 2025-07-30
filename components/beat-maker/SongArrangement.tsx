@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download, MousePointer, Save, FolderOpen, Brain } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import * as Tone from 'tone'
@@ -38,6 +39,15 @@ interface SongArrangementProps {
   onSwitchToSequencerTab?: () => void // Callback to switch to sequencer tab
   onArrangementPlayPause?: () => void // Callback to trigger arrangement play/pause
   onArrangementPlayStateChange?: (isPlaying: boolean) => void // Callback when arrangement play state changes
+  mixerSettings?: {[trackId: number]: {
+    volume: number
+    pan: number
+    mute: boolean
+    solo: boolean
+    eq: { low: number, mid: number, high: number }
+    effects: { reverb: number, delay: number }
+  }}
+  masterVolume?: number
 }
 
 export function SongArrangement({
@@ -52,7 +62,9 @@ export function SongArrangement({
   onPatternsChange,
   onSwitchToSequencerTab,
   onArrangementPlayPause,
-  onArrangementPlayStateChange
+  onArrangementPlayStateChange,
+  mixerSettings = {},
+  masterVolume = 0.8
 }: SongArrangementProps) {
   const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>(patterns)
   const [currentPattern, setCurrentPattern] = useState<PatternBlock | null>(null)
@@ -115,6 +127,53 @@ export function SongArrangement({
   const [beatCoverImage, setBeatCoverImage] = useState<File | null>(null)
   const [beatCoverPreview, setBeatCoverPreview] = useState('')
   const [beatUploadError, setBeatUploadError] = useState('')
+  
+  // Modal states
+  const [showNoPatternsModal, setShowNoPatternsModal] = useState(false)
+  
+  // Export markers for start and end points
+  const [exportStartBar, setExportStartBar] = useState(1)
+  const [exportEndBar, setExportEndBar] = useState(1)
+  const [exportMarkersActive, setExportMarkersActive] = useState(false)
+
+  // Function to update export markers based on pattern blocks
+  const updateExportMarkers = useCallback(() => {
+    if (patternBlocks.length > 0) {
+      const startBar = Math.min(...patternBlocks.map(block => block.startBar))
+      const endBar = Math.max(...patternBlocks.map(block => block.endBar))
+      setExportStartBar(startBar)
+      setExportEndBar(endBar)
+      console.log(`[EXPORT MARKERS] Updated: Start=${startBar}, End=${endBar}`)
+    }
+  }, [patternBlocks])
+
+  // Auto-update export markers when pattern blocks change (only if markers not active)
+  useEffect(() => {
+    if (!exportMarkersActive) {
+      updateExportMarkers()
+    }
+  }, [patternBlocks, updateExportMarkers, exportMarkersActive])
+
+  // Function to set export markers (first click)
+  const setExportMarkers = () => {
+    if (patternBlocks.length > 0) {
+      const startBar = Math.min(...patternBlocks.map(block => block.startBar))
+      const endBar = Math.max(...patternBlocks.map(block => block.endBar))
+      setExportStartBar(startBar)
+      setExportEndBar(endBar)
+      setExportMarkersActive(true)
+      console.log(`[EXPORT MARKERS] Set active: Start=${startBar}, End=${endBar}`)
+      alert(`Export markers set! Start: Bar ${startBar}, End: Bar ${endBar}\n\nYou can now adjust the markers by clicking on the timeline, then click Export (Live) again to start recording.`)
+    } else {
+      alert('No patterns to export! Please add some patterns first.')
+    }
+  }
+
+  // Function to reset export markers
+  const resetExportMarkers = () => {
+    setExportMarkersActive(false)
+    console.log('[EXPORT MARKERS] Reset - markers deactivated')
+  }
 
   // Function to get track display name with icons (same as sequencer)
   const getTrackDisplayName = (trackName: string) => {
@@ -1037,6 +1096,22 @@ export function SongArrangement({
       calculatedBar: clickedBar
     })
     
+    // If export markers are active, allow adjusting them
+    if (exportMarkersActive) {
+      // Check if click is closer to start or end marker
+      const startDistance = Math.abs(clickedBar - exportStartBar)
+      const endDistance = Math.abs(clickedBar - exportEndBar)
+      
+      if (startDistance <= endDistance) {
+        setExportStartBar(clickedBar)
+        console.log(`[EXPORT MARKERS] Start marker moved to bar ${clickedBar}`)
+      } else {
+        setExportEndBar(clickedBar)
+        console.log(`[EXPORT MARKERS] End marker moved to bar ${clickedBar}`)
+      }
+      return
+    }
+    
     console.log('[TIMELINE] Header clicked at position:', clickX, 'setting playhead to bar:', clickedBar)
     
     // Set the playhead to the clicked position
@@ -1635,9 +1710,9 @@ export function SongArrangement({
     console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
   }
 
-  // Export the arrangement as a high-quality WAV file
+  // Export the arrangement as a high-quality WAV file (Option 1: Offline rendering)
   const exportBeatAsWav = async () => {
-    console.log('[EXPORT] Starting WAV export of arrangement')
+    console.log('[EXPORT] Starting WAV export of arrangement with mixer settings applied')
     
     if (patternBlocks.length === 0) {
       alert('No patterns to export. Please add some patterns first.')
@@ -1657,6 +1732,12 @@ export function SongArrangement({
     }
 
     try {
+      // Apply mixer settings to exported audio:
+      // - Volume: track volume * master volume
+      // - Mute: muted tracks are excluded from export
+      // - Pan: logged but not yet implemented in offline context
+      // - EQ: not yet implemented in offline context
+      
       // Calculate total duration in bars
       const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
       const secondsPerBeat = 60 / bpm
@@ -1667,12 +1748,15 @@ export function SongArrangement({
       console.log(`[EXPORT] Total duration: ${totalDurationSeconds}s (${maxEndBar} bars) at ${bpm} BPM`)
 
       // Create completely isolated offline audio context for rendering (stereo output)
-      const sampleRate = 44100
+      // Use maximum quality settings - 96kHz sample rate for professional quality
+      const sampleRate = 96000
       const offlineContext = new OfflineAudioContext(
         2, // stereo output
         Math.ceil(totalDurationSeconds * sampleRate), // length in samples
         sampleRate
       )
+      
+      console.log(`[EXPORT] Created offline context at ${sampleRate}Hz for maximum quality`)
 
       // Create a master gain node
       const masterGain = offlineContext.createGain()
@@ -1707,25 +1791,87 @@ export function SongArrangement({
           const publicAudioUrl = getPublicAudioUrl(track.audioUrl)
           console.log(`[EXPORT] Fetching audio from: ${publicAudioUrl}`)
           
-          // Fetch and decode audio
+          // Use maximum quality audio loading - fetch original file and decode at full quality
+          console.log(`[EXPORT] Loading audio at maximum quality from: ${publicAudioUrl}`)
+          
           const response = await fetch(publicAudioUrl)
           if (!response.ok) {
             throw new Error(`Failed to fetch audio: ${response.status} ${response.statusText}`)
           }
           
           const arrayBuffer = await response.arrayBuffer()
-          const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer)
-          console.log(`[EXPORT] Audio loaded: ${audioBuffer.duration}s duration`)
-
-          // Create track gain for mixing
-          const trackGain = offlineContext.createGain()
           
-          // Handle different track types for optimal export
+          // Create a temporary audio context to decode at full quality
+          const tempAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+          const audioBuffer = await tempAudioContext.decodeAudioData(arrayBuffer)
+          
+          console.log(`[EXPORT] Maximum quality audio loaded: ${audioBuffer.duration}s duration, ${audioBuffer.sampleRate}Hz, ${audioBuffer.numberOfChannels} channels`)
+          
+          // Close temporary context
+          tempAudioContext.close()
+
+          // Create high-quality audio processing chain (matching mixer quality)
+          const trackGain = offlineContext.createGain()
+          const trackPanner = offlineContext.createStereoPanner()
+          
+          // Apply mixer settings if available
+          const trackMixerSettings = mixerSettings[track.id]
+          if (trackMixerSettings) {
+            // Check if track is muted
+            if (trackMixerSettings.mute) {
+              console.log(`[EXPORT] Track ${track.name} is muted, skipping`)
+              continue
+            }
+            
+            // Apply volume directly (mixer already uses linear values)
+            const combinedVolume = trackMixerSettings.volume * masterVolume
+            trackGain.gain.value = combinedVolume
+            console.log(`[EXPORT] Applied mixer volume to ${track.name}: ${combinedVolume} (track: ${trackMixerSettings.volume}, master: ${masterVolume})`)
+            
+            // Apply pan with stereo panner
+            if (trackMixerSettings.pan !== 0) {
+              trackPanner.pan.value = trackMixerSettings.pan
+              console.log(`[EXPORT] Applied pan to ${track.name}: ${trackMixerSettings.pan}`)
+            }
+            
+            // Apply EQ if settings exist (create filters)
+            if (trackMixerSettings.eq && (trackMixerSettings.eq.low !== 0 || trackMixerSettings.eq.mid !== 0 || trackMixerSettings.eq.high !== 0)) {
+              console.log(`[EXPORT] EQ settings for ${track.name}:`, trackMixerSettings.eq)
+              
+              // Create EQ filters (low, mid, high)
+              const lowFilter = offlineContext.createBiquadFilter()
+              const midFilter = offlineContext.createBiquadFilter()
+              const highFilter = offlineContext.createBiquadFilter()
+              
+              // Configure filters
+              lowFilter.type = 'lowshelf'
+              lowFilter.frequency.value = 200
+              lowFilter.gain.value = trackMixerSettings.eq.low
+              
+              midFilter.type = 'peaking'
+              midFilter.frequency.value = 1000
+              midFilter.Q.value = 1
+              midFilter.gain.value = trackMixerSettings.eq.mid
+              
+              highFilter.type = 'highshelf'
+              highFilter.frequency.value = 3000
+              highFilter.gain.value = trackMixerSettings.eq.high
+              
+              // Connect EQ chain
+              trackGain.connect(lowFilter)
+              lowFilter.connect(midFilter)
+              midFilter.connect(highFilter)
+              highFilter.connect(trackPanner)
+            } else {
+              // No EQ - connect directly to panner
+              trackGain.connect(trackPanner)
+            }
+          } else {
+            // Fallback to track type-based gain if no mixer settings
           const isDrumLoop = track.name.toLowerCase().includes('drum') || track.name.toLowerCase().includes('perc')
           const isMelodyLoop = track.name.toLowerCase().includes('melody')
           const isBassLoop = track.name.toLowerCase().includes('bass') || track.name.toLowerCase().includes('808')
           
-          // Adjust gain based on track type
           if (isDrumLoop) {
             trackGain.gain.value = 0.8 // Drums slightly louder
           } else if (isMelodyLoop) {
@@ -1734,6 +1880,10 @@ export function SongArrangement({
             trackGain.gain.value = 0.7 // Bass balanced
           } else {
             trackGain.gain.value = 0.7 // Default
+            }
+            
+            // Connect directly to panner if no EQ
+            trackGain.connect(trackPanner)
           }
 
           // Apply playback rate if track has different tempo
@@ -1743,8 +1893,8 @@ export function SongArrangement({
             console.log(`[EXPORT] Applying playback rate: ${effectivePlaybackRate}x`)
           }
 
-          // Connect to master
-          trackGain.connect(masterGain)
+          // Connect panner to master
+          trackPanner.connect(masterGain)
 
           // Calculate start time (convert from bars to seconds)
           const startTimeSeconds = (block.startBar - 1) * secondsPerBar
@@ -1762,7 +1912,7 @@ export function SongArrangement({
             const loopSource = offlineContext.createBufferSource()
             loopSource.buffer = audioBuffer
             loopSource.playbackRate.value = effectivePlaybackRate
-            loopSource.connect(trackGain)
+            loopSource.connect(trackGain) // Always connect to trackGain (first node in chain)
             
             const loopStartTime = startTimeSeconds + (i * audioDuration)
             const loopEndTime = Math.min(loopStartTime + audioDuration, startTimeSeconds + patternDurationSeconds)
@@ -1855,12 +2005,360 @@ export function SongArrangement({
     console.log(`[EXPORT] Downloaded: ${filename}`)
   }
 
-  // Helper function to convert AudioBuffer to WAV format
+  // Export by recording live audio output (Option 2: Real-time capture)
+  const exportBeatAsWavLive = async () => {
+    console.log('[EXPORT LIVE] Starting live audio recording export')
+    
+    if (patternBlocks.length === 0) {
+      alert('No patterns to export. Please add some patterns first.')
+      return
+    }
+
+    // Store current audio state to restore later
+    const currentIsPlaying = isArrangementPlaying
+    const currentBar = arrangementTransportRef.current?.position || 0
+    
+    // Stop current playback to prevent interference
+    if (currentIsPlaying) {
+      console.log('[EXPORT LIVE] Stopping current playback for export')
+      stopArrangement()
+      // Small delay to ensure stop is processed
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    try {
+      // Verify export markers are active
+      if (!exportMarkersActive) {
+        throw new Error('Export markers not set! Please click Export (Live) first to set markers.')
+      }
+      
+      // Calculate total duration in bars using export markers
+      const exportDurationBars = exportEndBar - exportStartBar + 1
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      const totalDurationSeconds = exportDurationBars * secondsPerBar
+      
+      console.log(`[EXPORT LIVE] Export markers: Start=${exportStartBar}, End=${exportEndBar}, Duration=${exportDurationBars} bars`)
+      console.log(`[EXPORT LIVE] Total duration: ${totalDurationSeconds}s (${exportDurationBars} bars) at ${bpm} BPM`)
+      
+      if (exportDurationBars <= 0) {
+        throw new Error('Invalid export duration! End marker must be after start marker.')
+      }
+
+      // Import Tone.js for live recording
+      const Tone = await import('tone')
+      await Tone.start()
+
+      // Get the current audio context and ensure it's running
+      const audioContext = Tone.context
+      if (audioContext.state !== 'running') {
+        await audioContext.resume()
+      }
+      
+      console.log(`[EXPORT LIVE] Audio context state: ${audioContext.state}`)
+      
+      // Create a MediaStreamDestination to capture the audio output
+      const mediaStreamDestination = audioContext.createMediaStreamDestination()
+      
+      // Connect Tone.js destination to our recording stream
+      // This will capture all audio that goes through Tone.js
+      Tone.Destination.connect(mediaStreamDestination)
+      
+      console.log('[EXPORT LIVE] Set up audio capture from Tone.js destination')
+      
+      // Create MediaRecorder to capture the stream
+      let mimeType = 'audio/webm;codecs=opus'
+      
+      // Check if the browser supports the preferred format
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm'
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4'
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus'
+        } else {
+          mimeType = ''
+        }
+      }
+      
+      console.log(`[EXPORT LIVE] Using MIME type: ${mimeType || 'default'}`)
+      
+      const mediaRecorder = new MediaRecorder(mediaStreamDestination.stream, {
+        mimeType: mimeType || undefined
+      })
+      
+      const recordedChunks: Blob[] = []
+      
+      mediaRecorder.ondataavailable = (event) => {
+        console.log(`[EXPORT LIVE] Data available: ${event.data.size} bytes`)
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data)
+          console.log(`[EXPORT LIVE] Added chunk: ${event.data.size} bytes, total chunks: ${recordedChunks.length}`)
+        } else {
+          console.log('[EXPORT LIVE] Empty data chunk received')
+        }
+      }
+      
+      mediaRecorder.onstop = () => {
+        console.log(`[EXPORT LIVE] MediaRecorder stopped. Total chunks: ${recordedChunks.length}`)
+      }
+      
+      mediaRecorder.onerror = (event) => {
+        console.error('[EXPORT LIVE] MediaRecorder error:', event)
+      }
+
+      console.log('[EXPORT LIVE] Starting live recording...')
+      
+      // Start recording
+      mediaRecorder.start(1000) // Collect data every second
+      
+      console.log('[EXPORT LIVE] MediaRecorder started, arrangement should already be playing')
+      
+      // Wait for the arrangement to finish playing
+      console.log(`[EXPORT LIVE] Recording for ${totalDurationSeconds} seconds...`)
+      
+      // Start playing the arrangement first
+      console.log('[EXPORT LIVE] Starting arrangement playback...')
+      await playArrangement()
+      
+      // Wait a moment to ensure the arrangement is actually playing
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      console.log(`[EXPORT LIVE] Arrangement playing state: ${isArrangementPlaying}`)
+      console.log(`[EXPORT LIVE] Expected duration: ${totalDurationSeconds} seconds`)
+      
+      // Create a promise that resolves when the arrangement stops
+      const waitForArrangementToStop = new Promise<void>((resolve) => {
+        let checkCount = 0
+        const checkIfStopped = () => {
+          checkCount++
+          console.log(`[EXPORT LIVE] Check ${checkCount}: isArrangementPlaying = ${isArrangementPlaying}`)
+          
+          if (!isArrangementPlaying) {
+            console.log('[EXPORT LIVE] Arrangement stopped - completing export')
+            resolve()
+          } else {
+            setTimeout(checkIfStopped, 500) // Check every 500ms
+          }
+        }
+        checkIfStopped()
+      })
+      
+      // Wait for the exact export duration (from start marker to end marker)
+      console.log(`[EXPORT LIVE] Waiting for exact export duration: ${totalDurationSeconds} seconds`)
+      console.log(`[EXPORT LIVE] Export will stop at bar ${exportEndBar}`)
+      
+      // Set a timer to stop MediaRecorder at exactly the right time
+      const stopTimer = setTimeout(() => {
+        console.log('[EXPORT LIVE] TIMER: Exact duration reached - FORCE STOPPING MediaRecorder')
+        
+        // Force stop MediaRecorder immediately
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop()
+          console.log('[EXPORT LIVE] TIMER: MediaRecorder.stop() called')
+        }
+        
+        // Disconnect audio source immediately
+        Tone.Destination.disconnect(mediaStreamDestination)
+        console.log('[EXPORT LIVE] TIMER: Audio source disconnected')
+        
+        // Force stop arrangement
+        stopArrangement()
+        console.log('[EXPORT LIVE] TIMER: Arrangement stopped')
+      }, totalDurationSeconds * 1000)
+      
+      // Wait for the timer to complete
+      await new Promise(resolve => {
+        setTimeout(() => {
+          clearTimeout(stopTimer) // Clean up timer
+          resolve(true)
+        }, totalDurationSeconds * 1000 + 100) // +100ms buffer
+      })
+      
+      console.log('[EXPORT LIVE] Export duration reached - cleanup complete')
+      
+      // Wait a moment for the MediaRecorder to process the stop
+      console.log('[EXPORT LIVE] Waiting for MediaRecorder to process stop...')
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      console.log('[EXPORT LIVE] Recording completed')
+      
+      // Wait for the final data to be available
+      await new Promise(resolve => {
+        const checkData = () => {
+          if (recordedChunks.length > 0) {
+            console.log(`[EXPORT LIVE] Final data check: ${recordedChunks.length} chunks, total size: ${recordedChunks.reduce((sum, chunk) => sum + chunk.size, 0)} bytes`)
+            resolve(true)
+          } else {
+            setTimeout(checkData, 100)
+          }
+        }
+        checkData()
+      })
+      
+      // Additional wait to ensure all data is processed
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Create the recorded blob
+      const recordedBlob = new Blob(recordedChunks, { type: mimeType || 'audio/webm' })
+      console.log(`[EXPORT LIVE] Created blob: ${recordedBlob.size} bytes`)
+      
+      if (recordedBlob.size === 0) {
+        throw new Error('Recorded blob is empty - no audio was captured')
+      }
+      
+      // Clean up audio connections
+      Tone.Destination.disconnect()
+      
+      // Convert the recorded blob to WAV format
+      console.log('[EXPORT LIVE] Converting to WAV...')
+      const wavBlob = await convertBlobToWav(recordedBlob, totalDurationSeconds)
+      
+      if (!wavBlob) {
+        throw new Error('Failed to convert to WAV format')
+      }
+      
+      console.log(`[EXPORT LIVE] WAV blob created: ${wavBlob.size} bytes`)
+      
+      console.log('[EXPORT LIVE] Live capture export completed successfully')
+      
+      // Reset export markers after successful export
+      resetExportMarkers()
+      
+      // Automatically download the file
+      if (wavBlob) {
+        console.log('[EXPORT LIVE] Starting file download...')
+        
+        const url = URL.createObjectURL(wavBlob)
+        const a = document.createElement('a')
+        a.href = url
+        
+        // Create enhanced filename with arrangement info
+        const patternCount = patternBlocks.length
+        const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+        const secondsPerBeat = 60 / bpm
+        const beatsPerBar = 4
+        const secondsPerBar = secondsPerBeat * beatsPerBar
+        const totalDurationSeconds = maxEndBar * secondsPerBar
+        const durationMinutes = Math.floor(totalDurationSeconds / 60)
+        const durationSeconds = Math.floor(totalDurationSeconds % 60)
+        
+        const filename = `beat-arrangement-LIVE-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+        
+        console.log(`[EXPORT LIVE] Downloading file: ${filename}`)
+        
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        
+        console.log(`[EXPORT LIVE] Auto-downloaded: ${filename}`)
+      } else {
+        console.error('[EXPORT LIVE] No WAV blob to download')
+      }
+      
+      // Restore audio state if it was playing before
+      if (currentIsPlaying) {
+        console.log('[EXPORT LIVE] Restoring previous playback state')
+        setTimeout(() => {
+          if (arrangementTransportRef.current) {
+            arrangementTransportRef.current.position = currentBar
+          }
+          playArrangement()
+        }, 200)
+      }
+      
+      return wavBlob
+      
+    } catch (error) {
+      console.error('[EXPORT LIVE] Error during live capture export:', error)
+      alert('Error during live capture export. Please check the console for details.')
+      
+      // Restore audio state even on error
+      if (currentIsPlaying) {
+        console.log('[EXPORT LIVE] Restoring playback state after error')
+        setTimeout(() => {
+          if (arrangementTransportRef.current) {
+            arrangementTransportRef.current.position = currentBar
+          }
+          playArrangement()
+        }, 200)
+      }
+      
+      throw error
+    }
+  }
+
+  // Helper function to convert recorded blob to WAV
+  const convertBlobToWav = async (blob: Blob, duration: number): Promise<Blob> => {
+    try {
+      // Create audio context to decode the recorded audio
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const arrayBuffer = await blob.arrayBuffer()
+      
+      // Handle WebM format from MediaRecorder
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      console.log(`[EXPORT LIVE] Converting recorded audio: ${audioBuffer.duration}s, ${audioBuffer.sampleRate}Hz`)
+      
+      // Convert to WAV using the same high-quality function
+      const wavBlob = audioBufferToWav(audioBuffer)
+      
+      audioContext.close()
+      return wavBlob
+      
+    } catch (error) {
+      console.error('[EXPORT LIVE] Error converting recorded audio to WAV:', error)
+      throw error
+    }
+  }
+
+  // Download function for live capture export
+  const downloadBeatAsWavLive = async () => {
+    try {
+      const wavBlob = await exportBeatAsWavLive()
+      if (!wavBlob) return
+
+      // Create download link with enhanced filename
+      const url = URL.createObjectURL(wavBlob)
+      const a = document.createElement('a')
+      a.href = url
+      
+      // Create enhanced filename with arrangement info
+      const patternCount = patternBlocks.length
+      const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      const totalDurationSeconds = maxEndBar * secondsPerBar
+      const durationMinutes = Math.floor(totalDurationSeconds / 60)
+      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+      
+      const filename = `beat-arrangement-LIVE-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+      
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      console.log(`[EXPORT LIVE] Downloaded: ${filename}`)
+    } catch (error) {
+      console.error('[EXPORT LIVE] Error downloading live capture WAV:', error)
+      alert('Error exporting live capture WAV file. Please check the console for details.')
+    }
+  }
+
+  // Helper function to convert AudioBuffer to maximum quality WAV format (32-bit float)
   const audioBufferToWav = (buffer: AudioBuffer): Blob => {
     const length = buffer.length
     const numberOfChannels = buffer.numberOfChannels
     const sampleRate = buffer.sampleRate
-    const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * 2)
+    const bytesPerSample = 4 // 32-bit float
+    const arrayBuffer = new ArrayBuffer(44 + length * numberOfChannels * bytesPerSample)
     const view = new DataView(arrayBuffer)
 
     // WAV header
@@ -1871,26 +2369,28 @@ export function SongArrangement({
     }
 
     writeString(0, 'RIFF')
-    view.setUint32(4, 36 + length * numberOfChannels * 2, true)
+    view.setUint32(4, 36 + length * numberOfChannels * bytesPerSample, true)
     writeString(8, 'WAVE')
     writeString(12, 'fmt ')
     view.setUint32(16, 16, true)
-    view.setUint16(20, 1, true)
+    view.setUint16(20, 3, true) // IEEE float format
     view.setUint16(22, numberOfChannels, true)
     view.setUint32(24, sampleRate, true)
-    view.setUint32(28, sampleRate * numberOfChannels * 2, true)
-    view.setUint16(32, numberOfChannels * 2, true)
-    view.setUint16(34, 16, true)
+    view.setUint32(28, sampleRate * numberOfChannels * bytesPerSample, true)
+    view.setUint16(32, numberOfChannels * bytesPerSample, true)
+    view.setUint16(34, 32, true) // 32-bit float
     writeString(36, 'data')
-    view.setUint32(40, length * numberOfChannels * 2, true)
+    view.setUint32(40, length * numberOfChannels * bytesPerSample, true)
 
-    // Convert audio data
+    // Convert audio data to 32-bit float (maximum quality)
     let offset = 44
     for (let i = 0; i < length; i++) {
       for (let channel = 0; channel < numberOfChannels; channel++) {
         const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]))
-        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true)
-        offset += 2
+        
+        // Write 32-bit float sample (little-endian)
+        view.setFloat32(offset, sample, true)
+        offset += 4
       }
     }
 
@@ -2235,7 +2735,8 @@ export function SongArrangement({
     
     if (patternBlocks.length === 0) {
       console.log('[ARRANGEMENT AUDIO] No pattern blocks found')
-      alert('No patterns to play. Please add some patterns first.')
+      // Show a modern modal instead of alert
+      setShowNoPatternsModal(true)
       return
     }
     
@@ -2949,6 +3450,7 @@ export function SongArrangement({
             >
               <Brain className="w-4 h-4" />
             </Button>
+            <div className="flex gap-2">
             <Button
               onClick={() => {
                 downloadBeatAsWav()
@@ -2956,11 +3458,30 @@ export function SongArrangement({
               variant="outline"
               size="sm"
               className="text-xs bg-green-600 hover:bg-green-700 text-white border-green-500"
-              title="Export the arrangement as a high-quality WAV file"
+                title="Export the arrangement as a high-quality WAV file (offline rendering)"
             >
               <Download className="w-4 h-4 mr-1" />
-              Export Beat
+                Export (Offline)
             </Button>
+                              <Button
+                  onClick={() => {
+                    if (!exportMarkersActive) {
+                      console.log('[EXPORT LIVE] First click - setting markers')
+                      setExportMarkers()
+                    } else {
+                      console.log('[EXPORT LIVE] Second click - starting live export')
+                      exportBeatAsWavLive()
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className={`text-xs ${exportMarkersActive ? 'bg-red-600 hover:bg-red-700 border-red-500' : 'bg-purple-600 hover:bg-purple-700 border-purple-500'} text-white`}
+                  title={exportMarkersActive ? "Export markers are set! Click to start recording." : "Click to set export markers, then click again to start recording"}
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  {exportMarkersActive ? 'Export (Live) - READY' : 'Export (Live) - SET MARKERS'}
+                </Button>
+            </div>
             <Button
               onClick={openSaveBeatDialog}
               variant="outline"
@@ -3129,6 +3650,38 @@ export function SongArrangement({
                     </div>
                   </div>
                 )}
+
+                {/* Export Start Marker */}
+                <div 
+                  className="absolute top-0 bottom-0 w-2 bg-green-500 z-25 shadow-lg"
+                  style={{
+                    left: `${Math.max(0, (exportStartBar - 1) * zoom)}px`,
+                    boxShadow: '0 0 10px rgba(34, 197, 94, 0.8)'
+                  }}
+                >
+                  {/* Start marker arrow */}
+                  <div className="absolute -top-2 -left-2 w-0 h-0 border-l-6 border-r-6 border-b-6 border-transparent border-b-green-500"></div>
+                  {/* Label */}
+                  <div className="absolute -top-8 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                    EXPORT START: Bar {exportStartBar}
+                  </div>
+                </div>
+
+                {/* Export End Marker */}
+                <div 
+                  className="absolute top-0 bottom-0 w-2 bg-blue-500 z-25 shadow-lg"
+                  style={{
+                    left: `${Math.max(0, (exportEndBar - 1) * zoom)}px`,
+                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.8)'
+                  }}
+                >
+                  {/* End marker arrow */}
+                  <div className="absolute -top-2 -left-2 w-0 h-0 border-l-6 border-r-6 border-b-6 border-transparent border-b-blue-500"></div>
+                  {/* Label */}
+                  <div className="absolute -top-8 left-2 bg-blue-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                    EXPORT END: Bar {exportEndBar}
+                  </div>
+                </div>
                 
 
                 <div className="flex items-end h-full">
@@ -3182,6 +3735,30 @@ export function SongArrangement({
                     </div>
                   </div>
                 )}
+
+                {/* Export Start Marker on Grid */}
+                <div 
+                  className="absolute top-0 bottom-0 w-3 bg-green-500 z-15 shadow-lg"
+                  style={{
+                    left: `${Math.max(0, (exportStartBar - 1) * zoom)}px`,
+                    boxShadow: '0 0 15px rgba(34, 197, 94, 0.9)'
+                  }}
+                >
+                  {/* Start marker arrow */}
+                  <div className="absolute -top-3 -left-3 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-green-500"></div>
+                </div>
+
+                {/* Export End Marker on Grid */}
+                <div 
+                  className="absolute top-0 bottom-0 w-3 bg-blue-500 z-15 shadow-lg"
+                  style={{
+                    left: `${Math.max(0, (exportEndBar - 1) * zoom)}px`,
+                    boxShadow: '0 0 15px rgba(59, 130, 246, 0.9)'
+                  }}
+                >
+                  {/* End marker arrow */}
+                  <div className="absolute -top-3 -left-3 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-blue-500"></div>
+                </div>
                 {/* Grid background */}
                 <div className="absolute inset-0 bg-[#0f0f0f]"></div>
                 
@@ -4040,6 +4617,28 @@ export function SongArrangement({
           </div>
         </div>
       )}
+      
+      {/* No Patterns Modal */}
+      <Dialog open={showNoPatternsModal} onOpenChange={setShowNoPatternsModal}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader className="text-center">
+            <DialogTitle className="text-xl font-bold text-white">
+              No Patterns Available
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              No patterns to play. Please add some patterns first.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex justify-center">
+            <Button 
+              onClick={() => setShowNoPatternsModal(false)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

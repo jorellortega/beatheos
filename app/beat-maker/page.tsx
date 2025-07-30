@@ -3,9 +3,15 @@
 // Extend Window interface to include our custom properties
 declare global {
   interface Window {
-    audioPlayers?: { [key: number]: any }
-    shuffleIntervals?: NodeJS.Timeout[]
+  audioPlayers?: { [key: number]: any }
+  shuffleIntervals?: NodeJS.Timeout[]
+  _eqSoloState?: {
+    hasAnySolo: boolean
+    isThisTrackSoloed: boolean
+    soloedTracks: number[]
+    trackId: number
   }
+}
 }
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -114,6 +120,10 @@ export default function BeatMakerPage() {
   const [peakLevels, setPeakLevels] = useState<{[trackId: number]: number}>({})
   const [masterLevel, setMasterLevel] = useState(0)
   const [masterPeak, setMasterPeak] = useState(0)
+  
+  // Real VU meter refs
+  const masterMeterRef = useRef<any>(null)
+  const trackMeterRefs = useRef<{[trackId: number]: any}>({})
 
   // Format toggle state
   const [preferMp3, setPreferMp3] = useState(true)
@@ -1140,7 +1150,11 @@ export default function BeatMakerPage() {
 
   const handleSavePatternSubmit = async () => {
     if (!patternName.trim()) {
-      alert('Please enter a pattern name')
+      toast({
+        title: "Validation Error",
+        description: "Please enter a pattern name",
+        variant: "destructive"
+      })
       return
     }
     
@@ -1198,12 +1212,20 @@ export default function BeatMakerPage() {
 
   const handleSaveTrackPatternSubmit = async () => {
     if (!patternName.trim()) {
-      alert('Please enter a pattern name')
+      toast({
+        title: "Validation Error",
+        description: "Please enter a pattern name",
+        variant: "destructive"
+      })
       return
     }
     
     if (!selectedTrackForPattern) {
-      alert('No track selected')
+      toast({
+        title: "Validation Error",
+        description: "No track selected",
+        variant: "destructive"
+      })
       return
     }
     
@@ -1723,71 +1745,75 @@ export default function BeatMakerPage() {
     if (setting === 'solo') {
       // Use setTimeout to ensure the state is updated before applying solo logic
       setTimeout(() => {
-        // Get all tracks that are currently soloed using the updated state
-        const currentMixerSettings = mixerSettings
-        const soloedTracks = Object.entries(currentMixerSettings)
+        // Get the updated mixer settings that include the current change
+        const updatedMixerSettings = {
+          ...mixerSettings,
+          [trackId]: {
+            ...mixerSettings[trackId],
+            [setting]: value
+          }
+        }
+        
+        const soloedTracks = Object.entries(updatedMixerSettings)
           .filter(([id, settings]) => settings.solo)
           .map(([id]) => parseInt(id))
         
         console.log(`[MIXER] Solo state changed for track ${trackId}, value: ${value}`)
         console.log(`[MIXER] Current soloed tracks:`, soloedTracks)
         
-        // If this track is being soloed, mute all other tracks
-        if (value) {
-          console.log(`[MIXER] Solo enabled for track ${trackId}`)
+        const hasAnySolo = soloedTracks.length > 0
+        
+        // Update mixer settings to show mute buttons for non-soloed tracks
+        setMixerSettings(prev => {
+          const newSettings = { ...prev }
           
-          // Mute all tracks except the soloed one
           tracks.forEach(track => {
-            if (track.id !== trackId) {
-              // Update sequencer players
-              if (samplesRef?.current?.[track.id]) {
-                const player = samplesRef.current[track.id]
-                if (player && player.volume) {
-                  player.volume.value = -Infinity
-                  console.log(`[MIXER] Muted track ${track.id} due to solo on track ${trackId}`)
-                }
+            const isSoloed = soloedTracks.includes(track.id)
+            const shouldBeMuted = hasAnySolo && !isSoloed
+            
+            if (newSettings[track.id]) {
+              // If there's no solo active, restore original mute state
+              // If there is solo active, mute non-soloed tracks
+              newSettings[track.id] = {
+                ...newSettings[track.id],
+                mute: hasAnySolo ? shouldBeMuted : newSettings[track.id].mute
               }
-              
-
             }
           })
           
-          // Restore volume for the soloed track
-          const trackSettings = currentMixerSettings[trackId]
-          if (trackSettings) {
-            const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
-            
-            if (samplesRef?.current?.[trackId]) {
-              const player = samplesRef.current[trackId]
-              if (player && player.volume) {
-                player.volume.value = volumeDb
-                console.log(`[MIXER] Restored volume for soloed track ${trackId}: ${trackSettings.volume}`)
-              }
-            }
-            
-
-          }
-        } else {
-          // Solo disabled - restore all tracks to their original state
-          console.log(`[MIXER] Solo disabled for track ${trackId}`)
+          return newSettings
+        })
+        
+        // Apply solo logic to all tracks
+        tracks.forEach(track => {
+          const isSoloed = soloedTracks.includes(track.id)
+          const shouldBeMuted = hasAnySolo && !isSoloed
           
-          tracks.forEach(track => {
-            const trackSettings = currentMixerSettings[track.id]
-            if (trackSettings && !trackSettings.mute) {
-              const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
-              
-              // Update sequencer players
-              if (samplesRef?.current?.[track.id]) {
-                const player = samplesRef.current[track.id]
-                if (player && player.volume) {
+          // Update sequencer players
+          if (samplesRef?.current?.[track.id]) {
+            const player = samplesRef.current[track.id]
+            if (player && player.volume) {
+              if (shouldBeMuted) {
+                player.volume.value = -Infinity
+                console.log(`[MIXER] Muted track ${track.id} due to solo`)
+              } else {
+                // Restore volume based on mixer settings
+                const trackSettings = updatedMixerSettings[track.id]
+                if (trackSettings) {
+                  const volumeDb = trackSettings.mute ? -Infinity : 
+                    (trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume))
                   player.volume.value = volumeDb
                   console.log(`[MIXER] Restored volume for track ${track.id}: ${trackSettings.volume}`)
                 }
               }
-              
-
             }
-          })
+          }
+        })
+        
+        if (hasAnySolo) {
+          console.log(`[MIXER] ${soloedTracks.length} track(s) soloed:`, soloedTracks.map(id => tracks.find(t => t.id === id)?.name).join(', '))
+        } else {
+          console.log(`[MIXER] No tracks soloed - all tracks restored`)
         }
       }, 0)
     }
@@ -1823,7 +1849,7 @@ export default function BeatMakerPage() {
   }
 
   // Function to apply EQ settings to a Tone.js player
-  const applyEQToPlayer = (player: any, trackId: number, eqSettings: { low: number, mid: number, high: number }) => {
+    const applyEQToPlayer = (player: any, trackId: number, eqSettings: { low: number, mid: number, high: number }) => {
     // Import Tone.js dynamically
     import('tone').then(Tone => {
       console.log('[EQ] Applying EQ settings to track', trackId, ':', eqSettings)
@@ -1944,6 +1970,7 @@ export default function BeatMakerPage() {
         player._eqChain = []
         console.log('[EQ] No EQ settings, connected pitch shifter directly to destination')
       }
+      
     }).catch(error => {
       console.error('[EQ] Failed to apply EQ settings:', error)
     })
@@ -5367,7 +5394,10 @@ export default function BeatMakerPage() {
         return
       }
 
-      alert(`Pattern "${name}" saved successfully!`)
+      toast({
+        title: "Success",
+        description: `Pattern "${name}" saved successfully!`
+      })
     } catch (error) {
       console.error('Error saving pattern:', error)
       alert('Failed to save pattern')
@@ -5454,7 +5484,10 @@ export default function BeatMakerPage() {
         return
       }
 
-      alert(`"${name}" saved successfully!`)
+      toast({
+        title: "Success",
+        description: `"${name}" saved successfully!`
+      })
     } catch (error) {
       console.error('Error saving track pattern:', error)
       alert('Failed to save track pattern')
@@ -5726,7 +5759,11 @@ export default function BeatMakerPage() {
   // Save session function
   const handleSaveSession = async () => {
     if (!sessionName.trim()) {
-      alert('Please enter a session name')
+      toast({
+        title: "Validation Error",
+        description: "Please enter a session name",
+        variant: "destructive"
+      })
       return
     }
 
@@ -5925,18 +5962,29 @@ export default function BeatMakerPage() {
 
       if (result.error) {
         console.error('Error updating session:', result.error)
-        alert('Failed to update session')
+        toast({
+          title: "Error",
+          description: "Failed to update session",
+          variant: "destructive"
+        })
         return
       }
 
       setHasUnsavedChanges(false)
-      alert(`Session "${currentSessionName}" updated successfully!`)
+      toast({
+        title: "Success",
+        description: `Session "${currentSessionName}" updated successfully!`
+      })
       
       // Refresh saved sessions list
       loadSavedSessions()
     } catch (error) {
       console.error('Error updating session:', error)
-      alert('Failed to update session')
+      toast({
+        title: "Error",
+        description: "Failed to update session",
+        variant: "destructive"
+      })
     } finally {
       setIsSaving(false)
     }
@@ -5996,7 +6044,11 @@ export default function BeatMakerPage() {
 
       if (error) {
         console.error('Error loading session:', error)
-        alert('Failed to load session')
+        toast({
+          title: "Error",
+          description: "Failed to load session",
+          variant: "destructive"
+        })
         return
       }
 
@@ -8414,6 +8466,8 @@ export default function BeatMakerPage() {
             onArrangementPlayStateChange={(isPlaying) => {
               console.log('[BEAT MAKER] Song arrangement play state changed:', isPlaying)
             }}
+            mixerSettings={mixerSettings}
+            masterVolume={masterVolume}
           />
         </TabsContent>
 
