@@ -138,6 +138,47 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Handler for track halftime changes
+  const handleTrackHalfTimeChange = (trackId: number, isHalfTime: boolean, ratio: number) => {
+    console.log(`🔍 TRACK HALFTIME - Track ${trackId} ${isHalfTime ? 'enabled' : 'disabled'} at ${ratio}x`)
+    
+    // Find the track to get its current BPM
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) return
+    
+    // Calculate the effective BPM and playback rate for halftime
+    const originalBpm = track.originalBpm || track.bpm || bpm
+    const effectiveBpm = isHalfTime ? originalBpm * ratio : originalBpm
+    const calculatedPlaybackRate = isHalfTime ? ratio : 1.0
+    
+    console.log(`🔍 TRACK HALFTIME - Track ${trackId}: originalBpm=${originalBpm}, effectiveBpm=${effectiveBpm}, ratio=${ratio}, playbackRate=${calculatedPlaybackRate}`)
+    
+    // Update the track with both the effective BPM and the calculated playback rate
+    setTracks(prevTracks => 
+      prevTracks.map(t => 
+        t.id === trackId 
+          ? { 
+              ...t, 
+              currentBpm: effectiveBpm,
+              playbackRate: calculatedPlaybackRate
+            }
+          : t
+      )
+    )
+    
+    // Force reload the track to apply the new settings
+    // Use a longer delay to ensure state updates are processed
+    setTimeout(async () => {
+      console.log(`🔍 TRACK HALFTIME - Force reloading track ${trackId} with new settings`)
+      try {
+        await forceReloadTrackSamples(trackId)
+        console.log(`🔍 TRACK HALFTIME - Successfully reloaded track ${trackId}`)
+      } catch (error) {
+        console.error(`🔍 TRACK HALFTIME - Error reloading track ${trackId}:`, error)
+      }
+    }, 200)
+  }
+
   // Fetch total audio items count
   const fetchTotalAudioItems = async () => {
     // Always fetch to respect current query limit
@@ -8242,6 +8283,7 @@ export default function BeatMakerPage() {
             genres={genres} // Available genres for track selection
             genreSubgenres={genreSubgenres} // Genre to subgenre mapping
             onTrackAudioUrlChange={handleTrackAudioUrlChange} // Add callback for URL changes
+            onTrackHalfTimeChange={handleTrackHalfTimeChange} // Add halftime callback
           />
         </div>
 

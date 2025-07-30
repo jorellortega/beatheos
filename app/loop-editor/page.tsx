@@ -36,7 +36,8 @@ import {
   Clock,
   Target,
   Square,
-  Move
+  Move,
+  Maximize2
 } from 'lucide-react'
 
 interface WaveformPoint {
@@ -194,6 +195,10 @@ export default function LoopEditorPage() {
   const [editingMarkerBar, setEditingMarkerBar] = useState('')
   const [editingMarkerCategory, setEditingMarkerCategory] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [selectedBarCount, setSelectedBarCount] = useState(4) // Track selected bar count
+  const [displayDuration, setDisplayDuration] = useState(0) // Track display duration for bar expansion
+  const [isHalfTime, setIsHalfTime] = useState(false) // Track halftime mode
+  const [halfTimeRatio, setHalfTimeRatio] = useState(0.5) // Track halftime ratio (0.5 = half speed)
   const [customCategories, setCustomCategories] = useState<string[]>([])
   const [showCategoryInput, setShowCategoryInput] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -243,19 +248,20 @@ export default function LoopEditorPage() {
   const secondsPerBeat = 60 / bpm
   const stepDuration = secondsPerBeat / (gridDivision / 4)
   const totalDuration = duration
+  const effectiveDuration = displayDuration > 0 ? displayDuration : totalDuration // Use display duration if set
   
   // Update grid lines when BPM or division changes
   useEffect(() => {
-    console.log('🔍 UPDATING GRID LINES - BPM:', bpm, 'gridDivision:', gridDivision, 'totalDuration:', totalDuration, 'stepDuration:', stepDuration)
+    console.log('🔍 UPDATING GRID LINES - BPM:', bpm, 'gridDivision:', gridDivision, 'effectiveDuration:', effectiveDuration, 'stepDuration:', stepDuration)
     // Calculate total number of steps based on duration
-    const totalSteps = Math.ceil(totalDuration / stepDuration)
+    const totalSteps = Math.ceil(effectiveDuration / stepDuration)
     const mainLines = Array.from({ length: totalSteps + 1 }, (_, i) => i * stepDuration)
     
     if (showDetailedGrid) {
       // Add detailed grid lines (finer subdivisions)
       const detailedDivision = Math.min(gridDivision * 2, 32) // 1/8, 1/16, 1/32, etc.
       const detailedStepDuration = 60 / bpm / detailedDivision
-      const detailedTotalSteps = Math.ceil(totalDuration / detailedStepDuration)
+      const detailedTotalSteps = Math.ceil(effectiveDuration / detailedStepDuration)
       const detailedLines = Array.from({ length: detailedTotalSteps + 1 }, (_, i) => i * detailedStepDuration)
       
       // Combine main grid lines with detailed grid lines, avoiding duplicates
@@ -266,7 +272,7 @@ export default function LoopEditorPage() {
       console.log('🔍 GRID LINES CREATED:', mainLines.length, 'lines for', totalSteps, 'steps')
       setGridLines(mainLines)
     }
-  }, [bpm, gridDivision, totalDuration, stepDuration, showDetailedGrid])
+  }, [bpm, gridDivision, effectiveDuration, stepDuration, showDetailedGrid])
 
 
   
@@ -288,6 +294,7 @@ export default function LoopEditorPage() {
       const duration = audioBuffer.duration
       
       setDuration(duration)
+      setDisplayDuration(duration) // Initialize display duration to match audio duration
       
       // Generate waveform data
       const numPoints = Math.max(2000, Math.floor(duration * 50))
@@ -341,6 +348,27 @@ export default function LoopEditorPage() {
   useEffect(() => {
     updateBarTracker()
   }, [playheadPosition])
+
+  // Auto-show bars when audio file is loaded
+  useEffect(() => {
+    if (audioFile && totalDuration > 0 && markedBars.length === 0) {
+      // Use the EXACT same math as sequencer grid
+      // stepDuration = secondsPerBeat / (gridDivision / 4)
+      // loopBars = Math.round((displayLoopDuration / stepDuration) / 4)
+      const secondsPerBeat = 60 / bpm
+      const gridDivision = 16 // 1/16 resolution like sequencer
+      const stepDuration = secondsPerBeat / (gridDivision / 4)
+      const loopBars = Math.round((totalDuration / stepDuration) / 4)
+      
+      const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
+      setMarkedBars(allBars)
+      console.log(`Auto-showing ${loopBars} bars for ${totalDuration.toFixed(2)}s loop at ${bpm} BPM`)
+      
+      // Auto-fit the waveform to view when audio is loaded
+      setZoom(1.0) // Reset zoom to show full waveform
+      setWaveformOffset(0) // Reset offset
+    }
+  }, [audioFile, totalDuration, bpm, markedBars.length])
   
   // Draw waveform
   const drawWaveform = useCallback(() => {
@@ -374,6 +402,9 @@ export default function LoopEditorPage() {
     // Calculate effective width for zoomed coordinates (inverted zoom logic)
     const effectiveWidth = rect.width * zoom
     
+    // Use effective duration for display calculations
+    const displayDuration = effectiveDuration
+    
     // Draw grid
     if (showGrid) {
       console.log('🔍 DRAWING GRID - zoom:', zoom, 'effectiveWidth:', effectiveWidth, 'rect.width:', rect.width, 'gridLines:', gridLines.length)
@@ -382,7 +413,7 @@ export default function LoopEditorPage() {
       ctx.setLineDash([2, 2])
       
       gridLines.forEach((time, index) => {
-        const x = (time / totalDuration) * effectiveWidth
+        const x = (time / displayDuration) * effectiveWidth
         if (x >= 0 && x <= effectiveWidth) {
           // Draw grid line
           ctx.beginPath()
@@ -399,9 +430,9 @@ export default function LoopEditorPage() {
           // Draw step number at top
           ctx.fillText(index.toString(), x, 25)
           
-          // Draw bar number (every 4 steps, starting from step 0)
-          if (index % 4 === 0) {
-            const barNumber = Math.floor(index / 4) + 1
+          // Draw bar number (every 16 steps, starting from step 0)
+          if (index % 16 === 0) {
+            const barNumber = Math.floor(index / 16) + 1
             ctx.fillStyle = '#4ade80' // Green color for bar numbers
             ctx.font = 'bold 18px monospace'
             ctx.fillText(`Bar ${barNumber}`, x, 50)
@@ -422,18 +453,24 @@ export default function LoopEditorPage() {
     // Draw bar marker lines (green vertical lines for marked bars)
     if (markedBars.length > 0) {
       ctx.strokeStyle = '#22c55e' // Green color for bar markers
-      ctx.lineWidth = 2
+      ctx.lineWidth = 3 // Make bar lines thicker
       ctx.setLineDash([])
       
       markedBars.forEach(barNumber => {
         const barTime = barToTime(barNumber)
-        const barX = (barTime / totalDuration) * effectiveWidth
+        const barX = (barTime / displayDuration) * effectiveWidth
         
         if (barX >= 0 && barX <= effectiveWidth) {
           ctx.beginPath()
           ctx.moveTo(barX, 0)
           ctx.lineTo(barX, rect.height)
           ctx.stroke()
+          
+          // Add bar number label at the top
+          ctx.fillStyle = '#22c55e' // Green color for bar numbers
+          ctx.font = 'bold 14px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText(`Bar ${barNumber}`, barX, 20)
         }
       })
     }
@@ -446,7 +483,7 @@ export default function LoopEditorPage() {
       
       markedSubBars.forEach(beatNumber => {
         const beatTime = beatToTime(beatNumber)
-        const beatX = (beatTime / totalDuration) * effectiveWidth
+        const beatX = (beatTime / displayDuration) * effectiveWidth
         
         if (beatX >= 0 && beatX <= effectiveWidth) {
           ctx.beginPath()
@@ -478,7 +515,7 @@ export default function LoopEditorPage() {
         
         // Draw top half of main wave
         mainWaveData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -491,7 +528,7 @@ export default function LoopEditorPage() {
         // Draw bottom half of main wave (mirrored)
         for (let i = mainWaveData.length - 1; i >= 0; i--) {
           const point = mainWaveData[i]
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom)
           ctx.lineTo(x, y)
         }
@@ -505,7 +542,7 @@ export default function LoopEditorPage() {
         ctx.beginPath()
         
         mainWaveData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -523,7 +560,7 @@ export default function LoopEditorPage() {
         
         // Draw top half of secondary wave
         waveformData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -536,7 +573,7 @@ export default function LoopEditorPage() {
         // Draw bottom half of secondary wave (mirrored)
         for (let i = waveformData.length - 1; i >= 0; i--) {
           const point = waveformData[i]
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = bottomY + (point.y * bottomHeight * 0.4 * verticalZoom)
           ctx.lineTo(x, y)
         }
@@ -550,7 +587,7 @@ export default function LoopEditorPage() {
         ctx.beginPath()
         
         waveformData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -571,7 +608,7 @@ export default function LoopEditorPage() {
         // Draw top half with vertical zoom and offset
         console.log('🔍 DRAWING WAVEFORM - offset:', waveformOffset, 'effectiveWidth:', effectiveWidth, 'points:', waveformData.length)
         waveformData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -584,7 +621,7 @@ export default function LoopEditorPage() {
         // Draw bottom half (mirrored) with vertical zoom and offset
         for (let i = waveformData.length - 1; i >= 0; i--) {
           const point = waveformData[i]
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom)
           ctx.lineTo(x, y)
         }
@@ -598,7 +635,7 @@ export default function LoopEditorPage() {
         ctx.beginPath()
         
         waveformData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -620,7 +657,7 @@ export default function LoopEditorPage() {
         
         // Draw top half of secondary wave
         secondaryWaveData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -633,7 +670,7 @@ export default function LoopEditorPage() {
         // Draw bottom half of secondary wave (mirrored)
         for (let i = secondaryWaveData.length - 1; i >= 0; i--) {
           const point = secondaryWaveData[i]
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = bottomY + (point.y * bottomHeight * 0.4 * verticalZoom)
           ctx.lineTo(x, y)
         }
@@ -647,7 +684,7 @@ export default function LoopEditorPage() {
         ctx.beginPath()
         
         secondaryWaveData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
           const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
           
           if (index === 0) {
@@ -668,7 +705,7 @@ export default function LoopEditorPage() {
         // Draw top half with vertical zoom and offset
         console.log('🔍 DRAWING WAVEFORM - offset:', waveformOffset, 'effectiveWidth:', effectiveWidth, 'points:', waveformData.length)
       waveformData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
         const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
         
         if (index === 0) {
@@ -681,7 +718,7 @@ export default function LoopEditorPage() {
         // Draw bottom half (mirrored) with vertical zoom and offset
       for (let i = waveformData.length - 1; i >= 0; i--) {
         const point = waveformData[i]
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
         const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom)
         ctx.lineTo(x, y)
       }
@@ -695,7 +732,7 @@ export default function LoopEditorPage() {
       ctx.beginPath()
       
       waveformData.forEach((point, index) => {
-          const x = (point.x / totalDuration) * effectiveWidth + waveformOffset
+          const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
         const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
         
         if (index === 0) {
@@ -711,8 +748,8 @@ export default function LoopEditorPage() {
     
     // Draw selection
     if (selectionStart !== null && selectionEnd !== null) {
-      const startX = (selectionStart / totalDuration) * effectiveWidth
-      const endX = (selectionEnd / totalDuration) * effectiveWidth
+      const startX = (selectionStart / displayDuration) * effectiveWidth
+      const endX = (selectionEnd / displayDuration) * effectiveWidth
       
       ctx.fillStyle = 'rgba(59, 130, 246, 0.3)'
       ctx.fillRect(startX, 0, endX - startX, rect.height)
@@ -729,8 +766,8 @@ export default function LoopEditorPage() {
     
     // Draw playhead position (moves with playback when playing, or shows click position when stopped)
     const playheadTime = isPlaying ? currentTime : playheadPosition
-    const playheadX = totalDuration > 0 ? (playheadTime / totalDuration) * effectiveWidth : 0
-    console.log('🔍 DRAWING PLAYHEAD - playheadTime:', playheadTime, 'playheadX:', playheadX, 'isPlaying:', isPlaying, 'totalDuration:', totalDuration, 'effectiveWidth:', effectiveWidth)
+          const playheadX = displayDuration > 0 ? (playheadTime / displayDuration) * effectiveWidth : 0
+      console.log('🔍 DRAWING PLAYHEAD - playheadTime:', playheadTime, 'playheadX:', playheadX, 'isPlaying:', isPlaying, 'displayDuration:', displayDuration, 'effectiveWidth:', effectiveWidth)
     ctx.strokeStyle = isPlaying ? '#ef4444' : '#ffffff'
     ctx.lineWidth = 2
     ctx.setLineDash(isPlaying ? [5, 5] : [])
@@ -891,19 +928,19 @@ export default function LoopEditorPage() {
     // Store initial mouse position for drag calculations
     lastMouseXRef.current = e.clientX
     
-    // Calculate time based on zoomed canvas width and total duration
-    const time = (x / zoom) * (totalDuration / rect.width)
+    // Calculate time based on zoomed canvas width and display duration
+    const time = (x / zoom) * (displayDuration / rect.width)
     
     // Calculate current playhead position
     const playheadTime = isPlaying ? currentTime : playheadPosition
     const effectiveWidth = rect.width * zoom
-    const playheadX = totalDuration > 0 ? (playheadTime / totalDuration) * effectiveWidth : 0
+          const playheadX = displayDuration > 0 ? (playheadTime / displayDuration) * effectiveWidth : 0
     
     // Check if click is near the playhead (within 10 pixels)
     const clickDistanceFromPlayhead = Math.abs(x - playheadX)
     const isClickingOnPlayhead = clickDistanceFromPlayhead <= 10
     
-    console.log('🔍 MOUSE CLICK - x:', x, 'time:', time, 'activeTool:', activeTool, 'totalDuration:', totalDuration, 'zoom:', zoom, 'playheadX:', playheadX, 'distance:', clickDistanceFromPlayhead, 'onPlayhead:', isClickingOnPlayhead)
+    console.log('🔍 MOUSE CLICK - x:', x, 'time:', time, 'activeTool:', activeTool, 'displayDuration:', displayDuration, 'zoom:', zoom, 'playheadX:', playheadX, 'distance:', clickDistanceFromPlayhead, 'onPlayhead:', isClickingOnPlayhead)
     
     if (isClickingOnPlayhead) {
       // Start playhead dragging
@@ -933,7 +970,7 @@ export default function LoopEditorPage() {
       dragTypeRef.current = 'selection'
     } else {
       // Start waveform selection for free selection
-      const clampedTime = Math.max(0, Math.min(time, totalDuration))
+      const clampedTime = Math.max(0, Math.min(time, displayDuration))
       const snappedTime = snapToGrid ? snapTimeToGrid(clampedTime) : clampedTime
       startWaveSelection(snappedTime)
       dragTypeRef.current = 'selection'
@@ -956,14 +993,14 @@ export default function LoopEditorPage() {
     
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
-    const time = (x / zoom) * (totalDuration / rect.width)
+    const time = (x / zoom) * (displayDuration / rect.width)
     
     if (dragTypeRef.current === 'selection' && selectionStart !== null) {
       const snappedTime = snapTimeToGrid(time)
       setSelectionEnd(snappedTime)
     } else if (dragTypeRef.current === 'selection' && isWaveSelecting) {
       // Update waveform selection
-      const clampedTime = Math.max(0, Math.min(time, totalDuration))
+      const clampedTime = Math.max(0, Math.min(time, displayDuration))
       const snappedTime = snapToGrid ? snapTimeToGrid(clampedTime) : clampedTime
       updateWaveSelection(snappedTime)
     } else if (dragTypeRef.current === 'waveform') {
@@ -981,7 +1018,7 @@ export default function LoopEditorPage() {
       }, 0)
     } else if (dragTypeRef.current === 'playhead-drag') {
       // Update playhead position based on mouse movement
-      const clampedTime = Math.max(0, Math.min(time, totalDuration))
+      const clampedTime = Math.max(0, Math.min(time, displayDuration))
       const snappedTime = snapTimeToGrid(clampedTime)
       console.log('🔍 PLAYHEAD DRAG - newTime:', clampedTime, 'snappedTime:', snappedTime, 'snapToGrid:', snapToGrid, 'currentX:', e.clientX, 'lastX:', lastMouseXRef.current)
       setPlayheadPosition(snappedTime)
@@ -1321,10 +1358,10 @@ export default function LoopEditorPage() {
   // Helper functions to convert between time, step, and bar
   const timeToStep = (time: number) => Math.floor(time / stepDuration)
   const stepToTime = (step: number) => step * stepDuration
-  const timeToBar = (time: number) => Math.floor(time / (stepDuration * 4)) + 1 // 4 steps per bar
-  const barToTime = (bar: number) => (bar - 1) * stepDuration * 4
-  const stepToBar = (step: number) => Math.floor(step / 4) + 1
-  const barToStep = (bar: number) => (bar - 1) * 4
+  const timeToBar = (time: number) => Math.floor(time / (stepDuration * 16)) + 1 // 16 steps per bar (like beat maker)
+  const barToTime = (bar: number) => (bar - 1) * stepDuration * 16
+  const stepToBar = (step: number) => Math.floor(step / 16) + 1
+  const barToStep = (bar: number) => (bar - 1) * 16
   
   // Sub-bar (beat) conversion functions
   const beatToTime = (beat: number) => (beat - 1) * stepDuration
@@ -1522,9 +1559,13 @@ export default function LoopEditorPage() {
   const addBarTracker = () => {
     if (!audioFile || totalDuration <= 0) return
     
-    const totalBars = Math.ceil(totalDuration / (stepDuration * 4)) // 4 steps per bar
+    // Use the EXACT same math as sequencer grid
+    const secondsPerBeat = 60 / bpm
+    const gridDivision = 16 // 1/16 resolution like sequencer
+    const stepDuration = secondsPerBeat / (gridDivision / 4)
+    const loopBars = Math.round((totalDuration / stepDuration) / 4)
     const beatsPerBar = 4 // Assuming 4/4 time signature
-    const totalBeats = totalBars * beatsPerBar
+    const totalBeats = loopBars * beatsPerBar
     const currentBar = timeToBar(playheadPosition)
     
     // Check if a bar tracker marker already exists
@@ -1538,28 +1579,28 @@ export default function LoopEditorPage() {
         marker.category === 'Bar Tracker' 
           ? {
               ...marker,
-              name: `Bar ${currentBar} / ${totalBars}`,
+              name: `Bar ${currentBar} / ${loopBars}`,
               time: playheadPosition
             }
           : marker
       ))
-      console.log(`Updated bar tracker: Bar ${currentBar} / ${totalBars}`)
+      console.log(`Updated bar tracker: Bar ${currentBar} / ${loopBars}`)
     } else {
       // Create new bar tracker marker
       const newMarker: Marker = {
         id: `bar-tracker-${Date.now()}`,
         time: playheadPosition,
-        name: `Bar ${currentBar} / ${totalBars}`,
+        name: `Bar ${currentBar} / ${loopBars}`,
         category: 'Bar Tracker'
       }
       setMarkers(prev => [...prev, newMarker])
-      console.log(`Created bar tracker: Bar ${currentBar} / ${totalBars}`)
+      console.log(`Created bar tracker: Bar ${currentBar} / ${loopBars}`)
     }
     
     // Mark all bars as tracked
-    const allBars = Array.from({ length: totalBars }, (_, i) => i + 1)
+    const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
     setMarkedBars(allBars)
-    console.log(`Marked ${totalBars} bars for visual tracking`)
+    console.log(`Marked ${loopBars} bars for visual tracking`)
     
     // Also mark all sub-bars (beats) for visual tracking
     const allSubBars = Array.from({ length: totalBeats }, (_, i) => i + 1)
@@ -1575,14 +1616,18 @@ export default function LoopEditorPage() {
     )
     
     if (existingBarTracker) {
-      const totalBars = Math.ceil(totalDuration / (stepDuration * 4))
+      // Use the EXACT same math as sequencer grid
+      const secondsPerBeat = 60 / bpm
+      const gridDivision = 16 // 1/16 resolution like sequencer
+      const stepDuration = secondsPerBeat / (gridDivision / 4)
+      const loopBars = Math.round((totalDuration / stepDuration) / 4)
       const currentBar = timeToBar(playheadPosition)
       
       setMarkers(prev => prev.map(marker => 
         marker.category === 'Bar Tracker' 
           ? {
               ...marker,
-              name: `Bar ${currentBar} / ${totalBars}`,
+              name: `Bar ${currentBar} / ${loopBars}`,
               time: playheadPosition
             }
           : marker
@@ -3426,7 +3471,90 @@ export default function LoopEditorPage() {
                     <option value={16}>1/16</option>
                     <option value={32}>1/32</option>
                   </select>
-              </div>
+                </div>
+                
+                {/* Bars Controls - Like Beat Maker */}
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm font-medium min-w-[3rem]">Bars:</span>
+                  <div className="flex gap-1">
+                    {[2, 4, 8, 16].map((barCount) => {
+                      const stepCount = barCount * 16; // Convert bars to steps (16 steps per bar for 1/16 resolution)
+                      const calculatedBars = Math.round((totalDuration / stepDuration) / 4);
+                      const isActive = selectedBarCount === barCount;
+                      return (
+                        <Button
+                          key={stepCount}
+                          variant={isActive ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setSelectedBarCount(barCount);
+                            // Calculate the target duration for this bar count
+                            const targetDuration = barCount * 4 * (60 / bpm); // bars * beats/bar * seconds/beat
+                            console.log(`Setting bars to ${barCount} (${targetDuration.toFixed(2)}s at ${bpm} BPM)`);
+                            
+                            // Update the marked bars to show the selected bar count
+                            const allBars = Array.from({ length: barCount }, (_, i) => i + 1);
+                            setMarkedBars(allBars);
+                            console.log(`Updated marked bars to show ${barCount} bars`);
+                            
+                            // Update the display duration to show the full bar count, even if audio is shorter
+                            setDisplayDuration(targetDuration);
+                            console.log(`Updated display duration to ${targetDuration.toFixed(2)}s to show ${barCount} bars`);
+                          }}
+                          className="w-8 h-8 p-0 text-xs"
+                          title={`${barCount} bars (${(barCount * 4 * (60 / bpm)).toFixed(2)}s at ${bpm} BPM)`}
+                        >
+                          {barCount}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Half Time Button - Like Fruity Loops Half Time Plugin */}
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 text-sm font-medium min-w-[3rem]">Speed:</span>
+                  <Button
+                    variant={isHalfTime ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setIsHalfTime(!isHalfTime);
+                      if (!isHalfTime) {
+                        // Enable halftime - slow down playback rate
+                        setPlaybackRate(halfTimeRatio);
+                        console.log(`🔍 HALFTIME ENABLED - playback rate set to ${halfTimeRatio}x`);
+                      } else {
+                        // Disable halftime - restore normal playback rate
+                        setPlaybackRate(1.0);
+                        console.log('🔍 HALFTIME DISABLED - playback rate restored to 1.0x');
+                      }
+                    }}
+                    className="px-3 py-1 text-xs font-mono"
+                    title={isHalfTime ? `Disable Half Time (restore normal speed)` : `Enable Half Time (slow down to ${halfTimeRatio}x speed)`}
+                  >
+                    {isHalfTime ? `${halfTimeRatio}x ✓` : `${halfTimeRatio}x`}
+                  </Button>
+                  <select
+                    value={halfTimeRatio}
+                    onChange={(e) => {
+                      const newRatio = parseFloat(e.target.value);
+                      setHalfTimeRatio(newRatio);
+                      if (isHalfTime) {
+                        // Update playback rate immediately if halftime is active
+                        setPlaybackRate(newRatio);
+                        console.log(`🔍 HALFTIME RATIO CHANGED - playback rate updated to ${newRatio}x`);
+                      }
+                    }}
+                    className="w-16 h-8 text-xs bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
+                    title="Select halftime ratio"
+                  >
+                    <option value={0.25}>1/4</option>
+                    <option value={0.5}>1/2</option>
+                    <option value={0.75}>3/4</option>
+                    <option value={2.0}>2x</option>
+                    <option value={4.0}>4x</option>
+                  </select>
+                </div>
             </div>
             
             {/* Center Section - Playback Controls */}
@@ -3713,6 +3841,36 @@ export default function LoopEditorPage() {
               </Button>
               <Button
                 size="sm"
+                variant={markedBars.length > 0 ? "default" : "outline"}
+                onClick={() => {
+                  if (markedBars.length > 0) {
+                    setMarkedBars([])
+                    setMarkedSubBars([])
+                  } else {
+                    // Use the EXACT same math as sequencer grid
+                    const secondsPerBeat = 60 / bpm
+                    const gridDivision = 16 // 1/16 resolution like sequencer
+                    const stepDuration = secondsPerBeat / (gridDivision / 4)
+                    const loopBars = Math.round((totalDuration / stepDuration) / 4)
+                    const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
+                    setMarkedBars(allBars)
+                    const totalBeats = loopBars * 4
+                    const allSubBars = Array.from({ length: totalBeats }, (_, i) => i + 1)
+                    setMarkedSubBars(allSubBars)
+                  }
+                }}
+                disabled={!audioFile}
+                className={markedBars.length > 0 
+                  ? 'bg-green-600 text-white font-bold hover:bg-green-700 transition-colors border-none' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                }
+                title={markedBars.length > 0 ? "Hide bars" : "Show bars"}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span className="ml-1 text-xs">{markedBars.length > 0 ? 'Hide Bars' : 'Show Bars'}</span>
+              </Button>
+              <Button
+                size="sm"
                 variant="outline"
                 onClick={duplicateWaveTrack}
                 disabled={!audioFile}
@@ -3791,6 +3949,24 @@ export default function LoopEditorPage() {
                   </Button>
                   <span className="text-xs min-w-[3rem] text-gray-300">{Math.round(zoom * 100)}%</span>
                 </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    console.log('🔍 FIT TO VIEW CLICKED')
+                    setZoom(1.0) // Reset zoom to show full waveform
+                    setWaveformOffset(0) // Reset offset
+                    setTimeout(() => {
+                      console.log('🔍 MANUAL REDRAW AFTER FIT TO VIEW')
+                      drawWaveform()
+                    }, 0)
+                  }}
+                  className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500 ml-2"
+                  title="Fit waveform to view"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                  <span className="ml-1 text-xs">Fit</span>
+                </Button>
               </div>
               
               <div className="flex items-center gap-2">
@@ -4128,7 +4304,7 @@ export default function LoopEditorPage() {
                               placeholder="Bar"
                               type="number"
                               min="1"
-                              max={Math.ceil(totalDuration / (stepDuration * 4))}
+                              max={Math.round((totalDuration / stepDuration) / 4)}
                             />
                           </div>
                           <div className="flex items-center gap-3">
