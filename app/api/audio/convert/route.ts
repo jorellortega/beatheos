@@ -83,7 +83,7 @@ async function convertAudioToMp3(inputBuffer: ArrayBuffer, compressionLevel: 'ul
 
 export async function POST(request: NextRequest) {
   try {
-    const { fileId, filePath, targetFormat, compressionLevel = 'medium' } = await request.json()
+    const { fileId, filePath, targetFormat, compressionLevel = 'medium', fileType = 'audio_library' } = await request.json()
 
     if (!fileId || !filePath || !targetFormat) {
       return NextResponse.json(
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('Conversion request:', { fileId, targetFormat, compressionLevel })
+    console.log('Conversion request:', { fileId, targetFormat, compressionLevel, fileType })
 
     // Extract the actual file path from the URL if it's a full URL
     let actualFilePath = filePath
@@ -124,12 +124,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get the original file to copy its metadata
-    const { data: originalFileData, error: originalFileError } = await supabaseAdmin
-      .from('audio_library_items')
-      .select('*')
-      .eq('id', fileId)
-      .single()
+    // Get the original file to copy its metadata based on file type
+    let originalFileData: any = null
+    let originalFileError: any = null
+
+    if (fileType === 'album_track') {
+      const { data, error } = await supabaseAdmin
+        .from('album_tracks')
+        .select('*')
+        .eq('id', fileId)
+        .single()
+      originalFileData = data
+      originalFileError = error
+    } else if (fileType === 'single') {
+      const { data, error } = await supabaseAdmin
+        .from('singles')
+        .select('*')
+        .eq('id', fileId)
+        .single()
+      originalFileData = data
+      originalFileError = error
+    } else {
+      // Default to audio_library_items
+      const { data, error } = await supabaseAdmin
+        .from('audio_library_items')
+        .select('*')
+        .eq('id', fileId)
+        .single()
+      originalFileData = data
+      originalFileError = error
+    }
 
     if (originalFileError) {
       console.error('Error fetching original file:', originalFileError)
@@ -141,9 +165,8 @@ export async function POST(request: NextRequest) {
 
     console.log('Original file data:', {
       id: originalFileData.id,
-      name: originalFileData.name,
-      pack_id: originalFileData.pack_id,
-      subfolder: originalFileData.subfolder
+      name: originalFileData.title || originalFileData.name,
+      fileType: fileType
     })
 
     // Get the original file from Supabase storage
@@ -170,7 +193,7 @@ export async function POST(request: NextRequest) {
     const newFilePath = generateConvertedFileName(actualFilePath, targetFormat)
     
     // Generate the proper filename for the converted file
-    const originalFileName = originalFileData.name
+    const originalFileName = originalFileData.title || originalFileData.name
     const convertedFileName = generateConvertedFileName(originalFileName, targetFormat)
     
     // Upload converted file to Supabase storage
@@ -194,48 +217,76 @@ export async function POST(request: NextRequest) {
       .from('beats')
       .getPublicUrl(newFilePath)
 
-    // Insert the converted file into audio_library_items
-    const insertData = {
-      name: convertedFileName, // Use the proper converted filename with correct extension
-      file_url: urlData.publicUrl,
-      file_size: convertedBuffer.byteLength,
-      user_id: user.id,
-      type: 'sample', // Set default type
-      pack_id: originalFileData.pack_id, // Copy pack from original file
-      subfolder: originalFileData.subfolder, // Copy subfolder from original file
-      bpm: originalFileData.bpm, // Copy BPM from original file
-      key: originalFileData.key, // Copy key from original file
-      audio_type: originalFileData.audio_type, // Copy audio type from original file
-      genre: originalFileData.genre, // Copy genre from original file
-      subgenre: originalFileData.subgenre, // Copy subgenre from original file
-      tags: originalFileData.tags, // Copy tags from original file
-      is_ready: originalFileData.is_ready, // Copy ready status from original file
-      instrument_type: originalFileData.instrument_type, // Copy instrument type from original file
-      mood: originalFileData.mood, // Copy mood from original file
-      energy_level: originalFileData.energy_level, // Copy energy level from original file
-      complexity: originalFileData.complexity, // Copy complexity from original file
-      tempo_category: originalFileData.tempo_category, // Copy tempo category from original file
-      key_signature: originalFileData.key_signature, // Copy key signature from original file
-      time_signature: originalFileData.time_signature, // Copy time signature from original file
-      duration: originalFileData.duration, // Copy duration from original file
-      sample_rate: originalFileData.sample_rate, // Copy sample rate from original file
-      bit_depth: originalFileData.bit_depth, // Copy bit depth from original file
-      license_type: originalFileData.license_type, // Copy license type from original file
-      distribution_type: originalFileData.distribution_type, // Copy distribution type from original file
-      is_new: true // Mark as new since it was just converted
+    // Prepare insert data based on file type
+    let insertData: any = {}
+    let targetTable = 'audio_library_items'
+
+    if (fileType === 'album_track') {
+      // Insert as new album track
+      targetTable = 'album_tracks'
+      insertData = {
+        title: convertedFileName,
+        audio_url: urlData.publicUrl,
+        duration: originalFileData.duration,
+        isrc: originalFileData.isrc,
+        album_id: originalFileData.album_id
+      }
+    } else if (fileType === 'single') {
+      // Insert as new single
+      targetTable = 'singles'
+      insertData = {
+        title: convertedFileName,
+        audio_url: urlData.publicUrl,
+        duration: originalFileData.duration,
+        artist: originalFileData.artist,
+        release_date: originalFileData.release_date,
+        description: originalFileData.description,
+        cover_art_url: originalFileData.cover_art_url,
+        user_id: user.id
+      }
+    } else {
+      // Default to audio_library_items
+      insertData = {
+        name: convertedFileName,
+        file_url: urlData.publicUrl,
+        file_size: convertedBuffer.byteLength,
+        user_id: user.id,
+        type: 'sample',
+        pack_id: originalFileData.pack_id,
+        subfolder: originalFileData.subfolder,
+        bpm: originalFileData.bpm,
+        key: originalFileData.key,
+        audio_type: originalFileData.audio_type,
+        genre: originalFileData.genre,
+        subgenre: originalFileData.subgenre,
+        tags: originalFileData.tags,
+        is_ready: originalFileData.is_ready,
+        instrument_type: originalFileData.instrument_type,
+        mood: originalFileData.mood,
+        energy_level: originalFileData.energy_level,
+        complexity: originalFileData.complexity,
+        tempo_category: originalFileData.tempo_category,
+        key_signature: originalFileData.key_signature,
+        time_signature: originalFileData.time_signature,
+        duration: originalFileData.duration,
+        sample_rate: originalFileData.sample_rate,
+        bit_depth: originalFileData.bit_depth,
+        license_type: originalFileData.license_type,
+        distribution_type: originalFileData.distribution_type,
+        is_new: true
+      }
     }
 
     console.log('Inserting converted file with data:', {
-      name: insertData.name,
-      pack_id: insertData.pack_id,
-      subfolder: insertData.subfolder
+      table: targetTable,
+      data: insertData
     })
 
     let newFile: any = null
 
     try {
       const { data: fileData, error: insertError } = await supabaseAdmin
-        .from('audio_library_items')
+        .from(targetTable)
         .insert(insertData)
         .select()
         .single()
@@ -251,9 +302,8 @@ export async function POST(request: NextRequest) {
       newFile = fileData
       console.log('Successfully created converted file:', {
         id: newFile.id,
-        name: newFile.name,
-        pack_id: newFile.pack_id,
-        subfolder: newFile.subfolder
+        table: targetTable,
+        name: newFile.title || newFile.name
       })
     } catch (error) {
       console.error('Error in database insert:', error)

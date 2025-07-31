@@ -268,6 +268,11 @@ export function SongArrangement({
   const [exportEndBar, setExportEndBar] = useState(1)
   const [exportMarkersActive, setExportMarkersActive] = useState(false)
   const [isExportLiveRecording, setIsExportLiveRecording] = useState(false)
+  
+  // State for export live mode in save to library dialog
+  const [isExportLiveMode, setIsExportLiveMode] = useState(false)
+  
+
 
   // Function to update export markers based on pattern blocks
   const updateExportMarkers = useCallback(() => {
@@ -547,7 +552,7 @@ export function SongArrangement({
       // Wait for all audio to load
       await Promise.all(loadPromises)
       
-      isArrangementAudioInitialized.current = true
+    isArrangementAudioInitialized.current = true
       console.log('[ARRANGEMENT AUDIO] Audio system initialized with players:', Object.keys(arrangementPlayersRef.current))
     } catch (error) {
       console.error('[ARRANGEMENT AUDIO] Error initializing audio system:', error)
@@ -3138,7 +3143,10 @@ export function SongArrangement({
     setCreateNew(true) // Default to "Create New" when dialog opens
     setSelectedItemId('') // Reset selected item
     setSelectedAlbumDetails(null) // Reset selected album details
+    setIsExportLiveMode(false) // Default to save arrangement mode
   }
+
+
 
   // Load existing items for the selected type
   const loadExistingItems = async (userId: string, type?: 'album' | 'single' | 'audio-library') => {
@@ -3517,6 +3525,333 @@ export function SongArrangement({
       showNotification('Save Failed', `Failed to save to library: ${errorMessage}`, 'error')
     } finally {
       setIsSavingToLibrary(false)
+    }
+  }
+
+
+
+  // Export live and save directly to library
+  const exportLiveToLibrary = async () => {
+    // Check for title based on the current mode and type
+    let title = ''
+    if (saveToLibraryType === 'album' && !createNew) {
+      // When adding to existing album, use track title
+      title = newTrackTitle
+    } else {
+      // When creating new or for singles/audio-library, use item title
+      title = newItemTitle
+    }
+    
+    if (!title.trim()) {
+      showNotification('Export Error', 'Please enter a title for the export', 'error')
+      return
+    }
+
+    setIsExportLiveRecording(true)
+
+    try {
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        throw new Error('User not authenticated')
+      }
+
+      // Calculate duration
+      const patternCount = patternBlocks.length
+      const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      const totalDurationSeconds = maxEndBar * secondsPerBar
+      const durationMinutes = Math.floor(totalDurationSeconds / 60)
+      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+
+      // Import Tone.js and start recording
+      const Tone = await import('tone')
+      await Tone.start()
+      
+      // Create audio context
+      const audioContext = Tone.context
+      if (audioContext.state !== 'running') {
+        await audioContext.resume()
+      }
+      
+      // Create MediaStreamDestination
+      const mediaStreamDestination = audioContext.createMediaStreamDestination()
+      Tone.Destination.connect(mediaStreamDestination)
+      
+      // Create MediaRecorder with high quality settings
+      let mimeType = 'audio/webm;codecs=opus'
+      
+      if (!window.MediaRecorder.isTypeSupported(mimeType)) {
+        if (window.MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm'
+        } else if (window.MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4'
+        } else {
+          mimeType = ''
+        }
+      }
+      
+      const recordedChunks: Blob[] = []
+      const mediaRecorder = new MediaRecorder(mediaStreamDestination.stream, { mimeType })
+      
+      // Setup data handler
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data)
+          console.log(`[EXPORT LIVE TO LIBRARY] Chunk recorded: ${recordedChunks.length} - ${event.data.size} bytes`)
+        }
+      }
+      
+      // Setup stop handler
+      mediaRecorder.onstop = async () => {
+        console.log(`[EXPORT LIVE TO LIBRARY] MediaRecorder stopped - ${recordedChunks.length} chunks`)
+        
+        try {
+          if (recordedChunks.length > 0) {
+            const recordedBlob = new Blob(recordedChunks, { type: mimeType || 'audio/webm' })
+            console.log(`[EXPORT LIVE TO LIBRARY] Blob created - ${recordedBlob.size} bytes`)
+            
+            if (recordedBlob.size > 0) {
+              const wavBlob = await convertBlobToWav(recordedBlob, totalDurationSeconds)
+              
+              if (wavBlob) {
+                // Create filename
+                const filename = `${title.replace(/[^a-zA-Z0-9]/g, '-')}-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+                
+                // Upload to Supabase storage
+                const filePath = `library/${user.id}/${filename}`
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                  .from('beats')
+                  .upload(filePath, wavBlob, {
+                    contentType: 'audio/wav',
+                    cacheControl: '3600'
+                  })
+
+                if (uploadError) {
+                  throw new Error(`Upload failed: ${uploadError.message}`)
+                }
+
+                // Get public URL
+                const { data: urlData } = supabase.storage
+                  .from('beats')
+                  .getPublicUrl(filePath)
+
+                // Save based on the selected library type (same logic as saveArrangementToLibrary)
+                let savedItem: any = null
+
+                if (saveToLibraryType === 'album') {
+                  if (createNew) {
+                    // Create new album
+                    const { data: albumData, error: albumError } = await supabase
+                      .from('albums')
+                      .insert({
+                        user_id: user.id,
+                        title: newItemTitle,
+                        artist: albumArtists.length > 0 ? albumArtists.join(', ') : user.email?.split('@')[0] || 'Unknown Artist',
+                        release_date: new Date().toISOString().split('T')[0],
+                        description: newItemDescription,
+                        cover_art_url: '' // Could be enhanced to add cover art
+                      })
+                      .select()
+                      .single()
+
+                    if (albumError) {
+                      throw new Error(`Album creation failed: ${albumError.message}`)
+                    }
+                    savedItem = albumData
+
+                    // Now add the track to the album
+                    const { data: trackData, error: trackError } = await supabase
+                      .from('album_tracks')
+                      .insert({
+                        album_id: albumData.id,
+                        title: newTrackTitle, // Track title is required for albums
+                        duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+                        audio_url: urlData.publicUrl,
+                        isrc: '', // Optional ISRC code
+                        session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        created_at: new Date().toISOString()
+                      })
+                      .select()
+                      .single()
+
+                    if (trackError) {
+                      throw new Error(`Track creation failed: ${trackError.message}`)
+                    }
+
+                    console.log('[EXPORT LIVE TO LIBRARY] Created album and added track:', { album: albumData, track: trackData })
+                  } else {
+                    // Add to existing album
+                    const existingAlbum = existingItems.find(item => item.id === selectedItemId)
+                    if (!existingAlbum) {
+                      throw new Error(`Selected album not found. ID: ${selectedItemId}`)
+                    }
+                    savedItem = existingAlbum
+
+                    // Add the track to the existing album
+                    const { data: trackData, error: trackError } = await supabase
+                      .from('album_tracks')
+                      .insert({
+                        album_id: existingAlbum.id,
+                        title: newTrackTitle, // Track title is required for albums
+                        duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+                        audio_url: urlData.publicUrl,
+                        isrc: '', // Optional ISRC code
+                        session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        created_at: new Date().toISOString()
+                      })
+                      .select()
+                      .single()
+
+                    if (trackError) {
+                      throw new Error(`Track creation failed: ${trackError.message}`)
+                    }
+
+                    console.log('[EXPORT LIVE TO LIBRARY] Added track to existing album:', { album: existingAlbum, track: trackData })
+                  }
+                } else if (saveToLibraryType === 'single') {
+                  if (createNew) {
+                    // Create new single
+                    const { data: singleData, error: singleError } = await supabase
+                      .from('singles')
+                      .insert({
+                        user_id: user.id,
+                        title: newItemTitle,
+                        artist: user.email?.split('@')[0] || 'Unknown Artist',
+                        release_date: new Date().toISOString().split('T')[0],
+                        description: newItemDescription,
+                        duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+                        audio_url: urlData.publicUrl,
+                        cover_art_url: null, // Set to null to avoid console error
+                        session_id: linkToSession && currentSessionId ? currentSessionId : null // Link to current session if enabled
+                      })
+                      .select()
+                      .single()
+
+                    if (singleError) {
+                      throw new Error(`Single creation failed: ${singleError.message}`)
+                    }
+                    savedItem = singleData
+                  } else {
+                    // Update existing single with new audio file
+                    const { data: singleData, error: singleError } = await supabase
+                      .from('singles')
+                      .update({
+                        audio_url: urlData.publicUrl,
+                        duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+                        description: newItemDescription || `Live export with ${patternCount} patterns, ${maxEndBar} bars at ${bpm} BPM`
+                      })
+                      .eq('id', selectedItemId)
+                      .select()
+                      .single()
+
+                    if (singleError) {
+                      throw new Error(`Single update failed: ${singleError.message}`)
+                    }
+                    savedItem = singleData
+                  }
+                } else if (saveToLibraryType === 'audio-library') {
+                  // Create record in audio_library_items table
+                  const insertData = {
+                    user_id: user.id,
+                    name: title,
+                    file_path: filePath,
+                    file_url: urlData.publicUrl,
+                    file_size: wavBlob.size,
+                    type: 'beat',
+                    audio_type: 'arrangement', // Use same type as working function
+                    description: newItemDescription,
+                    bpm: bpm,
+                    key: '', // Could be enhanced to detect key
+                    genre: '', // Could be enhanced to detect genre
+                    subgenre: '', // Could be enhanced to detect subgenre
+                    duration: totalDurationSeconds,
+                    sample_rate: 96000,
+                    bit_depth: 32,
+                    distribution_type: 'private',
+                    is_new: true
+                  }
+                  
+                  console.log('[EXPORT LIVE TO LIBRARY] Inserting into audio_library_items:', insertData)
+                  
+                  const { data: libraryData, error: libraryError } = await supabase
+                    .from('audio_library_items')
+                    .insert(insertData)
+                    .select()
+                    .single()
+
+                  if (libraryError) {
+                    console.error('[EXPORT LIVE TO LIBRARY] Database error:', libraryError)
+                    throw new Error(`Database error: ${libraryError.message}`)
+                  }
+                  
+                  console.log('[EXPORT LIVE TO LIBRARY] Database insert successful:', libraryData)
+                  savedItem = libraryData
+                }
+
+                showNotification(
+                  'Live Export Saved to Library', 
+                  `Live export saved successfully to your ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : 'audio library'}!\n\nFile: ${filename}\nDuration: ${durationMinutes}m ${durationSeconds}s\nPatterns: ${patternCount}\nBPM: ${bpm}\n\n🎵 Perfect timing preserved with live recording!`, 
+                  'success'
+                )
+
+                console.log('[EXPORT LIVE TO LIBRARY] Successfully saved:', savedItem)
+                setShowSaveToLibraryDialog(false)
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[EXPORT LIVE TO LIBRARY] Error in onstop:', error)
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+          showNotification('Export Failed', `Failed to save live export: ${errorMessage}`, 'error')
+        } finally {
+          setIsExportLiveRecording(false)
+        }
+      }
+      
+      // Start recording
+      setIsExportLiveRecording(true)
+      mediaRecorder.start(100) // Smaller chunks for better quality
+      console.log('[EXPORT LIVE TO LIBRARY] Recording started')
+      
+      // Play the arrangement
+      console.log('[EXPORT LIVE TO LIBRARY] Starting arrangement playback...')
+      playArrangement()
+      
+      // Set timer to stop recording after exact duration
+      const timerMs = Math.floor(totalDurationSeconds * 1000)
+      console.log(`[EXPORT LIVE TO LIBRARY] Timer set for ${timerMs}ms`)
+      
+      setTimeout(() => {
+        console.log('[EXPORT LIVE TO LIBRARY] Timer fired - stopping recording')
+        
+        try {
+          if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop()
+            console.log('[EXPORT LIVE TO LIBRARY] MediaRecorder.stop() called')
+          }
+          
+          // Stop arrangement playback
+          stopArrangement()
+          
+          // Clean up
+          Tone.Destination.disconnect(mediaStreamDestination)
+          
+          console.log('[EXPORT LIVE TO LIBRARY] Timer cleanup complete')
+        } catch (error) {
+          console.error('[EXPORT LIVE TO LIBRARY] Timer error:', error)
+        }
+      }, timerMs)
+      
+      console.log('[EXPORT LIVE TO LIBRARY] Export setup complete - recording with high quality...')
+      
+    } catch (error) {
+      console.error('[EXPORT LIVE TO LIBRARY] Error starting export:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      showNotification('Export Failed', `Failed to start live export: ${errorMessage}`, 'error')
+      setIsExportLiveRecording(false)
     }
   }
 
@@ -4185,7 +4520,7 @@ export function SongArrangement({
           try {
             // Schedule all patterns since we're starting from the beginning
             console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
-            player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
+                  player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
             console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
           } catch (error) {
             console.error(`[ARRANGEMENT AUDIO] Error scheduling pattern ${block.name}:`, error)
@@ -4211,7 +4546,7 @@ export function SongArrangement({
       })
       
       // Start the transport from position 0 (already set earlier)
-      arrangementTransportRef.current?.start()
+        arrangementTransportRef.current?.start()
       console.log('[ARRANGEMENT AUDIO] Transport started successfully at position 0')
       console.log('[PLAY DEBUG] Transport state after start:', arrangementTransportRef.current.state)
       
@@ -4865,6 +5200,7 @@ export function SongArrangement({
               <Library className="w-4 h-4 mr-1" />
               Save to Library
             </Button>
+
             {isArrangementPlaying && (
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
@@ -6060,11 +6396,57 @@ export function SongArrangement({
         <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-white">
-              Save Arrangement to Library
+              {isExportLiveMode ? 'Export Live to Library' : 'Save Arrangement to Library'}
             </DialogTitle>
             <DialogDescription className="text-gray-400 mt-2">
-              Choose where you want to save your beat arrangement
+              {isExportLiveMode 
+                ? 'Record your arrangement live and save the audio to your library'
+                : 'Choose where you want to save your beat arrangement'
+              }
             </DialogDescription>
+            
+            {/* Export Mode Toggle */}
+            <div className="flex items-center gap-3 mt-4">
+              <Button
+                variant={!isExportLiveMode ? 'default' : 'outline'}
+                onClick={() => {
+                  setIsExportLiveMode(false)
+                  setLibrarySaveError(null) // Clear any export errors when switching modes
+                }}
+                className={`text-sm ${!isExportLiveMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                size="sm"
+              >
+                <Save className="w-4 h-4 mr-1" />
+                Save Arrangement
+              </Button>
+              <Button
+                variant={isExportLiveMode ? 'default' : 'outline'}
+                onClick={() => {
+                  setIsExportLiveMode(true)
+                  setLibrarySaveError(null) // Clear any save errors when switching modes
+                }}
+                className={`text-sm ${isExportLiveMode ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                size="sm"
+              >
+                <Music className="w-4 h-4 mr-1" />
+                Export Live
+              </Button>
+            </div>
+            
+            {/* Export Live Info */}
+            {isExportLiveMode && (
+              <div className="p-3 bg-teal-900/20 border border-teal-600/30 rounded-lg mt-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Music className="w-4 h-4 text-teal-400" />
+                  <span className="text-teal-300 font-semibold text-sm">Live Export Benefits</span>
+                </div>
+                <div className="text-xs text-teal-200 space-y-1">
+                  <div>• Perfect timing preservation with real-time recording</div>
+                  <div>• All mixer settings and effects included</div>
+                  <div>• High-quality audio output</div>
+                </div>
+              </div>
+            )}
           </DialogHeader>
           
           <div className="space-y-6">
@@ -6339,30 +6721,41 @@ export function SongArrangement({
               Cancel
             </Button>
             <Button
-              onClick={saveArrangementToLibrary}
-              disabled={isSavingToLibrary || 
+              onClick={isExportLiveMode ? exportLiveToLibrary : saveArrangementToLibrary}
+              disabled={isSavingToLibrary || isExportLiveRecording || 
                 (createNew && !newItemTitle.trim()) || 
                 (!createNew && !selectedItemId) ||
                 (saveToLibraryType === 'album' && !newTrackTitle.trim()) ||
                 (saveToLibraryType === 'album' && createNew && albumArtists.length === 0)
               }
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className={isExportLiveMode ? "bg-teal-600 hover:bg-teal-700 text-white" : "bg-blue-600 hover:bg-blue-700 text-white"}
             >
-              {isSavingToLibrary ? (
+              {isSavingToLibrary || isExportLiveRecording ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
+                  {isExportLiveMode ? 'Recording...' : 'Saving...'}
+                </>
+              ) : (
+                <>
+                  {isExportLiveMode ? (
+                    <>
+                      <Music className="w-4 h-4 mr-2" />
+                      Start Live Export
                 </>
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
                   Save Arrangement
+                    </>
+                  )}
                 </>
               )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+
 
       {/* Notification Modal */}
       <NotificationModal

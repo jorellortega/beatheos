@@ -71,6 +71,28 @@ export default function BeatMakerPage() {
   const [sessionVersions, setSessionVersions] = useState<any[]>([])
   const [isLoadingVersions, setIsLoadingVersions] = useState(false)
   
+  // Session loading state to prevent auto-reload on refresh
+  const [hasLoadedSessionFromUrl, setHasLoadedSessionFromUrl] = useState(false)
+  
+  // Debug dropdown state
+  const [showDebugDropdown, setShowDebugDropdown] = useState(false)
+  
+  // Advanced settings toggle state
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
+  
+  // Close debug dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (showDebugDropdown && !target.closest('.debug-dropdown')) {
+        setShowDebugDropdown(false)
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showDebugDropdown])
+  
   // AI Prompt state
   const [aiPrompt, setAiPrompt] = useState('')
   const [isAiPromptVisible, setIsAiPromptVisible] = useState(false)
@@ -182,8 +204,18 @@ export default function BeatMakerPage() {
     
     // Calculate the effective BPM and playback rate for halftime
     const originalBpm = track.originalBpm || track.bpm || bpm
-    const effectiveBpm = isHalfTime ? originalBpm * ratio : originalBpm
-    const calculatedPlaybackRate = isHalfTime ? ratio : 1.0
+    let effectiveBpm = originalBpm
+    let calculatedPlaybackRate = 1.0
+    
+    if (isHalfTime) {
+      // Half-time enabled: slow down the track
+      effectiveBpm = originalBpm * ratio
+      calculatedPlaybackRate = ratio
+    } else {
+      // Half-time disabled: restore to original speed
+      effectiveBpm = originalBpm
+      calculatedPlaybackRate = 1.0
+    }
     
     console.log(`🔍 TRACK HALFTIME - Track ${trackId}: originalBpm=${originalBpm}, effectiveBpm=${effectiveBpm}, ratio=${ratio}, playbackRate=${calculatedPlaybackRate}`)
     
@@ -200,15 +232,47 @@ export default function BeatMakerPage() {
       )
     )
     
+    // Stop transport to prevent timing issues during reload
+    const stopTransport = async () => {
+      const ToneModule = await import('tone')
+      if (ToneModule.Transport.state === 'started') {
+        ToneModule.Transport.stop()
+        console.log(`🔍 TRACK HALFTIME - Stopped transport for track ${trackId}`)
+      }
+    }
+    
     // Force reload the track to apply the new settings
-    // Use a longer delay to ensure state updates are processed
     setTimeout(async () => {
       console.log(`🔍 TRACK HALFTIME - Force reloading track ${trackId} with new settings`)
       try {
+        await stopTransport()
         await forceReloadTrackSamples(trackId)
         console.log(`🔍 TRACK HALFTIME - Successfully reloaded track ${trackId}`)
+        
+        // Verify the reload worked
+        setTimeout(() => {
+          const samples = samplesRef?.current
+          if (samples && samples[trackId]) {
+            const player = samples[trackId]
+            if (player && player.loaded) {
+              console.log(`🔍 TRACK HALFTIME - Verified reload for track ${trackId}`)
+            } else {
+              console.warn(`🔍 TRACK HALFTIME - Reload verification failed for track ${trackId}, retrying...`)
+              forceReloadTrackSamples(trackId)
+            }
+          }
+        }, 100)
       } catch (error) {
         console.error(`🔍 TRACK HALFTIME - Error reloading track ${trackId}:`, error)
+        // Retry once
+        setTimeout(async () => {
+          try {
+            await forceReloadTrackSamples(trackId)
+            console.log(`🔍 TRACK HALFTIME - Retry successful for track ${trackId}`)
+          } catch (retryError) {
+            console.error(`🔍 TRACK HALFTIME - Retry failed for track ${trackId}:`, retryError)
+          }
+        }, 300)
       }
     }, 200)
   }
@@ -482,16 +546,34 @@ export default function BeatMakerPage() {
     setCurrentStep(sequencerCurrentStep)
   }, [isSequencePlaying, sequencerCurrentStep])
 
-  // Handle loading patterns from URL parameters
+  // Handle loading patterns and sessions from URL parameters
   useEffect(() => {
-    if (searchParams) {
+    if (searchParams && !hasLoadedSessionFromUrl) {
       const loadPatternId = searchParams.get('load-pattern')
+      const loadSessionId = searchParams.get('session')
+      
+      console.log('[BEAT MAKER DEBUG] URL parameters check:', {
+        loadPatternId,
+        loadSessionId,
+        allParams: Object.fromEntries(searchParams.entries()),
+        hasLoadedSessionFromUrl
+      })
+      
       if (loadPatternId) {
         console.log(`[BEAT MAKER] Loading pattern from URL: ${loadPatternId}`)
         loadPatternFromDatabase(loadPatternId)
       }
+      
+      if (loadSessionId) {
+        console.log(`[BEAT MAKER] Loading session from URL: ${loadSessionId}`)
+        console.log(`[BEAT MAKER DEBUG] This will auto-load session: ${loadSessionId}`)
+        setHasLoadedSessionFromUrl(true) // Mark as loaded to prevent re-loading on refresh
+        handleLoadSession(loadSessionId)
+      }
+    } else if (searchParams && hasLoadedSessionFromUrl) {
+      console.log('[BEAT MAKER DEBUG] Skipping URL parameter loading - already loaded session from URL')
     }
-  }, [searchParams])
+  }, [searchParams, hasLoadedSessionFromUrl])
 
   // Load pattern from database by ID
   const loadPatternFromDatabase = async (patternId: string) => {
@@ -1800,6 +1882,7 @@ export default function BeatMakerPage() {
           }
         }
         
+        // Get all currently soloed tracks
         const soloedTracks = Object.entries(updatedMixerSettings)
           .filter(([id, settings]) => settings.solo)
           .map(([id]) => parseInt(id))
@@ -1808,27 +1891,6 @@ export default function BeatMakerPage() {
         console.log(`[MIXER] Current soloed tracks:`, soloedTracks)
         
         const hasAnySolo = soloedTracks.length > 0
-        
-        // Update mixer settings to show mute buttons for non-soloed tracks
-        setMixerSettings(prev => {
-          const newSettings = { ...prev }
-          
-          tracks.forEach(track => {
-            const isSoloed = soloedTracks.includes(track.id)
-            const shouldBeMuted = hasAnySolo && !isSoloed
-            
-            if (newSettings[track.id]) {
-              // If there's no solo active, restore original mute state
-              // If there is solo active, mute non-soloed tracks
-              newSettings[track.id] = {
-                ...newSettings[track.id],
-                mute: hasAnySolo ? shouldBeMuted : newSettings[track.id].mute
-              }
-            }
-          })
-          
-          return newSettings
-        })
         
         // Apply solo logic to all tracks
         tracks.forEach(track => {
@@ -1864,6 +1926,7 @@ export default function BeatMakerPage() {
       }, 0)
     }
     
+    // Mark session as changed so mixer settings are saved
     markSessionChanged()
   }
 
@@ -2610,7 +2673,24 @@ export default function BeatMakerPage() {
   const handleResetAllAudio = async () => {
     console.log('[AUDIO RESET] Starting reset of all track samples...')
     
-
+    // Stop all audio players first
+    const audioPlayers = window.audioPlayers
+    if (audioPlayers && typeof audioPlayers === 'object') {
+      Object.keys(audioPlayers).forEach(trackId => {
+        const player = audioPlayers[parseInt(trackId)]
+        if (player && player.stop) {
+          try {
+            player.stop()
+            player.dispose()
+            console.log(`[AUDIO RESET] Stopped audio player for track ${trackId}`)
+          } catch (error) {
+            console.warn(`[AUDIO RESET] Error stopping player for track ${trackId}:`, error)
+          }
+        }
+      })
+      // Clear the audio players object
+      window.audioPlayers = {}
+    }
     
     // Reset transport position
     setCurrentStep(0)
@@ -2619,6 +2699,7 @@ export default function BeatMakerPage() {
     const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
     console.log(`[AUDIO RESET] Found ${tracksWithAudio.length} tracks with audio to reset`)
     
+    // Reload all tracks with better error handling and verification
     for (let i = 0; i < tracksWithAudio.length; i++) {
       const track = tracksWithAudio[i]
       console.log(`[AUDIO RESET] Reloading track ${track.id}: ${track.name}`)
@@ -2628,10 +2709,33 @@ export default function BeatMakerPage() {
         try {
           await forceReloadTrackSamples(track.id)
           console.log(`[AUDIO RESET] Successfully reloaded track ${track.id}`)
+          
+          // Verify the reload worked
+          setTimeout(() => {
+            const samples = samplesRef?.current
+            if (samples && samples[track.id]) {
+              const player = samples[track.id]
+              if (player && player.loaded) {
+                console.log(`[AUDIO RESET] Verified reload for track ${track.id}`)
+              } else {
+                console.warn(`[AUDIO RESET] Reload verification failed for track ${track.id}, retrying...`)
+                forceReloadTrackSamples(track.id)
+              }
+            }
+          }, 100)
         } catch (error) {
           console.error(`[AUDIO RESET] Error reloading track ${track.id}:`, error)
+          // Retry once
+          setTimeout(async () => {
+            try {
+              await forceReloadTrackSamples(track.id)
+              console.log(`[AUDIO RESET] Retry successful for track ${track.id}`)
+            } catch (retryError) {
+              console.error(`[AUDIO RESET] Retry failed for track ${track.id}:`, retryError)
+            }
+          }, 300)
         }
-      }, i * 100) // 100ms delay between each track
+      }, i * 150) // Increased delay between tracks
     }
     
     // Reset Tone.js Transport
@@ -3158,6 +3262,22 @@ export default function BeatMakerPage() {
         }
       }
       
+      // Also stop any Tone.js samples for this track
+      const samples = samplesRef?.current
+      if (samples && samples[trackId]) {
+        try {
+          const sample = samples[trackId]
+          if (sample && sample.stop) {
+            sample.stop()
+            sample.dispose()
+          }
+          delete samples[trackId]
+          console.log(`[SHUFFLE AUDIO] Stopped Tone.js sample for track: ${track.name}`)
+        } catch (error) {
+          console.warn(`[SHUFFLE AUDIO] Error stopping Tone.js sample for track ${track.name}:`, error)
+        }
+      }
+      
       // Small delay to ensure cleanup is complete
       await new Promise(resolve => setTimeout(resolve, 50))
 
@@ -3490,6 +3610,50 @@ export default function BeatMakerPage() {
           isRelativeKey: isRelativeKey
         } : t
       ))
+
+      // CRITICAL: Force reload the audio player to use the new audio file
+      console.log(`[SHUFFLE AUDIO] Forcing reload of audio player for track: ${track.name}`)
+      
+      // First, ensure we stop any existing audio immediately
+      const ToneModule = await import('tone')
+      if (ToneModule.Transport.state === 'started') {
+        ToneModule.Transport.stop()
+        console.log(`[SHUFFLE AUDIO] Stopped transport for track: ${track.name}`)
+      }
+      
+      // Force reload with a longer delay to ensure state is fully updated
+      setTimeout(async () => {
+        try {
+          console.log(`[SHUFFLE AUDIO] Starting force reload for track: ${track.name}`)
+          await forceReloadTrackSamples(trackId)
+          console.log(`[SHUFFLE AUDIO] Successfully reloaded audio player for track: ${track.name}`)
+          
+          // Additional verification that the audio loaded
+          setTimeout(() => {
+            const samples = samplesRef?.current
+            if (samples && samples[trackId]) {
+              const player = samples[trackId]
+              if (player && player.loaded) {
+                console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
+              } else {
+                console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
+                forceReloadTrackSamples(trackId)
+              }
+            }
+          }, 200)
+        } catch (error) {
+          console.error(`[SHUFFLE AUDIO] Error reloading audio player for track ${track.name}:`, error)
+          // Retry once more
+          setTimeout(async () => {
+            try {
+              await forceReloadTrackSamples(trackId)
+              console.log(`[SHUFFLE AUDIO] Retry successful for track: ${track.name}`)
+            } catch (retryError) {
+              console.error(`[SHUFFLE AUDIO] Retry failed for track ${track.name}:`, retryError)
+            }
+          }, 500)
+        }
+      }, 200) // Increased delay to ensure state update is complete
 
     } catch (error) {
       console.error('Error shuffling audio:', error)
@@ -6188,6 +6352,14 @@ export default function BeatMakerPage() {
       setCurrentSessionName(data.name)
       setHasUnsavedChanges(false)
       
+      // Clear the session parameter from URL to prevent auto-reload on refresh
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('session')
+        window.history.replaceState({}, '', url.toString())
+        console.log('[BEAT MAKER DEBUG] Cleared session parameter from URL to prevent auto-reload')
+      }
+      
       // Populate form fields with current session data
       setSessionName(data.name)
       setSessionDescription(data.description || '')
@@ -7515,7 +7687,7 @@ export default function BeatMakerPage() {
         <CardContent>
           <div className="flex flex-col gap-4">
             {/* Main Transport Controls Row */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4 overflow-x-auto">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
               {/* Playback Controls */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <TooltipProvider>
@@ -7622,18 +7794,58 @@ export default function BeatMakerPage() {
                   </div>
                 </Button>
                 
-                {/* ±10 BPM Tolerance Indicator */}
-                <button
-                  onClick={() => setIsBpmToleranceEnabled(!isBpmToleranceEnabled)}
-                  className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
-                    isBpmToleranceEnabled 
-                      ? 'text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30' 
-                      : 'text-gray-400 bg-gray-800/40 border border-gray-600/60'
-                  }`}
-                  title={`±10 BPM tolerance: ${isBpmToleranceEnabled ? 'ON' : 'OFF'} - Click to toggle`}
+                {/* Always Visible: Reset Audio and Save Session */}
+                <Button
+                  onClick={handleResetAllAudio}
+                  variant="outline"
+                  size="sm"
+                  className="bg-red-600 text-white hover:bg-red-700 border-red-500"
+                  title="Reset all audio samples - useful when tracks don't play properly"
                 >
-                  ±10
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  Reset Audio
+                </Button>
+
+                <Button
+                  onClick={openSaveSessionDialog}
+                  variant="outline"
+                  size="sm"
+                  className={`${
+                    currentSessionId && hasUnsavedChanges 
+                      ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                      : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500'
+                  }`}
+                  title={currentSessionId && hasUnsavedChanges ? "Update current session" : "Save current session"}
+                >
+                  <Save className="w-4 h-4 mr-1" />
+                  {currentSessionId && hasUnsavedChanges ? 'Update Session' : 'Save Session'}
+                </Button>
+
+                {/* Advanced Settings Toggle */}
+                <button
+                  onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                  className="text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-gray-300 bg-gray-800/40 border border-gray-600/60 flex items-center gap-1"
+                  title={`Advanced Settings: ${showAdvancedSettings ? 'HIDE' : 'SHOW'}`}
+                >
+                  <Settings className="w-3 h-3" />
+                  {showAdvancedSettings ? 'Hide Advanced' : 'Show Advanced'}
                 </button>
+
+                {/* Advanced Settings Section */}
+                {showAdvancedSettings && (
+                  <>
+                    {/* ±10 BPM Tolerance Indicator */}
+                    <button
+                      onClick={() => setIsBpmToleranceEnabled(!isBpmToleranceEnabled)}
+                      className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
+                        isBpmToleranceEnabled 
+                          ? 'text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30' 
+                          : 'text-gray-400 bg-gray-800/40 border border-gray-600/60'
+                      }`}
+                      title={`±10 BPM tolerance: ${isBpmToleranceEnabled ? 'ON' : 'OFF'} - Click to toggle`}
+                    >
+                      ±10
+                    </button>
                 
                 {/* Time Stretch Mode Toggle (RM/FT) */}
                 <button
@@ -7686,85 +7898,148 @@ export default function BeatMakerPage() {
                   {formatSystemEnabled ? 'FORMAT ON' : 'FORMAT OFF'}
                 </button>
 
-                {/* Loop Debug Button */}
-                <button
-                  onClick={() => {
-                    console.log('[LOOP DEBUG] Debugging all tracks with loops...')
-                    tracks.forEach(track => {
-                      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
-                        debugLoopTiming(track)
-                      }
-                    })
-                  }}
-                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-cyan-300 bg-cyan-900/40 border border-cyan-500/60 shadow-lg shadow-cyan-500/30"
-                  title="Debug loop timing for all tracks"
-                >
-                  LOOP DEBUG
-                </button>
-
-                {/* Transport Debug Button */}
-                <button
-                  onClick={async () => {
-                    console.log('[TRANSPORT DEBUG] Checking Transport synchronization...')
-                    const transportStep = await getCurrentStepFromTransport()
-                    const playheadStep = getCurrentPlayheadPosition()
-                    console.log(`[TRANSPORT DEBUG] Transport step: ${transportStep}, Playhead step: ${playheadStep}`)
-                    console.log(`[TRANSPORT DEBUG] Difference: ${Math.abs(transportStep - playheadStep)} steps`)
-                  }}
-                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-yellow-300 bg-yellow-900/40 border border-yellow-500/60 shadow-lg shadow-yellow-500/30"
-                  title="Debug Transport synchronization"
-                >
-                  TRANSPORT DEBUG
-                </button>
-
-                {/* Loop Control Buttons */}
-                <button
-                  onClick={() => {
-                    console.log('[LOOP CONTROL] Manually restarting all loops at pattern boundary...')
-                    restartAllLoopsAtPatternBoundary()
-                  }}
-                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-green-300 bg-green-900/40 border border-green-500/60 shadow-lg shadow-green-500/30"
-                  title="Manually restart all loops at 8-bar boundary"
-                >
-                  RESTART LOOPS
-                </button>
-
-                <button
-                  onClick={() => {
-                    console.log('[LOOP CONTROL] Stopping all loops...')
-                    stopAllLoops()
-                  }}
-                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-red-300 bg-red-900/40 border border-red-500/60 shadow-lg shadow-red-500/30"
-                  title="Stop all loops"
-                >
-                  STOP LOOPS
-                </button>
-
-                {/* Waveform Debug Button */}
-                <button
-                  onClick={() => {
-                    console.log('[WAVEFORM DEBUG] Checking waveform loading status...')
-                    tracks.forEach(track => {
-                      if (track.audioUrl && track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
-                        const loopDuration = track.loopEndTime - track.loopStartTime
-                        const secondsPerBeat = 60 / bpm
-                        const stepDuration = secondsPerBeat / (gridDivision / 4)
-                        const sequencerDuration = steps * stepDuration
-                        const extensionRatio = loopDuration / sequencerDuration
+                {/* Debugs Dropdown Button */}
+                <div className="relative debug-dropdown">
+                  <button
+                    onClick={() => setShowDebugDropdown(!showDebugDropdown)}
+                    className="text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-purple-300 bg-purple-900/40 border border-purple-500/60 shadow-lg shadow-purple-500/30 flex items-center gap-1"
+                    title="Debug tools and utilities"
+                  >
+                    <Bug className="w-3 h-3" />
+                    Debugs
+                    <svg className={`w-3 h-3 transition-transform ${showDebugDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {showDebugDropdown && (
+                    <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 min-w-[200px]">
+                      <div className="p-2 space-y-1">
+                        <button
+                          onClick={() => {
+                            console.log('[LOOP DEBUG] Debugging all tracks with loops...')
+                            tracks.forEach(track => {
+                              if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+                                debugLoopTiming(track)
+                              }
+                            })
+                          }}
+                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-cyan-300"
+                        >
+                          🔄 Loop Debug
+                        </button>
                         
-                        console.log(`[WAVEFORM DEBUG] Track ${track.name}:`)
-                        console.log(`  - Loop: ${loopDuration.toFixed(2)}s`)
-                        console.log(`  - Sequencer: ${sequencerDuration.toFixed(2)}s`)
-                        console.log(`  - Extension ratio: ${extensionRatio.toFixed(2)}x`)
-                        console.log(`  - Audio URL: ${track.audioUrl?.substring(0, 50)}...`)
-                      }
-                    })
-                  }}
-                  className="text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-pink-300 bg-pink-900/40 border border-pink-500/60 shadow-lg shadow-pink-500/30"
-                  title="Debug waveform loading issues"
-                >
-                  WAVEFORM DEBUG
-                </button>
+                        <button
+                          onClick={async () => {
+                            console.log('[TRANSPORT DEBUG] Checking Transport synchronization...')
+                            const transportStep = await getCurrentStepFromTransport()
+                            const playheadStep = getCurrentPlayheadPosition()
+                            console.log(`[TRANSPORT DEBUG] Transport step: ${transportStep}, Playhead step: ${playheadStep}`)
+                            console.log(`[TRANSPORT DEBUG] Difference: ${Math.abs(transportStep - playheadStep)} steps`)
+                          }}
+                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-yellow-300"
+                        >
+                          ⏱️ Transport Debug
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            console.log('[LOOP CONTROL] Manually restarting all loops at pattern boundary...')
+                            restartAllLoopsAtPatternBoundary()
+                          }}
+                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-green-300"
+                        >
+                          🔄 Restart Loops
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            console.log('[LOOP CONTROL] Stopping all loops...')
+                            stopAllLoops()
+                          }}
+                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-red-300"
+                        >
+                          ⏹️ Stop Loops
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            console.log('[WAVEFORM DEBUG] Checking waveform loading status...')
+                            tracks.forEach(track => {
+                              if (track.audioUrl && track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
+                                const loopDuration = track.loopEndTime - track.loopStartTime
+                                const secondsPerBeat = 60 / bpm
+                                const stepDuration = secondsPerBeat / (gridDivision / 4)
+                                const sequencerDuration = steps * stepDuration
+                                const extensionRatio = loopDuration / sequencerDuration
+                                
+                                console.log(`[WAVEFORM DEBUG] Track ${track.name}:`)
+                                console.log(`  - Loop: ${loopDuration.toFixed(2)}s`)
+                                console.log(`  - Sequencer: ${sequencerDuration.toFixed(2)}s`)
+                                console.log(`  - Extension ratio: ${extensionRatio.toFixed(2)}x`)
+                                console.log(`  - Audio URL: ${track.audioUrl?.substring(0, 50)}...`)
+                              }
+                            })
+                          }}
+                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-pink-300"
+                                                 >
+                           📊 Waveform Debug
+                         </button>
+                         
+                         <button
+                           onClick={() => {
+                             console.log('🔍 DEBUG: Current state')
+                             console.log('File links:', fileLinks)
+                             console.log('Tracks with audio:', tracks.filter(t => t.audioUrl).map(t => ({
+                               name: t.name,
+                               audioFileId: t.audioFileId,
+                               audioUrl: t.audioUrl
+                             })))
+                             console.log('Prefer MP3:', preferMp3)
+                           }}
+                           className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-red-300"
+                         >
+                           🔍 General Debug
+                         </button>
+                         
+                         <button
+                           onClick={async () => {
+                             console.log('🔄 FORCE REFRESH: Fetching file links...')
+                             await fetchFileLinks()
+                             console.log('✅ File links refreshed')
+                           }}
+                           className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-blue-300"
+                         >
+                           🔄 Force Refresh
+                         </button>
+                         
+                         <button
+                           onClick={() => {
+                             console.log('🔍 MP3/WAV DEBUG:')
+                             console.log('Current preferMp3:', preferMp3)
+                             console.log('File links count:', fileLinks.length)
+                             console.log('Sample file links:', fileLinks.slice(0, 3))
+                             console.log('Tracks with audioFileId:', tracks.filter(t => t.audioFileId).map(t => ({
+                               name: t.name,
+                               audioFileId: t.audioFileId,
+                               audioUrl: t.audioUrl?.substring(0, 50) + '...'
+                             })))
+                           }}
+                           className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-green-300"
+                                                    >
+                             🎵 MP3/WAV Debug
+                           </button>
+                           
+                           <button
+                             onClick={debugAudioLibraryData}
+                             className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-orange-300"
+                           >
+                             🎵 Audio Library Debug
+                           </button>
+                         </div>
+                       </div>
+                     )}
+                   </div>
 
                 {/* Format Toggle (WAV/MP3) - Only show when format system is enabled */}
                 {formatSystemEnabled && (
@@ -7831,67 +8106,7 @@ export default function BeatMakerPage() {
                   </select>
                 </div>
 
-                {/* Debug button - temporary */}
-                        <button
-          onClick={() => {
-            console.log('🔍 DEBUG: Current state')
-            console.log('File links:', fileLinks)
-            console.log('Tracks with audio:', tracks.filter(t => t.audioUrl).map(t => ({
-              name: t.name,
-              audioFileId: t.audioFileId,
-              audioUrl: t.audioUrl
-            })))
-            console.log('Prefer MP3:', preferMp3)
-          }}
-          className="text-xs font-bold px-2 py-1 rounded-full bg-red-900/40 border border-red-500/60"
-          title="Debug info"
-        >
-          DEBUG
-        </button>
-        
-        <button
-          onClick={async () => {
-            console.log('🔄 FORCE REFRESH: Fetching file links...')
-            await fetchFileLinks()
-            console.log('✅ File links refreshed')
-          }}
-          className="text-xs font-bold px-2 py-1 rounded-full bg-blue-900/40 border border-blue-500/60 ml-2"
-          title="Force refresh file links"
-        >
-          REFRESH
-        </button>
-        
-        <button
-          onClick={() => {
-            console.log('🔍 MP3/WAV DEBUG:')
-            console.log('Current preferMp3:', preferMp3)
-            console.log('File links count:', fileLinks.length)
-            console.log('Sample file links:', fileLinks.slice(0, 3))
-            console.log('Tracks with audioFileId:', tracks.filter(t => t.audioFileId).map(t => ({
-              name: t.name,
-              audioFileId: t.audioFileId,
-              audioUrl: t.audioUrl?.substring(0, 50) + '...'
-            })))
-          }}
-          className="text-xs font-bold px-2 py-1 rounded-full bg-green-900/40 border border-green-500/60 ml-2"
-          title="Debug MP3/WAV switching"
-        >
-          MP3/WAV DEBUG
-        </button>
-                <Button
-                  onClick={openSaveSessionDialog}
-                  variant="outline"
-                  size="sm"
-                  className={`${
-                    currentSessionId && hasUnsavedChanges 
-                      ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
-                      : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500'
-                  }`}
-                  title={currentSessionId && hasUnsavedChanges ? "Update current session" : "Save current session"}
-                >
-                  <Save className="w-4 h-4 mr-1" />
-                  {currentSessionId && hasUnsavedChanges ? 'Update Session' : 'Save Session'}
-                </Button>
+
                 <Button
                   onClick={handleClearShuffleTracker}
                   variant="outline"
@@ -7907,26 +8122,239 @@ export default function BeatMakerPage() {
                   <RotateCcw className="w-4 h-4 mr-1" />
                   Clear Tracker
                 </Button>
-                <Button
-                  onClick={debugAudioLibraryData}
-                  variant="outline"
-                  size="sm"
-                  className="bg-gray-600 text-white hover:bg-gray-700 border-gray-500"
-                  title="Debug audio library data - check kick files and ready status"
+
+                {/* Melody Loop Mode Toggle (T→M/M→T) */}
+                <button
+                  onClick={() => {
+                    const newMode = melodyLoopMode === 'transport-dominates' ? 'melody-dominates' : 'transport-dominates'
+                    setMelodyLoopMode(newMode)
+                    console.log(`[MELODY LOOP MODE] Changed to: ${newMode} (${newMode === 'transport-dominates' ? 'T→M' : 'M→T'})`)
+                  }}
+                  className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
+                    melodyLoopMode === 'transport-dominates'
+                      ? 'text-blue-300 bg-blue-900/40 border border-blue-500/60 shadow-lg shadow-blue-500/30' 
+                      : 'text-purple-300 bg-purple-900/40 border border-purple-500/60 shadow-lg shadow-purple-500/30'
+                  }`}
+                  title={`Melody Loop Mode: ${melodyLoopMode === 'transport-dominates' ? 'Transport dominates (T→M)' : 'Melody Loop dominates (M→T)'} - Click to toggle`}
                 >
-                  <Bug className="w-4 h-4 mr-1" />
-                  Debug
-                </Button>
-                <Button
-                  onClick={handleResetAllAudio}
-                  variant="outline"
-                  size="sm"
-                  className="bg-red-600 text-white hover:bg-red-700 border-red-500"
-                  title="Reset all audio samples - useful when tracks don't play properly"
-                >
-                  <RotateCcw className="w-4 h-4 mr-1" />
-                  Reset Audio
-                </Button>
+                  {melodyLoopMode === 'transport-dominates' ? 'T→M' : 'M→T'}
+                </button>
+
+                {/* Ready Check Controls */}
+                <div className="flex items-center gap-2">
+                  <span 
+                    className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
+                      isReadyCheckLocked 
+                        ? 'bg-yellow-400 text-black hover:bg-yellow-300' 
+                        : 'text-white hover:text-yellow-400 hover:bg-yellow-400/20'
+                    }`}
+                    onClick={() => setIsReadyCheckLocked(!isReadyCheckLocked)}
+                    title={isReadyCheckLocked ? "Click to unlock Ready Check" : "Click to lock Ready Check"}
+                  >
+                    Ready Check:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={isReadyCheckEnabled ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => !isReadyCheckLocked && setIsReadyCheckEnabled(!isReadyCheckEnabled)}
+                      disabled={isReadyCheckLocked}
+                      className={`${
+                        isReadyCheckEnabled 
+                          ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                      } ${
+                        isReadyCheckLocked ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                      title={isReadyCheckLocked ? "Ready Check is locked" : (isReadyCheckEnabled ? "Ready Check is ON - Click to turn OFF" : "Ready Check is OFF - Click to turn ON")}
+                    >
+                      {isReadyCheckEnabled ? 'ON' : 'OFF'}
+                    </Button>
+                    <Badge 
+                      variant="secondary" 
+                      className={`min-w-[40px] text-center ${
+                        isReadyCheckLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
+                      }`}
+                    >
+                      {isReadyCheckLocked ? '🔒' : '🔓'}
+                    </Badge>
+                    {isReadyCheckEnabled && (
+                      <Badge 
+                        variant="secondary" 
+                        className="min-w-[60px] text-center bg-green-400/20 border-green-400 text-green-300 text-xs"
+                        title="Only ready files will be loaded"
+                      >
+                        Ready Only
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Shuffle Tracker Controls */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-white">
+                    Shuffle Tracker:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={isShuffleTrackerEnabled ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsShuffleTrackerEnabled(!isShuffleTrackerEnabled)}
+                      className={`${
+                        isShuffleTrackerEnabled 
+                          ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500' 
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                      }`}
+                      title={isShuffleTrackerEnabled ? "Shuffle Tracker is ON - tracks which files have been used to ensure variety" : "Shuffle Tracker is OFF - random selection without tracking"}
+                    >
+                      {isShuffleTrackerEnabled ? 'ON' : 'OFF'}
+                    </Button>
+                    {isShuffleTrackerEnabled && (
+                      <Badge 
+                        variant="secondary" 
+                        className="min-w-[60px] text-center bg-blue-400/20 border-blue-400 text-blue-300 text-xs"
+                        title="Tracks which files have been used to ensure variety"
+                      >
+                        Tracking
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Shuffle Limit Controls */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-white">
+                    Shuffle Limit:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={isShuffleLimitEnabled ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsShuffleLimitEnabled(!isShuffleLimitEnabled)}
+                      className={`${
+                        isShuffleLimitEnabled 
+                          ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                      }`}
+                      title={isShuffleLimitEnabled ? "Shuffle Limit is ON - limits to 10 files for faster loading" : "Shuffle Limit is OFF - loads all available files"}
+                    >
+                      {isShuffleLimitEnabled ? 'ON' : 'OFF'}
+                    </Button>
+                    {isShuffleLimitEnabled && (
+                      <Badge 
+                        variant="secondary" 
+                        className="min-w-[60px] text-center bg-green-400/20 border-green-400 text-green-300 text-xs"
+                        title="Limits shuffle to 10 files for faster loading"
+                      >
+                        Limited
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {/* BPM Range Controls for Shuffle All */}
+                <div className="flex items-center gap-2">
+                  <span className="text-white text-sm">Range:</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={bpmRange[0]}
+                      onChange={(e) => {
+                        const newMin = parseInt(e.target.value)
+                        if (newMin >= 60 && newMin <= bpmRange[1]) {
+                          setBpmRange([newMin, bpmRange[1]])
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.currentTarget.blur()
+                        }
+                      }}
+                      min="60"
+                      max={bpmRange[1]}
+                      className="w-12 h-8 text-center text-sm bg-[#1a1a1a] border border-gray-600 text-white rounded px-1 hover:border-gray-500 focus:border-blue-500 focus:outline-none"
+                    />
+                    <span className="text-white text-sm">-</span>
+                    <input
+                      type="number"
+                      value={bpmRange[1]}
+                      onChange={(e) => {
+                        const newMax = parseInt(e.target.value)
+                        if (newMax >= bpmRange[0] && newMax <= 200) {
+                          setBpmRange([bpmRange[0], newMax])
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.currentTarget.blur()
+                        }
+                      }}
+                      min={bpmRange[0]}
+                      max="200"
+                      className="w-12 h-8 text-center text-sm bg-[#1a1a1a] border border-gray-600 text-white rounded px-1 hover:border-gray-500 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+                
+                {/* Genre & Subgenre Display */}
+                {(selectedGenre || selectedSubgenre) && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-white text-sm">Style:</span>
+                    <div className="flex items-center gap-1">
+                      {selectedGenre && (
+                        <div className="flex items-center gap-1">
+                          <Badge 
+                            variant="secondary" 
+                            className="bg-purple-100 text-purple-800 border-purple-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                            style={{ backgroundColor: selectedGenre.color + '20', borderColor: selectedGenre.color }}
+                            onClick={() => setShowGenreDialog(true)}
+                            title="Click to change genre"
+                          >
+                            {selectedGenre.name}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleToggleGenreLock}
+                            className={`w-6 h-6 p-0 ${
+                              isGenreLocked 
+                                ? 'text-yellow-400 hover:text-yellow-300' 
+                                : 'text-gray-400 hover:text-gray-300'
+                            }`}
+                            title={isGenreLocked ? "Unlock genre (will shuffle)" : "Lock genre (won't shuffle)"}
+                          >
+                            {isGenreLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          </Button>
+                        </div>
+                      )}
+                      {selectedSubgenre && (
+                        <div className="flex items-center gap-1">
+                          <Badge 
+                            variant="secondary" 
+                            className="bg-blue-100 text-blue-800 border-blue-300 text-xs"
+                          >
+                            {selectedSubgenre}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleToggleSubgenreLock}
+                            className={`w-6 h-6 p-0 ${
+                              isSubgenreLocked 
+                                ? 'text-yellow-400 hover:text-yellow-300' 
+                                : 'text-gray-400 hover:text-gray-300'
+                            }`}
+                            title={isSubgenreLocked ? "Unlock subgenre (will shuffle)" : "Lock subgenre (won't shuffle)"}
+                          >
+                            {isSubgenreLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                  </>
+                )}
               </div>
 
               {/* BPM Controls */}
@@ -8100,219 +8528,7 @@ export default function BeatMakerPage() {
                 )}
               </div>
               
-              {/* Ready Check Controls */}
-              <div className="flex items-center gap-2">
-                <span 
-                  className={`text-sm cursor-pointer transition-colors px-2 py-1 rounded-full ${
-                    isReadyCheckLocked 
-                      ? 'bg-yellow-400 text-black hover:bg-yellow-300' 
-                      : 'text-white hover:text-yellow-400 hover:bg-yellow-400/20'
-                  }`}
-                  onClick={() => setIsReadyCheckLocked(!isReadyCheckLocked)}
-                  title={isReadyCheckLocked ? "Click to unlock Ready Check" : "Click to lock Ready Check"}
-                >
-                  Ready Check:
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={isReadyCheckEnabled ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => !isReadyCheckLocked && setIsReadyCheckEnabled(!isReadyCheckEnabled)}
-                    disabled={isReadyCheckLocked}
-                    className={`${
-                      isReadyCheckEnabled 
-                        ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                    } ${
-                      isReadyCheckLocked ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                    title={isReadyCheckLocked ? "Ready Check is locked" : (isReadyCheckEnabled ? "Ready Check is ON - Click to turn OFF" : "Ready Check is OFF - Click to turn ON")}
-                  >
-                    {isReadyCheckEnabled ? 'ON' : 'OFF'}
-                  </Button>
-                  <Badge 
-                    variant="secondary" 
-                    className={`min-w-[40px] text-center ${
-                      isReadyCheckLocked ? 'bg-yellow-400/20 border-yellow-400' : ''
-                    }`}
-                  >
-                    {isReadyCheckLocked ? '🔒' : '🔓'}
-                  </Badge>
-                  {isReadyCheckEnabled && (
-                    <Badge 
-                      variant="secondary" 
-                      className="min-w-[60px] text-center bg-green-400/20 border-green-400 text-green-300 text-xs"
-                      title="Only ready files will be loaded"
-                    >
-                      Ready Only
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              
-              {/* Shuffle Tracker Controls */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-white">
-                  Shuffle Tracker:
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={isShuffleTrackerEnabled ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setIsShuffleTrackerEnabled(!isShuffleTrackerEnabled)}
-                    className={`${
-                      isShuffleTrackerEnabled 
-                        ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500' 
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                    }`}
-                    title={isShuffleTrackerEnabled ? "Shuffle Tracker is ON - tracks which files have been used to ensure variety" : "Shuffle Tracker is OFF - random selection without tracking"}
-                  >
-                    {isShuffleTrackerEnabled ? 'ON' : 'OFF'}
-                  </Button>
-                  {isShuffleTrackerEnabled && (
-                    <Badge 
-                      variant="secondary" 
-                      className="min-w-[60px] text-center bg-blue-400/20 border-blue-400 text-blue-300 text-xs"
-                      title="Tracks which files have been used to ensure variety"
-                    >
-                      Tracking
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              
-              {/* Shuffle Limit Controls */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-white">
-                  Shuffle Limit:
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={isShuffleLimitEnabled ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setIsShuffleLimitEnabled(!isShuffleLimitEnabled)}
-                    className={`${
-                      isShuffleLimitEnabled 
-                        ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
-                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                    }`}
-                    title={isShuffleLimitEnabled ? "Shuffle Limit is ON - limits to 10 files for faster loading" : "Shuffle Limit is OFF - loads all available files"}
-                  >
-                    {isShuffleLimitEnabled ? 'ON' : 'OFF'}
-                  </Button>
-                  {isShuffleLimitEnabled && (
-                    <Badge 
-                      variant="secondary" 
-                      className="min-w-[60px] text-center bg-green-400/20 border-green-400 text-green-300 text-xs"
-                      title="Limits shuffle to 10 files for faster loading"
-                    >
-                      Limited
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              
-              {/* BPM Range Controls for Shuffle All */}
-              <div className="flex items-center gap-2">
-                <span className="text-white text-sm">Range:</span>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    value={bpmRange[0]}
-                    onChange={(e) => {
-                      const newMin = parseInt(e.target.value)
-                      if (newMin >= 60 && newMin <= bpmRange[1]) {
-                        setBpmRange([newMin, bpmRange[1]])
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        e.currentTarget.blur()
-                      }
-                    }}
-                    min="60"
-                    max={bpmRange[1]}
-                    className="w-12 h-8 text-center text-sm bg-[#1a1a1a] border border-gray-600 text-white rounded px-1 hover:border-gray-500 focus:border-blue-500 focus:outline-none"
-                  />
-                  <span className="text-white text-sm">-</span>
-                  <input
-                    type="number"
-                    value={bpmRange[1]}
-                    onChange={(e) => {
-                      const newMax = parseInt(e.target.value)
-                      if (newMax >= bpmRange[0] && newMax <= 200) {
-                        setBpmRange([bpmRange[0], newMax])
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        e.currentTarget.blur()
-                      }
-                    }}
-                    min={bpmRange[0]}
-                    max="200"
-                    className="w-12 h-8 text-center text-sm bg-[#1a1a1a] border border-gray-600 text-white rounded px-1 hover:border-gray-500 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-              
-              {/* Genre & Subgenre Display */}
-              {(selectedGenre || selectedSubgenre) && (
-                <div className="flex items-center gap-2">
-                  <span className="text-white text-sm">Style:</span>
-                  <div className="flex items-center gap-1">
-                    {selectedGenre && (
-                      <div className="flex items-center gap-1">
-                        <Badge 
-                          variant="secondary" 
-                          className="bg-purple-100 text-purple-800 border-purple-300 text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                          style={{ backgroundColor: selectedGenre.color + '20', borderColor: selectedGenre.color }}
-                          onClick={() => setShowGenreDialog(true)}
-                          title="Click to change genre"
-                        >
-                          {selectedGenre.name}
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleToggleGenreLock}
-                          className={`w-6 h-6 p-0 ${
-                            isGenreLocked 
-                              ? 'text-yellow-400 hover:text-yellow-300' 
-                              : 'text-gray-400 hover:text-gray-300'
-                          }`}
-                          title={isGenreLocked ? "Unlock genre (will shuffle)" : "Lock genre (won't shuffle)"}
-                        >
-                          {isGenreLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                        </Button>
-                      </div>
-                    )}
-                    {selectedSubgenre && (
-                      <div className="flex items-center gap-1">
-                        <Badge 
-                          variant="secondary" 
-                          className="bg-blue-100 text-blue-800 border-blue-300 text-xs"
-                        >
-                          {selectedSubgenre}
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleToggleSubgenreLock}
-                          className={`w-6 h-6 p-0 ${
-                            isSubgenreLocked 
-                              ? 'text-yellow-400 hover:text-yellow-300' 
-                              : 'text-gray-400 hover:text-gray-300'
-                          }`}
-                          title={isSubgenreLocked ? "Unlock subgenre (will shuffle)" : "Lock subgenre (won't shuffle)"}
-                        >
-                          {isSubgenreLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+
 
               {/* Pack Display */}
               <div className="flex items-center gap-2">
@@ -8359,33 +8575,6 @@ export default function BeatMakerPage() {
 
             {/* Secondary Controls Row */}
             <div className="flex items-center gap-4 flex-wrap">
-              {/* Melody Loop Mode */}
-              <div className="flex items-center gap-2">
-                
-                {/* Melody Loop Mode Indicator */}
-                <div className="flex items-center gap-2">
-                  <Badge 
-                    variant="outline" 
-                    className={`text-xs px-2 py-1 ${
-                      melodyLoopMode === 'transport-dominates' 
-                        ? 'bg-blue-400/20 border-blue-400 text-blue-300' 
-                        : 'bg-purple-400/20 border-purple-400 text-purple-300'
-                    }`}
-                    title={`Melody Loop Mode: ${melodyLoopMode === 'transport-dominates' ? 'Transport dominates (Mode B)' : 'Melody Loop dominates (Mode A)'}`}
-                  >
-                    {melodyLoopMode === 'transport-dominates' ? 'T→M' : 'M→T'}
-                  </Badge>
-                  <span className="text-gray-400 text-xs">
-                    {melodyLoopMode === 'transport-dominates' 
-                      ? 'Transport controls Melody Loop' 
-                      : 'Melody Loop controls Transport'
-                    }
-                  </span>
-                </div>
-              </div>
-              
-
-
               {/* Bars Controls */}
               <div className="flex items-center gap-2">
                 <span className="text-white text-sm">Bars:</span>
@@ -8639,6 +8828,7 @@ export default function BeatMakerPage() {
             }}
             mixerSettings={mixerSettings}
             masterVolume={masterVolume}
+            currentSessionId={currentSessionId}
           />
         </TabsContent>
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2 } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +16,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogC
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
 import { MassEditSelectedFilesModal } from '@/components/MassEditSelectedFilesModal'
+import { useToast } from '@/hooks/use-toast'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 // Types for DB tables
 interface Album {
@@ -26,6 +34,7 @@ interface Album {
   cover_art_url: string
   description?: string
   additional_covers?: { label: string; url: string }[]
+  status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
 }
 interface Single {
   id: string
@@ -36,6 +45,9 @@ interface Single {
   audio_url?: string | null
   duration?: string
   description?: string
+  session_id?: string | null
+  session_name?: string | null
+  status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
 }
 interface PlatformProfile {
   id: string
@@ -107,6 +119,7 @@ interface AudioSubfolder {
 
 export default function MyLibrary() {
   const { user } = useAuth();
+  const { toast } = useToast();
   // Albums
   const [albums, setAlbums] = useState<Album[]>([]);
   const [loadingAlbums, setLoadingAlbums] = useState(false);
@@ -222,6 +235,12 @@ export default function MyLibrary() {
   const [bulkSubgenreValue, setBulkSubgenreValue] = useState('');
   const [bulkGenreSaving, setBulkGenreSaving] = useState(false);
   const [bulkGenreError, setBulkGenreError] = useState<string | null>(null);
+  
+  // Conversion states
+  const [convertingSingle, setConvertingSingle] = useState<string | null>(null);
+  const [convertingAlbumTrack, setConvertingAlbumTrack] = useState<string | null>(null);
+  const [showCompressionDialog, setShowCompressionDialog] = useState(false);
+  const [compressionFile, setCompressionFile] = useState<{ id: string; url: string; type: 'single' | 'album_track' } | null>(null);
   
   // Handle file selection
   const toggleFileSelection = (fileId: string) => {
@@ -503,6 +522,241 @@ export default function MyLibrary() {
       alert('Failed to delete single. Please try again.');
     }
   };
+
+  // Convert single to MP3
+  const convertSingleToMp3 = async (singleId: string, audioUrl: string, compressionLevel: 'ultra_high' | 'high' | 'medium' | 'low' = 'medium') => {
+    setConvertingSingle(singleId)
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No access token available')
+      }
+
+      const response = await fetch('/api/audio/convert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          fileId: singleId,
+          filePath: audioUrl,
+          targetFormat: 'mp3',
+          compressionLevel,
+          fileType: 'single'
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Conversion failed')
+      }
+
+      const result = await response.json()
+      
+      // Refresh singles data
+      await refreshSingles()
+      
+      toast({
+        title: "Conversion successful",
+        description: `Single has been converted to MP3 format with ${compressionLevel} compression.`,
+      })
+    } catch (error) {
+      console.error('Error converting single:', error)
+      toast({
+        title: "Conversion failed",
+        description: error instanceof Error ? error.message : "Failed to convert single.",
+        variant: "destructive"
+      })
+    } finally {
+      setConvertingSingle(null)
+    }
+  }
+
+  // Convert album track to MP3
+  const convertAlbumTrackToMp3 = async (trackId: string, audioUrl: string, compressionLevel: 'ultra_high' | 'high' | 'medium' | 'low' = 'medium') => {
+    setConvertingAlbumTrack(trackId)
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No access token available')
+      }
+
+      const response = await fetch('/api/audio/convert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          fileId: trackId,
+          filePath: audioUrl,
+          targetFormat: 'mp3',
+          compressionLevel,
+          fileType: 'album_track'
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Conversion failed')
+      }
+
+      const result = await response.json()
+      
+      // Refresh albums data to show new MP3 tracks
+      await refreshAlbums()
+      
+      toast({
+        title: "Conversion successful",
+        description: `Album track has been converted to MP3 format with ${compressionLevel} compression.`,
+      })
+    } catch (error) {
+      console.error('Error converting album track:', error)
+      toast({
+        title: "Conversion failed",
+        description: error instanceof Error ? error.message : "Failed to convert album track.",
+        variant: "destructive"
+      })
+    } finally {
+      setConvertingAlbumTrack(null)
+    }
+  }
+
+  // Refresh functions
+  const refreshSingles = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('singles')
+        .select(`
+          *,
+          beat_sessions!inner(name)
+        `)
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      
+      // Transform data to include session_name
+      const singlesWithSessionName = data?.map(single => ({
+        ...single,
+        session_name: single.beat_sessions?.name || null
+      })) || []
+      
+      setSingles(singlesWithSessionName)
+    } catch (error) {
+      console.error('Error refreshing singles:', error)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+      case 'active':
+        return 'bg-green-500/10 text-green-400 border-green-500/20'
+      case 'paused':
+        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+      case 'scheduled':
+        return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+      case 'archived':
+        return 'bg-red-500/10 text-red-400 border-red-500/20'
+      default:
+        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return <Circle className="h-3 w-3" />
+      case 'active':
+        return <Play className="h-3 w-3" />
+      case 'paused':
+        return <Pause className="h-3 w-3" />
+      case 'scheduled':
+        return <Clock className="h-3 w-3" />
+      case 'archived':
+        return <Archive className="h-3 w-3" />
+      default:
+        return <Circle className="h-3 w-3" />
+    }
+  }
+
+  const updateAlbumStatus = async (albumId: string, newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+    const { error } = await supabase
+      .from('albums')
+      .update({ status: newStatus })
+      .eq('id', albumId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update album status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setAlbums(albums.map(album => 
+      album.id === albumId ? { ...album, status: newStatus } : album
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Album status updated to ${newStatus}`,
+    });
+  };
+
+  const updateSingleStatus = async (singleId: string, newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+    const { error } = await supabase
+      .from('singles')
+      .update({ status: newStatus })
+      .eq('id', singleId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update single status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setSingles(singles.map(single => 
+      single.id === singleId ? { ...single, status: newStatus } : single
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Single status updated to ${newStatus}`,
+    });
+  };
+
+  const refreshAlbums = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('albums')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      setAlbums(data || [])
+    } catch (error) {
+      console.error('Error refreshing albums:', error)
+    }
+  }
+
+  // Show compression options dialog
+  const showCompressionOptions = (fileId: string, fileUrl: string, type: 'single' | 'album_track') => {
+    setCompressionFile({ id: fileId, url: fileUrl, type })
+    setShowCompressionDialog(true)
+  }
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -2622,6 +2876,35 @@ export default function MyLibrary() {
                       <p className="text-gray-500">{album.artist}</p>
                     </div>
                     <div className="flex gap-2">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`capitalize flex items-center gap-2 ${getStatusColor(album.status || 'draft')}`}
+                          >
+                            {getStatusIcon(album.status || 'draft')}
+                            {album.status || 'draft'}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'draft')}>
+                            Draft
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'active')}>
+                            Active
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'paused')}>
+                            Paused
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'scheduled')}>
+                            Scheduled
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'archived')}>
+                            Archived
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button variant="outline" size="sm" onClick={() => setEditAlbumId(album.id)}><FileText className="h-4 w-4 mr-2" />Edit</Button>
                       <Button variant="destructive" size="sm" onClick={() => handleDeleteAlbum(album.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
                       <Link href={`/myalbums/${album.id}`} passHref legacyBehavior>
@@ -2658,75 +2941,221 @@ export default function MyLibrary() {
         </TabsContent>
         {/* Singles Tab */}
         <TabsContent value="singles" className="space-y-4">
-          {loadingSingles ? <div>Loading singles...</div> : singleError ? <div className="text-red-500">{singleError}</div> : singles.length === 0 ? <div>No singles found.</div> : singles.map(single => (
-              <Card key={single.id} className="p-6 flex gap-6 items-center">
-                {/* Cover Art - Show placeholder if no cover art */}
-                <div className="w-24 h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden">
-                  {single.cover_art_url ? (
-                    <img src={single.cover_art_url} alt={single.title} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="text-center text-gray-400">
-                      <Music className="w-8 h-8 mx-auto mb-1" />
-                      <div className="text-xs font-medium">{single.title}</div>
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h2 className="text-xl font-semibold">{single.title}</h2>
-                      <p className="text-gray-500">{single.artist}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      {/* Play Button */}
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => {
-                          if (single.audio_url) {
-                            if (playingSingleId === single.id) {
-                              stopSingle();
-                            } else {
-                              playSingle(single.id, single.audio_url);
-                            }
-                          }
-                        }}
-                        disabled={!single.audio_url}
-                        className={`${
-                          single.audio_url 
-                            ? 'bg-green-600 hover:bg-green-700 text-white border-green-500' 
-                            : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
-                        }`}
-                        title={single.audio_url ? 'Play audio' : 'No audio file available'}
-                      >
-                        {playingSingleId === single.id ? (
-                          <>
-                            <Pause className="h-4 w-4 mr-2" />
-                            Pause
-                          </>
+          {loadingSingles ? <div>Loading singles...</div> : singleError ? <div className="text-red-500">{singleError}</div> : singles.length === 0 ? <div>No singles found.</div> : (
+            <div className="space-y-4">
+              {singles.map(single => {
+                // Check if this single has an MP3 conversion (title ends with .mp3)
+                const isMp3Conversion = single.title.endsWith('.mp3')
+                const originalTitle = isMp3Conversion ? single.title.replace('.mp3', '') : single.title
+                
+                // Find the original single if this is an MP3 conversion
+                const originalSingle = isMp3Conversion ? singles.find(s => s.title === originalTitle && !s.title.endsWith('.mp3')) : null
+                
+                // If this is an MP3 conversion and we have the original, skip rendering this one
+                if (isMp3Conversion && originalSingle) {
+                  return null
+                }
+                
+                // Only show original singles (not MP3 conversions) as main singles
+                // But allow MP3 conversions if they don't have an original counterpart
+                if (isMp3Conversion && originalSingle) {
+                  return null
+                }
+                
+                // Find MP3 conversions for this single
+                const mp3Conversions = singles.filter(s => s.title === single.title + '.mp3')
+                
+                return (
+                  <Card key={single.id} className="p-6">
+                    <div className="flex gap-6 items-center">
+                      {/* Cover Art - Show placeholder if no cover art */}
+                      <div className="w-24 h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden">
+                        {single.cover_art_url ? (
+                          <img src={single.cover_art_url} alt={single.title} className="w-full h-full object-cover" />
                         ) : (
-                          <>
-                            <Play className="h-4 w-4 mr-2" />
-                            Play
-                          </>
+                          <div className="text-center text-gray-400">
+                            <Music className="w-8 h-8 mx-auto mb-1" />
+                            <div className="text-xs font-medium">{single.title}</div>
+                          </div>
                         )}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openEditSingleDialog(single)}><FileText className="h-4 w-4 mr-2" />Edit</Button>
-                      <Button variant="destructive" size="sm" onClick={() => deleteSingle(single.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h2 className="text-xl font-semibold">{single.title}</h2>
+                            <p className="text-gray-500">{single.artist}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            {/* Play Button */}
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => {
+                                if (single.audio_url) {
+                                  if (playingSingleId === single.id) {
+                                    stopSingle();
+                                  } else {
+                                    playSingle(single.id, single.audio_url);
+                                  }
+                                }
+                              }}
+                              disabled={!single.audio_url}
+                              className={`${
+                                single.audio_url 
+                                  ? 'bg-green-600 hover:bg-green-700 text-white border-green-500' 
+                                  : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
+                              }`}
+                              title={single.audio_url ? 'Play audio' : 'No audio file available'}
+                            >
+                              {playingSingleId === single.id ? (
+                                <>
+                                  <Pause className="h-4 w-4 mr-2" />
+                                  Pause
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-4 w-4 mr-2" />
+                                  Play
+                                </>
+                              )}
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => openEditSingleDialog(single)}><FileText className="h-4 w-4 mr-2" />Edit</Button>
+                            {single.audio_url && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                disabled={convertingSingle === single.id}
+                                onClick={() => showCompressionOptions(single.id, single.audio_url!, 'single')}
+                              >
+                                {convertingSingle === single.id ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Converting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <FileAudio className="h-4 w-4 mr-2" />
+                                    MP3 Converter
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            {single.session_id && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => window.open(`/beat-maker?session=${single.session_id}`, '_blank')}
+                                className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                              >
+                                <LinkIcon className="h-4 w-4 mr-2" />
+                                Session
+                              </Button>
+                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className={`capitalize flex items-center gap-2 ${getStatusColor(single.status || 'draft')}`}
+                                >
+                                  {getStatusIcon(single.status || 'draft')}
+                                  {single.status || 'draft'}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'draft')}>
+                                  Draft
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'active')}>
+                                  Active
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'paused')}>
+                                  Paused
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'scheduled')}>
+                                  Scheduled
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'archived')}>
+                                  Archived
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Link href="/platform-status">
+                              <Button variant="outline" size="sm">
+                                <Globe className="h-4 w-4 mr-2" />
+                                Platform Status
+                              </Button>
+                            </Link>
+                            <Button variant="destructive" size="sm" onClick={() => deleteSingle(single.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
+                          </div>
+                        </div>
+                        {single.session_id && single.session_name && (
+                          <div className="mt-2 ml-4">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md">
+                              <LinkIcon className="h-3 w-3 text-blue-400" />
+                              <span className="text-sm font-medium text-blue-300">
+                                Session: {single.session_name}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
+                          <Calendar className="h-4 w-4" />
+                          Released: {single.release_date ? new Date(single.release_date).toLocaleDateString() : 'N/A'}
+                          <span className="ml-4">Duration: {single.duration || 'N/A'}</span>
+                        </div>
+                        <div className="mt-3">
+                          <h3 className="font-medium mb-1">Description</h3>
+                          <div className="text-sm text-gray-500 font-semibold">{single.description || 'No description.'}</div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
-                    <Calendar className="h-4 w-4" />
-                    Released: {single.release_date ? new Date(single.release_date).toLocaleDateString() : 'N/A'}
-                    <span className="ml-4">Duration: {single.duration || 'N/A'}</span>
-                  </div>
-                  <div className="mt-3">
-                    <h3 className="font-medium mb-1">Description</h3>
-                    <div className="text-sm text-gray-500 font-semibold">{single.description || 'No description.'}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                    
+                    {/* MP3 Conversions as subtracks */}
+                    {mp3Conversions.length > 0 && (
+                      <div className="mt-4 border-t border-gray-700 pt-4">
+                        <h4 className="text-sm font-medium text-gray-400 mb-2">MP3 Conversions:</h4>
+                        <div className="space-y-2">
+                          {mp3Conversions.map((mp3Track) => (
+                            <div key={mp3Track.id} className="flex items-center gap-4 bg-gray-800 rounded px-3 py-2 ml-6">
+                              <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                                <div className="w-2 h-2 bg-white rounded-full"></div>
+                              </div>
+                              <span className="text-sm text-gray-300">{mp3Track.title}</span>
+                              <span className="text-xs text-gray-500">MP3</span>
+                              {mp3Track.audio_url && (
+                                <audio controls src={mp3Track.audio_url} className="h-6 text-xs" />
+                              )}
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => {
+                                  if (mp3Track.audio_url) {
+                                    if (playingSingleId === mp3Track.id) {
+                                      stopSingle();
+                                    } else {
+                                      playSingle(mp3Track.id, mp3Track.audio_url);
+                                    }
+                                  }
+                                }}
+                                disabled={!mp3Track.audio_url}
+                                className="text-xs h-6 px-2"
+                              >
+                                {playingSingleId === mp3Track.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                              </Button>
+                              <Button variant="destructive" size="sm" onClick={() => deleteSingle(mp3Track.id)} className="text-xs h-6 px-2">
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                )
+              })}
+            </div>
+          )}
         </TabsContent>
         {/* Platform Profiles Tab */}
         <TabsContent value="profiles" className="space-y-4">
@@ -4518,6 +4947,123 @@ export default function MyLibrary() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compression Options Dialog */}
+      <Dialog open={showCompressionDialog} onOpenChange={setShowCompressionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Choose Compression Level</DialogTitle>
+            <DialogDescription>
+              Select how much to compress your audio file. Higher compression saves storage but may reduce quality.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid gap-3">
+              <div 
+                className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => {
+                  if (compressionFile) {
+                    if (compressionFile.type === 'single') {
+                      convertSingleToMp3(compressionFile.id, compressionFile.url, 'ultra_high')
+                    } else {
+                      convertAlbumTrackToMp3(compressionFile.id, compressionFile.url, 'ultra_high')
+                    }
+                    setShowCompressionDialog(false)
+                    setCompressionFile(null)
+                  }
+                }}
+              >
+                <div className="flex-1">
+                  <div className="font-medium">Ultra High Compression</div>
+                  <div className="text-sm text-muted-foreground">Smallest file size, lowest quality</div>
+                  <div className="text-xs text-muted-foreground mt-1">~64 kbps • 97% compression • Good for extreme storage saving</div>
+                </div>
+                <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+              </div>
+
+              <div 
+                className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors bg-primary/5 border-primary/20"
+                onClick={() => {
+                  if (compressionFile) {
+                    if (compressionFile.type === 'single') {
+                      convertSingleToMp3(compressionFile.id, compressionFile.url, 'high')
+                    } else {
+                      convertAlbumTrackToMp3(compressionFile.id, compressionFile.url, 'high')
+                    }
+                    setShowCompressionDialog(false)
+                    setCompressionFile(null)
+                  }
+                }}
+              >
+                <div className="flex-1">
+                  <div className="font-medium">High Compression</div>
+                  <div className="text-sm text-muted-foreground">Smaller file size, reduced quality</div>
+                  <div className="text-xs text-muted-foreground mt-1">~128 kbps • 94% compression • Good for storage saving</div>
+                </div>
+                <div className="w-4 h-4 rounded-full border-2 border-primary bg-primary"></div>
+              </div>
+
+              <div 
+                className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => {
+                  if (compressionFile) {
+                    if (compressionFile.type === 'single') {
+                      convertSingleToMp3(compressionFile.id, compressionFile.url, 'medium')
+                    } else {
+                      convertAlbumTrackToMp3(compressionFile.id, compressionFile.url, 'medium')
+                    }
+                    setShowCompressionDialog(false)
+                    setCompressionFile(null)
+                  }
+                }}
+              >
+                <div className="flex-1">
+                  <div className="font-medium">Medium Compression</div>
+                  <div className="text-sm text-muted-foreground">Balanced file size and quality</div>
+                  <div className="text-xs text-muted-foreground mt-1">~192 kbps • 90% compression • Recommended for most uses</div>
+                </div>
+                <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+              </div>
+
+              <div 
+                className="flex items-center space-x-3 p-4 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => {
+                  if (compressionFile) {
+                    if (compressionFile.type === 'single') {
+                      convertSingleToMp3(compressionFile.id, compressionFile.url, 'low')
+                    } else {
+                      convertAlbumTrackToMp3(compressionFile.id, compressionFile.url, 'low')
+                    }
+                    setShowCompressionDialog(false)
+                    setCompressionFile(null)
+                  }
+                }}
+              >
+                <div className="flex-1">
+                  <div className="font-medium">Low Compression</div>
+                  <div className="text-sm text-muted-foreground">Better quality, larger file size</div>
+                  <div className="text-xs text-muted-foreground mt-1">~320 kbps • 84% compression • Best for professional use</div>
+                </div>
+                <div className="w-4 h-4 rounded-full border-2 border-primary"></div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCompressionDialog(false)
+                  setCompressionFile(null)
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
