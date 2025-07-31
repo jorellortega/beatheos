@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -53,6 +54,7 @@ interface SongArrangementProps {
   masterVolume?: number
   onVolumeChange?: (trackId: number, volume: number) => void // Callback for track volume changes
   onMasterVolumeChange?: (volume: number) => void // Callback for master volume changes
+  currentSessionId?: string | null // Current beat session ID for linking
 }
 
 export function SongArrangement({
@@ -71,7 +73,8 @@ export function SongArrangement({
   mixerSettings = {},
   masterVolume = 0.8,
   onVolumeChange,
-  onMasterVolumeChange
+  onMasterVolumeChange,
+  currentSessionId
 }: SongArrangementProps) {
   const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>(patterns)
   const [currentPattern, setCurrentPattern] = useState<PatternBlock | null>(null)
@@ -131,7 +134,14 @@ export function SongArrangement({
     // Multiple safety checks to ensure positive value
     const safeValue = Math.max(1, Math.abs(value || 1))
     console.log('[PLAYHEAD DEBUG] setCurrentBarSafe called with:', value, 'setting to:', safeValue, 'current currentBar:', currentBar)
-    setCurrentBar(safeValue)
+    
+    // Add more detailed logging
+    if (safeValue !== currentBar) {
+      console.log('[PLAYHEAD DEBUG] State will change from', currentBar, 'to', safeValue)
+      setCurrentBar(safeValue)
+    } else {
+      console.log('[PLAYHEAD DEBUG] State unchanged - same value')
+    }
   }
   const [totalBars, setTotalBars] = useState(64) // Default 64 bars (8 patterns of 8 bars each)
   const [zoom, setZoom] = useState(50) // pixels per bar
@@ -214,11 +224,41 @@ export function SongArrangement({
   const [librarySaveError, setLibrarySaveError] = useState<string | null>(null)
   const [showSaveToLibraryDialog, setShowSaveToLibraryDialog] = useState(false)
   const [saveToLibraryType, setSaveToLibraryType] = useState<'album' | 'single' | 'audio-library'>('audio-library')
-  const [existingItems, setExistingItems] = useState<{id: string, title: string, name?: string}[]>([])
+  const [existingItems, setExistingItems] = useState<{id: string, title: string, name?: string, cover_art_url?: string, artist?: string, description?: string}[]>([])
   const [selectedItemId, setSelectedItemId] = useState<string>('')
   const [createNew, setCreateNew] = useState(false)
   const [newItemTitle, setNewItemTitle] = useState('')
   const [newItemDescription, setNewItemDescription] = useState('')
+  const [newTrackTitle, setNewTrackTitle] = useState('')
+  const [newAlbumArtist, setNewAlbumArtist] = useState('')
+  const [albumArtists, setAlbumArtists] = useState<string[]>([])
+  const [newArtistInput, setNewArtistInput] = useState('')
+  const [selectedAlbumDetails, setSelectedAlbumDetails] = useState<{id: string, title: string, artist: string, cover_art_url: string, description?: string} | null>(null)
+  const [linkToSession, setLinkToSession] = useState(true) // Default to linking to session
+  const [sessionName, setSessionName] = useState<string>('') // Store session name for display
+
+  // Fetch session name when session ID is available
+  useEffect(() => {
+    const fetchSessionName = async () => {
+      if (currentSessionId) {
+        try {
+          const { data, error } = await supabase
+            .from('beat_sessions')
+            .select('name')
+            .eq('id', currentSessionId)
+            .single()
+          
+          if (!error && data) {
+            setSessionName(data.name)
+          }
+        } catch (error) {
+          console.error('Error fetching session name:', error)
+        }
+      }
+    }
+    
+    fetchSessionName()
+  }, [currentSessionId])
   
   // Modal states
   const [showNoPatternsModal, setShowNoPatternsModal] = useState(false)
@@ -369,20 +409,31 @@ export function SongArrangement({
 
   // Fixed playhead update using transport position
   const updatePlayhead = () => {
+    console.log('[PLAYHEAD DEBUG] updatePlayhead called', {
+      isPlayingRef: isPlayingRef.current,
+      hasTransport: !!arrangementTransportRef.current,
+      transportState: arrangementTransportRef.current?.state,
+      currentBar: currentBar
+    })
+    
     if (isPlayingRef.current && arrangementTransportRef.current) {
       try {
         // Get the current transport position as a string (e.g., "2:1:0")
         const positionStr = arrangementTransportRef.current.position
+        console.log('[PLAYHEAD DEBUG] Raw transport position:', positionStr)
         
         // Convert position string to [bars, beats, sixteenths]
         const [bars, beats, sixteenths] = positionStr.split(':').map(Number)
+        console.log('[PLAYHEAD DEBUG] Parsed position:', { bars, beats, sixteenths })
         
         // Calculate the current bar as a float
         let currentBarPosition = (bars || 0) + 1 + ((beats || 0) / 4) + ((sixteenths || 0) / 16 / 4)
+        console.log('[PLAYHEAD DEBUG] Calculated bar position:', currentBarPosition)
         
         // In export mode, adjust the bar position to be relative to the export start marker
         if (exportMarkersActive) {
           currentBarPosition = exportStartBar + (currentBarPosition - 1)
+          console.log('[PLAYHEAD DEBUG] Export mode adjusted position:', currentBarPosition)
         }
         
         // Calculate the maximum duration based on actual pattern blocks, not the steps prop
@@ -391,11 +442,21 @@ export function SongArrangement({
         // If export markers are active, use the export end marker as the stop point
         const stopBar = exportMarkersActive ? exportEndBar : maxEndBar
         
+        console.log('[PLAYHEAD DEBUG] Position check:', {
+          currentBarPosition,
+          currentBar,
+          difference: Math.abs(currentBarPosition - currentBar),
+          shouldUpdate: currentBarPosition >= 1 && Math.abs(currentBarPosition - currentBar) > 0.01
+        })
+        
         // Only update if we have a valid position and it's significantly different
         // Allow playhead to go beyond the steps limit (8 bars) up to the actual arrangement duration
         // Note: Steps are now 128 (8 bars at 1/16 resolution)
         if (currentBarPosition >= 1 && Math.abs(currentBarPosition - currentBar) > 0.01) {
+          console.log('[PLAYHEAD DEBUG] Updating playhead from', currentBar, 'to', currentBarPosition)
           setCurrentBarSafe(currentBarPosition)
+        } else {
+          console.log('[PLAYHEAD DEBUG] Skipping update - position not significantly different')
         }
         
         // Check if we've reached the end of the arrangement or export marker
@@ -412,6 +473,11 @@ export function SongArrangement({
       } catch (error) {
         console.error('[PLAYHEAD DEBUG] Error in update:', error)
       }
+    } else {
+      console.log('[PLAYHEAD DEBUG] Skipping update - conditions not met:', {
+        isPlayingRef: isPlayingRef.current,
+        hasTransport: !!arrangementTransportRef.current
+      })
     }
   }
 
@@ -541,14 +607,32 @@ export function SongArrangement({
   }, [patterns])
 
   // Auto-initialize patterns ONLY when component mounts and there are truly NO patterns at all
+  // Use a ref to track if we've already auto-initialized to prevent aggressive reloading
+  const hasAutoInitializedRef = useRef(false)
+  const lastSessionIdRef = useRef<string | null | undefined>(undefined)
+  
+  // Reset auto-initialization flag when session changes
   useEffect(() => {
-    // Only auto-initialize if we have tracks but absolutely no patterns anywhere
-    // This prevents interference with existing patterns from sessions or manual creation
-    if (tracks.length > 0 && patternBlocks.length === 0 && patterns.length === 0) {
-      console.log('[AUTO INIT] No patterns found anywhere - auto-initializing patterns for song arrangement')
+    if (currentSessionId !== lastSessionIdRef.current) {
+      console.log('[AUTO INIT] Session changed, resetting auto-initialization flag')
+      hasAutoInitializedRef.current = false
+      lastSessionIdRef.current = currentSessionId
+    }
+  }, [currentSessionId])
+  
+  useEffect(() => {
+    // Only auto-initialize if:
+    // 1. We haven't auto-initialized before
+    // 2. We have tracks
+    // 3. There are absolutely no patterns anywhere
+    if (!hasAutoInitializedRef.current && tracks.length > 0 && patternBlocks.length === 0 && patterns.length === 0) {
+      console.log('[AUTO INIT] First time initialization - auto-initializing patterns for song arrangement')
+      hasAutoInitializedRef.current = true
       loadElevenPatternsFromEachTrack()
     } else if (patternBlocks.length > 0 || patterns.length > 0) {
       console.log('[AUTO INIT] Patterns already exist - skipping auto-initialization')
+    } else if (hasAutoInitializedRef.current) {
+      console.log('[AUTO INIT] Already auto-initialized before - not re-triggering')
     }
   }, [tracks, patternBlocks.length, patterns.length])
 
@@ -556,6 +640,61 @@ export function SongArrangement({
   useEffect(() => {
     console.log('[PLAYHEAD DEBUG] isArrangementPlaying state changed to:', isArrangementPlaying)
   }, [isArrangementPlaying])
+
+  // Debug: Monitor currentBar state changes
+  useEffect(() => {
+    console.log('[PLAYHEAD DEBUG] currentBar state changed to:', currentBar)
+  }, [currentBar])
+
+  // Debug: Manual transport position check
+  const debugTransportPosition = () => {
+    if (arrangementTransportRef.current) {
+      console.log('[PLAYHEAD DEBUG] Manual transport check:', {
+        position: arrangementTransportRef.current.position,
+        state: arrangementTransportRef.current.state,
+        bpm: arrangementTransportRef.current.bpm.value,
+        time: arrangementTransportRef.current.seconds
+      })
+    } else {
+      console.log('[PLAYHEAD DEBUG] No transport available')
+    }
+  }
+
+  // Debug: Test transport advancement (call this from console)
+  const testTransportAdvancement = () => {
+    if (arrangementTransportRef.current) {
+      const startPosition = arrangementTransportRef.current.position
+      console.log('[PLAYHEAD DEBUG] Starting position:', startPosition)
+      
+      // Wait 1 second and check again
+      setTimeout(() => {
+        const endPosition = arrangementTransportRef.current?.position
+        console.log('[PLAYHEAD DEBUG] After 1 second position:', endPosition)
+        console.log('[PLAYHEAD DEBUG] Position changed:', startPosition !== endPosition)
+      }, 1000)
+    }
+  }
+
+        // Expose debug functions to window for console access
+      useEffect(() => {
+        (window as any).debugTransportPosition = debugTransportPosition
+        ;(window as any).testTransportAdvancement = testTransportAdvancement
+        ;(window as any).debugPlayhead = () => {
+          console.log('[PLAYHEAD DEBUG] Current state:', {
+            currentBar,
+            isArrangementPlaying,
+            isPlayingRef: isPlayingRef.current,
+            hasTransport: !!arrangementTransportRef.current,
+            transportState: arrangementTransportRef.current?.state,
+            transportPosition: arrangementTransportRef.current?.position,
+            progressInterval: progressIntervalRef.current
+          })
+        }
+        ;(window as any).forcePlayheadUpdate = () => {
+          console.log('[PLAYHEAD DEBUG] Forcing playhead update...')
+          updatePlayhead()
+        }
+      }, [currentBar, isArrangementPlaying])
 
   // Monitor for unexpected audio playback
   useEffect(() => {
@@ -2872,7 +3011,7 @@ export function SongArrangement({
       const endTime = exportEndBar * secondsPerBar
       
       // Schedule the arrangement to play for the exact duration
-      const playPromise = playArrangement()
+      playArrangement()
       
       // Set a timer to stop recording after exact duration
       const timerMs = Math.floor(totalDurationSeconds * 1000)
@@ -2988,38 +3127,68 @@ export function SongArrangement({
       return
     }
 
-    // Load existing items based on selected type
-    await loadExistingItems(user.id)
+    // Load existing items based on selected type (default to 'album')
+    await loadExistingItems(user.id, saveToLibraryType)
     
     setShowSaveToLibraryDialog(true)
+    setNewTrackTitle('') // Reset track title when dialog opens
+    setNewAlbumArtist('') // Reset album artist when dialog opens
+    setAlbumArtists([]) // Reset album artists array when dialog opens
+    setNewArtistInput('') // Reset artist input when dialog opens
+    setCreateNew(true) // Default to "Create New" when dialog opens
+    setSelectedItemId('') // Reset selected item
+    setSelectedAlbumDetails(null) // Reset selected album details
   }
 
   // Load existing items for the selected type
-  const loadExistingItems = async (userId: string) => {
+  const loadExistingItems = async (userId: string, type?: 'album' | 'single' | 'audio-library') => {
     try {
-      let items: {id: string, title: string, name?: string}[] = []
+      const fetchType = type || saveToLibraryType
+      console.log('[DEBUG] loadExistingItems called with type:', fetchType)
       
-      if (saveToLibraryType === 'album') {
+      let items: {id: string, title: string, name?: string, cover_art_url?: string, artist?: string}[] = []
+      
+      if (fetchType === 'album') {
+        console.log('[DEBUG] Fetching albums for user:', userId)
         const { data, error } = await supabase
           .from('albums')
-          .select('id, title')
+          .select('*')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
         
         if (!error && data) {
-          items = data.map(item => ({ id: item.id, title: item.title }))
+          console.log('[LIBRARY] Fetched albums:', data)
+          items = data.map(item => ({ 
+            id: item.id, 
+            title: item.title,
+            artist: item.artist,
+            cover_art_url: item.cover_art_url,
+            description: item.description
+          }))
+        } else if (error) {
+          console.error('[LIBRARY] Error fetching albums:', error)
         }
-      } else if (saveToLibraryType === 'single') {
+      } else if (fetchType === 'single') {
+        console.log('[DEBUG] Fetching singles for user:', userId)
         const { data, error } = await supabase
           .from('singles')
-          .select('id, title')
+          .select('id, title, artist, cover_art_url')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
         
         if (!error && data) {
-          items = data.map(item => ({ id: item.id, title: item.title }))
+          console.log('[LIBRARY] Fetched singles:', data)
+          items = data.map(item => ({ 
+            id: item.id, 
+            title: item.title,
+            artist: item.artist,
+            cover_art_url: item.cover_art_url
+          }))
+        } else if (error) {
+          console.error('[LIBRARY] Error fetching singles:', error)
         }
-      } else if (saveToLibraryType === 'audio-library') {
+      } else if (fetchType === 'audio-library') {
+        console.log('[DEBUG] Fetching audio library items for user:', userId)
         const { data, error } = await supabase
           .from('audio_library_items')
           .select('id, name')
@@ -3028,12 +3197,17 @@ export function SongArrangement({
           .order('created_at', { ascending: false })
         
         if (!error && data) {
+          console.log('[LIBRARY] Fetched audio library items:', data)
           items = data.map(item => ({ id: item.id, title: item.name || 'Untitled' }))
+        } else if (error) {
+          console.error('[LIBRARY] Error fetching audio library items:', error)
         }
       }
       
+      console.log('[DEBUG] Setting existingItems:', items)
       setExistingItems(items)
       setSelectedItemId('')
+      setSelectedAlbumDetails(null)
       setCreateNew(false)
     } catch (error) {
       console.error('[LIBRARY] Error loading existing items:', error)
@@ -3041,11 +3215,57 @@ export function SongArrangement({
   }
 
   // Handle type change in dialog
+  // Add artist to the list
+  const addArtist = () => {
+    if (newArtistInput.trim() && !albumArtists.includes(newArtistInput.trim())) {
+      setAlbumArtists([...albumArtists, newArtistInput.trim()])
+      setNewArtistInput('')
+    }
+  }
+
+  // Remove artist from the list
+  const removeArtist = (artistToRemove: string) => {
+    setAlbumArtists(albumArtists.filter(artist => artist !== artistToRemove))
+  }
+
+  // Handle Enter key in artist input
+  const handleArtistInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addArtist()
+    }
+  }
+
+  // Handle album selection
+  const handleAlbumSelection = (albumId: string) => {
+    setSelectedItemId(albumId)
+    const selectedAlbum = existingItems.find(item => item.id === albumId)
+    if (selectedAlbum && saveToLibraryType === 'album') {
+      setSelectedAlbumDetails({
+        id: selectedAlbum.id,
+        title: selectedAlbum.title,
+        artist: selectedAlbum.artist || '',
+        cover_art_url: selectedAlbum.cover_art_url || '',
+        description: selectedAlbum.description
+      })
+    } else {
+      setSelectedAlbumDetails(null)
+    }
+  }
+
   const handleTypeChange = async (type: 'album' | 'single' | 'audio-library') => {
+    console.log('[DEBUG] handleTypeChange called with type:', type)
     setSaveToLibraryType(type)
+    setNewTrackTitle('') // Reset track title when type changes
+    setNewAlbumArtist('') // Reset album artist when type changes
+    setAlbumArtists([]) // Reset album artists array when type changes
+    setNewArtistInput('') // Reset artist input when type changes
+    
+    // Load items immediately with the correct type
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
-      await loadExistingItems(user.id)
+      console.log('[DEBUG] Loading items for user:', user.id, 'with type:', type)
+      await loadExistingItems(user.id, type)
     }
   }
 
@@ -3058,6 +3278,16 @@ export function SongArrangement({
 
     if (!selectedItemId && !createNew) {
       showNotification('Selection Required', 'Please select an existing item or create a new one.', 'warning')
+      return
+    }
+
+    if (saveToLibraryType === 'album' && !newTrackTitle.trim()) {
+      showNotification('Track Title Required', 'Please enter a title for your track.', 'warning')
+      return
+    }
+
+    if (saveToLibraryType === 'album' && createNew && albumArtists.length === 0) {
+      showNotification('Artist Required', 'Please add at least one artist for your album.', 'warning')
       return
     }
 
@@ -3120,7 +3350,7 @@ export function SongArrangement({
             .insert({
               user_id: user.id,
               title: newItemTitle,
-              artist: user.email?.split('@')[0] || 'Unknown Artist',
+              artist: albumArtists.length > 0 ? albumArtists.join(', ') : user.email?.split('@')[0] || 'Unknown Artist',
               release_date: new Date().toISOString().split('T')[0],
               description: newItemDescription,
               cover_art_url: '' // Could be enhanced to add cover art
@@ -3132,9 +3362,71 @@ export function SongArrangement({
             throw new Error(`Album creation failed: ${albumError.message}`)
           }
           savedItem = albumData
+
+          // Now add the track to the album
+          const { data: trackData, error: trackError } = await supabase
+            .from('album_tracks')
+            .insert({
+              album_id: albumData.id,
+              title: newTrackTitle, // Track title is required for albums
+              duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+              audio_url: urlData.publicUrl,
+              isrc: '', // Optional ISRC code
+              session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+              created_at: new Date().toISOString()
+            })
+            .select()
+            .single()
+
+          if (trackError) {
+            throw new Error(`Track creation failed: ${trackError.message}`)
+          }
+
+          console.log('[LIBRARY] Created album and added track:', { album: albumData, track: trackData })
         } else {
           // Add to existing album
-          savedItem = existingItems.find(item => item.id === selectedItemId)
+          console.log('[DEBUG] selectedItemId:', selectedItemId)
+          console.log('[DEBUG] existingItems:', existingItems)
+          
+          const existingAlbum = existingItems.find(item => item.id === selectedItemId)
+          if (!existingAlbum) {
+            throw new Error(`Selected album not found. ID: ${selectedItemId}`)
+          }
+          savedItem = existingAlbum
+
+          console.log('[DEBUG] Using album_id:', existingAlbum.id)
+
+          // Verify the album exists in the database
+          const { data: albumCheck, error: albumCheckError } = await supabase
+            .from('albums')
+            .select('id')
+            .eq('id', existingAlbum.id)
+            .single()
+
+          if (albumCheckError || !albumCheck) {
+            throw new Error(`Album with ID ${existingAlbum.id} does not exist in the database`)
+          }
+
+          // Add the track to the existing album
+          const { data: trackData, error: trackError } = await supabase
+            .from('album_tracks')
+            .insert({
+              album_id: existingAlbum.id, // Use the actual album ID from the found album
+              title: newTrackTitle, // Track title is required for albums
+              duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+              audio_url: urlData.publicUrl,
+              isrc: '', // Optional ISRC code
+              session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+              created_at: new Date().toISOString()
+            })
+            .select()
+            .single()
+
+          if (trackError) {
+            throw new Error(`Track creation failed: ${trackError.message}`)
+          }
+
+          console.log('[LIBRARY] Added track to existing album:', { album: existingAlbum, track: trackData })
         }
       } else if (saveToLibraryType === 'single') {
         if (createNew) {
@@ -3149,7 +3441,8 @@ export function SongArrangement({
               description: newItemDescription,
               duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
               audio_url: urlData.publicUrl,
-              cover_art_url: null // Set to null to avoid console error
+              cover_art_url: null, // Set to null to avoid console error
+              session_id: linkToSession && currentSessionId ? currentSessionId : null // Link to current session if enabled
             })
             .select()
             .single()
@@ -3596,6 +3889,7 @@ export function SongArrangement({
 
   // Play the entire arrangement using arrangement audio system
   const playArrangement = async () => {
+    console.log('=== PLAY ARRANGEMENT FUNCTION STARTED ===')
     console.log('[ARRANGEMENT AUDIO] Play arrangement called')
     console.log('[PLAY DEBUG] Current state:', { 
       isArrangementPlaying, 
@@ -3605,14 +3899,31 @@ export function SongArrangement({
       playersCount: Object.keys(arrangementPlayersRef.current).length
     })
     console.log('[ARRANGEMENT AUDIO] Pattern blocks:', patternBlocks)
+    console.log('[ARRANGEMENT AUDIO] Pattern blocks length:', patternBlocks.length)
+    console.log('[ARRANGEMENT AUDIO] Patterns prop length:', patterns.length)
     console.log('[ARRANGEMENT AUDIO] Available tracks:', tracks)
     console.log('[ARRANGEMENT AUDIO] Current players:', arrangementPlayersRef.current)
     
     if (patternBlocks.length === 0) {
-      console.log('[ARRANGEMENT AUDIO] No pattern blocks found')
-      // Show a modern modal instead of alert
-      setShowNoPatternsModal(true)
-      return
+      console.log('[ARRANGEMENT AUDIO] No pattern blocks found - auto-loading patterns')
+      console.log('[ARRANGEMENT AUDIO] patternBlocks array:', JSON.stringify(patternBlocks, null, 2))
+      
+      // Auto-load patterns instead of showing modal
+      if (tracks.length > 0) {
+        console.log('[ARRANGEMENT AUDIO] Auto-loading patterns from tracks')
+        loadElevenPatternsFromEachTrack()
+        
+        // Wait a moment for patterns to be loaded, then continue
+        setTimeout(() => {
+          console.log('[ARRANGEMENT AUDIO] Patterns loaded, continuing with play')
+          playArrangement()
+        }, 100)
+        return
+      } else {
+        console.log('[ARRANGEMENT AUDIO] No tracks available - showing modal')
+        setShowNoPatternsModal(true)
+        return
+      }
     }
     
     // CRITICAL: Ensure we're completely stopped before starting
@@ -3888,13 +4199,28 @@ export function SongArrangement({
       console.log('[ARRANGEMENT AUDIO] Starting transport...')
       console.log('[PLAY DEBUG] Transport position before start:', arrangementTransportRef.current.position)
       
+      // CRITICAL FIX: Set playing state to true so playhead can update
+      isPlayingRef.current = true
+      setIsArrangementPlaying(true)
+      onArrangementPlayStateChange?.(true)
+      
+      console.log('[PLAYHEAD DEBUG] Play state set:', {
+        isPlayingRef: isPlayingRef.current,
+        isArrangementPlaying: true,
+        transportState: arrangementTransportRef.current?.state
+      })
+      
       // Start the transport from position 0 (already set earlier)
       arrangementTransportRef.current?.start()
       console.log('[ARRANGEMENT AUDIO] Transport started successfully at position 0')
       console.log('[PLAY DEBUG] Transport state after start:', arrangementTransportRef.current.state)
       
       // Update playhead every 16ms (60fps) for smooth movement
-      progressIntervalRef.current = setInterval(updatePlayhead, 16)
+      progressIntervalRef.current = setInterval(() => {
+        console.log('[PLAYHEAD DEBUG] Interval callback fired!')
+        updatePlayhead()
+      }, 16)
+      console.log('[PLAYHEAD DEBUG] Playhead interval set up with ID:', progressIntervalRef.current)
       
       console.log(`[ARRANGEMENT AUDIO] Started arrangement with ${sortedBlocks.length} patterns, total duration: ${totalDurationBars} bars`)
     } catch (error) {
@@ -3973,8 +4299,11 @@ export function SongArrangement({
     
     // Clear all intervals
     if (progressIntervalRef.current) {
+      console.log('[PLAYHEAD DEBUG] Clearing playhead interval:', progressIntervalRef.current)
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
+    } else {
+      console.log('[PLAYHEAD DEBUG] No playhead interval to clear')
     }
     
     // Nuclear option: Clear ALL intervals on the page
@@ -4243,7 +4572,8 @@ export function SongArrangement({
             <div className="flex flex-wrap items-center gap-4">
             <Button
               onClick={() => {
-                console.log('=== PLAY BUTTON DEBUG ===')
+                console.log('=== PLAY BUTTON CLICKED ===')
+                console.log('Button clicked at:', new Date().toISOString())
                 console.log('Current state:', { isArrangementPlaying, patternBlocksLength: patternBlocks.length, currentBar })
                 console.log('Audio system initialized:', isArrangementAudioInitialized.current)
                 console.log('Available players:', Object.keys(arrangementPlayersRef.current))
@@ -4257,8 +4587,10 @@ export function SongArrangement({
                 }
                 
                 if (isArrangementPlaying) {
+                  console.log('Stopping arrangement...')
                   stopArrangement()
                 } else {
+                  console.log('Starting arrangement...')
                   playArrangement()
                 }
               }}
@@ -4345,6 +4677,14 @@ export function SongArrangement({
               className="text-xs"
             >
               Debug Audio
+            </Button>
+            <Button
+              onClick={debugTransportPosition}
+              variant="outline"
+              size="sm"
+              className="text-xs"
+            >
+              Debug Transport
             </Button>
             <Button
               onClick={() => {
@@ -5760,15 +6100,25 @@ export function SongArrangement({
             <div className="space-y-3">
               <div className="flex gap-3">
                 <Button
+                  type="button"
                   variant={createNew ? 'default' : 'outline'}
-                  onClick={() => setCreateNew(true)}
+                  onClick={() => {
+                    setCreateNew(true)
+                    setSelectedItemId('')
+                    setSelectedAlbumDetails(null)
+                  }}
                   className={`text-sm ${createNew ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-800 hover:bg-gray-700'}`}
                 >
                   Create New
                 </Button>
                 <Button
+                  type="button"
                   variant={!createNew ? 'default' : 'outline'}
-                  onClick={() => setCreateNew(false)}
+                  onClick={() => {
+                    setCreateNew(false)
+                    setSelectedItemId('')
+                    setSelectedAlbumDetails(null)
+                  }}
                   className={`text-sm ${!createNew ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-800 hover:bg-gray-700'}`}
                 >
                   Add to Existing
@@ -5789,6 +6139,66 @@ export function SongArrangement({
                     className="bg-gray-800 border-gray-600 text-white"
                   />
                 </div>
+                {saveToLibraryType === 'album' && (
+                  <>
+                    <div>
+                      <Label className="text-white">Artist(s) *</Label>
+                      <div className="space-y-2">
+                        {/* Artist input */}
+                        <div className="flex gap-2">
+                          <Input
+                            value={newArtistInput}
+                            onChange={(e) => setNewArtistInput(e.target.value)}
+                            onKeyDown={handleArtistInputKeyDown}
+                            placeholder="Enter artist name and press Enter or click +"
+                            className="bg-gray-800 border-gray-600 text-white flex-1"
+                          />
+                          <Button
+                            type="button"
+                            onClick={addArtist}
+                            disabled={!newArtistInput.trim() || albumArtists.includes(newArtistInput.trim())}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3"
+                            size="sm"
+                          >
+                            +
+                          </Button>
+                        </div>
+                        
+                        {/* Artist tags */}
+                        {albumArtists.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {albumArtists.map((artist, index) => (
+                              <div
+                                key={index}
+                                className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-2"
+                              >
+                                <span>{artist}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeArtist(artist)}
+                                  className="text-white hover:text-red-200 text-xs"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="newTrackTitle" className="text-white">Track Title *</Label>
+                      <Input
+                        id="newTrackTitle"
+                        value={newTrackTitle}
+                        onChange={(e) => setNewTrackTitle(e.target.value)}
+                        placeholder="Enter track title"
+                        className="bg-gray-800 border-gray-600 text-white"
+                        required
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <Label htmlFor="newDescription" className="text-white">Description (Optional)</Label>
                   <Textarea
@@ -5807,7 +6217,7 @@ export function SongArrangement({
             {!createNew && existingItems.length > 0 && (
               <div className="space-y-3">
                 <Label className="text-white">Select Existing {saveToLibraryType === 'album' ? 'Album' : saveToLibraryType === 'single' ? 'Single' : 'Audio Item'}:</Label>
-                <Select value={selectedItemId} onValueChange={setSelectedItemId}>
+                <Select value={selectedItemId} onValueChange={handleAlbumSelection}>
                   <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
                     <SelectValue placeholder="Choose an item..." />
                   </SelectTrigger>
@@ -5819,6 +6229,61 @@ export function SongArrangement({
                     ))}
                   </SelectContent>
                 </Select>
+                
+                {/* Show selected album details */}
+                {saveToLibraryType === 'album' && selectedAlbumDetails && (
+                  <div className="bg-gray-800 border border-gray-600 rounded-lg p-4">
+                    <div className="flex items-start gap-4">
+                      {/* Album cover - clickable */}
+                      <Link 
+                        href={`/myalbums/${selectedAlbumDetails.id}`}
+                        className="w-16 h-16 bg-gray-700 rounded-lg overflow-hidden flex-shrink-0 hover:opacity-80 transition-opacity cursor-pointer"
+                        target="_blank"
+                        title="View album details"
+                      >
+                        {selectedAlbumDetails.cover_art_url ? (
+                          <img 
+                            src={selectedAlbumDetails.cover_art_url} 
+                            alt={selectedAlbumDetails.title}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gray-600 flex items-center justify-center">
+                            <Music className="w-6 h-6 text-gray-400" />
+                          </div>
+                        )}
+                      </Link>
+                      
+                      {/* Album info */}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-white font-semibold text-lg truncate">
+                          {selectedAlbumDetails.title}
+                        </h3>
+                        <p className="text-gray-400 text-sm truncate">
+                          {selectedAlbumDetails.artist}
+                        </p>
+                        {selectedAlbumDetails.description && (
+                          <p className="text-gray-500 text-xs mt-1 line-clamp-2">
+                            {selectedAlbumDetails.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {saveToLibraryType === 'album' && selectedItemId && (
+                  <div>
+                    <Label htmlFor="existingTrackTitle" className="text-white">Track Title</Label>
+                    <Input
+                      id="existingTrackTitle"
+                      value={newTrackTitle}
+                      onChange={(e) => setNewTrackTitle(e.target.value)}
+                      placeholder="Enter track title"
+                      className="bg-gray-800 border-gray-600 text-white"
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -5826,6 +6291,34 @@ export function SongArrangement({
               <div className="text-center py-4 text-gray-400">
                 No existing {saveToLibraryType === 'album' ? 'albums' : saveToLibraryType === 'single' ? 'singles' : 'audio items'} found. 
                 Please create a new one.
+              </div>
+            )}
+
+            {/* Session Linking Option */}
+            {currentSessionId && (
+              <div className="space-y-4 p-4 bg-blue-900/20 border border-blue-600/30 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="linkToSession"
+                    checked={linkToSession}
+                    onChange={(e) => setLinkToSession(e.target.checked)}
+                    className="w-5 h-5 rounded border-blue-400 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-2"
+                  />
+                  <div className="flex-1">
+                    <Label htmlFor="linkToSession" className="text-white font-semibold text-base cursor-pointer">
+                      🔗 Link to Beat Session
+                    </Label>
+                    {sessionName && (
+                      <div className="text-blue-300 text-sm mt-1">
+                        Session: <span className="font-medium">{sessionName}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="text-sm text-blue-200 ml-8">
+                  When enabled, this track will be linked to your current beat session "{sessionName || 'Untitled'}", allowing you to easily return to edit it later.
+                </div>
               </div>
             )}
 
@@ -5847,7 +6340,12 @@ export function SongArrangement({
             </Button>
             <Button
               onClick={saveArrangementToLibrary}
-              disabled={isSavingToLibrary || (createNew && !newItemTitle.trim()) || (!createNew && !selectedItemId)}
+              disabled={isSavingToLibrary || 
+                (createNew && !newItemTitle.trim()) || 
+                (!createNew && !selectedItemId) ||
+                (saveToLibraryType === 'album' && !newTrackTitle.trim()) ||
+                (saveToLibraryType === 'album' && createNew && albumArtists.length === 0)
+              }
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {isSavingToLibrary ? (
