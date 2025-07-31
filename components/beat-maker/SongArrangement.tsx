@@ -3,9 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download, MousePointer, Save, FolderOpen, Brain } from 'lucide-react'
+import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download, MousePointer, Save, FolderOpen, Brain, Shuffle, Library } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import * as Tone from 'tone'
 import { supabase } from '@/lib/supabaseClient'
@@ -49,6 +51,8 @@ interface SongArrangementProps {
     effects: { reverb: number, delay: number }
   }}
   masterVolume?: number
+  onVolumeChange?: (trackId: number, volume: number) => void // Callback for track volume changes
+  onMasterVolumeChange?: (volume: number) => void // Callback for master volume changes
 }
 
 export function SongArrangement({
@@ -65,12 +69,62 @@ export function SongArrangement({
   onArrangementPlayPause,
   onArrangementPlayStateChange,
   mixerSettings = {},
-  masterVolume = 0.8
+  masterVolume = 0.8,
+  onVolumeChange,
+  onMasterVolumeChange
 }: SongArrangementProps) {
   const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>(patterns)
   const [currentPattern, setCurrentPattern] = useState<PatternBlock | null>(null)
   const [isArrangementPlaying, setIsArrangementPlaying] = useState(false)
   const [currentBar, setCurrentBar] = useState(1)
+  
+  // Volume control state
+  const [trackVolumes, setTrackVolumes] = useState<{[trackId: number]: number}>({})
+  const [arrangementMasterVolume, setArrangementMasterVolume] = useState(masterVolume)
+  
+  // Volume control functions
+  const handleTrackVolumeChange = (trackId: number, volume: number) => {
+    setTrackVolumes(prev => ({
+      ...prev,
+      [trackId]: volume
+    }))
+    onVolumeChange?.(trackId, volume)
+    
+    // Update audio gain if gain node exists
+    const gainNode = arrangementGainNodesRef.current[trackId]
+    if (gainNode) {
+      gainNode.gain.value = volume * arrangementMasterVolume
+    }
+  }
+  
+  const handleMasterVolumeChange = (volume: number) => {
+    setArrangementMasterVolume(volume)
+    onMasterVolumeChange?.(volume)
+    
+    // Update all track volumes
+    Object.keys(arrangementGainNodesRef.current).forEach(trackIdStr => {
+      const trackId = parseInt(trackIdStr)
+      const gainNode = arrangementGainNodesRef.current[trackId]
+      const trackVolume = trackVolumes[trackId] || 1
+      
+      if (gainNode) {
+        gainNode.gain.value = trackVolume * volume
+      }
+    })
+  }
+  
+  // Initialize track volumes from mixer settings or defaults
+  useEffect(() => {
+    const initialVolumes: {[trackId: number]: number} = {}
+    tracks.forEach(track => {
+      if (mixerSettings[track.id]) {
+        initialVolumes[track.id] = mixerSettings[track.id].volume
+      } else {
+        initialVolumes[track.id] = 1.0 // Default volume
+      }
+    })
+    setTrackVolumes(initialVolumes)
+  }, [tracks, mixerSettings])
   
   // Safe setter for currentBar to prevent negative values
   const setCurrentBarSafe = (value: number) => {
@@ -97,6 +151,7 @@ export function SongArrangement({
   
   // A-B toggle state for shuffle modes
   const [shuffleMode, setShuffleMode] = useState<'A' | 'B'>('A') // A = pattern drops, B = saved arrangements
+  const [trackShuffleModes, setTrackShuffleModes] = useState<{[trackId: number]: 'A' | 'B'}>({}) // Individual track shuffle modes
   
   // Selection box state for click-and-drag selection
   const [isSelectionBoxActive, setIsSelectionBoxActive] = useState(false)
@@ -153,6 +208,17 @@ export function SongArrangement({
   const [beatCoverImage, setBeatCoverImage] = useState<File | null>(null)
   const [beatCoverPreview, setBeatCoverPreview] = useState('')
   const [beatUploadError, setBeatUploadError] = useState('')
+  
+  // State for save to library
+  const [isSavingToLibrary, setIsSavingToLibrary] = useState(false)
+  const [librarySaveError, setLibrarySaveError] = useState<string | null>(null)
+  const [showSaveToLibraryDialog, setShowSaveToLibraryDialog] = useState(false)
+  const [saveToLibraryType, setSaveToLibraryType] = useState<'album' | 'single' | 'audio-library'>('audio-library')
+  const [existingItems, setExistingItems] = useState<{id: string, title: string, name?: string}[]>([])
+  const [selectedItemId, setSelectedItemId] = useState<string>('')
+  const [createNew, setCreateNew] = useState(false)
+  const [newItemTitle, setNewItemTitle] = useState('')
+  const [newItemDescription, setNewItemDescription] = useState('')
   
   // Modal states
   const [showNoPatternsModal, setShowNoPatternsModal] = useState(false)
@@ -290,6 +356,7 @@ export function SongArrangement({
   // Separate audio system for arrangement
   const arrangementPlayersRef = useRef<{ [trackId: number]: Tone.Player }>({})
   const arrangementPitchShiftersRef = useRef<{ [trackId: number]: Tone.PitchShift }>({})
+  const arrangementGainNodesRef = useRef<{ [trackId: number]: Tone.Gain }>({})
   const arrangementSequenceRef = useRef<Tone.Sequence | null>(null)
   const arrangementTransportRef = useRef<any>(null)
   const isArrangementAudioInitialized = useRef(false)
@@ -379,13 +446,16 @@ export function SongArrangement({
           try {
             console.log(`[ARRANGEMENT AUDIO] Loading audio for track ${track.name}: ${track.audioUrl}`)
             
+            // Create gain node for volume control
+            const gainNode = new Tone.Gain(1).toDestination()
+            
             // Use the global context for pitch shifter and player
             const pitchShifter = new Tone.PitchShift({
               pitch: track.pitchShift || 0,
               windowSize: 0.1,
               delayTime: 0.001,
               feedback: 0.05
-            }).toDestination()
+            }).connect(gainNode)
             
             const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
             
@@ -399,6 +469,7 @@ export function SongArrangement({
             
             arrangementPlayersRef.current[track.id] = player
             arrangementPitchShiftersRef.current[track.id] = pitchShifter
+            arrangementGainNodesRef.current[track.id] = gainNode
             
             console.log(`[ARRANGEMENT AUDIO] Audio loaded and ready for track ${track.name}`)
           } catch (error) {
@@ -434,6 +505,11 @@ export function SongArrangement({
       // Dispose pitch shifters
       Object.values(arrangementPitchShiftersRef.current).forEach(shifter => {
         shifter.dispose()
+      })
+      
+      // Dispose gain nodes
+      Object.values(arrangementGainNodesRef.current).forEach(gainNode => {
+        gainNode.dispose()
       })
       
       // Stop arrangement transport
@@ -889,7 +965,7 @@ export function SongArrangement({
         patternBlocks: trackPatterns,
         totalBars,
         zoomLevel: zoom,
-        bpm: parseInt(arrangementBpm) || bpm,
+        bpm: parseInt(arrangementBpm) || bpm || 120,
         steps,
         tags: arrangementTags.trim() ? arrangementTags.split(',').map(tag => tag.trim()) : [],
         category: arrangementCategory === 'none' ? undefined : arrangementCategory.trim() || undefined,
@@ -1917,6 +1993,444 @@ export function SongArrangement({
     console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
   }
 
+  // Shuffle patterns for a specific track with A/B toggle
+  const shuffleTrackPatterns = (trackId: number) => {
+    // Get or initialize the track's shuffle mode
+    const currentTrackMode = trackShuffleModes[trackId] || 'A'
+    
+    if (currentTrackMode === 'A') {
+      // Mode A: Create drop arrangement for this track
+      console.log(`[TRACK SHUFFLE A] Creating drop arrangement for track ${trackId}`)
+      createTrackDropArrangement(trackId)
+      setTrackShuffleModes(prev => ({ ...prev, [trackId]: 'B' })) // Switch to mode B for next click
+    } else {
+      // Mode B: Shuffle saved arrangements for this track
+      console.log(`[TRACK SHUFFLE B] Shuffling saved arrangements for track ${trackId}`)
+      shuffleTrackSavedArrangements(trackId)
+      setTrackShuffleModes(prev => ({ ...prev, [trackId]: 'A' })) // Switch to mode A for next click
+    }
+  }
+
+  // Create drop arrangement for a specific track (EXACT copy of original logic)
+  const createTrackDropArrangement = (trackId: number) => {
+    console.log(`[TRACK DROP ARRANGEMENT] Creating drop arrangement for track ${trackId}`)
+    
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) {
+      showNotification('Track Not Found', 'Track not found', 'error')
+      return
+    }
+    
+    // Get all patterns for this specific track
+    const trackPatterns = patternBlocks.filter(block => block.trackId === trackId)
+    const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
+    
+    // Check if we have selected patterns for this track
+    const selectedTrackPatterns = selectedBlocks.filter(blockId => {
+      const block = patternBlocks.find(b => b.id === blockId)
+      return block && block.trackId === trackId
+    })
+    
+    const hasSelectedPatterns = selectedTrackPatterns.length > 0
+    
+    if (hasSelectedPatterns) {
+      console.log(`[TRACK DROP ARRANGEMENT] Applying drops to ${selectedTrackPatterns.length} selected patterns for track ${trackId}`)
+      
+      // Get the selected patterns for this track
+      const selectedPatterns = patternBlocks.filter(block => selectedBlocks.includes(block.id) && block.trackId === trackId)
+      const nonSelectedPatterns = patternBlocks.filter(block => !selectedBlocks.includes(block.id) || block.trackId !== trackId)
+      
+      // Create drop variations for selected patterns only
+      const dropPatternBlocks: PatternBlock[] = []
+      
+      selectedPatterns.forEach((pattern) => {
+        // Create drop variations based on pattern position
+        const dropType = Math.floor(Math.random() * 4) // 0-3: full, first half, second half, or split
+        
+        if (dropType === 0) {
+          // Keep full pattern (no change)
+          dropPatternBlocks.push(pattern)
+        } else if (dropType === 1) {
+          // Split into first half only (build up)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-first-${Math.random()}`,
+              name: `${pattern.name} Build`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 2) {
+          // Split into second half only (drop)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-second-${Math.random()}`,
+              name: `${pattern.name} Drop`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 3) {
+          // Split into both halves (breakdown)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-breakdown-first-${Math.random()}`,
+              name: `${pattern.name} Breakdown A`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          }
+          
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-breakdown-second-${Math.random()}`,
+              name: `${pattern.name} Breakdown B`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          }
+        }
+      })
+      
+      // NEW: Add special drop at bar 8 for selected patterns (not too often - 30% chance)
+      const shouldAddBar8Drop = Math.random() < 0.3 // 30% chance
+      if (shouldAddBar8Drop) {
+        console.log(`[TRACK DROP ARRANGEMENT] Adding special bar 8 drop to selected patterns for track ${trackId}`)
+        
+        // Find selected patterns that extend past bar 8 and cut them off
+        const patternsWithBar8Drop = dropPatternBlocks.map(pattern => {
+          if (pattern.endBar >= 8 && pattern.startBar < 8) {
+            // This pattern extends into bar 8, cut it off at bar 7
+            const cutPattern: PatternBlock = {
+              ...pattern,
+              id: `${pattern.id}-bar8-cut`,
+              name: `${pattern.name} (Cut at Bar 8)`,
+              endBar: 7,
+              duration: 7 - pattern.startBar + 1
+            }
+            console.log(`[TRACK DROP ARRANGEMENT] Cut selected pattern "${pattern.name}" at bar 8, new end: bar 7`)
+            return cutPattern
+          }
+          return pattern
+        })
+        
+        // Combine non-selected patterns with drop patterns (including bar 8 cuts)
+        const finalPatterns = [...nonSelectedPatterns, ...patternsWithBar8Drop]
+        
+        // Replace patterns and clear selection
+        setPatternBlocks(finalPatterns)
+        setSelectedBlocks([])
+        
+        // Update total bars to accommodate all patterns
+        const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+        setTotalBars(Math.max(totalBars, maxEndBar))
+        
+        // Notify parent component
+        onPatternsChange?.(finalPatterns)
+        
+        console.log(`[TRACK DROP ARRANGEMENT] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
+        showNotification('Track Drop Arrangement', `Applied drops to ${selectedPatterns.length} selected patterns for ${getTrackDisplayName(track.name)}${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`, 'success')
+        return
+      }
+      
+      // Combine non-selected patterns with drop patterns
+      const finalPatterns = [...nonSelectedPatterns, ...dropPatternBlocks]
+      
+      // Replace patterns and clear selection
+      setPatternBlocks(finalPatterns)
+      setSelectedBlocks([])
+      
+      // Update total bars to accommodate all patterns
+      const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+      setTotalBars(Math.max(totalBars, maxEndBar))
+      
+      // Notify parent component
+      onPatternsChange?.(finalPatterns)
+      
+      console.log(`[TRACK DROP ARRANGEMENT] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations`)
+      showNotification('Track Drop Arrangement', `Applied drops to ${selectedPatterns.length} selected patterns for ${getTrackDisplayName(track.name)}`, 'success')
+      return
+    }
+    
+    // Original behavior: Create drops for all patterns for this track (when no selection)
+    console.log(`[TRACK DROP ARRANGEMENT] Creating drops for all patterns for track ${trackId} (no selection)`)
+    
+    // First, load the base 11 patterns for this track only
+    const basePatternBlocks: PatternBlock[] = []
+    
+    // Create 11 patterns for this track only, starting from bar 1
+    for (let i = 0; i < 11; i++) {
+      const startBar = 1 + (i * selectedDuration)
+      const patternBlock: PatternBlock = {
+        id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
+        name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
+        tracks: [track],
+        sequencerData: { [track.id]: sequencerData[track.id] || [] },
+        bpm: bpm,
+        steps: steps,
+        duration: selectedDuration,
+        startBar: startBar,
+        endBar: startBar + selectedDuration - 1,
+        color: track.color,
+        trackId: track.id
+      }
+      
+      basePatternBlocks.push(patternBlock)
+    }
+    
+    // Now create drop variations by splitting some patterns
+    const dropPatternBlocks: PatternBlock[] = []
+    
+    basePatternBlocks.forEach((pattern, patternIndex) => {
+      // Create drop variations based on pattern position
+      const dropType = Math.floor(Math.random() * 4) // 0-3: full, first half, second half, or split
+      
+      if (dropType === 0) {
+        // Keep full pattern (no change)
+        dropPatternBlocks.push(pattern)
+      } else if (dropType === 1) {
+        // Split into first half only (build up)
+        const halfDuration = Math.floor(pattern.duration / 2)
+        if (halfDuration >= 1) {
+          const firstHalf: PatternBlock = {
+            ...pattern,
+            id: `pattern-${Date.now()}-${track.id}-${patternIndex}-first-${Math.random()}`,
+            name: `${getTrackDisplayName(track.name)} Build ${patternIndex + 1}`,
+            duration: halfDuration,
+            endBar: pattern.startBar + halfDuration - 1
+          }
+          dropPatternBlocks.push(firstHalf)
+        } else {
+          dropPatternBlocks.push(pattern)
+        }
+      } else if (dropType === 2) {
+        // Split into second half only (drop)
+        const halfDuration = Math.floor(pattern.duration / 2)
+        const remainingDuration = pattern.duration - halfDuration
+        if (remainingDuration >= 1) {
+          const secondHalf: PatternBlock = {
+            ...pattern,
+            id: `pattern-${Date.now()}-${track.id}-${patternIndex}-second-${Math.random()}`,
+            name: `${getTrackDisplayName(track.name)} Drop ${patternIndex + 1}`,
+            startBar: pattern.startBar + halfDuration,
+            duration: remainingDuration,
+            endBar: pattern.endBar
+          }
+          dropPatternBlocks.push(secondHalf)
+        } else {
+          dropPatternBlocks.push(pattern)
+        }
+      } else if (dropType === 3) {
+        // Split into both halves (breakdown)
+        const halfDuration = Math.floor(pattern.duration / 2)
+        const remainingDuration = pattern.duration - halfDuration
+        
+        if (halfDuration >= 1) {
+          const firstHalf: PatternBlock = {
+            ...pattern,
+            id: `pattern-${Date.now()}-${track.id}-${patternIndex}-breakdown-first-${Math.random()}`,
+            name: `${getTrackDisplayName(track.name)} Breakdown ${patternIndex + 1} A`,
+            duration: halfDuration,
+            endBar: pattern.startBar + halfDuration - 1
+          }
+          dropPatternBlocks.push(firstHalf)
+        }
+        
+        if (remainingDuration >= 1) {
+          const secondHalf: PatternBlock = {
+            ...pattern,
+            id: `pattern-${Date.now()}-${track.id}-${patternIndex}-breakdown-second-${Math.random()}`,
+            name: `${getTrackDisplayName(track.name)} Breakdown ${patternIndex + 1} B`,
+            startBar: pattern.startBar + halfDuration,
+            duration: remainingDuration,
+            endBar: pattern.endBar
+          }
+          dropPatternBlocks.push(secondHalf)
+        }
+      }
+    })
+    
+    // NEW: Add special drop at bar 8 (not too often - 30% chance)
+    const shouldAddBar8Drop = Math.random() < 0.3 // 30% chance
+    if (shouldAddBar8Drop) {
+      console.log(`[TRACK DROP ARRANGEMENT] Adding special drop at bar 8 for track ${trackId}`)
+      
+      // Find patterns that extend past bar 8 and cut them off
+      const patternsWithBar8Drop = dropPatternBlocks.map(pattern => {
+        if (pattern.endBar >= 8 && pattern.startBar < 8) {
+          // This pattern extends into bar 8, cut it off at bar 7
+          const cutPattern: PatternBlock = {
+            ...pattern,
+            id: `${pattern.id}-bar8-cut`,
+            name: `${pattern.name} (Cut at Bar 8)`,
+            endBar: 7,
+            duration: 7 - pattern.startBar + 1
+          }
+          console.log(`[TRACK DROP ARRANGEMENT] Cut pattern "${pattern.name}" at bar 8, new end: bar 7`)
+          return cutPattern
+        }
+        return pattern
+      })
+      
+      // Also randomly cut off this track completely at bar 8 for more dramatic effect
+      const shouldCutTrack = Math.random() < 0.4 // 40% chance
+      
+      if (shouldCutTrack) {
+        console.log(`[TRACK DROP ARRANGEMENT] Cutting off entire ${getTrackDisplayName(track.name)} track at bar 8`)
+        
+        // Remove all patterns for this track that start at or after bar 8
+        const filteredPatterns = patternsWithBar8Drop.filter(pattern => 
+          !(pattern.trackId === trackId && pattern.startBar >= 8)
+        )
+        
+        // Cut patterns that extend into bar 8
+        const updatedPatterns = filteredPatterns.map(pattern => {
+          if (pattern.trackId === trackId && pattern.endBar >= 8 && pattern.startBar < 8) {
+            return {
+              ...pattern,
+              id: `${pattern.id}-bar8-cut`,
+              name: `${pattern.name} (Cut at Bar 8)`,
+              endBar: 7,
+              duration: 7 - pattern.startBar + 1
+            }
+          }
+          return pattern
+        })
+        
+        // Combine with other tracks' patterns
+        const finalPatterns = [...otherTrackPatterns, ...updatedPatterns]
+        
+        // Replace all existing patterns with the drop arrangement
+        setPatternBlocks(finalPatterns)
+        
+        // Update total bars to accommodate all patterns
+        const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+        setTotalBars(Math.max(totalBars, maxEndBar))
+        
+        // Notify parent component
+        onPatternsChange?.(finalPatterns)
+        
+        console.log(`[TRACK DROP ARRANGEMENT] Created ${updatedPatterns.length} drop patterns for ${getTrackDisplayName(track.name)} with bar 8 drop`)
+        showNotification('Track Drop Arrangement', `Created drop arrangement for ${getTrackDisplayName(track.name)} with bar 8 drop`, 'success')
+        return
+      }
+      
+      // Combine with other tracks' patterns
+      const finalPatterns = [...otherTrackPatterns, ...patternsWithBar8Drop]
+      
+      // Replace all existing patterns with the drop arrangement
+      setPatternBlocks(finalPatterns)
+      
+      // Update total bars to accommodate all patterns
+      const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+      setTotalBars(Math.max(totalBars, maxEndBar))
+      
+      // Notify parent component
+      onPatternsChange?.(finalPatterns)
+      
+      console.log(`[TRACK DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)} with bar 8 drop`)
+      showNotification('Track Drop Arrangement', `Created drop arrangement for ${getTrackDisplayName(track.name)} with bar 8 drop`, 'success')
+      return
+    }
+    
+    // Combine with other tracks' patterns
+    const finalPatterns = [...otherTrackPatterns, ...dropPatternBlocks]
+    
+    // Replace all existing patterns with the drop arrangement
+    setPatternBlocks(finalPatterns)
+    
+    // Update total bars to accommodate all patterns
+    const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+    setTotalBars(Math.max(totalBars, maxEndBar))
+    
+    // Notify parent component
+    onPatternsChange?.(finalPatterns)
+    
+    console.log(`[TRACK DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)}`)
+    showNotification('Track Drop Arrangement', `Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)}`, 'success')
+  }
+
+  // Shuffle saved arrangements for a specific track
+  const shuffleTrackSavedArrangements = async (trackId: number) => {
+    console.log(`[TRACK SHUFFLE SAVED] Loading saved arrangements for track ${trackId}`)
+    
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) {
+      showNotification('Track Not Found', 'Track not found', 'error')
+      return
+    }
+
+    try {
+      // Query saved arrangements for this specific track
+      const { data: arrangements, error } = await supabase
+        .from('saved_arrangements')
+        .select('*')
+        .eq('trackName', track.name)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('[TRACK SHUFFLE SAVED] Error loading arrangements:', error)
+        showNotification('Error', 'Failed to load saved arrangements', 'error')
+        return
+      }
+
+      if (!arrangements || arrangements.length === 0) {
+        showNotification('No Saved Arrangements', `No saved arrangements found for ${getTrackDisplayName(track.name)}`, 'warning')
+        return
+      }
+
+      // Pick a random arrangement
+      const randomArrangement = arrangements[Math.floor(Math.random() * arrangements.length)]
+      console.log(`[TRACK SHUFFLE SAVED] Loading arrangement for ${track.name}:`, randomArrangement)
+
+      if (randomArrangement.arrangement_data) {
+        // Parse the arrangement data
+        const arrangementData = JSON.parse(randomArrangement.arrangement_data)
+        
+        // Filter patterns to only include those for this track
+        const trackPatterns = arrangementData.patterns?.filter((pattern: any) => pattern.trackId === trackId) || []
+        const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
+        
+        if (trackPatterns.length === 0) {
+          showNotification('No Patterns in Arrangement', `No patterns found for this track in the selected arrangement`, 'warning')
+          return
+        }
+
+        // Combine track patterns from saved arrangement with other tracks' current patterns
+        const newPatternBlocks = [...trackPatterns, ...otherTrackPatterns]
+        
+        // Sort by start bar to maintain timeline order
+        newPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
+        
+        setPatternBlocks(newPatternBlocks)
+        showNotification('Track Arrangement Loaded', `Loaded ${trackPatterns.length} patterns from saved arrangement for ${getTrackDisplayName(track.name)}`, 'success')
+      }
+    } catch (error) {
+      console.error('[TRACK SHUFFLE SAVED] Error:', error)
+      showNotification('Error', 'Failed to load arrangement', 'error')
+    }
+  }
+
   // Export the arrangement as a high-quality WAV file (Option 1: Offline rendering)
   const exportBeatAsWav = async () => {
     console.log('[EXPORT] Starting WAV export of arrangement with mixer settings applied')
@@ -1962,6 +2476,11 @@ export function SongArrangement({
         Math.ceil(totalDurationSeconds * sampleRate), // length in samples
         sampleRate
       )
+      
+      // Ensure precise timing by using sample-accurate calculations
+      const samplesPerSecond = sampleRate
+      const samplesPerBeat = Math.round(samplesPerSecond * secondsPerBeat)
+      const samplesPerBar = samplesPerBeat * beatsPerBar
       
       console.log(`[EXPORT] Created offline context at ${sampleRate}Hz for maximum quality`)
 
@@ -2021,7 +2540,13 @@ export function SongArrangement({
           const trackGain = offlineContext.createGain()
           const trackPanner = offlineContext.createStereoPanner()
           
-          // Apply mixer settings if available
+          // Apply volume settings from arrangement
+          const trackVolume = trackVolumes[track.id] || 1
+          const combinedVolume = trackVolume * arrangementMasterVolume
+          trackGain.gain.value = combinedVolume
+          console.log(`[EXPORT] Applied arrangement volume to ${track.name}: ${combinedVolume} (track: ${trackVolume}, master: ${arrangementMasterVolume})`)
+          
+          // Apply mixer settings if available (for additional processing)
           const trackMixerSettings = mixerSettings[track.id]
           if (trackMixerSettings) {
             // Check if track is muted
@@ -2029,11 +2554,6 @@ export function SongArrangement({
               console.log(`[EXPORT] Track ${track.name} is muted, skipping`)
               continue
             }
-            
-            // Apply volume directly (mixer already uses linear values)
-            const combinedVolume = trackMixerSettings.volume * masterVolume
-            trackGain.gain.value = combinedVolume
-            console.log(`[EXPORT] Applied mixer volume to ${track.name}: ${combinedVolume} (track: ${trackMixerSettings.volume}, master: ${masterVolume})`)
             
             // Apply pan with stereo panner
             if (trackMixerSettings.pan !== 0) {
@@ -2061,7 +2581,7 @@ export function SongArrangement({
               midFilter.gain.value = trackMixerSettings.eq.mid
               
               highFilter.type = 'highshelf'
-              highFilter.frequency.value = 3000
+              highFilter.frequency.value = 4000
               highFilter.gain.value = trackMixerSettings.eq.high
               
               // Connect EQ chain
@@ -2074,22 +2594,7 @@ export function SongArrangement({
               trackGain.connect(trackPanner)
             }
           } else {
-            // Fallback to track type-based gain if no mixer settings
-          const isDrumLoop = track.name.toLowerCase().includes('drum') || track.name.toLowerCase().includes('perc')
-          const isMelodyLoop = track.name.toLowerCase().includes('melody')
-          const isBassLoop = track.name.toLowerCase().includes('bass') || track.name.toLowerCase().includes('808')
-          
-          if (isDrumLoop) {
-            trackGain.gain.value = 0.8 // Drums slightly louder
-          } else if (isMelodyLoop) {
-            trackGain.gain.value = 0.6 // Melody balanced
-          } else if (isBassLoop) {
-            trackGain.gain.value = 0.7 // Bass balanced
-          } else {
-            trackGain.gain.value = 0.7 // Default
-            }
-            
-            // Connect directly to panner if no EQ
+            // No mixer settings - connect directly to panner
             trackGain.connect(trackPanner)
           }
 
@@ -2103,31 +2608,40 @@ export function SongArrangement({
           // Connect panner to master
           trackPanner.connect(masterGain)
 
-          // Calculate start time (convert from bars to seconds)
+          // Calculate start time (convert from bars to seconds) - use precise timing
           const startTimeSeconds = (block.startBar - 1) * secondsPerBar
           
           // Calculate pattern duration in seconds
           const patternDurationSeconds = block.duration * secondsPerBar
           
-          // Simplified export logic - just loop the audio for the pattern duration
+          // Use precise timing calculation to match live playback
           console.log(`[EXPORT] Scheduling ${block.name} at ${startTimeSeconds}s for ${patternDurationSeconds}s`)
           
           const audioDuration = audioBuffer.duration / effectivePlaybackRate
+          
+          // Calculate exact number of loops needed
           const loopCount = Math.ceil(patternDurationSeconds / audioDuration)
           
+          // Use precise timing for each loop
           for (let i = 0; i < loopCount; i++) {
             const loopSource = offlineContext.createBufferSource()
             loopSource.buffer = audioBuffer
             loopSource.playbackRate.value = effectivePlaybackRate
             loopSource.connect(trackGain) // Always connect to trackGain (first node in chain)
             
+            // Calculate precise start time for this loop
             const loopStartTime = startTimeSeconds + (i * audioDuration)
-            const loopEndTime = Math.min(loopStartTime + audioDuration, startTimeSeconds + patternDurationSeconds)
-            const loopDuration = loopEndTime - loopStartTime
             
-            loopSource.start(loopStartTime, 0, loopDuration)
+            // Calculate precise duration for this loop (don't exceed pattern duration)
+            const remainingDuration = startTimeSeconds + patternDurationSeconds - loopStartTime
+            const loopDuration = Math.min(audioDuration, remainingDuration)
             
-            console.log(`[EXPORT] Scheduled loop ${i + 1}/${loopCount} of ${block.name} at ${loopStartTime}s (duration: ${loopDuration.toFixed(2)}s)`)
+            // Only schedule if we have remaining duration
+            if (loopDuration > 0) {
+              loopSource.start(loopStartTime, 0, loopDuration)
+              
+              console.log(`[EXPORT] Scheduled loop ${i + 1}/${loopCount} of ${block.name} at ${loopStartTime.toFixed(3)}s (duration: ${loopDuration.toFixed(3)}s)`)
+            }
           }
           
         } catch (error) {
@@ -2457,6 +2971,259 @@ export function SongArrangement({
     } catch (error) {
       console.error('[EXPORT LIVE] Error downloading live capture WAV:', error)
       alert('Error exporting live capture WAV file. Please check the console for details.')
+    }
+  }
+
+  // Open save to library dialog
+  const openSaveToLibraryDialog = async () => {
+    if (patternBlocks.length === 0) {
+      showNotification('No Patterns', 'No patterns to save. Please add some patterns first.', 'warning')
+      return
+    }
+
+    // Get current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      showNotification('Authentication Error', 'Please log in to save to library.', 'error')
+      return
+    }
+
+    // Load existing items based on selected type
+    await loadExistingItems(user.id)
+    
+    setShowSaveToLibraryDialog(true)
+  }
+
+  // Load existing items for the selected type
+  const loadExistingItems = async (userId: string) => {
+    try {
+      let items: {id: string, title: string, name?: string}[] = []
+      
+      if (saveToLibraryType === 'album') {
+        const { data, error } = await supabase
+          .from('albums')
+          .select('id, title')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+        
+        if (!error && data) {
+          items = data.map(item => ({ id: item.id, title: item.title }))
+        }
+      } else if (saveToLibraryType === 'single') {
+        const { data, error } = await supabase
+          .from('singles')
+          .select('id, title')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+        
+        if (!error && data) {
+          items = data.map(item => ({ id: item.id, title: item.title }))
+        }
+      } else if (saveToLibraryType === 'audio-library') {
+        const { data, error } = await supabase
+          .from('audio_library_items')
+          .select('id, name')
+          .eq('user_id', userId)
+          .eq('type', 'beat')
+          .order('created_at', { ascending: false })
+        
+        if (!error && data) {
+          items = data.map(item => ({ id: item.id, title: item.name || 'Untitled' }))
+        }
+      }
+      
+      setExistingItems(items)
+      setSelectedItemId('')
+      setCreateNew(false)
+    } catch (error) {
+      console.error('[LIBRARY] Error loading existing items:', error)
+    }
+  }
+
+  // Handle type change in dialog
+  const handleTypeChange = async (type: 'album' | 'single' | 'audio-library') => {
+    setSaveToLibraryType(type)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await loadExistingItems(user.id)
+    }
+  }
+
+  // Save arrangement to library as WAV file
+  const saveArrangementToLibrary = async () => {
+    if (!newItemTitle.trim() && createNew) {
+      showNotification('Title Required', 'Please enter a title for your new item.', 'warning')
+      return
+    }
+
+    if (!selectedItemId && !createNew) {
+      showNotification('Selection Required', 'Please select an existing item or create a new one.', 'warning')
+      return
+    }
+
+    setIsSavingToLibrary(true)
+    setLibrarySaveError(null)
+
+    try {
+      // Generate WAV blob using existing export function
+      const wavBlob = await exportBeatAsWav()
+      if (!wavBlob) {
+        throw new Error('Failed to generate WAV file')
+      }
+
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        throw new Error('User not authenticated')
+      }
+
+      // Create filename with arrangement info
+      const patternCount = patternBlocks.length
+      const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+      const secondsPerBeat = 60 / bpm
+      const beatsPerBar = 4
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      const totalDurationSeconds = maxEndBar * secondsPerBar
+      const durationMinutes = Math.floor(totalDurationSeconds / 60)
+      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+      
+      const filename = `beat-arrangement-${bpm}bpm-${maxEndBar}bars-${patternCount}patterns-${durationMinutes}m${durationSeconds}s-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+      
+      // Upload to Supabase storage
+      const filePath = `library/${user.id}/${filename}`
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, wavBlob, {
+          contentType: 'audio/wav',
+          cacheControl: '3600'
+        })
+
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`)
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      // Detect genre from track names
+      const { genre, subgenre } = detectGenreFromTrackName(tracks[0]?.name || 'beat')
+
+      let savedItem: any = null
+
+      if (saveToLibraryType === 'album') {
+        if (createNew) {
+          // Create new album
+          const { data: albumData, error: albumError } = await supabase
+            .from('albums')
+            .insert({
+              user_id: user.id,
+              title: newItemTitle,
+              artist: user.email?.split('@')[0] || 'Unknown Artist',
+              release_date: new Date().toISOString().split('T')[0],
+              description: newItemDescription,
+              cover_art_url: '' // Could be enhanced to add cover art
+            })
+            .select()
+            .single()
+
+          if (albumError) {
+            throw new Error(`Album creation failed: ${albumError.message}`)
+          }
+          savedItem = albumData
+        } else {
+          // Add to existing album
+          savedItem = existingItems.find(item => item.id === selectedItemId)
+        }
+      } else if (saveToLibraryType === 'single') {
+        if (createNew) {
+          // Create new single
+          const { data: singleData, error: singleError } = await supabase
+            .from('singles')
+            .insert({
+              user_id: user.id,
+              title: newItemTitle,
+              artist: user.email?.split('@')[0] || 'Unknown Artist',
+              release_date: new Date().toISOString().split('T')[0],
+              description: newItemDescription,
+              duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+              audio_url: urlData.publicUrl,
+              cover_art_url: null // Set to null to avoid console error
+            })
+            .select()
+            .single()
+
+          if (singleError) {
+            throw new Error(`Single creation failed: ${singleError.message}`)
+          }
+          savedItem = singleData
+        } else {
+          // Update existing single with new audio file
+          const { data: singleData, error: singleError } = await supabase
+            .from('singles')
+            .update({
+              audio_url: urlData.publicUrl,
+              duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+              description: newItemDescription || `Beat arrangement with ${patternCount} patterns, ${maxEndBar} bars at ${bpm} BPM`
+            })
+            .eq('id', selectedItemId)
+            .select()
+            .single()
+
+          if (singleError) {
+            throw new Error(`Single update failed: ${singleError.message}`)
+          }
+          savedItem = singleData
+        }
+      } else if (saveToLibraryType === 'audio-library') {
+        // Create record in audio_library_items table
+        const { data: libraryData, error: libraryError } = await supabase
+          .from('audio_library_items')
+          .insert({
+            user_id: user.id,
+            name: createNew ? newItemTitle : `Beat Arrangement - ${bpm} BPM`,
+            file_path: filePath,
+            file_url: urlData.publicUrl,
+            file_size: wavBlob.size,
+            type: 'beat',
+            audio_type: 'arrangement',
+            description: createNew ? newItemDescription : `Beat arrangement with ${patternCount} patterns, ${maxEndBar} bars at ${bpm} BPM`,
+            bpm: bpm,
+            key: '', // Could be enhanced to detect key
+            genre: genre,
+            subgenre: subgenre,
+            duration: totalDurationSeconds,
+            sample_rate: 96000, // From exportBeatAsWav function
+            bit_depth: 32, // From exportBeatAsWav function
+            distribution_type: 'private',
+            is_new: true
+          })
+          .select()
+          .single()
+
+        if (libraryError) {
+          throw new Error(`Database error: ${libraryError.message}`)
+        }
+        savedItem = libraryData
+      }
+
+      showNotification(
+        'Saved to Library', 
+        `Beat arrangement saved successfully to ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : 'audio library'}!\n\nFile: ${filename}\nDuration: ${durationMinutes}m ${durationSeconds}s\nPatterns: ${patternCount}\nBPM: ${bpm}\n\n💡 Tip: If you experience sync issues, try using "Export (Live)" instead for perfect timing.`, 
+        'success'
+      )
+
+      console.log('[LIBRARY] Successfully saved arrangement:', savedItem)
+      setShowSaveToLibraryDialog(false)
+
+    } catch (error) {
+      console.error('[LIBRARY] Error saving to library:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      setLibrarySaveError(errorMessage)
+      showNotification('Save Failed', `Failed to save to library: ${errorMessage}`, 'error')
+    } finally {
+      setIsSavingToLibrary(false)
     }
   }
 
@@ -2901,9 +3668,85 @@ export function SongArrangement({
                 windowSize: 0.1,
                 delayTime: 0.001,
                 feedback: 0.05
-              }).toDestination()
+              })
               
               const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
+              
+              // Apply mixer settings (volume, pan, EQ)
+              const trackMixerSettings = mixerSettings[track.id]
+              if (trackMixerSettings) {
+                // Apply volume with safety check
+                if (trackMixerSettings.volume !== undefined) {
+                  let volumeDb = -Infinity
+                  if (!trackMixerSettings.mute && trackMixerSettings.volume > 0) {
+                    volumeDb = Math.max(-60, 20 * Math.log10(trackMixerSettings.volume)) // Clamp to -60dB minimum
+                  }
+                  player.volume.value = volumeDb
+                  console.log(`[ARRANGEMENT AUDIO] Applied volume ${trackMixerSettings.volume} (${volumeDb.toFixed(2)}dB) to ${track.name}`)
+                }
+                
+                // Apply pan
+                if (trackMixerSettings.pan !== undefined && trackMixerSettings.pan !== 0) {
+                  const panner = new Tone.Panner(trackMixerSettings.pan / 100)
+                  pitchShifter.connect(panner)
+                  console.log(`[ARRANGEMENT AUDIO] Applied pan ${trackMixerSettings.pan} to ${track.name}`)
+                }
+              }
+              
+              // Apply EQ settings if they exist
+              if (trackMixerSettings?.eq && (trackMixerSettings.eq.low !== 0 || trackMixerSettings.eq.mid !== 0 || trackMixerSettings.eq.high !== 0)) {
+                console.log(`[ARRANGEMENT AUDIO] Applying EQ settings to ${track.name}:`, trackMixerSettings.eq)
+                
+                // Create EQ chain
+                const eqChain = []
+                
+                // Low band - Low Shelf Filter
+                if (trackMixerSettings.eq.low !== 0) {
+                  const lowShelf = new Tone.Filter({
+                    type: 'lowshelf',
+                    frequency: 200,
+                    gain: trackMixerSettings.eq.low
+                  })
+                  eqChain.push(lowShelf)
+                }
+                
+                // Mid band - Peaking Filter
+                if (trackMixerSettings.eq.mid !== 0) {
+                  const midPeak = new Tone.Filter({
+                    type: 'peaking',
+                    frequency: 1000,
+                    Q: 1,
+                    gain: trackMixerSettings.eq.mid
+                  })
+                  eqChain.push(midPeak)
+                }
+                
+                // High band - High Shelf Filter
+                if (trackMixerSettings.eq.high !== 0) {
+                  const highShelf = new Tone.Filter({
+                    type: 'highshelf',
+                    frequency: 4000,
+                    gain: trackMixerSettings.eq.high
+                  })
+                  eqChain.push(highShelf)
+                }
+                
+                // Connect EQ chain in series
+                if (eqChain.length > 0) {
+                  let currentNode: any = pitchShifter
+                  eqChain.forEach(node => {
+                    currentNode.connect(node)
+                    currentNode = node
+                  })
+                  currentNode.toDestination()
+                  console.log(`[ARRANGEMENT AUDIO] Connected EQ chain with ${eqChain.length} nodes for ${track.name}`)
+                } else {
+                  pitchShifter.toDestination()
+                }
+              } else {
+                // No EQ - connect directly to destination
+                pitchShifter.toDestination()
+              }
               
               if (track.playbackRate && track.playbackRate !== 1) {
                 player.playbackRate = track.playbackRate
@@ -3368,6 +4211,19 @@ export function SongArrangement({
                 <span className="text-gray-300 text-xs">{zoom}px/bar</span>
               </div>
               <div className="flex items-center gap-2">
+                <span className="text-gray-300 text-sm">Master:</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={arrangementMasterVolume}
+                  onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
+                  className="w-24 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <span className="text-gray-300 text-xs">{Math.round(arrangementMasterVolume * 100)}%</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
                   {bpm} BPM
                 </Badge>
@@ -3658,6 +4514,17 @@ export function SongArrangement({
               <Save className="w-4 h-4 mr-1" />
               Save Beat
             </Button>
+            <Button
+              onClick={openSaveToLibraryDialog}
+              disabled={patternBlocks.length === 0}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+              title="Save arrangement as WAV to your library"
+            >
+              <Library className="w-4 h-4 mr-1" />
+              Save to Library
+            </Button>
             {isArrangementPlaying && (
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
@@ -3745,6 +4612,22 @@ export function SongArrangement({
                     <span className="text-white text-sm truncate">{getTrackDisplayName(track.name)}</span>
                   </div>
                   <div className="flex items-center gap-1">
+                    {/* Volume Slider */}
+                    <div className="flex flex-col items-center gap-1">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={trackVolumes[track.id] || 1}
+                        onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
+                        className="w-12 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                        title={`Volume: ${Math.round((trackVolumes[track.id] || 1) * 100)}%`}
+                      />
+                      <span className="text-xs text-gray-400">
+                        {Math.round((trackVolumes[track.id] || 1) * 100)}%
+                      </span>
+                    </div>
                     <Button
                       size="sm"
                       variant="outline"
@@ -3775,6 +4658,23 @@ export function SongArrangement({
                       title={loadedTrackId === track.id ? "Click to turn off load mode" : "Click to load pattern for placement"}
                     >
                       {loadedTrackId === track.id ? <Loader2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin" /> : "L"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={`w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs ${
+                        (trackShuffleModes[track.id] || 'A') === 'A'
+                          ? 'bg-orange-600 hover:bg-orange-700 text-white border-orange-500'
+                          : 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500'
+                      }`}
+                      onClick={() => shuffleTrackPatterns(track.id)}
+                      title={`${(trackShuffleModes[track.id] || 'A') === 'A' ? 'Create Drop' : 'Shuffle Saved'} for ${getTrackDisplayName(track.name)}`}
+                    >
+                      {(trackShuffleModes[track.id] || 'A') === 'A' ? (
+                        <Shuffle className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                      ) : (
+                        <span className="text-xs font-bold">B</span>
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -4390,9 +5290,10 @@ export function SongArrangement({
       {/* Save Arrangement Dialog */}
       {showSaveDialog && currentTrackForArrangement && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-600 rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-[#141414] border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white text-lg font-semibold">
+              <h3 className="text-white text-lg font-semibold flex items-center gap-2">
+                <RotateCcw className="w-4 h-4" />
                 Save Arrangement: {getTrackDisplayName(currentTrackForArrangement.name)}
               </h3>
               <Button
@@ -4412,7 +5313,7 @@ export function SongArrangement({
                   value={arrangementName}
                   onChange={(e) => setArrangementName(e.target.value)}
                   placeholder="Enter arrangement name"
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
@@ -4422,25 +5323,25 @@ export function SongArrangement({
                   value={arrangementDescription}
                   onChange={(e) => setArrangementDescription(e.target.value)}
                   placeholder="Describe this arrangement"
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
               <div>
                 <label className="block text-gray-300 text-sm mb-2">Category (optional)</label>
                 <Select value={arrangementCategory} onValueChange={setArrangementCategory}>
-                  <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
+                  <SelectTrigger className="bg-[#1a1a1a] border-gray-600 text-white focus:border-yellow-500 focus:ring-yellow-500">
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
-                  <SelectContent className="bg-gray-800 border-gray-600">
-                    <SelectItem value="none">No category</SelectItem>
-                    <SelectItem value="intro">Intro</SelectItem>
-                    <SelectItem value="verse">Verse</SelectItem>
-                    <SelectItem value="chorus">Chorus</SelectItem>
-                    <SelectItem value="bridge">Bridge</SelectItem>
-                    <SelectItem value="drop">Drop</SelectItem>
-                    <SelectItem value="breakdown">Breakdown</SelectItem>
-                    <SelectItem value="outro">Outro</SelectItem>
+                  <SelectContent className="bg-[#1a1a1a] border-gray-600">
+                    <SelectItem value="none" className="text-white hover:bg-gray-700">No category</SelectItem>
+                    <SelectItem value="intro" className="text-white hover:bg-gray-700">Intro</SelectItem>
+                    <SelectItem value="verse" className="text-white hover:bg-gray-700">Verse</SelectItem>
+                    <SelectItem value="chorus" className="text-white hover:bg-gray-700">Chorus</SelectItem>
+                    <SelectItem value="bridge" className="text-white hover:bg-gray-700">Bridge</SelectItem>
+                    <SelectItem value="drop" className="text-white hover:bg-gray-700">Drop</SelectItem>
+                    <SelectItem value="breakdown" className="text-white hover:bg-gray-700">Breakdown</SelectItem>
+                    <SelectItem value="outro" className="text-white hover:bg-gray-700">Outro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -4451,7 +5352,7 @@ export function SongArrangement({
                   value={arrangementTags}
                   onChange={(e) => setArrangementTags(e.target.value)}
                   placeholder="drops, energy, verse (comma separated)"
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
@@ -4461,7 +5362,7 @@ export function SongArrangement({
                   value={arrangementGenre}
                   onChange={(e) => setArrangementGenre(e.target.value)}
                   placeholder="Hip Hop, Trap, R&B, etc."
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
@@ -4471,7 +5372,7 @@ export function SongArrangement({
                   value={arrangementSubgenre}
                   onChange={(e) => setArrangementSubgenre(e.target.value)}
                   placeholder="Boom Bap, Drill, Neo Soul, etc."
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
@@ -4482,7 +5383,7 @@ export function SongArrangement({
                   value={arrangementBpm}
                   onChange={(e) => setArrangementBpm(e.target.value)}
                   placeholder="140"
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
@@ -4492,7 +5393,7 @@ export function SongArrangement({
                   value={arrangementAudioType}
                   onChange={(e) => setArrangementAudioType(e.target.value)}
                   placeholder="Melody Loop, Drum Loop, etc."
-                  className="bg-gray-800 border-gray-600 text-white"
+                  className="bg-[#1a1a1a] border-gray-600 text-white placeholder-gray-400 focus:border-yellow-500 focus:ring-yellow-500"
                 />
               </div>
               
@@ -4500,7 +5401,7 @@ export function SongArrangement({
                 <Button
                   onClick={saveArrangement}
                   disabled={isSaving || !arrangementName.trim()}
-                  className="flex-1"
+                  className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-black font-medium"
                 >
                   {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                   {isSaving ? 'Saving...' : 'Save Arrangement'}
@@ -4508,7 +5409,7 @@ export function SongArrangement({
                 <Button
                   variant="outline"
                   onClick={() => setShowSaveDialog(false)}
-                  className="flex-1"
+                  className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
                 >
                   Cancel
                 </Button>
@@ -4814,6 +5715,157 @@ export function SongArrangement({
         </DialogContent>
       </Dialog>
       
+      {/* Save to Library Dialog */}
+      <Dialog open={showSaveToLibraryDialog} onOpenChange={setShowSaveToLibraryDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Save Arrangement to Library
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Choose where you want to save your beat arrangement
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Type Selection */}
+            <div className="space-y-3">
+              <Label className="text-white">Save to:</Label>
+              <div className="grid grid-cols-3 gap-3">
+                <Button
+                  variant={saveToLibraryType === 'album' ? 'default' : 'outline'}
+                  onClick={() => handleTypeChange('album')}
+                  className={`text-sm ${saveToLibraryType === 'album' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                >
+                  Albums
+                </Button>
+                <Button
+                  variant={saveToLibraryType === 'single' ? 'default' : 'outline'}
+                  onClick={() => handleTypeChange('single')}
+                  className={`text-sm ${saveToLibraryType === 'single' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                >
+                  Singles
+                </Button>
+                <Button
+                  variant={saveToLibraryType === 'audio-library' ? 'default' : 'outline'}
+                  onClick={() => handleTypeChange('audio-library')}
+                  className={`text-sm ${saveToLibraryType === 'audio-library' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                >
+                  Audio Library
+                </Button>
+              </div>
+            </div>
+
+            {/* Create New or Select Existing */}
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <Button
+                  variant={createNew ? 'default' : 'outline'}
+                  onClick={() => setCreateNew(true)}
+                  className={`text-sm ${createNew ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                >
+                  Create New
+                </Button>
+                <Button
+                  variant={!createNew ? 'default' : 'outline'}
+                  onClick={() => setCreateNew(false)}
+                  className={`text-sm ${!createNew ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                >
+                  Add to Existing
+                </Button>
+              </div>
+            </div>
+
+            {/* Create New Form */}
+            {createNew && (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="newTitle" className="text-white">Title</Label>
+                  <Input
+                    id="newTitle"
+                    value={newItemTitle}
+                    onChange={(e) => setNewItemTitle(e.target.value)}
+                    placeholder={`Enter ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : 'audio'} title`}
+                    className="bg-gray-800 border-gray-600 text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="newDescription" className="text-white">Description (Optional)</Label>
+                  <Textarea
+                    id="newDescription"
+                    value={newItemDescription}
+                    onChange={(e) => setNewItemDescription(e.target.value)}
+                    placeholder="Enter description..."
+                    className="bg-gray-800 border-gray-600 text-white"
+                    rows={3}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Select Existing */}
+            {!createNew && existingItems.length > 0 && (
+              <div className="space-y-3">
+                <Label className="text-white">Select Existing {saveToLibraryType === 'album' ? 'Album' : saveToLibraryType === 'single' ? 'Single' : 'Audio Item'}:</Label>
+                <Select value={selectedItemId} onValueChange={setSelectedItemId}>
+                  <SelectTrigger className="bg-gray-800 border-gray-600 text-white">
+                    <SelectValue placeholder="Choose an item..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-600">
+                    {existingItems.map((item) => (
+                      <SelectItem key={item.id} value={item.id} className="text-white hover:bg-gray-700">
+                        {item.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {!createNew && existingItems.length === 0 && (
+              <div className="text-center py-4 text-gray-400">
+                No existing {saveToLibraryType === 'album' ? 'albums' : saveToLibraryType === 'single' ? 'singles' : 'audio items'} found. 
+                Please create a new one.
+              </div>
+            )}
+
+            {/* Error Display */}
+            {librarySaveError && (
+              <div className="text-red-400 text-sm bg-red-900/20 border border-red-600 rounded p-2">
+                {librarySaveError}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveToLibraryDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveArrangementToLibrary}
+              disabled={isSavingToLibrary || (createNew && !newItemTitle.trim()) || (!createNew && !selectedItemId)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isSavingToLibrary ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Arrangement
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Notification Modal */}
       <NotificationModal
         isOpen={notificationModal.isOpen}

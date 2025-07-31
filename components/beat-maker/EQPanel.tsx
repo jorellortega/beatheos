@@ -112,6 +112,7 @@ export function EQPanel({ isOpen, onClose, trackName, eq, onEQChange }: EQPanelP
           <Button
             variant="outline"
             onClick={() => {
+              console.log('[EQ PANEL] Resetting all EQ bands to 0')
               onEQChange('low', 0)
               onEQChange('mid', 0)
               onEQChange('high', 0)

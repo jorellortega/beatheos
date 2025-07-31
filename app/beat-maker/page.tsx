@@ -11,6 +11,7 @@ declare global {
     soloedTracks: number[]
     trackId: number
   }
+  _masterEQChain?: any[]
 }
 }
 
@@ -782,6 +783,9 @@ export default function BeatMakerPage() {
 
   // Master volume state
   const [masterVolume, setMasterVolume] = useState(0.8)
+  
+  // Arrangement playback state
+  const [isArrangementPlaying, setIsArrangementPlaying] = useState(false)
 
   // Transport inline editing states
   const [editingBpm, setEditingBpm] = useState(false)
@@ -795,6 +799,7 @@ export default function BeatMakerPage() {
   useEffect(() => {
     tracks.forEach(track => {
       if (!mixerSettings[track.id]) {
+        console.log(`[MIXER INIT] Initializing mixer settings for track ${track.id}`)
         setMixerSettings(prev => ({
           ...prev,
           [track.id]: {
@@ -817,9 +822,11 @@ export default function BeatMakerPage() {
       if (trackSettings && samplesRef?.current?.[track.id]) {
         const player = samplesRef.current[track.id]
         if (player && player.volume) {
-          // Apply volume setting
-          const volumeDb = trackSettings.mute ? -Infinity : 
-            (trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume))
+          // Apply volume setting with safety check for negative values
+          let volumeDb = -Infinity
+          if (!trackSettings.mute && trackSettings.volume > 0) {
+            volumeDb = Math.max(-60, 20 * Math.log10(trackSettings.volume)) // Clamp to -60dB minimum
+          }
           player.volume.value = volumeDb
           console.log(`[MIXER INIT] Applied volume ${trackSettings.volume} (${volumeDb.toFixed(2)}dB) to track ${track.id}`)
           
@@ -1733,9 +1740,12 @@ export default function BeatMakerPage() {
       const isMuted = trackSettings?.mute || false
       
       if (!isMuted) {
-        // Calculate combined volume (track volume * master volume)
+        // Calculate combined volume (track volume * master volume) with safety check
         const combinedVolume = value * masterVolume
-        const volumeDb = combinedVolume === 0 ? -Infinity : 20 * Math.log10(combinedVolume)
+        let volumeDb = -Infinity
+        if (combinedVolume > 0) {
+          volumeDb = Math.max(-60, 20 * Math.log10(combinedVolume)) // Clamp to -60dB minimum
+        }
         
         // Update regular sequencer players
         if (samplesRef?.current?.[trackId]) {
@@ -1763,7 +1773,10 @@ export default function BeatMakerPage() {
             // Unmute: restore volume from mixer settings
             const trackSettings = mixerSettings[trackId]
             if (trackSettings) {
-              const volumeDb = trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume)
+              let volumeDb = -Infinity
+              if (trackSettings.volume > 0) {
+                volumeDb = Math.max(-60, 20 * Math.log10(trackSettings.volume)) // Clamp to -60dB minimum
+              }
               player.volume.value = volumeDb
               console.log(`[MIXER] Unmuted track ${trackId}, restored volume to ${trackSettings.volume}`)
             }
@@ -1857,32 +1870,42 @@ export default function BeatMakerPage() {
 
 
   const updateEQ = (trackId: number, band: 'low' | 'mid' | 'high', value: number) => {
-    setMixerSettings(prev => ({
-      ...prev,
-      [trackId]: {
-        ...prev[trackId],
-        eq: {
-          ...prev[trackId]?.eq,
-          [band]: value
+    console.log(`[EQ UPDATE] Updating ${band} band to ${value}dB for track ${trackId}`)
+    
+    setMixerSettings(prev => {
+      const newSettings = {
+        ...prev,
+        [trackId]: {
+          ...prev[trackId],
+          eq: {
+            ...prev[trackId]?.eq,
+            [band]: value
+          }
         }
       }
-    }))
+      console.log(`[EQ UPDATE] New mixer settings for track ${trackId}:`, newSettings[trackId])
+      return newSettings
+    })
 
     // Apply EQ to the audio player
     const player = samplesRef?.current?.[trackId]
     if (player) {
-      // Get current EQ settings
+      // Get current EQ settings from the updated state
       const currentSettings = mixerSettings[trackId]?.eq || { low: 0, mid: 0, high: 0 }
       const newSettings = { ...currentSettings, [band]: value }
+      
+      console.log(`[EQ UPDATE] Applying EQ settings to player:`, newSettings)
       
       // Apply EQ using Tone.js filters
       applyEQToPlayer(player, trackId, newSettings)
       console.log(`[EQ] Applied ${band} band EQ (${value}dB) to track ${trackId}`)
+    } else {
+      console.warn(`[EQ UPDATE] No player found for track ${trackId}`)
     }
   }
 
   // Function to apply EQ settings to a Tone.js player
-    const applyEQToPlayer = (player: any, trackId: number, eqSettings: { low: number, mid: number, high: number }) => {
+  const applyEQToPlayer = (player: any, trackId: number, eqSettings: { low: number, mid: number, high: number }) => {
     // Import Tone.js dynamically
     import('tone').then(Tone => {
       console.log('[EQ] Applying EQ settings to track', trackId, ':', eqSettings)
@@ -1916,86 +1939,66 @@ export default function BeatMakerPage() {
       const hasEQ = eqSettings.low !== 0 || eqSettings.mid !== 0 || eqSettings.high !== 0
       
       if (hasEQ) {
-        // Create a proper 3-band EQ using parallel processing
+        // Create a proper 3-band EQ using serial processing
         const eqChain = []
         
-        // Create a master output mixer
-        const outputMixer = new Tone.Gain()
-        outputMixer.gain.value = 1
-        eqChain.push(outputMixer)
+        // Create input gain
+        const inputGain = new Tone.Gain()
+        inputGain.gain.value = 1
+        eqChain.push(inputGain)
         
-        // Create parallel paths for each band
-        const bands = []
-        
-        // Low band path
+        // Low band - Low Shelf Filter (affects frequencies below 200Hz)
         if (eqSettings.low !== 0) {
-          const lowFilter = new Tone.Filter({
-            type: 'lowpass',
+          const lowShelf = new Tone.Filter({
+            type: 'lowshelf',
             frequency: 200,
-            rolloff: -12
+            gain: eqSettings.low
           })
-          const lowGain = new Tone.Gain()
-          lowGain.gain.value = Math.pow(10, eqSettings.low / 20)
-          
-          lowFilter.connect(lowGain)
-          lowGain.connect(outputMixer)
-          
-          bands.push({ filter: lowFilter, gain: lowGain })
-          eqChain.push(lowFilter, lowGain)
-          console.log('[EQ] Created low band at 200Hz with gain:', Math.pow(10, eqSettings.low / 20))
+          eqChain.push(lowShelf)
+          console.log('[EQ] Created low shelf at 200Hz with gain:', eqSettings.low, 'dB')
         }
         
-        // Mid band path
+        // Mid band - Peaking Filter (affects frequencies around 1kHz)
         if (eqSettings.mid !== 0) {
-          const midFilter = new Tone.Filter({
+          const midPeak = new Tone.Filter({
             type: 'peaking',
             frequency: 1000,
-            Q: 1
+            Q: 1,
+            gain: eqSettings.mid
           })
-          const midGain = new Tone.Gain()
-          midGain.gain.value = Math.pow(10, eqSettings.mid / 20)
-          
-          midFilter.connect(midGain)
-          midGain.connect(outputMixer)
-          
-          bands.push({ filter: midFilter, gain: midGain })
-          eqChain.push(midFilter, midGain)
-          console.log('[EQ] Created mid band at 1kHz with gain:', Math.pow(10, eqSettings.mid / 20))
+          eqChain.push(midPeak)
+          console.log('[EQ] Created mid peak at 1kHz with gain:', eqSettings.mid, 'dB')
         }
         
-        // High band path
+        // High band - High Shelf Filter (affects frequencies above 4kHz)
         if (eqSettings.high !== 0) {
-          const highFilter = new Tone.Filter({
-            type: 'highpass',
+          const highShelf = new Tone.Filter({
+            type: 'highshelf',
             frequency: 4000,
-            rolloff: -12
+            gain: eqSettings.high
           })
-          const highGain = new Tone.Gain()
-          highGain.gain.value = Math.pow(10, eqSettings.high / 20)
-          
-          highFilter.connect(highGain)
-          highGain.connect(outputMixer)
-          
-          bands.push({ filter: highFilter, gain: highGain })
-          eqChain.push(highFilter, highGain)
-          console.log('[EQ] Created high band at 4kHz with gain:', Math.pow(10, eqSettings.high / 20))
+          eqChain.push(highShelf)
+          console.log('[EQ] Created high shelf at 4kHz with gain:', eqSettings.high, 'dB')
         }
         
-        // Disconnect pitch shifter from destination
-        pitchShifter.disconnect()
+        // Create output gain
+        const outputGain = new Tone.Gain()
+        outputGain.gain.value = 1
+        eqChain.push(outputGain)
         
-        // Connect pitch shifter to all active filter inputs
-        bands.forEach(band => {
-          pitchShifter.connect(band.filter)
+        // Connect the EQ chain in series
+        let currentNode = pitchShifter
+        eqChain.forEach(node => {
+          currentNode.connect(node)
+          currentNode = node
         })
         
-        // Connect output mixer to destination
-        outputMixer.toDestination()
+        // Connect the final node to destination
+        currentNode.toDestination()
         
         // Store the EQ chain for later cleanup
         player._eqChain = eqChain
-        console.log('[EQ] Connected EQ chain with', eqChain.length, 'nodes')
-        
+        console.log('[EQ] Connected EQ chain with', eqChain.length, 'nodes in series')
         console.log('[EQ] Applied EQ settings successfully')
       } else {
         // No EQ, connect pitch shifter directly to destination
@@ -2120,7 +2123,15 @@ export default function BeatMakerPage() {
 
 
   const handlePlayPause = () => {
-    console.log(`[MAIN TRANSPORT] Play/Pause called. isPlaying: ${isPlaying}, pianoRollData:`, pianoRollData)
+    console.log(`[MAIN TRANSPORT] Play/Pause called. isPlaying: ${isPlaying}, arrangementPlaying: ${isArrangementPlaying}, pianoRollData:`, pianoRollData)
+    
+    // If arrangement is playing, stop it first
+    if (isArrangementPlaying) {
+      console.log('[MAIN TRANSPORT] Stopping arrangement before starting sequencer')
+      setIsArrangementPlaying(false)
+      // The arrangement will handle its own cleanup via the callback
+    }
+    
     if (isPlaying) {
       stopSequence()
     } else {
@@ -5961,17 +5972,55 @@ export default function BeatMakerPage() {
         return
       }
 
+      // Validate and sanitize song arrangement data before saving
+      console.log('[SESSION DEBUG] Validating song arrangement data before update:', songArrangementPatterns)
+      
+      let validatedSongArrangementData = songArrangementPatterns
+      try {
+        // Test if the data can be serialized
+        const serialized = JSON.stringify(songArrangementPatterns)
+        console.log('[SESSION DEBUG] Song arrangement data is serializable, length:', serialized.length)
+      } catch (error) {
+        console.error('[SESSION DEBUG] Song arrangement data is not serializable, using empty array:', error)
+        validatedSongArrangementData = []
+      }
+
+      // Sanitize tracks data to remove any non-serializable objects
+      console.log('[SESSION DEBUG] Sanitizing tracks data before update')
+      const sanitizedTracks = tracks.map(track => ({
+        id: track.id,
+        name: track.name,
+        color: track.color,
+        audioUrl: track.audioUrl,
+        audioName: track.audioName,
+        audioFileId: track.audioFileId,
+        pitchShift: track.pitchShift,
+        playbackRate: track.playbackRate,
+        currentKey: track.currentKey,
+        originalKey: track.originalKey,
+        currentBpm: track.currentBpm,
+        originalBpm: track.originalBpm,
+        bpm: track.bpm,
+        key: track.key,
+        audio_type: track.audio_type,
+        tags: track.tags,
+        // Exclude any audio players, samples, or other complex objects
+      }))
+      
+      console.log('[SESSION DEBUG] Sanitized tracks count:', sanitizedTracks.length)
+
       // Collect all session data
       const sessionData = {
         bpm,
         transport_key: transportKey,
         steps,
-        tracks,
+        tracks: sanitizedTracks, // Use sanitized tracks
         sequencer_data: sequencerData,
         mixer_data: mixerSettings,
         effects_data: {}, // Will be implemented when effects are added
         piano_roll_data: {}, // Will be populated when piano roll is used
         sample_library_data: {}, // Will be populated when sample roll is used
+        song_arrangement_data: validatedSongArrangementData, // Include song arrangement data
         playback_state: {
           isPlaying,
           currentStep,
@@ -5985,6 +6034,12 @@ export default function BeatMakerPage() {
           pianoRollTrack
         }
       }
+
+      // Debug: Log the session data being sent
+      console.log('[SESSION DEBUG] Session data being sent to database for update:')
+      console.log('[SESSION DEBUG] Session data keys:', Object.keys(sessionData))
+      console.log('[SESSION DEBUG] Tracks count:', sessionData.tracks?.length || 0)
+      console.log('[SESSION DEBUG] Song arrangement data count:', sessionData.song_arrangement_data?.length || 0)
 
       const result = await supabase
         .from('beat_sessions')
@@ -7076,23 +7131,95 @@ export default function BeatMakerPage() {
   }
   
   const updateMasterEQ = (band: 'low' | 'mid' | 'high', value: number) => {
+    console.log(`[MASTER EQ] Updating ${band} band to ${value}dB`)
+    
     setMasterEQ(prev => ({
       ...prev,
       [band]: value
     }))
     
-    // Apply master EQ to all tracks
-    tracks.forEach(track => {
-      const player = samplesRef?.current?.[track.id]
-      if (player) {
-        const currentTrackEQ = mixerSettings[track.id]?.eq || { low: 0, mid: 0, high: 0 }
-        const combinedEQ = {
-          low: currentTrackEQ.low + value,
-          mid: currentTrackEQ.mid + value,
-          high: currentTrackEQ.high + value
-        }
-        applyEQToPlayer(player, track.id, combinedEQ)
+    // Apply master EQ to the master output
+    // This should be applied to a master bus, but for now we'll apply it to the destination
+    import('tone').then(Tone => {
+      // Clean up existing master EQ chain
+      if (window._masterEQChain) {
+        window._masterEQChain.forEach((node: any) => {
+          try {
+            if (node && typeof node.disconnect === 'function') {
+              node.disconnect()
+            }
+            if (node && typeof node.dispose === 'function') {
+              node.dispose()
+            }
+          } catch (error) {
+            console.warn('[MASTER EQ] Error disposing master EQ node:', error)
+          }
+        })
+        window._masterEQChain = []
       }
+      
+      // Check if any master EQ settings are active
+      const newMasterEQ = { ...masterEQ, [band]: value }
+      const hasMasterEQ = newMasterEQ.low !== 0 || newMasterEQ.mid !== 0 || newMasterEQ.high !== 0
+      
+      if (hasMasterEQ) {
+        // Create master EQ chain
+        const masterEQChain = []
+        
+        // Low band - Low Shelf Filter
+        if (newMasterEQ.low !== 0) {
+          const lowShelf = new Tone.Filter({
+            type: 'lowshelf',
+            frequency: 200,
+            gain: newMasterEQ.low
+          })
+          masterEQChain.push(lowShelf)
+          console.log('[MASTER EQ] Created low shelf at 200Hz with gain:', newMasterEQ.low, 'dB')
+        }
+        
+        // Mid band - Peaking Filter
+        if (newMasterEQ.mid !== 0) {
+          const midPeak = new Tone.Filter({
+            type: 'peaking',
+            frequency: 1000,
+            Q: 1,
+            gain: newMasterEQ.mid
+          })
+          masterEQChain.push(midPeak)
+          console.log('[MASTER EQ] Created mid peak at 1kHz with gain:', newMasterEQ.mid, 'dB')
+        }
+        
+        // High band - High Shelf Filter
+        if (newMasterEQ.high !== 0) {
+          const highShelf = new Tone.Filter({
+            type: 'highshelf',
+            frequency: 4000,
+            gain: newMasterEQ.high
+          })
+          masterEQChain.push(highShelf)
+          console.log('[MASTER EQ] Created high shelf at 4kHz with gain:', newMasterEQ.high, 'dB')
+        }
+        
+        // Connect master EQ chain to destination
+        if (masterEQChain.length > 0) {
+          let currentNode = masterEQChain[0]
+          for (let i = 1; i < masterEQChain.length; i++) {
+            currentNode.connect(masterEQChain[i])
+            currentNode = masterEQChain[i]
+          }
+          currentNode.toDestination()
+          
+          // Store the master EQ chain
+          window._masterEQChain = masterEQChain
+          console.log('[MASTER EQ] Applied master EQ chain with', masterEQChain.length, 'nodes')
+        }
+      } else {
+        // No master EQ, ensure direct connection to destination
+        window._masterEQChain = []
+        console.log('[MASTER EQ] No master EQ settings, direct connection to destination')
+      }
+    }).catch(error => {
+      console.error('[MASTER EQ] Failed to apply master EQ settings:', error)
     })
   }
 
@@ -7369,6 +7496,20 @@ export default function BeatMakerPage() {
             >
               Default Mode
             </Badge>
+            {/* Playback System Indicator */}
+            {(isPlaying || isArrangementPlaying) && (
+              <Badge 
+                variant="outline" 
+                className={`text-xs px-2 py-1 ${
+                  isPlaying 
+                    ? 'bg-green-600/20 border-green-500 text-green-400' 
+                    : 'bg-blue-600/20 border-blue-500 text-blue-400'
+                }`}
+                title={isPlaying ? "Sequencer is playing" : "Song Arrangement is playing"}
+              >
+                {isPlaying ? "Sequencer" : "Arrangement"}
+              </Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -8487,6 +8628,14 @@ export default function BeatMakerPage() {
             onPatternsChange={handleSongArrangementPatternsChange}
             onArrangementPlayStateChange={(isPlaying) => {
               console.log('[BEAT MAKER] Song arrangement play state changed:', isPlaying)
+              
+              // If arrangement is starting to play, stop the sequencer
+              if (isPlaying) {
+                console.log('[BEAT MAKER] Stopping sequencer because arrangement is starting')
+                stopSequence()
+              }
+              
+              setIsArrangementPlaying(isPlaying)
             }}
             mixerSettings={mixerSettings}
             masterVolume={masterVolume}
@@ -8538,7 +8687,10 @@ export default function BeatMakerPage() {
                             }`}
                             title={`Open EQ for ${getTrackDisplayName(track.name)} (current: Low ${settings.eq?.low || 0}dB, Mid ${settings.eq?.mid || 0}dB, High ${settings.eq?.high || 0}dB)`}
                           >
-                            EQ
+                            {settings.eq && (settings.eq.low !== 0 || settings.eq.mid !== 0 || settings.eq.high !== 0) 
+                              ? `EQ (${settings.eq.low}/${settings.eq.mid}/${settings.eq.high})` 
+                              : 'EQ'
+                            }
                           </Button>
                         </div>
                       </div>
@@ -8649,7 +8801,10 @@ export default function BeatMakerPage() {
                       }`}
                       title={`Master EQ (current: Low ${masterEQ.low}dB, Mid ${masterEQ.mid}dB, High ${masterEQ.high}dB)`}
                     >
-                      MASTER EQ
+                      {masterEQ.low !== 0 || masterEQ.mid !== 0 || masterEQ.high !== 0 
+                        ? `MASTER EQ (${masterEQ.low}/${masterEQ.mid}/${masterEQ.high})` 
+                        : 'MASTER EQ'
+                      }
                     </Button>
                   </div>
                 </div>
@@ -8658,7 +8813,35 @@ export default function BeatMakerPage() {
               {/* Mixer Controls */}
               <div className="mt-6 p-4 border-t border-gray-600 bg-[#0f0f0f] rounded">
                 <div className="flex items-center gap-4">
-                  <Button size="sm" variant="outline">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => {
+                      // Reset all mixer settings
+                      setMixerSettings({})
+                      setMasterEQ({ low: 0, mid: 0, high: 0 })
+                      setMasterVolume(0.8)
+                      
+                      // Clean up master EQ chain
+                      if (window._masterEQChain) {
+                        window._masterEQChain.forEach((node: any) => {
+                          try {
+                            if (node && typeof node.disconnect === 'function') {
+                              node.disconnect()
+                            }
+                            if (node && typeof node.dispose === 'function') {
+                              node.dispose()
+                            }
+                          } catch (error) {
+                            console.warn('[MIXER RESET] Error disposing node:', error)
+                          }
+                        })
+                        window._masterEQChain = []
+                      }
+                      
+                      console.log('[MIXER RESET] Reset all mixer settings')
+                    }}
+                  >
                     <RotateCcw className="w-4 h-4 mr-2" />
                     Reset All
                   </Button>

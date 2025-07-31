@@ -55,6 +55,23 @@ export async function POST(request: NextRequest) {
     }
     
     console.log('User authenticated:', user.id)
+    console.log('Saving arrangement data:', {
+      trackId,
+      trackName,
+      name,
+      description: description?.substring(0, 50) + '...',
+      patternBlocksCount: patternBlocks?.length,
+      totalBars,
+      zoomLevel,
+      bpm,
+      steps,
+      tagsCount: tags?.length,
+      category,
+      genre,
+      subgenre,
+      audioType,
+      sessionId
+    })
 
     // Validate required fields
     if (!trackId || !trackName || !name || !patternBlocks) {
@@ -63,21 +80,34 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
+    // Validate patternBlocks
+    if (!Array.isArray(patternBlocks) || patternBlocks.length === 0) {
+      return NextResponse.json({ 
+        error: 'patternBlocks must be a non-empty array' 
+      }, { status: 400 })
+    }
+
+    // Validate and sanitize numeric fields
+    const validatedBpm = bpm && !isNaN(bpm) ? bpm : 120
+    const validatedSteps = steps && !isNaN(steps) ? steps : 16
+    const validatedTotalBars = totalBars && !isNaN(totalBars) ? totalBars : 64
+    const validatedZoomLevel = zoomLevel && !isNaN(zoomLevel) ? zoomLevel : 50
+
     // Save the arrangement
     const { data: arrangement, error } = await supabase
       .from('track_arrangements')
       .insert({
         user_id: user.id,
-        session_id: sessionId,
+        session_id: sessionId || null,
         track_id: trackId,
         track_name: trackName,
         name,
         description,
         pattern_blocks: JSON.stringify(patternBlocks),
-        total_bars: totalBars,
-        zoom_level: zoomLevel,
-        bpm,
-        steps,
+        total_bars: validatedTotalBars,
+        zoom_level: validatedZoomLevel,
+        bpm: validatedBpm,
+        steps: validatedSteps,
         tags: tags && tags.length > 0 ? tags : null,
         category,
         genre,
@@ -91,6 +121,12 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Error saving arrangement:', error)
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      })
       return NextResponse.json({ error: 'Failed to save arrangement' }, { status: 500 })
     }
 
@@ -133,7 +169,7 @@ export async function POST(request: NextRequest) {
       arrangement: {
         ...arrangement,
         patternBlocks: JSON.parse(arrangement.pattern_blocks),
-        tags: arrangement.tags ? JSON.parse(arrangement.tags) : [],
+        tags: arrangement.tags || [],
       }
     })
 

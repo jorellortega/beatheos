@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
 import { MassEditSelectedFilesModal } from '@/components/MassEditSelectedFilesModal'
@@ -33,6 +33,7 @@ interface Single {
   artist: string
   release_date: string
   cover_art_url: string
+  audio_url?: string | null
   duration?: string
   description?: string
 }
@@ -127,6 +128,21 @@ export default function MyLibrary() {
   // Pagination for All Files view
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
+  
+  // Audio playback state
+  const [playingSingleId, setPlayingSingleId] = useState<string | null>(null);
+  const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  
+  // Edit single state
+  const [editingSingle, setEditingSingle] = useState<Single | null>(null);
+  const [showEditSingleDialog, setShowEditSingleDialog] = useState(false);
+  const [editSingleTitle, setEditSingleTitle] = useState('');
+  const [editSingleDescription, setEditSingleDescription] = useState('');
+  const [editSingleArtist, setEditSingleArtist] = useState('');
+  const [editSingleReleaseDate, setEditSingleReleaseDate] = useState('');
+  const [editSingleDuration, setEditSingleDuration] = useState('');
+  const [editSingleAudioUrl, setEditSingleAudioUrl] = useState('');
+  const [isSavingSingle, setIsSavingSingle] = useState(false);
   const [totalItems, setTotalItems] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   
@@ -379,6 +395,124 @@ export default function MyLibrary() {
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Audio playback functions
+  const playSingle = (singleId: string, audioUrl: string) => {
+    // Stop any currently playing audio
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+    }
+
+    // Create new audio element
+    const audio = new Audio(audioUrl);
+    audio.addEventListener('ended', () => {
+      setPlayingSingleId(null);
+      setAudioRef(null);
+    });
+
+    audio.play().then(() => {
+      setPlayingSingleId(singleId);
+      setAudioRef(audio);
+    }).catch((error) => {
+      console.error('Error playing audio:', error);
+      alert('Error playing audio. Please check if the file exists.');
+    });
+  };
+
+  const stopSingle = () => {
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+      setPlayingSingleId(null);
+      setAudioRef(null);
+    }
+  };
+
+  // Edit single functions
+  const openEditSingleDialog = (single: Single) => {
+    setEditingSingle(single);
+    setEditSingleTitle(single.title);
+    setEditSingleDescription(single.description || '');
+    setEditSingleArtist(single.artist);
+    setEditSingleReleaseDate(single.release_date);
+    setEditSingleDuration(single.duration || '');
+    setEditSingleAudioUrl(single.audio_url || '');
+    setShowEditSingleDialog(true);
+  };
+
+  const saveSingle = async () => {
+    if (!editingSingle || !editSingleTitle.trim()) return;
+
+    setIsSavingSingle(true);
+    try {
+      const { error } = await supabase
+        .from('singles')
+        .update({
+          title: editSingleTitle,
+          description: editSingleDescription,
+          artist: editSingleArtist,
+          release_date: editSingleReleaseDate,
+          duration: editSingleDuration,
+          audio_url: editSingleAudioUrl || null
+        })
+        .eq('id', editingSingle.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setSingles(prev => prev.map(single => 
+        single.id === editingSingle.id 
+          ? { 
+              ...single, 
+              title: editSingleTitle,
+              description: editSingleDescription,
+              artist: editSingleArtist,
+              release_date: editSingleReleaseDate,
+              duration: editSingleDuration,
+              audio_url: editSingleAudioUrl || null
+            }
+          : single
+      ));
+
+      setShowEditSingleDialog(false);
+      setEditingSingle(null);
+    } catch (error) {
+      console.error('Error updating single:', error);
+      alert('Failed to update single. Please try again.');
+    } finally {
+      setIsSavingSingle(false);
+    }
+  };
+
+  const deleteSingle = async (singleId: string) => {
+    if (!confirm('Are you sure you want to delete this single?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('singles')
+        .delete()
+        .eq('id', singleId);
+
+      if (error) throw error;
+
+      // Update local state
+      setSingles(prev => prev.filter(single => single.id !== singleId));
+    } catch (error) {
+      console.error('Error deleting single:', error);
+      alert('Failed to delete single. Please try again.');
+    }
+  };
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef) {
+        audioRef.pause();
+        audioRef.currentTime = 0;
+      }
+    };
+  }, [audioRef]);
 
   // Fetch all data on mount
   useEffect(() => {
@@ -2526,27 +2660,70 @@ export default function MyLibrary() {
         <TabsContent value="singles" className="space-y-4">
           {loadingSingles ? <div>Loading singles...</div> : singleError ? <div className="text-red-500">{singleError}</div> : singles.length === 0 ? <div>No singles found.</div> : singles.map(single => (
               <Card key={single.id} className="p-6 flex gap-6 items-center">
-              <img src={single.cover_art_url} alt={single.title} className="w-24 h-24 object-cover rounded-lg" />
+                {/* Cover Art - Show placeholder if no cover art */}
+                <div className="w-24 h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden">
+                  {single.cover_art_url ? (
+                    <img src={single.cover_art_url} alt={single.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="text-center text-gray-400">
+                      <Music className="w-8 h-8 mx-auto mb-1" />
+                      <div className="text-xs font-medium">{single.title}</div>
+                    </div>
+                  )}
+                </div>
                 <div className="flex-1">
                   <div className="flex justify-between items-start">
                     <div>
                       <h2 className="text-xl font-semibold">{single.title}</h2>
                       <p className="text-gray-500">{single.artist}</p>
                     </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => {/* show edit form */}}><FileText className="h-4 w-4 mr-2" />Edit</Button>
-                    <Button variant="destructive" size="sm" onClick={() => {/* handleDeleteSingle(single.id) */}}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
+                    <div className="flex gap-2">
+                      {/* Play Button */}
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => {
+                          if (single.audio_url) {
+                            if (playingSingleId === single.id) {
+                              stopSingle();
+                            } else {
+                              playSingle(single.id, single.audio_url);
+                            }
+                          }
+                        }}
+                        disabled={!single.audio_url}
+                        className={`${
+                          single.audio_url 
+                            ? 'bg-green-600 hover:bg-green-700 text-white border-green-500' 
+                            : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
+                        }`}
+                        title={single.audio_url ? 'Play audio' : 'No audio file available'}
+                      >
+                        {playingSingleId === single.id ? (
+                          <>
+                            <Pause className="h-4 w-4 mr-2" />
+                            Pause
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Play
+                          </>
+                        )}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => openEditSingleDialog(single)}><FileText className="h-4 w-4 mr-2" />Edit</Button>
+                      <Button variant="destructive" size="sm" onClick={() => deleteSingle(single.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
                     <Calendar className="h-4 w-4" />
-                  Released: {single.release_date ? new Date(single.release_date).toLocaleDateString() : 'N/A'}
-                  <span className="ml-4">Duration: {single.duration || 'N/A'}</span>
+                    Released: {single.release_date ? new Date(single.release_date).toLocaleDateString() : 'N/A'}
+                    <span className="ml-4">Duration: {single.duration || 'N/A'}</span>
                   </div>
                   <div className="mt-3">
-                  <h3 className="font-medium mb-1">Description</h3>
-                  <div className="text-sm text-gray-500 font-semibold">{single.description || 'No description.'}</div>
-                </div>
+                    <h3 className="font-medium mb-1">Description</h3>
+                    <div className="text-sm text-gray-500 font-semibold">{single.description || 'No description.'}</div>
+                  </div>
                 </div>
               </Card>
             ))}
@@ -4233,6 +4410,116 @@ export default function MyLibrary() {
         selectedFiles={allAudioItems.filter(item => selectedFiles.has(item.id))}
         onUpdate={refreshAudioData}
       />
+
+      {/* Edit Single Dialog */}
+      <Dialog open={showEditSingleDialog} onOpenChange={setShowEditSingleDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Edit Single
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Update the details of your single
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="editTitle" className="text-white">Title</Label>
+              <Input
+                id="editTitle"
+                value={editSingleTitle}
+                onChange={(e) => setEditSingleTitle(e.target.value)}
+                placeholder="Enter single title"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editArtist" className="text-white">Artist</Label>
+              <Input
+                id="editArtist"
+                value={editSingleArtist}
+                onChange={(e) => setEditSingleArtist(e.target.value)}
+                placeholder="Enter artist name"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editReleaseDate" className="text-white">Release Date</Label>
+              <Input
+                id="editReleaseDate"
+                type="date"
+                value={editSingleReleaseDate}
+                onChange={(e) => setEditSingleReleaseDate(e.target.value)}
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editDuration" className="text-white">Duration (e.g., 3:45)</Label>
+              <Input
+                id="editDuration"
+                value={editSingleDuration}
+                onChange={(e) => setEditSingleDuration(e.target.value)}
+                placeholder="Enter duration"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editAudioUrl" className="text-white">Audio URL</Label>
+              <Input
+                id="editAudioUrl"
+                value={editSingleAudioUrl}
+                onChange={(e) => setEditSingleAudioUrl(e.target.value)}
+                placeholder="Enter audio file URL"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editDescription" className="text-white">Description</Label>
+              <Textarea
+                id="editDescription"
+                value={editSingleDescription}
+                onChange={(e) => setEditSingleDescription(e.target.value)}
+                placeholder="Enter description..."
+                className="bg-gray-800 border-gray-600 text-white"
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowEditSingleDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveSingle}
+              disabled={isSavingSingle || !editSingleTitle.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isSavingSingle ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 
