@@ -3424,9 +3424,9 @@ export default function BeatMakerPage() {
       
       console.log(`[TRACK GENRE] Track ${track.name} using genre: ${trackGenre}, subgenre: ${trackSubgenre}`)
       
-      // Get batch of audio files using the tracking system with conditional key filtering and BPM filtering
+      // Get batch of audio files using the smart cache system
       // Apply BPM filtering only when BPM tolerance is enabled
-      const audioFiles = await getShuffleAudioBatch(user, audioType, keyToUse, trackGenre ? { name: trackGenre } : selectedGenre, trackSubgenre, bpm, isBpmToleranceEnabled)
+      const audioFiles = await getAudioFromCacheOrDatabase(user, audioType, keyToUse, trackGenre ? { name: trackGenre } : selectedGenre, trackSubgenre, bpm, isBpmToleranceEnabled)
 
       if (!audioFiles || audioFiles.length === 0) {
         console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
@@ -3440,7 +3440,8 @@ export default function BeatMakerPage() {
       // Update the track with the new audio
       const publicUrl = getPublicAudioUrl(selectedAudio.file_url || '')
       
-      // Handle tempo and key based on transport lock status
+      // Handle tempo and key based on track type and transport lock status
+      // IMPORTANT: Loop tracks MUST match transport BPM, drum tracks can use original BPM
       let finalBpm = selectedAudio.bpm || 120
       let finalKey = selectedAudio.key || 'C'
       let pitchShift = 0
@@ -3497,21 +3498,57 @@ export default function BeatMakerPage() {
         console.log(`[TRANSPORT LOCKED] Track adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${finalBpm}BPM ${finalKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
         }
       } else if (track.name === 'Melody Loop') {
-        // Simplified Melody Loop handling to prevent crashes
-        finalBpm = selectedAudio.bpm || 120
-        finalKey = selectedAudio.key || 'C'
-        playbackRate = 1.0
-        pitchShift = 0
-        
-        console.log(`[SIMPLIFIED] Melody Loop using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
+        // Melody Loop: Adapt to transport BPM based on melody loop mode
+        if (melodyLoopMode === 'transport-dominates') {
+          // Transport dominates: Melody Loop adapts to transport
+          finalBpm = bpm // Use transport BPM
+          finalKey = transportKey || selectedAudio.key || 'C'
+          
+          // Calculate playback rate to match transport tempo
+          if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+            playbackRate = bpm / selectedAudio.bpm
+          } else {
+            playbackRate = 1.0
+          }
+          
+          // Calculate pitch shift if needed
+          if (selectedAudio.key && transportKey && selectedAudio.key !== transportKey) {
+            const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            const originalIndex = chromaticScale.indexOf(selectedAudio.key)
+            const targetIndex = chromaticScale.indexOf(transportKey)
+            
+            if (originalIndex !== -1 && targetIndex !== -1) {
+              pitchShift = targetIndex - originalIndex
+              if (pitchShift > 6) pitchShift -= 12
+              if (pitchShift < -6) pitchShift += 12
+            }
+          }
+          
+          console.log(`[MELODY LOOP T→M] Original ${selectedAudio.bpm}BPM ${selectedAudio.key} → Transport ${bpm}BPM ${transportKey} (rate: ${playbackRate.toFixed(3)}, pitch: ${pitchShift})`)
+        } else {
+          // Melody Loop dominates: Transport adapts to melody loop
+          finalBpm = selectedAudio.bpm || 120
+          finalKey = selectedAudio.key || 'C'
+          playbackRate = 1.0
+          pitchShift = 0
+          
+          console.log(`[MELODY LOOP M→T] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
+        }
       } else if (track.name.includes(' Loop')) {
-        // Simplified loop track handling to prevent crashes
-        finalBpm = selectedAudio.bpm || 120
+        // Loop tracks: currentBpm MUST match transport BPM for proper sync
+        finalBpm = bpm // Use transport BPM, not original audio BPM
         finalKey = selectedAudio.key || 'C'
-        playbackRate = 1.0
+        
+        // Calculate playback rate to match transport tempo
+        if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+          playbackRate = bpm / selectedAudio.bpm
+        } else {
+          playbackRate = 1.0
+        }
+        
         pitchShift = 0
         
-        console.log(`[SIMPLIFIED] Loop track ${track.name} using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
+        console.log(`[LOOP TRACK] ${track.name}: Original ${selectedAudio.bpm}BPM → Transport ${bpm}BPM (rate: ${playbackRate.toFixed(3)})`)
       } else {
         // Transport not locked and not a loop track - use original audio BPM and key
         finalBpm = selectedAudio.bpm || 120
@@ -3563,70 +3600,111 @@ export default function BeatMakerPage() {
         console.log(`[SHUFFLE AUDIO] Stopped transport for track: ${track.name}`)
       }
       
-      // Force reload immediately after state update (no delay)
-      try {
-        console.log(`[SHUFFLE AUDIO] Starting immediate force reload for track: ${track.name}`)
-        await forceReloadTrackSamples(trackId)
-        console.log(`[SHUFFLE AUDIO] Successfully reloaded audio player for track: ${track.name}`)
-        
-        // Additional verification that the audio loaded
-        setTimeout(() => {
-          const samples = samplesRef?.current
-          if (samples && samples[trackId]) {
-            const player = samples[trackId]
-            if (player && player.loaded) {
-              console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
-              
-              // CRITICAL: Reapply solo/mute states after audio reload
-              const updatedTracks = tracks.map(t => t.id === trackId ? { ...t, solo: preserveSolo, mute: preserveMute } : t)
-              const soloedTracks = updatedTracks.filter(track => track.solo)
-              const hasAnySolo = soloedTracks.length > 0
-              
-              updatedTracks.forEach(track => {
-                const isSoloed = track.solo
-                const shouldBeMuted = hasAnySolo && !isSoloed
+      // Wait a bit for state to settle, then force reload
+      setTimeout(async () => {
+        try {
+          // Double-check that the track has the new audio URL before reloading
+          const updatedTrack = tracks.find(t => t.id === trackId)
+          if (!updatedTrack || !updatedTrack.audioUrl) {
+            console.warn(`[SHUFFLE AUDIO] Track ${track.name} has no audio URL, skipping reload`)
+            return
+          }
+          
+          console.log(`[SHUFFLE AUDIO] Starting force reload for track: ${track.name} with URL: ${updatedTrack.audioUrl}`)
+          await forceReloadTrackSamples(trackId)
+          console.log(`[SHUFFLE AUDIO] Successfully reloaded audio player for track: ${track.name}`)
+          
+          // Additional verification that the audio loaded
+          setTimeout(() => {
+            const samples = samplesRef?.current
+            if (samples && samples[trackId]) {
+              const player = samples[trackId]
+              if (player && player.loaded) {
+                console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
                 
-                // Apply to sequencer players
-                if (samplesRef?.current?.[track.id]) {
-                  const player = samplesRef.current[track.id]
-                  if (player && player.volume) {
-                    if (shouldBeMuted) {
-                      player.volume.value = -Infinity
-                      console.log(`[SHUFFLE SOLO] Muted track ${track.id} (not soloed)`)
-                    } else {
-                      // Restore volume based on mixer settings
-                      const trackSettings = mixerSettings[track.id]
-                      const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
-                      player.volume.value = volumeDb
-                      console.log(`[SHUFFLE SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
+                // CRITICAL: Reapply solo/mute states after audio reload
+                const updatedTracks = tracks.map(t => t.id === trackId ? { ...t, solo: preserveSolo, mute: preserveMute } : t)
+                const soloedTracks = updatedTracks.filter(track => track.solo)
+                const hasAnySolo = soloedTracks.length > 0
+                
+                updatedTracks.forEach(track => {
+                  const isSoloed = track.solo
+                  const shouldBeMuted = hasAnySolo && !isSoloed
+                  
+                  // Apply to sequencer players
+                  if (samplesRef?.current?.[track.id]) {
+                    const player = samplesRef.current[track.id]
+                    if (player && player.volume) {
+                      if (shouldBeMuted) {
+                        player.volume.value = -Infinity
+                        console.log(`[SHUFFLE SOLO] Muted track ${track.id} (not soloed)`)
+                      } else {
+                        // Restore volume based on mixer settings
+                        const trackSettings = mixerSettings[track.id]
+                        const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
+                        player.volume.value = volumeDb
+                        console.log(`[SHUFFLE SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
+                      }
                     }
                   }
+                })
+                
+                console.log(`[SHUFFLE SOLO] Reapplied solo states - ${soloedTracks.length} track(s) soloed`)
+                
+                // Test the audio playback to ensure it's working
+                try {
+                  const testPlayer = samples[trackId]
+                  if (testPlayer && testPlayer.loaded) {
+                    // Play a very short test (0.1 seconds) to verify audio works
+                    testPlayer.start(0, 0, 0.1)
+                    console.log(`[SHUFFLE AUDIO] Audio test playback successful for track: ${track.name}`)
+                  }
+                } catch (testError) {
+                  console.warn(`[SHUFFLE AUDIO] Audio test failed for track ${track.name}:`, testError)
                 }
-              })
-              
-              console.log(`[SHUFFLE SOLO] Reapplied solo states - ${soloedTracks.length} track(s) soloed`)
+              } else {
+                console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
+                forceReloadTrackSamples(trackId)
+              }
             } else {
-              console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
+              console.warn(`[SHUFFLE AUDIO] No samples found for track: ${track.name}, retrying...`)
               forceReloadTrackSamples(trackId)
             }
-          }
-        }, 100) // Reduced delay for verification
-      } catch (error) {
-        console.error(`[SHUFFLE AUDIO] Error reloading audio player for track ${track.name}:`, error)
-        // Retry once more
-        setTimeout(async () => {
-          try {
-            await forceReloadTrackSamples(trackId)
-            console.log(`[SHUFFLE AUDIO] Retry successful for track: ${track.name}`)
-          } catch (retryError) {
-            console.error(`[SHUFFLE AUDIO] Retry failed for track ${track.name}:`, retryError)
-          }
-        }, 500)
-      }
+          }, 200) // Increased delay for verification
+        } catch (error) {
+          console.error(`[SHUFFLE AUDIO] Error reloading audio player for track ${track.name}:`, error)
+          // Retry once more
+          setTimeout(async () => {
+            try {
+              await forceReloadTrackSamples(trackId)
+              console.log(`[SHUFFLE AUDIO] Retry successful for track: ${track.name}`)
+            } catch (retryError) {
+              console.error(`[SHUFFLE AUDIO] Retry failed for track ${track.name}:`, retryError)
+            }
+          }, 1000) // Increased retry delay
+        }
+      }, 300) // Wait for state to settle before reloading
 
     } catch (error) {
       console.error('Error shuffling audio:', error)
-      alert('Failed to shuffle audio')
+      
+      // More detailed error logging
+      if (error instanceof Error) {
+        console.error(`[SHUFFLE AUDIO ERROR] ${error.message}`)
+        console.error(`[SHUFFLE AUDIO ERROR] Stack: ${error.stack}`)
+      }
+      
+      // Try to recover by forcing a reload
+      try {
+        const currentTrack = tracks.find(t => t.id === trackId)
+        console.log(`[SHUFFLE AUDIO] Attempting recovery for track: ${currentTrack?.name}`)
+        await forceReloadTrackSamples(trackId)
+        console.log(`[SHUFFLE AUDIO] Recovery successful for track: ${currentTrack?.name}`)
+      } catch (recoveryError) {
+        const currentTrack = tracks.find(t => t.id === trackId)
+        console.error(`[SHUFFLE AUDIO] Recovery failed for track: ${currentTrack?.name}:`, recoveryError)
+        alert('Failed to shuffle audio. Please try again or reset the audio.')
+      }
     }
   }
 
@@ -3980,6 +4058,101 @@ export default function BeatMakerPage() {
     }
   }
 
+  // Smart hybrid caching system for audio shuffles
+  const [batchedAudioCache, setBatchedAudioCache] = useState<Record<string, any[]>>({})
+  const [cacheTimestamp, setCacheTimestamp] = useState<number>(0)
+  const CACHE_EXPIRY_TIME = 5 * 60 * 1000 // 5 minutes in milliseconds
+
+  // Helper function to check if cache is valid
+  const isCacheValid = () => {
+    return Date.now() - cacheTimestamp < CACHE_EXPIRY_TIME
+  }
+
+  // Helper function to get audio from cache or database
+  const getAudioFromCacheOrDatabase = async (
+    user: any, 
+    audioType: string, 
+    transportKey?: string, 
+    selectedGenre?: any, 
+    selectedSubgenre?: string, 
+    transportBpm?: number, 
+    applyBpmFilter?: boolean
+  ) => {
+    // Create cache key based on all filter parameters
+    const cacheKey = `${audioType}_${selectedGenre?.name || 'none'}_${selectedSubgenre || 'none'}_${transportKey || 'none'}_${transportBpm || 'none'}_${applyBpmFilter || false}`
+    
+    // Check if we have valid cached data
+    if (batchedAudioCache[cacheKey] && isCacheValid()) {
+      console.log(`[CACHE HIT] Using cached audio for ${audioType} (${cacheKey})`)
+      return batchedAudioCache[cacheKey]
+    }
+    
+    // Cache miss or expired - fetch from database
+    console.log(`[CACHE MISS] Fetching audio for ${audioType} from database`)
+    const audioFiles = await getShuffleAudioBatch(user, audioType, transportKey, selectedGenre, selectedSubgenre, transportBpm, applyBpmFilter)
+    
+    // Update cache with new data
+    setBatchedAudioCache(prev => ({
+      ...prev,
+      [cacheKey]: audioFiles
+    }))
+    setCacheTimestamp(Date.now())
+    
+    return audioFiles
+  }
+
+  // Function to update cache with batched results
+  const updateBatchedCache = (batchedResults: Record<string, any[]>) => {
+    const newCache: Record<string, any[]> = {}
+    
+    // Convert batched results to individual cache entries
+    Object.keys(batchedResults).forEach(audioType => {
+      const audioFiles = batchedResults[audioType]
+      if (audioFiles && audioFiles.length > 0) {
+        // Create cache key for this audio type with current global settings
+        const cacheKey = `${audioType}_${selectedGenre?.name || 'none'}_${selectedSubgenre || 'none'}_${transportKey || 'none'}_${bpm || 'none'}_${isBpmToleranceEnabled || false}`
+        newCache[cacheKey] = audioFiles
+      }
+    })
+    
+    setBatchedAudioCache(prev => ({
+      ...prev,
+      ...newCache
+    }))
+    setCacheTimestamp(Date.now())
+    
+    console.log(`[CACHE UPDATE] Updated cache with ${Object.keys(newCache).length} entries`)
+  }
+
+  // Function to clear expired cache entries
+  const clearExpiredCache = () => {
+    if (!isCacheValid()) {
+      setBatchedAudioCache({})
+      setCacheTimestamp(0)
+      console.log('[CACHE CLEAR] Cleared expired cache')
+    }
+  }
+
+  // Function to manually clear cache (for debugging/testing)
+  const clearAudioCache = () => {
+    setBatchedAudioCache({})
+    setCacheTimestamp(0)
+    console.log('[CACHE CLEAR] Manually cleared audio cache')
+  }
+
+  // Function to get cache status for debugging
+  const getCacheStatus = () => {
+    const cacheSize = Object.keys(batchedAudioCache).length
+    const isValid = isCacheValid()
+    const age = Date.now() - cacheTimestamp
+    return {
+      size: cacheSize,
+      isValid,
+      age: Math.round(age / 1000), // age in seconds
+      entries: Object.keys(batchedAudioCache)
+    }
+  }
+
   // Helper function to get relative keys for a given key
   const getRelativeKeys = (key: string): string[] => {
     const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -4036,6 +4209,198 @@ export default function BeatMakerPage() {
     
     console.log(`[KEY FILTER] Relative keys for ${key}:`, relativeKeys)
     return relativeKeys
+  }
+
+  // OPTIMIZATION: Batch multiple audio type queries into a single database call
+  const getBatchedShuffleAudio = async (user: any, audioTypes: string[], transportKey?: string, selectedGenre?: any, selectedSubgenre?: string, transportBpm?: number, applyBpmFilter?: boolean) => {
+    try {
+      // Lazy load file links if format system is enabled and not already loaded
+      if (formatSystemEnabled && fileLinks.length === 0) {
+        console.log('[LAZY LOAD] Loading file links for batch shuffle (format system enabled)...')
+        await fetchFileLinks()
+        await fetchTotalAudioItems()
+      } else if (!formatSystemEnabled) {
+        console.log('[DIRECT LOAD] Format system disabled - loading directly from audio_library_items')
+        await fetchTotalAudioItems()
+      }
+
+      // If shuffle tracker is disabled, get random files from entire table without tracking
+      if (!isShuffleTrackerEnabled) {
+        console.log(`[BATCH SHUFFLE] Tracker disabled - getting random files for multiple audio types: ${audioTypes.join(', ')}`)
+        
+        let query = supabase
+          .from('audio_library_items')
+          .select('*')
+          .eq('user_id', user.id)
+          .in('audio_type', audioTypes)
+        
+        if (isReadyCheckEnabled) {
+          query = query.eq('is_ready', true)
+        }
+        
+        // Add genre filtering if genre is selected
+        if (selectedGenre && selectedGenre.name && selectedGenre.name !== 'none') {
+          query = query.eq('genre', selectedGenre.name)
+          console.log(`[GENRE FILTER] Filtering by genre: ${selectedGenre.name}`)
+          
+          // Add subgenre filtering if subgenre is selected
+          if (selectedSubgenre && selectedSubgenre !== 'none') {
+            query = query.eq('subgenre', selectedSubgenre)
+            console.log(`[SUBGENRE FILTER] Filtering by subgenre: ${selectedSubgenre}`)
+          }
+        }
+        
+        // Add BPM filtering if transport BPM is provided and BPM filter is enabled
+        if (applyBpmFilter && transportBpm) {
+          const bpmTolerance = 10 // ±10 BPM tolerance
+          const minBpm = transportBpm - bpmTolerance
+          const maxBpm = transportBpm + bpmTolerance
+          
+          console.log(`[BPM FILTER] Filtering by BPM range: ${minBpm}-${maxBpm} (transport: ${transportBpm} ±${bpmTolerance})`)
+          query = query.gte('bpm', minBpm).lte('bpm', maxBpm)
+        }
+        
+        // Add key filtering if transport key is provided and we're in T-M mode
+        if (transportKey && melodyLoopMode === 'transport-dominates') {
+          const relativeKeys = getRelativeKeys(transportKey)
+          console.log(`[KEY FILTER] Filtering by keys: ${relativeKeys.join(', ')}`)
+          query = query.in('key', relativeKeys)
+        }
+        
+        const { data: allFiles } = await query
+        
+        if (!allFiles || allFiles.length === 0) {
+          console.log(`[BATCH SHUFFLE] No files found for audio types: ${audioTypes.join(', ')}`)
+          return {}
+        }
+        
+        // Group files by audio type
+        const filesByType: { [audioType: string]: any[] } = {}
+        audioTypes.forEach(type => {
+          filesByType[type] = allFiles.filter(file => file.audio_type === type)
+        })
+        
+        // Shuffle each group and apply limitation
+        const result: { [audioType: string]: any[] } = {}
+        Object.keys(filesByType).forEach(audioType => {
+          const shuffledFiles = filesByType[audioType].sort(() => Math.random() - 0.5)
+          
+          if (isShuffleLimitEnabled) {
+            result[audioType] = shuffledFiles.slice(0, 10)
+            console.log(`[BATCH SHUFFLE] ${audioType}: Found ${filesByType[audioType].length} files, returning ${result[audioType].length} limited files`)
+          } else {
+            result[audioType] = shuffledFiles
+            console.log(`[BATCH SHUFFLE] ${audioType}: Found ${filesByType[audioType].length} files, returning all shuffled files`)
+          }
+        })
+        
+        return result
+      }
+
+      // Shuffle tracker is enabled - use tracking logic
+      console.log(`[BATCH SHUFFLE] Tracker enabled - using tracking for audio types: ${audioTypes.join(', ')}`)
+      
+      // Get tracked files for all audio types
+      const { data: trackedFiles } = await supabase
+        .from('audio_shuffle_tracker')
+        .select('audio_id')
+        .eq('user_id', user.id)
+        .eq('was_loaded', true)
+
+      // Get all available files for the audio types
+      let query = supabase
+        .from('audio_library_items')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('audio_type', audioTypes)
+        .not('id', 'in', `(${trackedFiles?.map(t => t.audio_id).join(',') || '00000000-0000-0000-0000-000000000000'})`)
+        .order('created_at', { ascending: true })
+        .limit(5000) // Large limit for batch processing
+      
+      if (isReadyCheckEnabled) {
+        query = query.eq('is_ready', true)
+      }
+      
+      // Add filters
+      if (selectedGenre && selectedGenre.name && selectedGenre.name !== 'none') {
+        query = query.eq('genre', selectedGenre.name)
+        if (selectedSubgenre && selectedSubgenre !== 'none') {
+          query = query.eq('subgenre', selectedSubgenre)
+        }
+      }
+      
+      if (transportKey && melodyLoopMode === 'transport-dominates') {
+        const relativeKeys = getRelativeKeys(transportKey)
+        query = query.in('key', relativeKeys)
+      }
+      
+      if (applyBpmFilter && transportBpm) {
+        const bpmTolerance = 10
+        const minBpm = transportBpm - bpmTolerance
+        const maxBpm = transportBpm + bpmTolerance
+        query = query.gte('bpm', minBpm).lte('bpm', maxBpm)
+      }
+      
+      const { data: availableFiles } = await query
+      
+      if (!availableFiles || availableFiles.length === 0) {
+        console.log(`[BATCH SHUFFLE] No available files found for audio types: ${audioTypes.join(', ')}`)
+        return {}
+      }
+      
+      // Group files by audio type
+      const filesByType: { [audioType: string]: any[] } = {}
+      audioTypes.forEach(type => {
+        filesByType[type] = availableFiles.filter(file => file.audio_type === type)
+      })
+      
+      // Apply limit and shuffle for each type
+      const result: { [audioType: string]: any[] } = {}
+      const filesToTrack: any[] = []
+      
+      Object.keys(filesByType).forEach(audioType => {
+        const files = filesByType[audioType]
+        const shuffledFiles = files.sort(() => Math.random() - 0.5)
+        
+        if (isShuffleLimitEnabled) {
+          result[audioType] = shuffledFiles.slice(0, 10)
+        } else {
+          result[audioType] = shuffledFiles
+        }
+        
+        // Add files to tracking list
+        filesToTrack.push(...result[audioType])
+      })
+      
+      // Mark files as loaded in the tracker
+      if (filesToTrack.length > 0) {
+        const trackerUpdates = filesToTrack.map(file => ({
+          user_id: user.id,
+          audio_id: file.id,
+          was_loaded: true,
+          load_count: 1
+        }))
+
+        await supabase
+          .from('audio_shuffle_tracker')
+          .upsert(trackerUpdates, { 
+            onConflict: 'user_id,audio_id',
+            ignoreDuplicates: false 
+          })
+
+        await supabase.rpc('increment_shuffle_load_count', {
+          p_user_id: user.id,
+          p_audio_ids: filesToTrack.map(f => f.id)
+        })
+
+        console.log(`[BATCH SHUFFLE] Marked ${filesToTrack.length} files as loaded across ${audioTypes.length} audio types`)
+      }
+      
+      return result
+    } catch (error) {
+      console.error('Error in getBatchedShuffleAudio:', error)
+      return {}
+    }
   }
 
   // Helper function to manage shuffle tracking with key filtering
@@ -4669,8 +5034,47 @@ export default function BeatMakerPage() {
         'Preset': 'Preset'
       }
 
-      // Shuffle audio for each track using the new tracking system
-      for (const track of tracksToShuffle) {
+      // OPTIMIZATION: Use batched audio queries to reduce database calls
+      // First, collect all unique audio types needed
+      const audioTypesNeeded = new Set<string>()
+      const trackAudioTypeMap = new Map<number, string>()
+      
+      tracksToShuffle.forEach(track => {
+        // Extract base track type from name (remove key suffix for loops)
+        let baseTrackName = track.name
+        if (track.name.includes(' Loop ') && track.name.split(' ').length > 2) {
+          const parts = track.name.split(' ')
+          baseTrackName = parts.slice(0, -1).join(' ') // Remove the last part (the key)
+        }
+        
+        const audioType = trackTypeMap[baseTrackName]
+        if (audioType) {
+          audioTypesNeeded.add(audioType)
+          trackAudioTypeMap.set(track.id, audioType)
+        }
+      })
+      
+      // Get all audio files in a single batched query
+      console.log(`[OPTIMIZATION] Batching ${audioTypesNeeded.size} audio types into single query instead of ${tracksToShuffle.length} individual queries`)
+      const batchedAudioFiles = await getBatchedShuffleAudio(
+        user, 
+        Array.from(audioTypesNeeded), 
+        transportKey, 
+        selectedGenre, 
+        selectedSubgenre, 
+        bpm, 
+        isBpmToleranceEnabled
+      )
+      
+      // Update the cache with batched results for individual shuffles to use
+      updateBatchedCache(batchedAudioFiles)
+      
+      // Log cache status for debugging
+      const cacheStatus = getCacheStatus()
+      console.log(`[CACHE STATUS] Cache updated: ${cacheStatus.size} entries, age: ${cacheStatus.age}s, valid: ${cacheStatus.isValid}`)
+      
+      // Now process each track using the pre-fetched audio files
+      const audioShufflePromises = tracksToShuffle.map(async track => {
         try {
           // Helios mode: Shuffle all tracks (both drum and loop tracks)
           if (isHeliosMode) {
@@ -4687,27 +5091,26 @@ export default function BeatMakerPage() {
             baseTrackName = parts.slice(0, -1).join(' ') // Remove the last part (the key)
           }
           
-          const audioType = trackTypeMap[baseTrackName]
+          const audioType = trackAudioTypeMap.get(track.id)
           if (!audioType) {
             console.log(`No audio type mapping found for track: ${track.name}`)
-            continue
+            return { track, success: false }
           }
 
-          console.log(`[SHUFFLE TRACKER] Getting batch for track: ${track.name} (${audioType})`)
+          console.log(`[BATCHED SHUFFLE] Getting audio for track: ${track.name} (${audioType})`)
           
-                  // Check if this track should be filtered by key (skip drum tracks - they don't need key filtering)
-        const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion', 'Drum Loop'].includes(track.name)
+          // Check if this track should be filtered by key (skip drum tracks - they don't need key filtering)
+          const isDrumTrack = ['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion', 'Drum Loop'].includes(track.name)
           const isDrumLoop = ['Drum Loop', 'Percussion Loop', 'Hihat Loop'].includes(track.name)
           const shouldFilterByKey = !isDrumTrack && !isDrumLoop
           const keyToUse = shouldFilterByKey ? transportKey : undefined
           
-          // Get batch of audio files using the tracking system with conditional key filtering and BPM filtering
-          // Apply BPM filtering only when BPM tolerance is enabled
-          const audioFiles = await getShuffleAudioBatch(user, audioType, keyToUse, selectedGenre, selectedSubgenre, bpm, isBpmToleranceEnabled)
+          // Get audio files from the batched result
+          const audioFiles = batchedAudioFiles[audioType] || []
           
           if (audioFiles.length === 0) {
             console.log(`[SHUFFLE TRACKER] No audio files available for ${audioType}`)
-            continue
+            return { track, success: false }
           }
 
           // Randomly select one from the batch
@@ -4867,12 +5270,15 @@ export default function BeatMakerPage() {
             pitchShift = 0
           }
           
-          setTracks(prev => prev.map(t => 
-            t.id === track.id ? { 
-              ...t, 
+          // Return the updated track data instead of immediately updating state
+          return {
+            track,
+            success: true,
+            updatedTrack: {
+              ...track,
               audioUrl: publicUrl,
               audioName: selectedAudio.name,
-              audioFileId: selectedAudio.id, // <-- Add this line to set the audioFileId
+              audioFileId: selectedAudio.id,
               // Use calculated tempo and key values
               originalBpm: selectedAudio.bpm || 120,
               currentBpm: finalBpm,
@@ -4888,14 +5294,32 @@ export default function BeatMakerPage() {
               tags: selectedAudio.tags,
               // Store relative key indicator
               isRelativeKey: isRelativeKey
-            } : t
-          ))
+            }
+          }
 
-          console.log(`[SHUFFLE TRACKER] Updated track ${track.name} with ${selectedAudio.name}`)
         } catch (error) {
           console.error(`Error shuffling audio for track ${track.name}:`, error)
+          return { track, success: false }
         }
-      }
+      })
+
+      // Wait for all audio shuffles to complete
+      const audioResults = await Promise.all(audioShufflePromises)
+      
+      // Update all tracks at once
+      setTracks(prev => {
+        const newTracks = [...prev]
+        audioResults.forEach(({ track, success, updatedTrack }) => {
+          if (success && updatedTrack) {
+            const trackIndex = newTracks.findIndex(t => t.id === track.id)
+            if (trackIndex !== -1) {
+              newTracks[trackIndex] = updatedTrack
+              console.log(`[SHUFFLE TRACKER] Updated track ${track.name} with ${updatedTrack.audioName}`)
+            }
+          }
+        })
+        return newTracks
+      })
 
       // Shuffle patterns for all tracks (except locked ones)
       const patternShufflePromises = tracks
