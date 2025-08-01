@@ -71,7 +71,7 @@ export function SongArrangement({
   onArrangementPlayPause,
   onArrangementPlayStateChange,
   mixerSettings = {},
-  masterVolume = 0.8,
+  masterVolume = 0.87,
   onVolumeChange,
   onMasterVolumeChange,
   currentSessionId
@@ -84,6 +84,14 @@ export function SongArrangement({
   // Volume control state
   const [trackVolumes, setTrackVolumes] = useState<{[trackId: number]: number}>({})
   const [arrangementMasterVolume, setArrangementMasterVolume] = useState(masterVolume)
+  
+  // Update master volume only if it hasn't been set by user
+  useEffect(() => {
+    // Only update if the master volume hasn't been changed from the default
+    if (arrangementMasterVolume === masterVolume) {
+      setArrangementMasterVolume(masterVolume)
+    }
+  }, [masterVolume])
   
   // Volume control functions
   const handleTrackVolumeChange = (trackId: number, volume: number) => {
@@ -116,17 +124,30 @@ export function SongArrangement({
     })
   }
   
-  // Initialize track volumes from mixer settings or defaults
+  // Initialize track volumes from mixer settings or defaults (only if not already set)
   useEffect(() => {
     const initialVolumes: {[trackId: number]: number} = {}
+    let hasNewTracks = false
+    
     tracks.forEach(track => {
-      if (mixerSettings[track.id]) {
-        initialVolumes[track.id] = mixerSettings[track.id].volume
+      // Only set volume if this track doesn't have a volume set yet
+      if (trackVolumes[track.id] === undefined) {
+        hasNewTracks = true
+        if (mixerSettings[track.id]) {
+          initialVolumes[track.id] = mixerSettings[track.id].volume
+        } else {
+          initialVolumes[track.id] = 1.0 // Default volume
+        }
       } else {
-        initialVolumes[track.id] = 1.0 // Default volume
+        // Preserve existing volume
+        initialVolumes[track.id] = trackVolumes[track.id]
       }
     })
-    setTrackVolumes(initialVolumes)
+    
+    // Only update if we have new tracks or if trackVolumes is empty
+    if (hasNewTracks || Object.keys(trackVolumes).length === 0) {
+      setTrackVolumes(initialVolumes)
+    }
   }, [tracks, mixerSettings])
   
   // Safe setter for currentBar to prevent negative values
@@ -145,6 +166,8 @@ export function SongArrangement({
   }
   const [totalBars, setTotalBars] = useState(64) // Default 64 bars (8 patterns of 8 bars each)
   const [zoom, setZoom] = useState(50) // pixels per bar
+  const [showSetBarsDialog, setShowSetBarsDialog] = useState(false)
+  const [customBarsInput, setCustomBarsInput] = useState('')
   const [scrollX, setScrollX] = useState(0)
   const [selectedBlocks, setSelectedBlocks] = useState<string[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -1196,7 +1219,7 @@ export function SongArrangement({
         const newPatternBlocks = [...otherTrackPatterns, ...arrangement.patternBlocks]
         
         setPatternBlocks(newPatternBlocks)
-        setTotalBars(Math.max(totalBars, arrangement.totalBars))
+        // Don't update totalBars - respect the current setting
         setZoom(arrangement.zoomLevel)
         
         // Update parent component
@@ -1517,6 +1540,13 @@ export function SongArrangement({
       
       console.log('Click position:', { clickX, clickY, clickedBar, loadedTrack: loadedTrack.name, loadedTrackId })
       
+      // Check if the pattern would extend beyond totalBars
+      const endBar = clickedBar + selectedDuration - 1
+      if (endBar > totalBars) {
+        showNotification('Pattern Too Long', `Cannot place pattern: it would extend beyond bar ${totalBars}. Try placing it earlier or reduce the pattern duration.`, 'warning')
+        return
+      }
+      
       // Create a new pattern block at the clicked position
       const newBlock: PatternBlock = {
         id: `pattern-${Date.now()}-${Math.random()}`,
@@ -1527,14 +1557,14 @@ export function SongArrangement({
         steps: steps,
         duration: selectedDuration,
         startBar: clickedBar,
-        endBar: clickedBar + selectedDuration - 1,
+        endBar: endBar,
         color: loadedTrack.color,
         trackId: loadedTrack.id
       }
 
       const newPatternBlocks = [...patternBlocks, newBlock]
       setPatternBlocks(newPatternBlocks)
-      setTotalBars(Math.max(totalBars, newBlock.endBar))
+      // Don't update totalBars - respect the current setting
       onPatternsChange?.(newPatternBlocks)
     } else if (isArrangementPlaying) {
       // If not in load mode but playing, seek to clicked position
@@ -1596,7 +1626,7 @@ export function SongArrangement({
 
     const newPatternBlocks = [...patternBlocks, newBlock]
     setPatternBlocks(newPatternBlocks)
-    setTotalBars(Math.max(totalBars, newBlock.endBar))
+    // Don't update totalBars - respect the current setting
     onPatternsChange?.(newPatternBlocks)
   }
 
@@ -1711,9 +1741,20 @@ export function SongArrangement({
     const newPatternBlocks: PatternBlock[] = []
     
     tracks.forEach((track, trackIndex) => {
-      // Create 11 patterns for each track, starting from bar 1
-      for (let i = 0; i < 11; i++) {
+      // Calculate how many patterns can fit within totalBars
+      const maxPatterns = Math.floor(totalBars / selectedDuration)
+      const patternsToCreate = Math.min(11, maxPatterns)
+      
+      // Create patterns for each track, starting from bar 1
+      for (let i = 0; i < patternsToCreate; i++) {
         const startBar = 1 + (i * selectedDuration) // Start from bar 1, then 1+8=9, 1+16=17, etc. (8-bar default)
+        const endBar = startBar + selectedDuration - 1
+        
+        // Skip if this pattern would extend beyond totalBars
+        if (endBar > totalBars) {
+          break
+        }
+        
         const patternBlock: PatternBlock = {
           id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
           name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
@@ -1723,7 +1764,7 @@ export function SongArrangement({
           steps: steps,
           duration: selectedDuration,
           startBar: startBar,
-          endBar: startBar + selectedDuration - 1,
+          endBar: endBar,
           color: track.color,
           trackId: track.id
         }
@@ -1735,14 +1776,11 @@ export function SongArrangement({
     // Replace all existing patterns with the new ones (don't add to existing)
     setPatternBlocks(newPatternBlocks)
     
-    // Update total bars to accommodate all patterns
-    const maxEndBar = Math.max(...newPatternBlocks.map(block => block.endBar))
-    setTotalBars(Math.max(totalBars, maxEndBar))
-    
+    // Don't update totalBars - respect the current setting
     // Notify parent component
     onPatternsChange?.(newPatternBlocks)
     
-    console.log(`[LOAD PATTERNS] Created ${newPatternBlocks.length} patterns across ${tracks.length} tracks (cleared existing patterns)`)
+    console.log(`[LOAD PATTERNS] Created ${newPatternBlocks.length} patterns across ${tracks.length} tracks within ${totalBars} bars (cleared existing patterns)`)
   }
 
   // Clear all patterns from the arrangement
@@ -1759,6 +1797,62 @@ export function SongArrangement({
     onPatternsChange?.([])
     
     console.log('[CLEAR PATTERNS] All patterns cleared')
+  }
+
+  // Set custom number of bars for the timeline
+  const setCustomBars = () => {
+    const bars = parseInt(customBarsInput)
+    if (bars && bars > 0 && bars <= 1000) { // Reasonable limit
+      setTotalBars(bars)
+      setShowSetBarsDialog(false)
+      setCustomBarsInput('')
+      
+      // Process patterns: cut those that extend beyond the new bar limit
+      const processedPatterns = patternBlocks.map(block => {
+        if (block.startBar > bars) {
+          // Pattern starts beyond the new limit - remove it
+          return null
+        } else if (block.endBar > bars) {
+          // Pattern extends beyond the new limit - cut it
+          const cutBlock = {
+            ...block,
+            id: `${block.id}-cut-at-${bars}`,
+            name: `${block.name} (Cut at Bar ${bars})`,
+            endBar: bars,
+            duration: bars - block.startBar + 1
+          }
+          return cutBlock
+        } else {
+          // Pattern is within the new limit - keep as is
+          return block
+        }
+      }).filter(block => block !== null) as PatternBlock[]
+      
+      // Check if any patterns were modified
+      const removedCount = patternBlocks.length - processedPatterns.length
+      const cutCount = processedPatterns.filter(block => block.name.includes('(Cut at Bar')).length
+      
+      if (removedCount > 0 || cutCount > 0) {
+        setPatternBlocks(processedPatterns)
+        onPatternsChange?.(processedPatterns)
+        
+        let message = `Timeline set to ${bars} bars.`
+        if (removedCount > 0) {
+          message += ` ${removedCount} patterns removed.`
+        }
+        if (cutCount > 0) {
+          message += ` ${cutCount} patterns cut.`
+        }
+        
+        showNotification('Timeline Updated', message, 'info')
+      } else {
+        showNotification('Timeline Updated', `Timeline set to ${bars} bars.`, 'success')
+      }
+      
+      console.log(`[SET BARS] Timeline set to ${bars} bars, processed ${processedPatterns.length} patterns`)
+    } else {
+      showNotification('Invalid Input', 'Please enter a valid number between 1 and 1000.', 'error')
+    }
   }
 
   // Mode B: Shuffle through saved arrangements for each track
@@ -1810,10 +1904,32 @@ export function SongArrangement({
             // Load patterns for this specific track from the arrangement
             const trackPatterns = await loadArrangementPatternsForTrack(randomArrangement.arrangementId, track.id)
             if (trackPatterns.length > 0) {
-              allNewPatterns.push(...trackPatterns)
-              processedTracks.add(track.id)
-              loadedCount++
-              loadedArrangements.push(randomArrangement.arrangementName || 'Unknown')
+              // Cut patterns that extend beyond totalBars
+              const cutPatterns = trackPatterns.map(pattern => {
+                if (pattern.startBar > totalBars) {
+                  // Pattern starts beyond the limit - skip it
+                  return null
+                } else if (pattern.endBar > totalBars) {
+                  // Pattern extends beyond the limit - cut it
+                  return {
+                    ...pattern,
+                    id: `${pattern.id}-cut-at-${totalBars}`,
+                    name: `${pattern.name} (Cut at Bar ${totalBars})`,
+                    endBar: totalBars,
+                    duration: totalBars - pattern.startBar + 1
+                  }
+                } else {
+                  // Pattern is within the limit - keep as is
+                  return pattern
+                }
+              }).filter(pattern => pattern !== null)
+              
+              if (cutPatterns.length > 0) {
+                allNewPatterns.push(...cutPatterns)
+                processedTracks.add(track.id)
+                loadedCount++
+                loadedArrangements.push(randomArrangement.arrangementName || 'Unknown')
+              }
             }
           }
         }
@@ -1833,10 +1949,7 @@ export function SongArrangement({
         // Apply all changes at once
         setPatternBlocks(finalPatternBlocks)
         
-        // Update total bars to accommodate all patterns
-        const maxEndBar = Math.max(...finalPatternBlocks.map(block => block.endBar))
-        setTotalBars(Math.max(totalBars, maxEndBar))
-        
+        // Don't update totalBars - respect the current setting
         // Notify parent component
         onPatternsChange?.(finalPatternBlocks)
         
@@ -1913,22 +2026,41 @@ export function SongArrangement({
         const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
         
         if (trackPatterns.length > 0) {
-          // Combine track patterns from saved arrangement with other tracks' current patterns
-          const newPatternBlocks = [...otherTrackPatterns, ...trackPatterns]
+          // Cut patterns that extend beyond totalBars
+          const cutPatterns = trackPatterns.map((pattern: any) => {
+            if (pattern.startBar > totalBars) {
+              // Pattern starts beyond the limit - skip it
+              return null
+            } else if (pattern.endBar > totalBars) {
+              // Pattern extends beyond the limit - cut it
+              return {
+                ...pattern,
+                id: `${pattern.id}-cut-at-${totalBars}`,
+                name: `${pattern.name} (Cut at Bar ${totalBars})`,
+                endBar: totalBars,
+                duration: totalBars - pattern.startBar + 1
+              }
+            } else {
+              // Pattern is within the limit - keep as is
+              return pattern
+            }
+          }).filter((pattern: any) => pattern !== null)
           
-          // Sort by start bar to maintain timeline order
-          newPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
-          
-          setPatternBlocks(newPatternBlocks)
-          
-          // Update total bars to accommodate all patterns
-          const maxEndBar = Math.max(...newPatternBlocks.map(block => block.endBar))
-          setTotalBars(Math.max(totalBars, maxEndBar))
-          
-          // Notify parent component
-          onPatternsChange?.(newPatternBlocks)
-          
-          console.log(`[LOAD ARRANGEMENT FOR TRACK] Loaded ${trackPatterns.length} patterns for track ${trackId} from arrangement "${arrangement.name}"`)
+          if (cutPatterns.length > 0) {
+            // Combine track patterns from saved arrangement with other tracks' current patterns
+            const newPatternBlocks = [...otherTrackPatterns, ...cutPatterns]
+            
+            // Sort by start bar to maintain timeline order
+            newPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
+            
+            setPatternBlocks(newPatternBlocks)
+            
+            // Don't update totalBars - respect the current setting
+            // Notify parent component
+            onPatternsChange?.(newPatternBlocks)
+            
+            console.log(`[LOAD ARRANGEMENT FOR TRACK] Loaded ${cutPatterns.length} patterns for track ${trackId} from arrangement "${arrangement.name}" (cut to fit ${totalBars} bars)`)
+          }
         }
       }
     } catch (error) {
@@ -2099,13 +2231,24 @@ export function SongArrangement({
     // Original behavior: Create drops for all patterns (when no selection)
     console.log('[DROP ARRANGEMENT] Creating drops for all patterns (no selection)')
     
-    // First, load the base 11 patterns
+    // First, load the base patterns within totalBars limit
     const basePatternBlocks: PatternBlock[] = []
     
     tracks.forEach((track, trackIndex) => {
-      // Create 11 patterns for each track, starting from bar 1
-      for (let i = 0; i < 11; i++) {
+      // Calculate how many patterns can fit within totalBars
+      const maxPatterns = Math.floor(totalBars / selectedDuration)
+      const patternsToCreate = Math.min(11, maxPatterns)
+      
+      // Create patterns for each track, starting from bar 1
+      for (let i = 0; i < patternsToCreate; i++) {
         const startBar = 1 + (i * selectedDuration)
+        const endBar = startBar + selectedDuration - 1
+        
+        // Skip if this pattern would extend beyond totalBars
+        if (endBar > totalBars) {
+          break
+        }
+        
         const patternBlock: PatternBlock = {
           id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
           name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
@@ -2115,12 +2258,36 @@ export function SongArrangement({
           steps: steps,
           duration: selectedDuration,
           startBar: startBar,
-          endBar: startBar + selectedDuration - 1,
+          endBar: endBar,
           color: track.color,
           trackId: track.id
         }
         
         basePatternBlocks.push(patternBlock)
+      }
+      
+      // If there's remaining space, create a partial pattern to fill it
+      const lastPatternEnd = basePatternBlocks
+        .filter(block => block.trackId === track.id)
+        .reduce((max, block) => Math.max(max, block.endBar), 0)
+      
+      const remainingBars = totalBars - lastPatternEnd
+      if (remainingBars >= 1) {
+        const partialPatternBlock: PatternBlock = {
+          id: `pattern-${Date.now()}-${track.id}-partial-${Math.random()}`,
+          name: `${getTrackDisplayName(track.name)} Pattern (Partial)`,
+          tracks: [track],
+          sequencerData: { [track.id]: sequencerData[track.id] || [] },
+          bpm: bpm,
+          steps: steps,
+          duration: remainingBars,
+          startBar: lastPatternEnd + 1,
+          endBar: totalBars,
+          color: track.color,
+          trackId: track.id
+        }
+        
+        basePatternBlocks.push(partialPatternBlock)
       }
     })
     
@@ -2258,14 +2425,11 @@ export function SongArrangement({
     // Replace all existing patterns with the drop arrangement
     setPatternBlocks(dropPatternBlocks)
     
-    // Update total bars to accommodate all patterns
-    const maxEndBar = Math.max(...dropPatternBlocks.map(block => block.endBar))
-    setTotalBars(Math.max(totalBars, maxEndBar))
-    
+    // Don't update totalBars - respect the current setting
     // Notify parent component
     onPatternsChange?.(dropPatternBlocks)
     
-    console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
+    console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks within ${totalBars} bars${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
     
     // Clear shuffling flag
     isShufflingRef.current = false
@@ -2457,12 +2621,23 @@ export function SongArrangement({
     // Original behavior: Create drops for all patterns for this track (when no selection)
     console.log(`[TRACK DROP ARRANGEMENT] Creating drops for all patterns for track ${trackId} (no selection)`)
     
-    // First, load the base 11 patterns for this track only
+    // First, load the base patterns for this track only within totalBars limit
     const basePatternBlocks: PatternBlock[] = []
     
-    // Create 11 patterns for this track only, starting from bar 1
-    for (let i = 0; i < 11; i++) {
+    // Calculate how many patterns can fit within totalBars
+    const maxPatterns = Math.floor(totalBars / selectedDuration)
+    const patternsToCreate = Math.min(11, maxPatterns)
+    
+    // Create patterns for this track only, starting from bar 1
+    for (let i = 0; i < patternsToCreate; i++) {
       const startBar = 1 + (i * selectedDuration)
+      const endBar = startBar + selectedDuration - 1
+      
+      // Skip if this pattern would extend beyond totalBars
+      if (endBar > totalBars) {
+        break
+      }
+      
       const patternBlock: PatternBlock = {
         id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
         name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
@@ -2472,12 +2647,36 @@ export function SongArrangement({
         steps: steps,
         duration: selectedDuration,
         startBar: startBar,
-        endBar: startBar + selectedDuration - 1,
+        endBar: endBar,
         color: track.color,
         trackId: track.id
       }
       
       basePatternBlocks.push(patternBlock)
+    }
+    
+    // If there's remaining space, create a partial pattern to fill it
+    const lastPatternEnd = basePatternBlocks
+      .filter(block => block.trackId === track.id)
+      .reduce((max, block) => Math.max(max, block.endBar), 0)
+    
+    const remainingBars = totalBars - lastPatternEnd
+    if (remainingBars >= 1) {
+      const partialPatternBlock: PatternBlock = {
+        id: `pattern-${Date.now()}-${track.id}-partial-${Math.random()}`,
+        name: `${getTrackDisplayName(track.name)} Pattern (Partial)`,
+        tracks: [track],
+        sequencerData: { [track.id]: sequencerData[track.id] || [] },
+        bpm: bpm,
+        steps: steps,
+        duration: remainingBars,
+        startBar: lastPatternEnd + 1,
+        endBar: totalBars,
+        color: track.color,
+        trackId: track.id
+      }
+      
+      basePatternBlocks.push(partialPatternBlock)
     }
     
     // Now create drop variations by splitting some patterns
@@ -2605,10 +2804,7 @@ export function SongArrangement({
         // Replace all existing patterns with the drop arrangement
         setPatternBlocks(finalPatterns)
         
-        // Update total bars to accommodate all patterns
-        const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
-        setTotalBars(Math.max(totalBars, maxEndBar))
-        
+        // Don't update totalBars - respect the current setting
         // Notify parent component
         onPatternsChange?.(finalPatterns)
         
@@ -2623,10 +2819,7 @@ export function SongArrangement({
       // Replace all existing patterns with the drop arrangement
       setPatternBlocks(finalPatterns)
       
-      // Update total bars to accommodate all patterns
-      const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
-      setTotalBars(Math.max(totalBars, maxEndBar))
-      
+      // Don't update totalBars - respect the current setting
       // Notify parent component
       onPatternsChange?.(finalPatterns)
       
@@ -2641,10 +2834,7 @@ export function SongArrangement({
     // Replace all existing patterns with the drop arrangement
     setPatternBlocks(finalPatterns)
     
-    // Update total bars to accommodate all patterns
-    const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
-    setTotalBars(Math.max(totalBars, maxEndBar))
-    
+    // Don't update totalBars - respect the current setting
     // Notify parent component
     onPatternsChange?.(finalPatterns)
     
@@ -5295,6 +5485,19 @@ export function SongArrangement({
               Clear All
             </Button>
             <Button
+              onClick={() => {
+                setCustomBarsInput(totalBars.toString())
+                setShowSetBarsDialog(true)
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+              title="Set custom number of bars for the timeline"
+            >
+              <BarChart3 className="w-4 h-4 mr-1" />
+              Set Bars
+            </Button>
+            <Button
               onClick={handleShuffleToggle}
               variant="outline"
               size="sm"
@@ -6933,6 +7136,60 @@ export function SongArrangement({
       </Dialog>
 
 
+
+      {/* Set Bars Dialog */}
+      <Dialog open={showSetBarsDialog} onOpenChange={setShowSetBarsDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Set Timeline Bars
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Set the number of bars for your timeline. Patterns beyond this limit will be removed.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="customBars" className="text-white">Number of Bars</Label>
+              <Input
+                id="customBars"
+                type="number"
+                min="1"
+                max="1000"
+                value={customBarsInput}
+                onChange={(e) => setCustomBarsInput(e.target.value)}
+                placeholder="Enter number of bars (1-1000)"
+                className="bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:border-purple-500 focus:ring-purple-500"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setCustomBars()
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Current: {totalBars} bars • Recommended: 40-100 bars for most arrangements
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowSetBarsDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={setCustomBars}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              Set Bars
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Notification Modal */}
       <NotificationModal
