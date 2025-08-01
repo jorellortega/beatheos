@@ -16,7 +16,7 @@ declare global {
 }
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,7 +29,8 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle } from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -49,6 +50,7 @@ import { NotificationModal } from '@/components/ui/notification-modal'
 
 export default function BeatMakerPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   
   // Initialize undo/redo functionality
   const undoRedo = useUndoRedo(50) // 50 versions max
@@ -3551,8 +3553,8 @@ export default function BeatMakerPage() {
         } : t
       ))
 
-      // CRITICAL: Force reload the audio player to use the new audio file
-      console.log(`[SHUFFLE AUDIO] Forcing reload of audio player for track: ${track.name}`)
+      // CRITICAL: Force reload the audio player to use the new audio file immediately
+      console.log(`[SHUFFLE AUDIO] Forcing immediate reload of audio player for track: ${track.name}`)
       
       // First, ensure we stop any existing audio immediately
       const ToneModule = await import('tone')
@@ -3561,68 +3563,66 @@ export default function BeatMakerPage() {
         console.log(`[SHUFFLE AUDIO] Stopped transport for track: ${track.name}`)
       }
       
-      // Force reload with a longer delay to ensure state is fully updated
-      setTimeout(async () => {
-        try {
-          console.log(`[SHUFFLE AUDIO] Starting force reload for track: ${track.name}`)
-          await forceReloadTrackSamples(trackId)
-          console.log(`[SHUFFLE AUDIO] Successfully reloaded audio player for track: ${track.name}`)
-          
-          // Additional verification that the audio loaded
-          setTimeout(() => {
-            const samples = samplesRef?.current
-            if (samples && samples[trackId]) {
-              const player = samples[trackId]
-              if (player && player.loaded) {
-                console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
+      // Force reload immediately after state update (no delay)
+      try {
+        console.log(`[SHUFFLE AUDIO] Starting immediate force reload for track: ${track.name}`)
+        await forceReloadTrackSamples(trackId)
+        console.log(`[SHUFFLE AUDIO] Successfully reloaded audio player for track: ${track.name}`)
+        
+        // Additional verification that the audio loaded
+        setTimeout(() => {
+          const samples = samplesRef?.current
+          if (samples && samples[trackId]) {
+            const player = samples[trackId]
+            if (player && player.loaded) {
+              console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
+              
+              // CRITICAL: Reapply solo/mute states after audio reload
+              const updatedTracks = tracks.map(t => t.id === trackId ? { ...t, solo: preserveSolo, mute: preserveMute } : t)
+              const soloedTracks = updatedTracks.filter(track => track.solo)
+              const hasAnySolo = soloedTracks.length > 0
+              
+              updatedTracks.forEach(track => {
+                const isSoloed = track.solo
+                const shouldBeMuted = hasAnySolo && !isSoloed
                 
-                // CRITICAL: Reapply solo/mute states after audio reload
-                const updatedTracks = tracks.map(t => t.id === trackId ? { ...t, solo: preserveSolo, mute: preserveMute } : t)
-                const soloedTracks = updatedTracks.filter(track => track.solo)
-                const hasAnySolo = soloedTracks.length > 0
-                
-                updatedTracks.forEach(track => {
-                  const isSoloed = track.solo
-                  const shouldBeMuted = hasAnySolo && !isSoloed
-                  
-                  // Apply to sequencer players
-                  if (samplesRef?.current?.[track.id]) {
-                    const player = samplesRef.current[track.id]
-                    if (player && player.volume) {
-                      if (shouldBeMuted) {
-                        player.volume.value = -Infinity
-                        console.log(`[SHUFFLE SOLO] Muted track ${track.id} (not soloed)`)
-                      } else {
-                        // Restore volume based on mixer settings
-                        const trackSettings = mixerSettings[track.id]
-                        const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
-                        player.volume.value = volumeDb
-                        console.log(`[SHUFFLE SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
-                      }
+                // Apply to sequencer players
+                if (samplesRef?.current?.[track.id]) {
+                  const player = samplesRef.current[track.id]
+                  if (player && player.volume) {
+                    if (shouldBeMuted) {
+                      player.volume.value = -Infinity
+                      console.log(`[SHUFFLE SOLO] Muted track ${track.id} (not soloed)`)
+                    } else {
+                      // Restore volume based on mixer settings
+                      const trackSettings = mixerSettings[track.id]
+                      const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
+                      player.volume.value = volumeDb
+                      console.log(`[SHUFFLE SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
                     }
                   }
-                })
-                
-                console.log(`[SHUFFLE SOLO] Reapplied solo states - ${soloedTracks.length} track(s) soloed`)
-              } else {
-                console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
-                forceReloadTrackSamples(trackId)
-              }
+                }
+              })
+              
+              console.log(`[SHUFFLE SOLO] Reapplied solo states - ${soloedTracks.length} track(s) soloed`)
+            } else {
+              console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
+              forceReloadTrackSamples(trackId)
             }
-          }, 200)
-        } catch (error) {
-          console.error(`[SHUFFLE AUDIO] Error reloading audio player for track ${track.name}:`, error)
-          // Retry once more
-          setTimeout(async () => {
-            try {
-              await forceReloadTrackSamples(trackId)
-              console.log(`[SHUFFLE AUDIO] Retry successful for track: ${track.name}`)
-            } catch (retryError) {
-              console.error(`[SHUFFLE AUDIO] Retry failed for track ${track.name}:`, retryError)
-            }
-          }, 500)
-        }
-      }, 200) // Increased delay to ensure state update is complete
+          }
+        }, 100) // Reduced delay for verification
+      } catch (error) {
+        console.error(`[SHUFFLE AUDIO] Error reloading audio player for track ${track.name}:`, error)
+        // Retry once more
+        setTimeout(async () => {
+          try {
+            await forceReloadTrackSamples(trackId)
+            console.log(`[SHUFFLE AUDIO] Retry successful for track: ${track.name}`)
+          } catch (retryError) {
+            console.error(`[SHUFFLE AUDIO] Retry failed for track ${track.name}:`, retryError)
+          }
+        }, 500)
+      }
 
     } catch (error) {
       console.error('Error shuffling audio:', error)
@@ -5719,6 +5719,7 @@ export default function BeatMakerPage() {
   const [sessionTags, setSessionTags] = useState('')
   const [sessionStatus, setSessionStatus] = useState('draft')
   const [sessionStatusFilter, setSessionStatusFilter] = useState('all')
+  const [sessionLinks, setSessionLinks] = useState<{[sessionId: string]: {albums: any[], singles: any[]}}>({})
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -6284,8 +6285,105 @@ export default function BeatMakerPage() {
       }
 
       setSavedSessions(data || [])
+      
+      // Load linked albums and singles for each session
+      await loadSessionLinks(data || [])
     } catch (error) {
       console.error('Error loading sessions:', error)
+    }
+  }
+
+  // Load linked albums and singles for sessions
+  const loadSessionLinks = async (sessions: any[]) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const sessionIds = sessions.map(session => session.id)
+      const newSessionLinks: {[sessionId: string]: {albums: any[], singles: any[]}} = {}
+
+      // Load linked albums
+      const { data: albumTracks } = await supabase
+        .from('album_tracks')
+        .select('session_id, albums!inner(id, title, artist)')
+        .in('session_id', sessionIds)
+        .not('session_id', 'is', null)
+
+      // Load linked singles
+      const { data: singles } = await supabase
+        .from('singles')
+        .select('id, title, artist, session_id')
+        .in('session_id', sessionIds)
+        .not('session_id', 'is', null)
+
+      // Organize the data by session ID
+      sessionIds.forEach(sessionId => {
+        const linkedAlbums = albumTracks
+          ?.filter(track => track.session_id === sessionId)
+          .map(track => track.albums)
+          .filter(Boolean) || []
+        
+        const linkedSingles = singles
+          ?.filter(single => single.session_id === sessionId) || []
+
+        newSessionLinks[sessionId] = {
+          albums: linkedAlbums,
+          singles: linkedSingles
+        }
+      })
+
+      setSessionLinks(newSessionLinks)
+    } catch (error) {
+      console.error('Error loading session links:', error)
+    }
+  }
+
+  // Navigate to album page
+  const navigateToAlbum = (albumId: string) => {
+    router.push(`/myalbums/${albumId}`)
+  }
+
+  // Navigate to singles page
+  const navigateToSingle = (singleId: string) => {
+    router.push(`/mysingles`)
+  }
+
+  // Update session status
+  const handleUpdateSessionStatus = async (sessionId: string, newStatus: string) => {
+    try {
+      const { error } = await supabase
+        .from('beat_sessions')
+        .update({ status: newStatus })
+        .eq('id', sessionId)
+
+      if (error) {
+        console.error('Error updating session status:', error)
+        toast({
+          title: "Error",
+          description: "Failed to update session status",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Update the local state
+      setSavedSessions(prev => prev.map(session => 
+        session.id === sessionId 
+          ? { ...session, status: newStatus }
+          : session
+      ))
+
+      toast({
+        title: "Success",
+        description: `Session status updated to ${newStatus.replace('_', ' ')}`
+      })
+    } catch (error) {
+      console.error('Error updating session status:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update session status",
+        variant: "destructive"
+      })
     }
   }
 
@@ -8706,7 +8804,7 @@ export default function BeatMakerPage() {
             genres={genres} // Available genres for track selection
             genreSubgenres={genreSubgenres} // Genre to subgenre mapping
             onTrackAudioUrlChange={handleTrackAudioUrlChange} // Add callback for URL changes
-            onTrackHalfTimeChange={handleTrackHalfTimeChange} // Add halftime callback
+            
           />
         </div>
 
@@ -9707,6 +9805,40 @@ export default function BeatMakerPage() {
                               <p className="text-gray-400 text-sm mb-3">{session.description}</p>
                             )}
                             
+                            {/* Linked Albums and Singles */}
+                            {sessionLinks[session.id] && (
+                              <div className="mb-3">
+                                {sessionLinks[session.id].albums.length > 0 && (
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-purple-400 border-purple-500 text-xs cursor-pointer hover:bg-purple-500 hover:text-white transition-colors"
+                                      onClick={() => navigateToAlbum(sessionLinks[session.id].albums[0].id)}
+                                      title="Click to view album"
+                                    >
+                                      <LinkIcon className="w-3 h-3 mr-1" />
+                                      Album: {sessionLinks[session.id].albums[0].title}
+                                      {sessionLinks[session.id].albums.length > 1 && ` (+${sessionLinks[session.id].albums.length - 1} more)`}
+                                    </Badge>
+                                  </div>
+                                )}
+                                {sessionLinks[session.id].singles.length > 0 && (
+                                  <div className="flex items-center gap-2">
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-orange-400 border-orange-500 text-xs cursor-pointer hover:bg-orange-500 hover:text-white transition-colors"
+                                      onClick={() => navigateToSingle(sessionLinks[session.id].singles[0].id)}
+                                      title="Click to view single"
+                                    >
+                                      <LinkIcon className="w-3 h-3 mr-1" />
+                                      Single: {sessionLinks[session.id].singles[0].title}
+                                      {sessionLinks[session.id].singles.length > 1 && ` (+${sessionLinks[session.id].singles.length - 1} more)`}
+                                    </Badge>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
                             <div className="flex items-center gap-4 text-xs text-gray-500">
                               <div className="flex items-center gap-1">
                                 <Clock className="w-3 h-3" />
@@ -9725,14 +9857,52 @@ export default function BeatMakerPage() {
                                 <span>{session.tracks?.length || 0} Tracks</span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <Badge className={`${
-                                  session.status === 'draft' ? 'bg-gray-600 text-gray-200 border-gray-500' :
-                                  session.status === 'in_progress' ? 'bg-blue-600 text-white border-blue-500' :
-                                  session.status === 'complete' ? 'bg-green-600 text-white border-green-500' :
-                                  'bg-orange-600 text-white border-orange-500'
-                                }`}>
-                                  {session.status?.replace('_', ' ') || 'draft'}
-                                </Badge>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Badge 
+                                      className={`cursor-pointer hover:opacity-80 transition-opacity ${
+                                        session.status === 'draft' ? 'bg-gray-600 text-gray-200 border-gray-500' :
+                                        session.status === 'in_progress' ? 'bg-blue-600 text-white border-blue-500' :
+                                        session.status === 'complete' ? 'bg-green-600 text-white border-green-500' :
+                                        'bg-orange-600 text-white border-orange-500'
+                                      }`}
+                                      title="Click to change status"
+                                    >
+                                      {session.status?.replace('_', ' ') || 'draft'}
+                                      <ChevronDown className="w-3 h-3 ml-1" />
+                                    </Badge>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent className="bg-[#2a2a2a] border-gray-600">
+                                    <DropdownMenuItem 
+                                      onClick={() => handleUpdateSessionStatus(session.id, 'draft')}
+                                      className="text-gray-200 hover:bg-gray-600"
+                                    >
+                                      <div className="w-3 h-3 rounded-full bg-gray-500 mr-2"></div>
+                                      Draft
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem 
+                                      onClick={() => handleUpdateSessionStatus(session.id, 'in_progress')}
+                                      className="text-blue-200 hover:bg-blue-600"
+                                    >
+                                      <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                                      In Progress
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem 
+                                      onClick={() => handleUpdateSessionStatus(session.id, 'complete')}
+                                      className="text-green-200 hover:bg-green-600"
+                                    >
+                                      <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
+                                      Complete
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem 
+                                      onClick={() => handleUpdateSessionStatus(session.id, 'archived')}
+                                      className="text-orange-200 hover:bg-orange-600"
+                                    >
+                                      <div className="w-3 h-3 rounded-full bg-orange-500 mr-2"></div>
+                                      Archived
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                                 {/* Delete button next to status label */}
                                 <Button
                                   size="icon"

@@ -8,6 +8,8 @@ import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -68,6 +70,20 @@ export default function AlbumDetailsPage() {
   const [editAlbumError, setEditAlbumError] = useState<string | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  
+  // Multiple artists state for edit album
+  const [editAlbumArtists, setEditAlbumArtists] = useState<string[]>([]);
+  const [newArtistInput, setNewArtistInput] = useState('');
+
+  // Move track state
+  const [showMoveTrackDialog, setShowMoveTrackDialog] = useState(false);
+  const [moveTrackId, setMoveTrackId] = useState<string | null>(null);
+  const [moveTrackTitle, setMoveTrackTitle] = useState('');
+  const [availableAlbums, setAvailableAlbums] = useState<any[]>([]);
+  const [selectedTargetAlbum, setSelectedTargetAlbum] = useState<string>('');
+  const [moveToSingles, setMoveToSingles] = useState(false);
+  const [movingTrack, setMovingTrack] = useState(false);
+  const [moveTrackError, setMoveTrackError] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -213,6 +229,11 @@ export default function AlbumDetailsPage() {
         description: album.description || '',
         cover_art_url: album.cover_art_url || ''
       });
+      // Initialize artists array from the album's artist field
+      // Split by comma and trim whitespace, or use single artist if no comma
+      const artists = album.artist ? album.artist.split(',').map(a => a.trim()).filter(a => a) : [];
+      setEditAlbumArtists(artists);
+      setNewArtistInput('');
       setShowEditAlbum(true);
     }
   };
@@ -226,15 +247,20 @@ export default function AlbumDetailsPage() {
     }
     setEditAlbumSaving(true);
     setEditAlbumError(null);
+    
+    // Combine artists array into a single string for the database
+    const artistString = editAlbumArtists.join(', ');
+    
     const { error } = await supabase.from('albums').update({
-      ...editAlbumForm
+      ...editAlbumForm,
+      artist: artistString
     }).eq('id', album.id);
     setEditAlbumSaving(false);
     if (error) {
       setEditAlbumError(error.message);
       return;
     }
-    setAlbum({ ...album, ...editAlbumForm });
+    setAlbum({ ...album, ...editAlbumForm, artist: artistString });
     setShowEditAlbum(false);
     toast({
       title: "Success",
@@ -376,6 +402,169 @@ export default function AlbumDetailsPage() {
       setConvertingTrack(null)
     }
   }
+
+  // Delete track function
+  const handleDeleteTrack = async (trackId: string, trackTitle: string) => {
+    if (!confirm(`Are you sure you want to delete the track "${trackTitle}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('album_tracks')
+        .delete()
+        .eq('id', trackId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Remove the track from local state
+      setTracks(prev => prev.filter(track => track.id !== trackId));
+
+      toast({
+        title: "Success",
+        description: `Track "${trackTitle}" deleted successfully!`,
+      });
+    } catch (error) {
+      console.error('Error deleting track:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete track",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Move track function
+  const handleMoveTrack = async (trackId: string, trackTitle: string) => {
+    setMoveTrackId(trackId);
+    setMoveTrackTitle(trackTitle);
+    setMoveTrackError(null);
+    
+    try {
+      // Fetch available albums (excluding current album)
+      const { data: albums, error } = await supabase
+        .from('albums')
+        .select('id, title')
+        .neq('id', albumId)
+        .order('title');
+
+      if (error) {
+        throw error;
+      }
+
+      setAvailableAlbums(albums || []);
+      setShowMoveTrackDialog(true);
+    } catch (error) {
+      console.error('Error fetching albums:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load available albums",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Execute move track
+  const executeMoveTrack = async () => {
+    if (!moveTrackId) return;
+
+    setMovingTrack(true);
+    setMoveTrackError(null);
+
+    try {
+      // Get the track data
+      const trackToMove = tracks.find(track => track.id === moveTrackId);
+      if (!trackToMove) {
+        throw new Error('Track not found');
+      }
+
+      if (moveToSingles) {
+        // Move to singles table
+        const { error: singleError } = await supabase
+          .from('singles')
+          .insert([{
+            title: trackToMove.title,
+            artist: album?.artist || '',
+            release_date: new Date().toISOString().split('T')[0],
+            audio_url: trackToMove.audio_url,
+            duration: trackToMove.duration,
+            isrc: trackToMove.isrc,
+            session_id: trackToMove.session_id,
+            status: 'draft'
+          }]);
+
+        if (singleError) {
+          throw singleError;
+        }
+
+        toast({
+          title: "Success",
+          description: `Track "${trackToMove.title}" moved to singles successfully!`,
+        });
+      } else if (selectedTargetAlbum) {
+        // Move to another album
+        const { error: albumError } = await supabase
+          .from('album_tracks')
+          .update({ album_id: selectedTargetAlbum })
+          .eq('id', moveTrackId);
+
+        if (albumError) {
+          throw albumError;
+        }
+
+        toast({
+          title: "Success",
+          description: `Track "${trackToMove.title}" moved to album successfully!`,
+        });
+      } else {
+        throw new Error('Please select a destination');
+      }
+
+      // Remove track from current album's tracks
+      setTracks(prev => prev.filter(track => track.id !== moveTrackId));
+      
+      // Close dialog and reset state
+      setShowMoveTrackDialog(false);
+      setMoveTrackId(null);
+      setMoveTrackTitle('');
+      setSelectedTargetAlbum('');
+      setMoveToSingles(false);
+
+    } catch (error) {
+      console.error('Error moving track:', error);
+      setMoveTrackError(error instanceof Error ? error.message : 'Failed to move track');
+      toast({
+        title: "Error",
+        description: "Failed to move track",
+        variant: "destructive",
+      });
+    } finally {
+      setMovingTrack(false);
+    }
+  };
+
+  // Add artist to the edit album artists list
+  const addEditAlbumArtist = () => {
+    if (newArtistInput.trim() && !editAlbumArtists.includes(newArtistInput.trim())) {
+      setEditAlbumArtists([...editAlbumArtists, newArtistInput.trim()]);
+      setNewArtistInput('');
+    }
+  };
+
+  // Remove artist from the edit album artists list
+  const removeEditAlbumArtist = (artistToRemove: string) => {
+    setEditAlbumArtists(editAlbumArtists.filter(artist => artist !== artistToRemove));
+  };
+
+  // Handle Enter key in artist input for edit album
+  const handleEditAlbumArtistInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addEditAlbumArtist();
+    }
+  };
 
   if (loading) {
     return <div className="container mx-auto py-8">Loading...</div>
@@ -547,6 +736,14 @@ export default function AlbumDetailsPage() {
                         </Button>
                       )}
                       <Button size="sm" variant="outline" onClick={() => handleOpenEditTrack(track)}>Edit</Button>
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        onClick={() => handleDeleteTrack(track.id, track.title)}
+                        className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                   {track.session_id && track.session_name && (
@@ -577,6 +774,14 @@ export default function AlbumDetailsPage() {
                             )}
                             <Button size="sm" variant="outline" onClick={() => handleOpenEditTrack(mp3Track)} className="text-xs h-6 px-2">
                               Edit
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive" 
+                              onClick={() => handleDeleteTrack(mp3Track.id, mp3Track.title)}
+                              className="text-xs h-6 px-2 text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                            >
+                              <Trash2 className="h-3 w-3" />
                             </Button>
                           </div>
                         ))}
@@ -679,14 +884,114 @@ export default function AlbumDetailsPage() {
             )}
             {editTrackError && <div className="text-red-500 text-sm">{editTrackError}</div>}
             <DialogFooter>
-              <Button type="submit" disabled={editTrackSaving || editAudioUploading} className="bg-yellow-400 hover:bg-yellow-500 text-black">
-                {editTrackSaving ? 'Saving...' : editAudioUploading ? 'Uploading audio...' : 'Save Changes'}
-              </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
+              <div className="flex gap-2 w-full">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => handleMoveTrack(editTrackId!, editTrack.title)}
+                  className="flex-1"
+                >
+                  Move Track
+                </Button>
+                <Button type="submit" disabled={editTrackSaving || editAudioUploading} className="bg-yellow-400 hover:bg-yellow-500 text-black">
+                  {editTrackSaving ? 'Saving...' : editAudioUploading ? 'Uploading audio...' : 'Save Changes'}
+                </Button>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+              </div>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Track Dialog */}
+      <Dialog open={showMoveTrackDialog} onOpenChange={setShowMoveTrackDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move Track</DialogTitle>
+            <DialogDescription>
+              Move "{moveTrackTitle}" to another album or to singles.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Destination</Label>
+              
+              {/* Move to Singles Option */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="move-to-singles"
+                  name="destination"
+                  checked={moveToSingles}
+                  onChange={() => {
+                    setMoveToSingles(true);
+                    setSelectedTargetAlbum('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="move-to-singles" className="text-sm">
+                  Move to Singles
+                </Label>
+              </div>
+
+              {/* Move to Another Album Option */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="move-to-album"
+                  name="destination"
+                  checked={!moveToSingles}
+                  onChange={() => {
+                    setMoveToSingles(false);
+                    setSelectedTargetAlbum('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="move-to-album" className="text-sm">
+                  Move to Another Album
+                </Label>
+              </div>
+            </div>
+
+            {/* Album Selection */}
+            {!moveToSingles && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select Album</Label>
+                <Select value={selectedTargetAlbum} onValueChange={setSelectedTargetAlbum}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose an album..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableAlbums.map((album) => (
+                      <SelectItem key={album.id} value={album.id}>
+                        {album.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {moveTrackError && (
+              <div className="text-red-500 text-sm">{moveTrackError}</div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button 
+              onClick={executeMoveTrack}
+              disabled={movingTrack || (!moveToSingles && !selectedTargetAlbum)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {movingTrack ? 'Moving...' : 'Move Track'}
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -812,12 +1117,49 @@ export default function AlbumDetailsPage() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Artist</label>
-                <Input
-                  value={editAlbumForm.artist}
-                  onChange={(e) => setEditAlbumForm(prev => ({ ...prev, artist: e.target.value }))}
-                  required
-                />
+                <label className="text-sm font-medium">Artist(s)</label>
+                <div className="space-y-2">
+                  {/* Artist input */}
+                  <div className="flex gap-2">
+                    <Input
+                      value={newArtistInput}
+                      onChange={(e) => setNewArtistInput(e.target.value)}
+                      onKeyDown={handleEditAlbumArtistInputKeyDown}
+                      placeholder="Enter artist name and press Enter or click +"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      onClick={addEditAlbumArtist}
+                      disabled={!newArtistInput.trim() || editAlbumArtists.includes(newArtistInput.trim())}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-3"
+                      size="sm"
+                    >
+                      +
+                    </Button>
+                  </div>
+                  
+                  {/* Artist tags */}
+                  {editAlbumArtists.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {editAlbumArtists.map((artist, index) => (
+                        <div
+                          key={index}
+                          className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm flex items-center gap-2"
+                        >
+                          <span>{artist}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeEditAlbumArtist(artist)}
+                            className="text-white hover:text-red-200 text-xs"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             

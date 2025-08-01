@@ -621,6 +621,7 @@ export function SongArrangement({
   // Use a ref to track if we've already auto-initialized to prevent aggressive reloading
   const hasAutoInitializedRef = useRef(false)
   const lastSessionIdRef = useRef<string | null | undefined>(undefined)
+  const isShufflingRef = useRef(false) // Flag to prevent auto-init during shuffle operations
   
   // Reset auto-initialization flag when session changes
   useEffect(() => {
@@ -632,6 +633,12 @@ export function SongArrangement({
   }, [currentSessionId])
   
   useEffect(() => {
+    // Don't auto-initialize if we're currently shuffling
+    if (isShufflingRef.current) {
+      console.log('[AUTO INIT] Shuffle operation in progress - skipping auto-initialization')
+      return
+    }
+    
     // Only auto-initialize if:
     // 1. We haven't auto-initialized before
     // 2. We have tracks
@@ -1758,6 +1765,9 @@ export function SongArrangement({
   const shuffleSavedArrangements = async () => {
     console.log('[SHUFFLE ARRANGEMENTS] Mode B: Shuffling through saved arrangements for each track')
     
+    // Set shuffling flag to prevent auto-initialization
+    isShufflingRef.current = true
+    
     try {
       // Get user session
       const { data: { session } } = await supabase.auth.getSession()
@@ -1768,6 +1778,8 @@ export function SongArrangement({
 
       let loadedCount = 0
       const loadedArrangements: string[] = []
+      const allNewPatterns: any[] = []
+      const processedTracks = new Set<number>()
 
       // Shuffle arrangements for each track
       for (const track of tracks) {
@@ -1795,22 +1807,132 @@ export function SongArrangement({
             const randomArrangement = trackArrangements[Math.floor(Math.random() * trackArrangements.length)]
             console.log(`[SHUFFLE ARRANGEMENTS] Loading arrangement for ${track.name}:`, randomArrangement)
 
-            // Load the selected arrangement
-            await loadArrangement(randomArrangement.arrangementId)
-            loadedCount++
-            loadedArrangements.push(randomArrangement.arrangementName || 'Unknown')
+            // Load patterns for this specific track from the arrangement
+            const trackPatterns = await loadArrangementPatternsForTrack(randomArrangement.arrangementId, track.id)
+            if (trackPatterns.length > 0) {
+              allNewPatterns.push(...trackPatterns)
+              processedTracks.add(track.id)
+              loadedCount++
+              loadedArrangements.push(randomArrangement.arrangementName || 'Unknown')
+            }
           }
         }
       }
 
+      // Apply all changes at once to prevent multiple useEffect triggers
       if (loadedCount > 0) {
+        // Get patterns for tracks that weren't processed (keep existing)
+        const unprocessedTrackPatterns = patternBlocks.filter(block => !processedTracks.has(block.trackId))
+        
+        // Combine all patterns
+        const finalPatternBlocks = [...unprocessedTrackPatterns, ...allNewPatterns]
+        
+        // Sort by start bar to maintain timeline order
+        finalPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
+        
+        // Apply all changes at once
+        setPatternBlocks(finalPatternBlocks)
+        
+        // Update total bars to accommodate all patterns
+        const maxEndBar = Math.max(...finalPatternBlocks.map(block => block.endBar))
+        setTotalBars(Math.max(totalBars, maxEndBar))
+        
+        // Notify parent component
+        onPatternsChange?.(finalPatternBlocks)
+        
         console.log(`[SHUFFLE ARRANGEMENTS] Successfully shuffled ${loadedCount} tracks with arrangements: ${loadedArrangements.join(', ')}`)
       } else {
         console.log('[SHUFFLE ARRANGEMENTS] No saved arrangements found for any tracks')
+        showNotification('No Arrangements', 'No saved arrangements found for any tracks', 'warning')
       }
     } catch (error) {
       console.error('Error shuffling arrangements:', error)
       showNotification('Error', 'Failed to shuffle arrangements', 'error')
+    } finally {
+      // Clear shuffling flag
+      isShufflingRef.current = false
+    }
+  }
+
+  // Helper function to load arrangement patterns for a specific track only (without setting state)
+  const loadArrangementPatternsForTrack = async (arrangementId: string, trackId: number): Promise<any[]> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        return []
+      }
+
+      const response = await fetch('/api/arrangements/load', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ arrangementId })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const arrangement = data.arrangement
+        
+        // Filter patterns to only include those for the specific track
+        const trackPatterns = arrangement.patternBlocks?.filter((pattern: any) => pattern.trackId === trackId) || []
+        
+        console.log(`[LOAD ARRANGEMENT PATTERNS FOR TRACK] Loaded ${trackPatterns.length} patterns for track ${trackId} from arrangement "${arrangement.name}"`)
+        return trackPatterns
+      }
+    } catch (error) {
+      console.error('Error loading arrangement patterns for track:', error)
+    }
+    return []
+  }
+
+  // Helper function to load arrangement patterns for a specific track only
+  const loadArrangementForTrack = async (arrangementId: string, trackId: number) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        return
+      }
+
+      const response = await fetch('/api/arrangements/load', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ arrangementId })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const arrangement = data.arrangement
+        
+        // Filter patterns to only include those for the specific track
+        const trackPatterns = arrangement.patternBlocks?.filter((pattern: any) => pattern.trackId === trackId) || []
+        const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
+        
+        if (trackPatterns.length > 0) {
+          // Combine track patterns from saved arrangement with other tracks' current patterns
+          const newPatternBlocks = [...otherTrackPatterns, ...trackPatterns]
+          
+          // Sort by start bar to maintain timeline order
+          newPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
+          
+          setPatternBlocks(newPatternBlocks)
+          
+          // Update total bars to accommodate all patterns
+          const maxEndBar = Math.max(...newPatternBlocks.map(block => block.endBar))
+          setTotalBars(Math.max(totalBars, maxEndBar))
+          
+          // Notify parent component
+          onPatternsChange?.(newPatternBlocks)
+          
+          console.log(`[LOAD ARRANGEMENT FOR TRACK] Loaded ${trackPatterns.length} patterns for track ${trackId} from arrangement "${arrangement.name}"`)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading arrangement for track:', error)
     }
   }
 
@@ -1830,6 +1952,9 @@ export function SongArrangement({
   // Create dynamic arrangement with drops by splitting patterns
   const createDropArrangement = () => {
     console.log('[DROP ARRANGEMENT] Creating dynamic arrangement with drops')
+    
+    // Set shuffling flag to prevent auto-initialization
+    isShufflingRef.current = true
     
     // Check if we have selected patterns
     const hasSelectedPatterns = selectedBlocks.length > 0
@@ -2141,6 +2266,9 @@ export function SongArrangement({
     onPatternsChange?.(dropPatternBlocks)
     
     console.log(`[DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
+    
+    // Clear shuffling flag
+    isShufflingRef.current = false
   }
 
   // Shuffle patterns for a specific track with A/B toggle
@@ -2165,9 +2293,13 @@ export function SongArrangement({
   const createTrackDropArrangement = (trackId: number) => {
     console.log(`[TRACK DROP ARRANGEMENT] Creating drop arrangement for track ${trackId}`)
     
+    // Set shuffling flag to prevent auto-initialization
+    isShufflingRef.current = true
+    
     const track = tracks.find(t => t.id === trackId)
     if (!track) {
       showNotification('Track Not Found', 'Track not found', 'error')
+      isShufflingRef.current = false
       return
     }
     
@@ -2518,15 +2650,22 @@ export function SongArrangement({
     
     console.log(`[TRACK DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)}`)
     showNotification('Track Drop Arrangement', `Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)}`, 'success')
+    
+    // Clear shuffling flag
+    isShufflingRef.current = false
   }
 
   // Shuffle saved arrangements for a specific track
   const shuffleTrackSavedArrangements = async (trackId: number) => {
     console.log(`[TRACK SHUFFLE SAVED] Loading saved arrangements for track ${trackId}`)
     
+    // Set shuffling flag to prevent auto-initialization
+    isShufflingRef.current = true
+    
     const track = tracks.find(t => t.id === trackId)
     if (!track) {
       showNotification('Track Not Found', 'Track not found', 'error')
+      isShufflingRef.current = false
       return
     }
 
@@ -2578,6 +2717,9 @@ export function SongArrangement({
     } catch (error) {
       console.error('[TRACK SHUFFLE SAVED] Error:', error)
       showNotification('Error', 'Failed to load arrangement', 'error')
+    } finally {
+      // Clear shuffling flag
+      isShufflingRef.current = false
     }
   }
 

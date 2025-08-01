@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -120,6 +121,7 @@ interface AudioSubfolder {
 export default function MyLibrary() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   // Albums
   const [albums, setAlbums] = useState<Album[]>([]);
   const [loadingAlbums, setLoadingAlbums] = useState(false);
@@ -1065,7 +1067,7 @@ export default function MyLibrary() {
     setEditAdditionalCovers(editAdditionalCovers.filter((_, i) => i !== idx));
   }
 
-  const [selectedTab, setSelectedTab] = useState('audio');
+  const [selectedTab, setSelectedTab] = useState(searchParams?.get('tab') || 'audio');
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [newAudio, setNewAudio] = useState({ 
     name: '', 

@@ -250,10 +250,9 @@ interface TrackListProps {
   genres?: any[] // Available genres for track selection
   genreSubgenres?: {[key: string]: string[]} // Genre to subgenre mapping
   onTrackAudioUrlChange?: (trackId: number, newAudioUrl: string) => void // Add callback for URL changes
-  onTrackHalfTimeChange?: (trackId: number, isHalfTime: boolean, ratio: number) => void // Add halftime callback
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, onSaveTrackPattern, onLoadTrackPattern, onClearTrackPattern, onShuffleTrackPattern, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange, onTrackHalfTimeChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, onSaveTrackPattern, onLoadTrackPattern, onClearTrackPattern, onShuffleTrackPattern, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [showGenreSelector, setShowGenreSelector] = useState(false)
@@ -277,26 +276,9 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   const [expandedNames, setExpandedNames] = useState<{[trackId: number]: boolean}>({})
   const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string>('')
-  const [trackHalfTimeStates, setTrackHalfTimeStates] = useState<{ [trackId: number]: { isHalfTime: boolean, ratio: number } }>({})
-  const [applyingHalfTime, setApplyingHalfTime] = useState<{ [trackId: number]: boolean }>({})
 
-  // CRITICAL: HALFTIME IS ALWAYS OFF BY DEFAULT - NO AUTOMATIC DETECTION
-  useEffect(() => {
-    const newHalfTimeStates: { [trackId: number]: { isHalfTime: boolean, ratio: number } } = {}
-    
-    tracks.forEach(track => {
-      // HALFTIME IS ALWAYS OFF BY DEFAULT - NO EXCEPTIONS
-      // Only manual user interaction can enable halftime
-      newHalfTimeStates[track.id] = {
-        isHalfTime: false,  // ALWAYS FALSE - NO AUTOMATIC DETECTION
-        ratio: 0.5          // Default ratio when halftime is OFF
-      }
-    })
-    
-    // ALWAYS UPDATE - Force halftime to be OFF for all tracks
-    console.log('[TRACK LIST] FORCING HALFTIME OFF FOR ALL TRACKS - NO AUTOMATIC DETECTION')
-    setTrackHalfTimeStates(newHalfTimeStates)
-  }, [tracks]) // Remove trackHalfTimeStates dependency to prevent loops
+
+
   const [selectedKey, setSelectedKey] = useState<string>(transportKey || 'C')
 
   // Stock sound selector state
@@ -1365,85 +1347,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                           {track.audioUrl ? 'Change' : 'Select Audio'}
                         </Button>
                         
-                        {/* Half Time Button - Manual control only */}
-                        {track.audioUrl && onTrackHalfTimeChange && (
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant={trackHalfTimeStates[track.id]?.isHalfTime ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => {
-                                const currentState = trackHalfTimeStates[track.id] || { isHalfTime: false, ratio: 0.5 };
-                                const newIsHalfTime = !currentState.isHalfTime;
-                                const newState = { isHalfTime: newIsHalfTime, ratio: currentState.ratio };
-                                
-                                // Show loading state
-                                setApplyingHalfTime(prev => ({ ...prev, [track.id]: true }));
-                                
-                                setTrackHalfTimeStates(prev => ({
-                                  ...prev,
-                                  [track.id]: newState
-                                }));
-                                
-                                // Call the halftime change handler
-                                if (onTrackHalfTimeChange) {
-                                  onTrackHalfTimeChange(track.id, newIsHalfTime, currentState.ratio);
-                                  console.log(`🔍 TRACK HALFTIME - Track ${track.id} ${newIsHalfTime ? 'enabled' : 'disabled'} at ${currentState.ratio}x`);
-                                  
-                                  // Clear loading state after a delay
-                                  setTimeout(() => {
-                                    setApplyingHalfTime(prev => ({ ...prev, [track.id]: false }));
-                                  }, 1000);
-                                } else {
-                                  console.warn(`🔍 TRACK HALFTIME - onTrackHalfTimeChange not available for track ${track.id}`);
-                                  setApplyingHalfTime(prev => ({ ...prev, [track.id]: false }));
-                                }
-                              }}
-                              className={`px-2 py-1 text-xs font-mono ${
-                                trackHalfTimeStates[track.id]?.isHalfTime 
-                                  ? 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700' 
-                                  : 'bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600'
-                              }`}
-                              title={trackHalfTimeStates[track.id]?.isHalfTime ? `Disable Half Time (restore normal speed)` : `Enable Half Time (slow down to ${trackHalfTimeStates[track.id]?.ratio || 0.5}x speed) - Currently OFF`}
-                            >
-                              {applyingHalfTime[track.id] 
-                                ? '...' 
-                                : trackHalfTimeStates[track.id]?.isHalfTime 
-                                  ? `${trackHalfTimeStates[track.id]?.ratio || 0.5}x ✓` 
-                                  : 'OFF'
-                              }
-                            </Button>
-                            {/* Only show ratio dropdown when halftime is ON */}
-                            {trackHalfTimeStates[track.id]?.isHalfTime && (
-                              <select
-                                value={trackHalfTimeStates[track.id]?.ratio || 0.5}
-                                onChange={(e) => {
-                                  const newRatio = parseFloat(e.target.value);
-                                  const currentState = trackHalfTimeStates[track.id] || { isHalfTime: false, ratio: 0.5 };
-                                  const newState = { ...currentState, ratio: newRatio };
-                                  
-                                  setTrackHalfTimeStates(prev => ({
-                                    ...prev,
-                                    [track.id]: newState
-                                  }));
-                                  
-                                  if (currentState.isHalfTime) {
-                                    // Update immediately if halftime is active
-                                    onTrackHalfTimeChange(track.id, true, newRatio);
-                                    console.log(`🔍 TRACK HALFTIME RATIO CHANGED - Track ${track.id} updated to ${newRatio}x`);
-                                  }
-                                }}
-                                className="w-12 h-6 text-xs bg-[#1a1a1a] border border-gray-600 rounded text-white font-mono text-center"
-                                title="Select halftime ratio"
-                              >
-                                <option value={0.25}>1/4</option>
-                                <option value={0.5}>1/2</option>
-                                <option value={0.75}>3/4</option>
-                                <option value={2.0}>2x</option>
-                                <option value={4.0}>4x</option>
-                              </select>
-                            )}
-                          </div>
-                        )}
+
                         
                         {/* Genre Selector button - show for tracks that can shuffle */}
                         {onShuffleAudio && [
