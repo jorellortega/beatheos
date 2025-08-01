@@ -1155,9 +1155,13 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     const track = tracks.find(t => t.id === trackId)
     if (!track) return
 
+    // DISABLED: Automatic playback rate calculation to prevent halftime-like behavior
     // Use provided originalBpm or default to 120 if not set
     const baseBpm = originalBpm || track.originalBpm || 120
-    const playbackRate = newBpm / baseBpm
+    // DISABLED: const playbackRate = newBpm / baseBpm
+    // Instead, keep original playback rate to prevent automatic halftime
+    const playbackRate = 1.0
+    console.log(`[DISABLED] Automatic BPM adaptation prevented in updateTrackTempo`)
 
     console.log(`[TEMPO UPDATE] Track: ${track.name}`)
     console.log(`[TEMPO UPDATE] Original BPM: ${baseBpm}`)
@@ -1264,28 +1268,38 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       console.log(`[FORCE RELOAD] Time stretch mode: ${timeStretchMode}`)
       console.log(`[FORCE RELOAD] ${timeStretchMode === 'resampling' ? 'RM: Changing pitch & speed' : 'FT: Changing speed only, keeping original pitch'}`)
       
-      // Create new pitch shifter
+      // Create new pitch shifter with proper reset
       const pitchShift = new Tone.PitchShift({
-        pitch: track.pitchShift || 0,
+        pitch: 0,  // Always start with 0 pitch shift
         windowSize: PITCH_SHIFT_SETTINGS.windowSize,
         delayTime: PITCH_SHIFT_SETTINGS.delayTime,
         feedback: PITCH_SHIFT_SETTINGS.feedback
       }).toDestination()
       pitchShiftersRef.current[trackId] = pitchShift
       
+      // Apply pitch shift after creation if needed (but only if not resetting)
+      if (track.pitchShift && track.pitchShift !== 0) {
+        pitchShift.pitch = track.pitchShift
+        console.log(`[FORCE RELOAD] Applied pitch shift ${track.pitchShift} to track ${track.name}`)
+      } else {
+        // Ensure pitch shift is 0 when resetting
+        pitchShift.pitch = 0
+        console.log(`[FORCE RELOAD] Reset pitch shift to 0 for track ${track.name}`)
+      }
+      
       // Create new player with correct playback rate
       const player = new Tone.Player(track.audioUrl).connect(pitchShift)
       
       // Apply playback rate with high precision
-      if (track.playbackRate && track.playbackRate !== 1) {
+      if (track.playbackRate && track.playbackRate !== 1.0) {
         // Round to 4 decimal places to avoid floating point precision issues
         const precisePlaybackRate = Math.round(track.playbackRate * 10000) / 10000
         player.playbackRate = precisePlaybackRate
         console.log(`[FORCE RELOAD] Set precise playback rate for track ${track.name} to ${precisePlaybackRate}`)
       } else {
-        // Ensure playback rate is reset to 1.0 if no rate is specified
+        // CRITICAL: Always reset to 1.0 when no rate is specified or when resetting
         player.playbackRate = 1.0
-        console.log(`[FORCE RELOAD] Reset playback rate for track ${track.name} to 1.0`)
+        console.log(`[FORCE RELOAD] Reset playback rate for track ${track.name} to 1.0 (normal speed)`)
       }
       
       // Apply pitch shift based on time stretch mode

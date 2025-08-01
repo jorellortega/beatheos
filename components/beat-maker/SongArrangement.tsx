@@ -522,11 +522,17 @@ export function SongArrangement({
             
             // Use the global context for pitch shifter and player
             const pitchShifter = new Tone.PitchShift({
-              pitch: track.pitchShift || 0,
-              windowSize: 0.1,
-              delayTime: 0.001,
-              feedback: 0.05
+              pitch: 0,  // Always start with 0 pitch shift
+              windowSize: 0.025,  // Use professional quality settings
+              delayTime: 0.0005,  // Minimal delay for maximum quality
+              feedback: 0.01      // Very low feedback for crystal clear audio
             }).connect(gainNode)
+            
+            // Apply pitch shift after creation if needed
+            if (track.pitchShift && track.pitchShift !== 0) {
+              pitchShifter.pitch = track.pitchShift
+              console.log(`[ARRANGEMENT AUDIO] Applied pitch shift ${track.pitchShift} to track ${track.name}`)
+            }
             
             const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
             
@@ -4197,6 +4203,21 @@ export function SongArrangement({
       }
     })
     
+    // Reset pitch shifters to 0 before disposing
+    Object.entries(arrangementPitchShiftersRef.current).forEach(([trackId, pitchShifter]) => {
+      console.log(`[RESET DEBUG] Resetting pitch shifter for track ${trackId} to 0`)
+      if (pitchShifter) {
+        try {
+          // Reset pitch to 0 before disposing
+          pitchShifter.pitch = 0
+          pitchShifter.dispose()
+          console.log(`[RESET DEBUG] Reset and disposed pitch shifter for track ${trackId}`)
+        } catch (error) {
+          console.error(`[RESET DEBUG] Error resetting pitch shifter for track ${trackId}:`, error)
+        }
+      }
+    })
+    
     // Reset transport with better error handling
     if (arrangementTransportRef.current) {
       console.log('[RESET DEBUG] Stopping and cancelling transport...')
@@ -4218,6 +4239,14 @@ export function SongArrangement({
     
     // Reset state flags
     isPlayingRef.current = false
+    
+    // Clear all audio references to force fresh initialization
+    arrangementPlayersRef.current = {}
+    arrangementPitchShiftersRef.current = {}
+    arrangementGainNodesRef.current = {}
+    
+    // Reset initialization flag to force fresh audio setup
+    isArrangementAudioInitialized.current = false
     
     console.log('[ARRANGEMENT AUDIO] Audio system reset complete')
   }
@@ -4310,11 +4339,17 @@ export function SongArrangement({
               
               // Use the arrangement context for pitch shifter and player
               const pitchShifter = new Tone.PitchShift({
-                pitch: track.pitchShift || 0,
-                windowSize: 0.1,
-                delayTime: 0.001,
-                feedback: 0.05
+                pitch: 0,  // Always start with 0 pitch shift
+                windowSize: 0.025,  // Use professional quality settings
+                delayTime: 0.0005,  // Minimal delay for maximum quality
+                feedback: 0.01      // Very low feedback for crystal clear audio
               })
+              
+              // Apply pitch shift after creation if needed
+              if (track.pitchShift && track.pitchShift !== 0) {
+                pitchShifter.pitch = track.pitchShift
+                console.log(`[PLAY ARRANGEMENT] Applied pitch shift ${track.pitchShift} to track ${track.name}`)
+              }
               
               const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
               

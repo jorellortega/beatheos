@@ -2225,8 +2225,8 @@ export default function BeatMakerPage() {
         audioFileId: metadata?.audioFileId || null, // Store audio file ID
         // Initialize tempo properties with default values or use metadata
         originalBpm: metadata?.bpm || 120, // Use metadata BPM if available
-        currentBpm: metadata?.bpm || 120,
-        playbackRate: 1.0,
+        currentBpm: metadata?.bpm || 120,  // Use metadata BPM if available
+        playbackRate: 1.0,                 // ALWAYS start with normal playback rate
         // Initialize pitch properties with default values or use metadata
         originalKey: metadata?.key || 'C', // Use metadata key if available
         currentKey: metadata?.key || 'C',
@@ -2671,7 +2671,17 @@ export default function BeatMakerPage() {
 
   // Reset all audio samples - useful when tracks don't play properly
   const handleResetAllAudio = async () => {
-    console.log('[AUDIO RESET] Starting reset of all track samples...')
+    console.log('[AUDIO RESET] Starting simple audio reset...')
+    
+    // Show countdown
+    const countdownElement = document.getElementById('reset-countdown')
+    if (countdownElement) {
+      for (let i = 5; i > 0; i--) {
+        countdownElement.textContent = `Resetting audio in ${i}...`
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      countdownElement.textContent = 'Resetting...'
+    }
     
     // Stop all audio players first
     const audioPlayers = window.audioPlayers
@@ -2695,49 +2705,6 @@ export default function BeatMakerPage() {
     // Reset transport position
     setCurrentStep(0)
     
-    // Force reload all tracks with audio
-    const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
-    console.log(`[AUDIO RESET] Found ${tracksWithAudio.length} tracks with audio to reset`)
-    
-    // Reload all tracks with better error handling and verification
-    for (let i = 0; i < tracksWithAudio.length; i++) {
-      const track = tracksWithAudio[i]
-      console.log(`[AUDIO RESET] Reloading track ${track.id}: ${track.name}`)
-      
-      // Stagger the reloads to prevent conflicts
-      setTimeout(async () => {
-        try {
-          await forceReloadTrackSamples(track.id)
-          console.log(`[AUDIO RESET] Successfully reloaded track ${track.id}`)
-          
-          // Verify the reload worked
-          setTimeout(() => {
-            const samples = samplesRef?.current
-            if (samples && samples[track.id]) {
-              const player = samples[track.id]
-              if (player && player.loaded) {
-                console.log(`[AUDIO RESET] Verified reload for track ${track.id}`)
-              } else {
-                console.warn(`[AUDIO RESET] Reload verification failed for track ${track.id}, retrying...`)
-                forceReloadTrackSamples(track.id)
-              }
-            }
-          }, 100)
-        } catch (error) {
-          console.error(`[AUDIO RESET] Error reloading track ${track.id}:`, error)
-          // Retry once
-          setTimeout(async () => {
-            try {
-              await forceReloadTrackSamples(track.id)
-              console.log(`[AUDIO RESET] Retry successful for track ${track.id}`)
-            } catch (retryError) {
-              console.error(`[AUDIO RESET] Retry failed for track ${track.id}:`, retryError)
-            }
-          }, 300)
-        }
-      }, i * 150) // Increased delay between tracks
-    }
-    
     // Reset Tone.js Transport
     import('tone').then(Tone => {
       Tone.Transport.stop()
@@ -2745,7 +2712,31 @@ export default function BeatMakerPage() {
       console.log('[AUDIO RESET] Tone.js Transport reset')
     }).catch(console.warn)
     
-    console.log('[AUDIO RESET] Audio reset complete')
+    // Simple reload - don't change any track settings, just reload the audio
+    const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
+    console.log(`[AUDIO RESET] Reloading ${tracksWithAudio.length} tracks with current settings`)
+    
+    // Reload all tracks with current settings (don't change anything)
+    for (let i = 0; i < tracksWithAudio.length; i++) {
+      const track = tracksWithAudio[i]
+      setTimeout(async () => {
+        try {
+          await forceReloadTrackSamples(track.id)
+          console.log(`[AUDIO RESET] Reloaded track ${track.id} with current settings`)
+        } catch (error) {
+          console.error(`[AUDIO RESET] Error reloading track ${track.id}:`, error)
+        }
+      }, i * 100)
+    }
+    
+    if (countdownElement) {
+      countdownElement.textContent = 'Audio reset complete!'
+      setTimeout(() => {
+        countdownElement.textContent = ''
+      }, 2000)
+    }
+    
+    console.log('[AUDIO RESET] Simple audio reset complete')
   }
 
   const handleTransportKeyEdit = () => {
@@ -3145,6 +3136,9 @@ export default function BeatMakerPage() {
         key: randomAudio.key,
         audio_type: randomAudio.audio_type,
         tags: randomAudio.tags || [],
+        // CRITICAL: Reset halftime settings for duplicated tracks
+        playbackRate: 1.0,  // Always start with normal playback rate (halftime OFF)
+        pitchShift: 0,      // Always start with no pitch shift
         // Keep same sequencer pattern as parent
         locked: false, // Allow shuffling of the duplicate
         mute: false
@@ -3190,7 +3184,9 @@ export default function BeatMakerPage() {
       id: newTrackId,
       name: trackType,
       audioUrl: null,
-      color: trackColors[colorIndex]
+      color: trackColors[colorIndex],
+      playbackRate: 1.0,  // CRITICAL: Always start with normal playback rate (halftime OFF)
+      pitchShift: 0       // CRITICAL: Always start with no pitch shift
     }
     
     setTracks(prev => [...prev, newTrack])
@@ -3278,8 +3274,14 @@ export default function BeatMakerPage() {
         }
       }
       
-      // Small delay to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 50))
+      // CRITICAL: Preserve solo/mute states when shuffling
+      console.log(`[SHUFFLE AUDIO] Preserving solo/mute states for track: ${track.name}`)
+      const currentTrack = tracks.find(t => t.id === trackId)
+      const preserveSolo = currentTrack?.solo || false
+      const preserveMute = currentTrack?.mute || false
+      
+      // Small delay to ensure cleanup is complete and halftime states are reset
+      await new Promise(resolve => setTimeout(resolve, 200))
 
       // Debug: Log the current state
       console.log(`[DEBUG] Shuffle triggered for track: ${track.name}`)
@@ -3448,10 +3450,19 @@ export default function BeatMakerPage() {
       if (isBpmLocked || isKeyLocked) {
         // Transport is partially or fully locked - adapt tracks accordingly
         if (isBpmLocked) {
-          finalBpm = bpm
+          // DISABLED: Automatic BPM adaptation to prevent halftime-like behavior
+          // finalBpm = bpm
+          // Instead, always use original BPM to prevent automatic halftime
+          finalBpm = selectedAudio.bpm || 120
+          console.log(`[DISABLED] Automatic BPM adaptation prevented for track ${track.name}`)
+          
+          // DISABLED: Automatic playback rate calculation to prevent halftime-like behavior
           // Calculate playback rate to match transport tempo
           if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-            playbackRate = bpm / selectedAudio.bpm
+            // DISABLED: playbackRate = bpm / selectedAudio.bpm
+            // Instead, keep original playback rate to prevent automatic halftime
+            playbackRate = 1.0
+            console.log(`[DISABLED] Automatic BPM adaptation prevented for track ${track.name}`)
           }
         }
         
@@ -3484,95 +3495,21 @@ export default function BeatMakerPage() {
         console.log(`[TRANSPORT LOCKED] Track adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${finalBpm}BPM ${finalKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
         }
       } else if (track.name === 'Melody Loop') {
-        // Transport not locked - special handling for Melody Loop tracks
-        if (melodyLoopMode === 'transport-dominates') {
-          // Mode B: Transport dominates - Melody Loop adapts to transport
-          finalBpm = bpm
-          finalKey = transportKey
-          
-          // Calculate playback rate to match transport tempo
-          if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-            playbackRate = bpm / selectedAudio.bpm
-          }
-          
-          // Calculate pitch shift needed to match transport key
-          if (selectedAudio.key && transportKey) {
-            const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-            const originalIndex = chromaticScale.indexOf(selectedAudio.key)
-            const targetIndex = chromaticScale.indexOf(transportKey)
-            
-            if (originalIndex !== -1 && targetIndex !== -1) {
-              pitchShift = targetIndex - originalIndex
-              // Handle octave wrapping
-              if (pitchShift > 6) pitchShift -= 12
-              if (pitchShift < -6) pitchShift += 12
-            }
-          }
-          
-          console.log(`[Mode B] Melody Loop adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${bpm}BPM ${transportKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
-        } else {
-          // Mode A: Melody Loop dominates - Transport adapts to melody loop's ORIGINAL BPM
-          finalBpm = selectedAudio.bpm || 120
-          finalKey = selectedAudio.key || 'C'
-          playbackRate = 1.0
-          pitchShift = 0
-          
-          // Update transport to match melody loop's ORIGINAL BPM from the database
-          // This is the true original BPM of the audio file, not the current adjusted BPM
-          const originalBpm = selectedAudio.bpm || 120
-          console.log(`[Mode A] DEBUG - selectedAudio:`, selectedAudio)
-          console.log(`[Mode A] DEBUG - selectedAudio.bpm: ${selectedAudio.bpm}`)
-          console.log(`[Mode A] DEBUG - originalBpm calculated: ${originalBpm}`)
-          console.log(`[Mode A] Setting transport BPM to ORIGINAL: ${originalBpm} (from selectedAudio.bpm: ${selectedAudio.bpm})`)
-          setBpm(originalBpm)
-          setTransportKey(selectedAudio.key || 'C')
-          
-          console.log(`[Mode A] Transport adapts to Melody Loop ORIGINAL BPM: ${bpm}BPM ${transportKey} -> ${originalBpm}BPM ${selectedAudio.key}`)
-          
-          // CRITICAL FIX: In M-T mode, ensure Current BPM matches Original BPM to prevent confusion
-          // Update the track's currentBpm to match the originalBpm
-          setTracks(prev => prev.map(track => 
-            track.name === 'Melody Loop' ? {
-              ...track,
-              currentBpm: originalBpm,
-              playbackRate: 1.0 // Reset playback rate since we're using original BPM
-            } : track
-          ))
-          
-          console.log(`[Mode A] CRITICAL FIX: Updated Melody Loop currentBpm to match originalBpm: ${originalBpm}`)
-          
-          // Force immediate update to ensure transport BPM is set correctly
-          setTimeout(() => {
-            console.log(`[Mode A] Verifying transport BPM is set to: ${originalBpm}`)
-            setBpm(originalBpm)
-          }, 10)
-        }
+        // Simplified Melody Loop handling to prevent crashes
+        finalBpm = selectedAudio.bpm || 120
+        finalKey = selectedAudio.key || 'C'
+        playbackRate = 1.0
+        pitchShift = 0
+        
+        console.log(`[SIMPLIFIED] Melody Loop using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
       } else if (track.name.includes(' Loop')) {
-        // Transport not locked - handle other loop tracks (Drum Loop, Hihat Loop, Percussion Loop, 808 Loop, etc.)
-        // These should adapt to transport tempo and key like Melody Loop in transport-dominates mode
-        finalBpm = bpm
-        finalKey = transportKey
+        // Simplified loop track handling to prevent crashes
+        finalBpm = selectedAudio.bpm || 120
+        finalKey = selectedAudio.key || 'C'
+        playbackRate = 1.0
+        pitchShift = 0
         
-        // Calculate playback rate to match transport tempo
-        if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-          playbackRate = bpm / selectedAudio.bpm
-        }
-        
-        // Calculate pitch shift needed to match transport key
-        if (selectedAudio.key && transportKey) {
-          const chromaticScale = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-          const originalIndex = chromaticScale.indexOf(selectedAudio.key)
-          const targetIndex = chromaticScale.indexOf(transportKey)
-          
-          if (originalIndex !== -1 && targetIndex !== -1) {
-            pitchShift = targetIndex - originalIndex
-            // Handle octave wrapping
-            if (pitchShift > 6) pitchShift -= 12
-            if (pitchShift < -6) pitchShift += 12
-          }
-        }
-        
-        console.log(`[LOOP TRACK] ${track.name} adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${bpm}BPM ${transportKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
+        console.log(`[SIMPLIFIED] Loop track ${track.name} using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
       } else {
         // Transport not locked and not a loop track - use original audio BPM and key
         finalBpm = selectedAudio.bpm || 120
@@ -3592,7 +3529,7 @@ export default function BeatMakerPage() {
           ...t, 
           audioUrl: publicUrl,
           audioName: selectedAudio.name,
-          audioFileId: selectedAudio.id, // <-- Add this line to set the audioFileId
+          audioFileId: selectedAudio.id,
           // Use calculated tempo and key values
           originalBpm: selectedAudio.bpm || 120,
           currentBpm: finalBpm,
@@ -3607,7 +3544,10 @@ export default function BeatMakerPage() {
           audio_type: selectedAudio.audio_type,
           tags: selectedAudio.tags,
           // Store relative key indicator
-          isRelativeKey: isRelativeKey
+          isRelativeKey: isRelativeKey,
+          // CRITICAL: Preserve solo and mute states
+          solo: preserveSolo,
+          mute: preserveMute
         } : t
       ))
 
@@ -3635,6 +3575,35 @@ export default function BeatMakerPage() {
               const player = samples[trackId]
               if (player && player.loaded) {
                 console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
+                
+                // CRITICAL: Reapply solo/mute states after audio reload
+                const updatedTracks = tracks.map(t => t.id === trackId ? { ...t, solo: preserveSolo, mute: preserveMute } : t)
+                const soloedTracks = updatedTracks.filter(track => track.solo)
+                const hasAnySolo = soloedTracks.length > 0
+                
+                updatedTracks.forEach(track => {
+                  const isSoloed = track.solo
+                  const shouldBeMuted = hasAnySolo && !isSoloed
+                  
+                  // Apply to sequencer players
+                  if (samplesRef?.current?.[track.id]) {
+                    const player = samplesRef.current[track.id]
+                    if (player && player.volume) {
+                      if (shouldBeMuted) {
+                        player.volume.value = -Infinity
+                        console.log(`[SHUFFLE SOLO] Muted track ${track.id} (not soloed)`)
+                      } else {
+                        // Restore volume based on mixer settings
+                        const trackSettings = mixerSettings[track.id]
+                        const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
+                        player.volume.value = volumeDb
+                        console.log(`[SHUFFLE SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
+                      }
+                    }
+                  }
+                })
+                
+                console.log(`[SHUFFLE SOLO] Reapplied solo states - ${soloedTracks.length} track(s) soloed`)
               } else {
                 console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
                 forceReloadTrackSamples(trackId)
@@ -4373,6 +4342,17 @@ export default function BeatMakerPage() {
     try {
       console.log('[SHUFFLE ALL] Starting shuffle all operation...')
       
+      // CRITICAL: Reset all halftime states before shuffling
+      console.log('[SHUFFLE ALL] Resetting all halftime states...')
+      setTracks(prevTracks => 
+        prevTracks.map(track => ({
+          ...track,
+          pitchShift: 0,  // Reset pitch shift
+          playbackRate: 1.0,  // Reset playback rate to normal
+          currentBpm: track.originalBpm || track.bpm || bpm  // Reset to original BPM
+        }))
+      )
+      
       // CRITICAL: Stop all audio and clear any existing loops first
       console.log('[SHUFFLE ALL] Stopping all audio and clearing loops...')
       
@@ -4410,8 +4390,8 @@ export default function BeatMakerPage() {
         console.log('[SHUFFLE ALL] Cleared all intervals')
       }
       
-      // Small delay to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // Small delay to ensure cleanup is complete and halftime states are reset
+      await new Promise(resolve => setTimeout(resolve, 200))
       
       // Get current user
       const { data: { user } } = await supabase.auth.getUser()
@@ -4447,11 +4427,11 @@ export default function BeatMakerPage() {
           
           // Reset to default tracks - only loop tracks (no drum tracks)
           const defaultTracks: Track[] = [
-            { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500' },
-            { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500' },
-            { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500' },
-            { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500' },
-            { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500' },
+            { id: 1, name: 'Melody Loop', audioUrl: null, color: 'bg-red-500', playbackRate: 1.0, pitchShift: 0 },
+            { id: 2, name: 'Drum Loop', audioUrl: null, color: 'bg-blue-500', playbackRate: 1.0, pitchShift: 0 },
+            { id: 3, name: 'Hihat Loop', audioUrl: null, color: 'bg-green-500', playbackRate: 1.0, pitchShift: 0 },
+            { id: 4, name: 'Percussion Loop', audioUrl: null, color: 'bg-purple-500', playbackRate: 1.0, pitchShift: 0 },
+            { id: 5, name: '808 Loop', audioUrl: null, color: 'bg-yellow-500', playbackRate: 1.0, pitchShift: 0 },
           ]
           
           setTracks(defaultTracks)
@@ -4471,10 +4451,10 @@ export default function BeatMakerPage() {
         
         // Reset to drum tracks
         const drumTracks: Track[] = [
-          { id: 1, name: 'Kick', audioUrl: null, color: 'bg-red-500' },
-          { id: 2, name: 'Snare', audioUrl: null, color: 'bg-blue-500' },
-          { id: 3, name: 'Hi-Hat', audioUrl: null, color: 'bg-green-500' },
-          { id: 4, name: 'Percussion', audioUrl: null, color: 'bg-purple-500' },
+          { id: 1, name: 'Kick', audioUrl: null, color: 'bg-red-500', playbackRate: 1.0, pitchShift: 0 },
+          { id: 2, name: 'Snare', audioUrl: null, color: 'bg-blue-500', playbackRate: 1.0, pitchShift: 0 },
+          { id: 3, name: 'Hi-Hat', audioUrl: null, color: 'bg-green-500', playbackRate: 1.0, pitchShift: 0 },
+          { id: 4, name: 'Percussion', audioUrl: null, color: 'bg-purple-500', playbackRate: 1.0, pitchShift: 0 },
         ]
         
         setTracks(drumTracks)
@@ -4524,7 +4504,9 @@ export default function BeatMakerPage() {
               id: selectedTracks.length + 1,
               name: option.name,
               audioUrl: null,
-              color: option.color
+              color: option.color,
+              playbackRate: 1.0,  // CRITICAL: Always start with normal playback rate (halftime OFF)
+              pitchShift: 0       // CRITICAL: Always start with no pitch shift
             })
             usedNames.add(option.name)
           }
@@ -4748,10 +4730,19 @@ export default function BeatMakerPage() {
           if (isBpmLocked || isKeyLocked) {
             // Transport is partially or fully locked - adapt tracks accordingly
             if (isBpmLocked) {
-              finalBpm = bpm
+              // DISABLED: Automatic BPM adaptation to prevent halftime-like behavior
+              // finalBpm = bpm
+              // Instead, always use original BPM to prevent automatic halftime
+              finalBpm = selectedAudio.bpm || 120
+              console.log(`[DISABLED] Automatic BPM adaptation prevented for locked track`)
+              
+              // DISABLED: Automatic playback rate calculation to prevent halftime-like behavior
               // Calculate playback rate to match transport tempo
               if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-                playbackRate = bpm / selectedAudio.bpm
+                // DISABLED: playbackRate = bpm / selectedAudio.bpm
+                // Instead, keep original playback rate to prevent automatic halftime
+                playbackRate = 1.0
+                console.log(`[DISABLED] Automatic BPM adaptation prevented for locked track`)
               }
             }
             
@@ -4779,13 +4770,20 @@ export default function BeatMakerPage() {
           } else if (track.name === 'Melody Loop') {
             // Transport not locked - special handling for Melody Loop tracks
             if (melodyLoopMode === 'transport-dominates') {
+              // DISABLED: Automatic BPM adaptation to prevent halftime-like behavior
               // Mode B: Transport dominates - Melody Loop adapts to transport
-              finalBpm = bpm
+              // finalBpm = bpm
+              // Instead, always use original BPM to prevent automatic halftime
+              finalBpm = selectedAudio.bpm || 120
               finalKey = transportKey
               
+              // DISABLED: Automatic playback rate calculation to prevent halftime-like behavior
               // Calculate playback rate to match transport tempo
               if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-                playbackRate = bpm / selectedAudio.bpm
+                // DISABLED: playbackRate = bpm / selectedAudio.bpm
+                // Instead, keep original playback rate to prevent automatic halftime
+                playbackRate = 1.0
+                console.log(`[DISABLED] Automatic BPM adaptation prevented for Melody Loop`)
               }
               
               // Calculate pitch shift needed to match transport key
@@ -4825,13 +4823,20 @@ export default function BeatMakerPage() {
           } else if (track.name.includes(' Loop')) {
             // Transport not locked - handle other loop tracks (Drum Loop, Hihat Loop, Percussion Loop, 808 Loop, etc.)
             if (melodyLoopMode === 'transport-dominates') {
+              // DISABLED: Automatic BPM adaptation to prevent halftime-like behavior
               // T-M mode: Loop tracks adapt to transport tempo and key
-              finalBpm = bpm
+              // finalBpm = bpm
+              // Instead, always use original BPM to prevent automatic halftime
+              finalBpm = selectedAudio.bpm || 120
               finalKey = transportKey
               
+              // DISABLED: Automatic playback rate calculation to prevent halftime-like behavior
               // Calculate playback rate to match transport tempo
               if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-                playbackRate = bpm / selectedAudio.bpm
+                // DISABLED: playbackRate = bpm / selectedAudio.bpm
+                // Instead, keep original playback rate to prevent automatic halftime
+                playbackRate = 1.0
+                console.log(`[DISABLED] Automatic BPM adaptation prevented for loop track`)
               }
               
               // Calculate pitch shift needed to match transport key
@@ -6307,7 +6312,15 @@ export default function BeatMakerPage() {
       // Restore session data
       setBpm(data.bpm)
       setSteps(data.steps)
-      setTracks(data.tracks)
+      
+      // CRITICAL: Ensure all tracks loaded from session have halftime OFF by default
+      const tracksWithHalftimeOff = data.tracks.map((track: Track) => ({
+        ...track,
+        playbackRate: track.playbackRate || 1.0,  // Default to 1.0 if not set
+        pitchShift: track.pitchShift || 0         // Default to 0 if not set
+      }))
+      setTracks(tracksWithHalftimeOff)
+      
       setTransportKey(data.transport_key || 'C') // Restore transport key
       
       // Restore sequencer data directly
@@ -7795,16 +7808,22 @@ export default function BeatMakerPage() {
                 </Button>
                 
                 {/* Always Visible: Reset Audio and Save Session */}
-                <Button
-                  onClick={handleResetAllAudio}
-                  variant="outline"
-                  size="sm"
-                  className="bg-red-600 text-white hover:bg-red-700 border-red-500"
-                  title="Reset all audio samples - useful when tracks don't play properly"
-                >
-                  <RotateCcw className="w-4 h-4 mr-1" />
-                  Reset Audio
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={handleResetAllAudio}
+                    variant="outline"
+                    size="sm"
+                    className="bg-red-600 text-white hover:bg-red-700 border-red-500"
+                    title="Reset all audio samples - useful when tracks don't play properly"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Reset Audio
+                  </Button>
+                  <div 
+                    id="reset-countdown" 
+                    className="text-xs font-mono text-yellow-400 bg-yellow-900/20 px-2 py-1 rounded border border-yellow-500/30"
+                  ></div>
+                </div>
 
                 <Button
                   onClick={openSaveSessionDialog}
