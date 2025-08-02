@@ -1558,7 +1558,11 @@ export function SiteWideBeatPlayer() {
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <span className="inline-flex">
-                            <Button variant="secondary" size="sm" onClick={handleOpenSessionClick}>
+                            <Button 
+                              size="sm" 
+                              onClick={handleOpenSessionClick}
+                              className="bg-black text-white hover:bg-yellow-400 hover:text-black transition-colors"
+                            >
                               Open Session
                             </Button>
                           </span>
@@ -1575,7 +1579,12 @@ export function SiteWideBeatPlayer() {
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                      <Button variant="secondary" size="sm" onClick={handleSaveSessionClick} disabled={savingSession}>
+                      <Button 
+                        size="sm" 
+                        onClick={handleSaveSessionClick} 
+                        disabled={savingSession}
+                        className="bg-black text-white hover:bg-yellow-400 hover:text-black transition-colors"
+                      >
                         {savingSession ? <span className="animate-spin mr-2">⏳</span> : null}
                         {openSessionId ? 'Update' : 'Save Session'}
                       </Button>

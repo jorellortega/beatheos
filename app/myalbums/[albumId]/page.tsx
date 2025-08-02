@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive } from 'lucide-react'
+import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Textarea } from '@/components/ui/textarea'
+import { TrackMetadataDialog } from '@/components/TrackMetadataDialog'
+import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
 
 interface Album {
@@ -30,6 +32,7 @@ interface Album {
   description?: string
   additional_covers?: { label: string; url: string }[]
   status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
+  production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
 }
 
 export default function AlbumDetailsPage() {
@@ -84,6 +87,19 @@ export default function AlbumDetailsPage() {
   const [moveToSingles, setMoveToSingles] = useState(false);
   const [movingTrack, setMovingTrack] = useState(false);
   const [moveTrackError, setMoveTrackError] = useState<string | null>(null);
+
+  // Metadata states
+  const [showMetadataDialog, setShowMetadataDialog] = useState(false);
+  const [editingMetadata, setEditingMetadata] = useState<any>(null);
+  const [editingTrackId, setEditingTrackId] = useState('');
+  const [editingTrackType, setEditingTrackType] = useState<'single' | 'album_track'>('album_track');
+  
+  // Notes states
+  const [showNotesDialog, setShowNotesDialog] = useState(false);
+  const [editingNotes, setEditingNotes] = useState('');
+  const [editingNotesId, setEditingNotesId] = useState('');
+  const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track'>('album_track');
+  const [editingNotesTitle, setEditingNotesTitle] = useState('');
 
 
   useEffect(() => {
@@ -296,16 +312,18 @@ export default function AlbumDetailsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'production':
+        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
       case 'draft':
         return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-      case 'active':
-        return 'bg-green-500/10 text-green-400 border-green-500/20'
-      case 'paused':
-        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-      case 'scheduled':
+      case 'distribute':
         return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-      case 'archived':
+      case 'error':
         return 'bg-red-500/10 text-red-400 border-red-500/20'
+      case 'published':
+        return 'bg-green-500/10 text-green-400 border-green-500/20'
+      case 'other':
+        return 'bg-purple-500/10 text-purple-400 border-purple-500/20'
       default:
         return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
     }
@@ -313,18 +331,83 @@ export default function AlbumDetailsPage() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case 'production':
+        return <Loader2 className="h-3 w-3" />
       case 'draft':
         return <Circle className="h-3 w-3" />
-      case 'active':
-        return <Play className="h-3 w-3" />
-      case 'paused':
-        return <Pause className="h-3 w-3" />
-      case 'scheduled':
-        return <Clock className="h-3 w-3" />
-      case 'archived':
-        return <Archive className="h-3 w-3" />
+      case 'distribute':
+        return <CheckCircle2 className="h-3 w-3" />
+      case 'error':
+        return <XCircle className="h-3 w-3" />
+      case 'published':
+        return <Globe className="h-3 w-3" />
       default:
         return <Circle className="h-3 w-3" />
+    }
+  }
+
+  const getStatusBorderColor = (status: string) => {
+    switch (status) {
+      case 'production':
+        return 'border-l-yellow-500'
+      case 'draft':
+        return 'border-l-yellow-500'
+      case 'distribute':
+        return 'border-l-blue-500'
+      case 'error':
+        return 'border-l-red-500'
+      case 'published':
+        return 'border-l-green-500'
+      case 'other':
+        return 'border-l-purple-500'
+      default:
+        return 'border-l-yellow-500'
+    }
+  }
+
+  const getProductionStatusColor = (status: string) => {
+    switch (status) {
+      case 'marketing':
+        return 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500';
+      case 'organization':
+        return 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500';
+      case 'production':
+        return 'bg-yellow-600 hover:bg-yellow-700 text-white border-yellow-500';
+      case 'quality_control':
+        return 'bg-orange-600 hover:bg-orange-700 text-white border-orange-500';
+      case 'ready_for_distribution':
+        return 'bg-green-600 hover:bg-green-700 text-white border-green-500';
+      default:
+        return 'bg-gray-600 hover:bg-gray-700 text-white border-gray-500';
+    }
+  }
+
+  const getProductionStatusIcon = (status: string) => {
+    switch (status) {
+      case 'marketing':
+        return <Globe className="h-4 w-4" />;
+      case 'organization':
+        return <Folder className="h-4 w-4" />;
+      case 'production':
+        return <Music className="h-4 w-4" />;
+      case 'quality_control':
+        return <CheckCircle2 className="h-4 w-4" />;
+      case 'ready_for_distribution':
+        return <ExternalLink className="h-4 w-4" />;
+      default:
+        return <Circle className="h-4 w-4" />;
+    }
+  }
+
+  const getAudioFileLabel = (audioUrl: string) => {
+    if (!audioUrl) return null;
+    const extension = audioUrl.split('.').pop()?.toLowerCase();
+    if (extension === 'wav') {
+      return <span className="text-xs px-2 py-1 bg-blue-600 text-white rounded font-medium">WAV</span>;
+    } else if (extension === 'mp3') {
+      return <span className="text-xs px-2 py-1 bg-green-600 text-white rounded font-medium">MP3</span>;
+    } else {
+      return <span className="text-xs px-2 py-1 bg-gray-600 text-white rounded font-medium">{extension?.toUpperCase()}</span>;
     }
   }
 
@@ -566,6 +649,318 @@ export default function AlbumDetailsPage() {
     }
   };
 
+  // Download track function
+  const downloadTrack = async (trackId: string, audioUrl: string, title: string) => {
+    try {
+      const response = await fetch(audioUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch audio file');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}.${audioUrl.split('.').pop() || 'mp3'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast({
+        title: "Download started",
+        description: `${title} is being downloaded.`,
+      });
+    } catch (error) {
+      console.error('Error downloading track:', error);
+      toast({
+        title: "Download failed",
+        description: "Failed to download the audio file. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Upload track audio file for replacement
+  const uploadTrackAudioForReplacement = async (file: File, trackId: string): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${trackId}-${Date.now()}.${fileExt}`
+      const filePath = `album-tracks/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('Error uploading track audio:', uploadError)
+        return null
+      }
+
+      const { data } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      return data.publicUrl
+    } catch (error) {
+      console.error('Error uploading track audio:', error)
+      return null
+    }
+  }
+
+  // Replace track audio file
+  const replaceTrackAudio = async (trackId: string, file: File) => {
+    try {
+      const audioUrl = await uploadTrackAudioForReplacement(file, trackId)
+      if (!audioUrl) {
+        toast({
+          title: "Error",
+          description: "Failed to upload audio file.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from('album_tracks')
+        .update({ audio_url: audioUrl })
+        .eq('id', trackId);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to update track audio: " + error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Update local state
+      setTracks(prev => prev.map(track => 
+        track.id === trackId ? { ...track, audio_url: audioUrl } : track
+      ));
+
+      toast({
+        title: "Success",
+        description: "Audio file replaced successfully.",
+      });
+    } catch (error) {
+      console.error('Error replacing track audio:', error);
+      toast({
+        title: "Error",
+        description: "Failed to replace audio file.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const openMetadataDialog = async (trackId: string, trackType: 'single' | 'album_track') => {
+    try {
+      const table = trackType === 'single' ? 'singles' : 'album_tracks';
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .eq('id', trackId)
+        .single();
+
+      if (error) throw error;
+
+      // Extract metadata fields
+      const metadata = {
+        distributor: data.distributor,
+        deadline_to_distribute: data.deadline_to_distribute,
+        performing_artists: data.performing_artists,
+        producers: data.producers,
+        engineers: data.engineers,
+        copyright_info: data.copyright_info,
+        songwriter: data.songwriter,
+        release_date: data.release_date,
+        label: data.label,
+        upc: data.upc,
+        primary_genre: data.primary_genre,
+        language: data.language,
+        release_id: data.release_id,
+        isrc: data.isrc,
+        recording_location: data.recording_location,
+        mix_engineer: data.mix_engineer,
+        mastering_engineer: data.mastering_engineer,
+        publishing_rights: data.publishing_rights,
+        mechanical_rights: data.mechanical_rights,
+        territory: data.territory,
+        explicit_content: data.explicit_content,
+        parental_advisory: data.parental_advisory
+      };
+
+      setEditingMetadata(metadata || {});
+      setEditingTrackId(trackId);
+      setEditingTrackType(trackType);
+      setShowMetadataDialog(true);
+    } catch (error) {
+      console.error('Error loading metadata:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load metadata.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const saveMetadata = async (metadata: any) => {
+    try {
+      const table = editingTrackType === 'single' ? 'singles' : 'album_tracks';
+      const { error } = await supabase
+        .from(table)
+        .update(metadata)
+        .eq('id', editingTrackId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Metadata saved successfully.",
+      });
+
+      // Refresh the tracks data
+      const { data } = await supabase.from('album_tracks').select(`
+        *,
+        beat_sessions!inner(name)
+      `).eq('album_id', albumId).order('created_at', { ascending: true });
+      
+      if (data) {
+        const tracksWithSessionName = data.map(track => ({
+          ...track,
+          session_name: track.beat_sessions?.name || null
+        }));
+        setTracks(tracksWithSessionName);
+      }
+    } catch (error) {
+      console.error('Error saving metadata:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save metadata.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const openNotesDialog = async (itemId: string, itemType: 'album' | 'single' | 'album_track', itemTitle: string) => {
+    try {
+      const table = itemType === 'album' ? 'albums' : itemType === 'single' ? 'singles' : 'album_tracks';
+      const { data, error } = await supabase
+        .from(table)
+        .select('notes')
+        .eq('id', itemId)
+        .single();
+
+      if (error) throw error;
+
+      setEditingNotes(data.notes || '');
+      setEditingNotesId(itemId);
+      setEditingNotesType(itemType);
+      setEditingNotesTitle(itemTitle);
+      setShowNotesDialog(true);
+    } catch (error) {
+      console.error('Error loading notes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load notes.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const saveNotes = async (notes: string) => {
+    try {
+      const table = editingNotesType === 'album' ? 'albums' : editingNotesType === 'single' ? 'singles' : 'album_tracks';
+      const { error } = await supabase
+        .from(table)
+        .update({ notes })
+        .eq('id', editingNotesId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Notes saved successfully.",
+      });
+
+      // Refresh the tracks data
+      const { data } = await supabase.from('album_tracks').select(`
+        *,
+        beat_sessions!inner(name)
+      `).eq('album_id', albumId).order('created_at', { ascending: true });
+      
+      if (data) {
+        const tracksWithSessionName = data.map(track => ({
+          ...track,
+          session_name: track.beat_sessions?.name || null
+        }));
+        setTracks(tracksWithSessionName);
+      }
+    } catch (error) {
+      console.error('Error saving notes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save notes.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  // Update track status function
+  const updateTrackStatus = async (trackId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
+    try {
+      const { error } = await supabase
+        .from('album_tracks')
+        .update({ status: newStatus })
+        .eq('id', trackId);
+
+      if (error) throw error;
+
+      setTracks(prev => prev.map(track =>
+        track.id === trackId ? { ...track, status: newStatus } : track
+      ));
+
+      toast({
+        title: "Success",
+        description: `Track status updated to ${newStatus}`
+      });
+    } catch (error) {
+      console.error('Error updating track status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update track status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Update album production status function
+  const updateAlbumProductionStatus = async (newStatus: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution') => {
+    try {
+      const { error } = await supabase
+        .from('albums')
+        .update({ production_status: newStatus })
+        .eq('id', albumId);
+
+      if (error) throw error;
+
+      setAlbum(prev => prev ? { ...prev, production_status: newStatus } : null);
+
+      toast({
+        title: "Success",
+        description: `Album production status updated to ${newStatus}`
+      });
+    } catch (error) {
+      console.error('Error updating album production status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update album production status",
+        variant: "destructive"
+      });
+    }
+  };
+
   if (loading) {
     return <div className="container mx-auto py-8">Loading...</div>
   }
@@ -640,6 +1035,38 @@ export default function AlbumDetailsPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+            <div className="flex items-center gap-2">
+              <span>Phase:</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className={`capitalize flex items-center gap-2 ${getProductionStatusColor(album.production_status || 'production')}`}
+                  >
+                    {getProductionStatusIcon(album.production_status || 'production')}
+                    {album.production_status || 'production'}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => updateAlbumProductionStatus('marketing')}>
+                    Marketing
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => updateAlbumProductionStatus('organization')}>
+                    Organization
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => updateAlbumProductionStatus('production')}>
+                    Production
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => updateAlbumProductionStatus('quality_control')}>
+                    Quality Control
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => updateAlbumProductionStatus('ready_for_distribution')}>
+                    Ready for Distribution
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <h2 className="text-lg font-semibold mb-2">Description</h2>
           <div className="mb-6 text-gray-400">{album.description || <span className="italic">No description.</span>}</div>
@@ -693,13 +1120,14 @@ export default function AlbumDetailsPage() {
               // Find MP3 conversions for this track
               const mp3Conversions = tracks.filter(t => t.title === track.title + '.mp3')
               
-              return (
-                <div key={track.id} className="bg-zinc-800 rounded px-4 py-2">
+                              return (
+                  <div key={track.id} className={`bg-zinc-800 rounded px-4 py-2 border-l-4 ${getStatusBorderColor(track.status || 'draft')}`}>
                   <div className="flex items-center gap-4">
                     <span className="font-bold text-lg text-gray-300">{idx + 1}</span>
                     <span className="flex-1">{track.title}</span>
                     <span className="text-gray-400">{track.duration}</span>
                     <span className="text-gray-400">ISRC: {track.isrc}</span>
+                    {track.audio_url && getAudioFileLabel(track.audio_url)}
                     {track.audio_url && (
                       <audio controls src={track.audio_url} className="h-8" />
                     )}
@@ -717,25 +1145,94 @@ export default function AlbumDetailsPage() {
                               Converting...
                             </>
                           ) : (
-                            <>
-                              <FileAudio className="h-4 w-4 mr-2" />
-                              MP3 Converter
-                            </>
+                            "MP3 Converter"
                           )}
                         </Button>
                       )}
-                      {track.session_id && (
+                      {/* Status Dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`capitalize flex items-center gap-2 ${getStatusColor(track.status || 'draft')}`}
+                          >
+                            {getStatusIcon(track.status || 'draft')}
+                            {track.status || 'draft'}
+                          </Button>
+                        </DropdownMenuTrigger>
+                                                  <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'production')}>
+                              Production
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'draft')}>
+                              Draft
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'distribute')}>
+                              Distribute
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'error')}>
+                              Error
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'published')}>
+                              Published
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'other')}>
+                              Other
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                      </DropdownMenu>
+                      {track.audio_url && (
                         <Button 
                           size="sm" 
-                          variant="outline"
-                          onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
-                          className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                          variant="outline" 
+                          onClick={() => downloadTrack(track.id, track.audio_url, track.title)}
+                          className="bg-green-600 hover:bg-green-700 text-white border-green-500"
+                          title="Download audio file"
                         >
-                          <LinkIcon className="h-4 w-4 mr-2" />
-                          Session
+                          <Download className="h-4 w-4" />
                         </Button>
                       )}
+
                       <Button size="sm" variant="outline" onClick={() => handleOpenEditTrack(track)}>Edit</Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => openMetadataDialog(track.id, 'album_track')}
+                        className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                      >
+                        <FileTextIcon className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => openNotesDialog(track.id, 'album_track', track.title)}
+                        className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                      >
+                        <StickyNote className="h-4 w-4" />
+                      </Button>
+                      {/* Upload Button */}
+                      <input
+                        type="file"
+                        id={`upload-track-${track.id}`}
+                        accept="audio/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            replaceTrackAudio(track.id, file);
+                          }
+                        }}
+                      />
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => document.getElementById(`upload-track-${track.id}`)?.click()}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                        title="Upload new audio file"
+                      >
+                        <Upload className="h-4 w-4" />
+                      </Button>
                       <Button 
                         size="sm" 
                         variant="destructive" 
@@ -748,7 +1245,10 @@ export default function AlbumDetailsPage() {
                   </div>
                   {track.session_id && track.session_name && (
                     <div className="mt-2 ml-20">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md">
+                      <div 
+                        className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
+                        onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
+                      >
                         <LinkIcon className="h-3 w-3 text-blue-400" />
                         <span className="text-sm font-medium text-blue-300">
                           Session: {track.session_name}
@@ -763,7 +1263,7 @@ export default function AlbumDetailsPage() {
                       <h4 className="text-sm font-medium text-gray-400 mb-2">MP3 Conversions:</h4>
                       <div className="space-y-2">
                         {mp3Conversions.map((mp3Track) => (
-                          <div key={mp3Track.id} className="flex items-center gap-4 bg-zinc-700 rounded px-3 py-2 ml-8">
+                          <div key={mp3Track.id} className={`flex items-center gap-4 bg-zinc-700 rounded px-3 py-2 ml-8 border-l-4 ${getStatusBorderColor(mp3Track.status || 'draft')}`}>
                             <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
                               <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
                             </div>
@@ -772,8 +1272,57 @@ export default function AlbumDetailsPage() {
                             {mp3Track.audio_url && (
                               <audio controls src={mp3Track.audio_url} className="h-6 text-xs" />
                             )}
+                            {/* Status Dropdown for MP3 Track */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className={`text-xs h-6 px-2 capitalize flex items-center gap-1 ${getStatusColor(mp3Track.status || 'draft')}`}
+                                >
+                                  {getStatusIcon(mp3Track.status || 'draft')}
+                                  {mp3Track.status || 'draft'}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(mp3Track.id, 'production')}>
+                                  Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(mp3Track.id, 'draft')}>
+                                  Draft
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(mp3Track.id, 'distribute')}>
+                                  Distribute
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(mp3Track.id, 'error')}>
+                                  Error
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(mp3Track.id, 'published')}>
+                                  Published
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(mp3Track.id, 'other')}>
+                                  Other
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                             <Button size="sm" variant="outline" onClick={() => handleOpenEditTrack(mp3Track)} className="text-xs h-6 px-2">
                               Edit
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => openMetadataDialog(mp3Track.id, 'album_track')}
+                              className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                            >
+                              <FileTextIcon className="h-3 w-3" />
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => openNotesDialog(mp3Track.id, 'album_track', mp3Track.title)}
+                              className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                            >
+                              <StickyNote className="h-3 w-3" />
                             </Button>
                             <Button 
                               size="sm" 
@@ -783,6 +1332,16 @@ export default function AlbumDetailsPage() {
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
+                                                         {mp3Track.audio_url && (
+                               <Button 
+                                 size="sm" 
+                                 variant="outline" 
+                                 onClick={() => downloadTrack(mp3Track.id, mp3Track.audio_url, mp3Track.title)}
+                                 className="text-xs h-6 px-2 text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                               >
+                                 <Download className="h-3 w-3" />
+                               </Button>
+                             )}
                           </div>
                         ))}
                       </div>
@@ -1227,6 +1786,27 @@ export default function AlbumDetailsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Track Metadata Dialog */}
+      <TrackMetadataDialog
+        open={showMetadataDialog}
+        onOpenChange={setShowMetadataDialog}
+        trackId={editingTrackId}
+        trackType={editingTrackType}
+        initialMetadata={editingMetadata}
+        onSave={saveMetadata}
+      />
+
+      {/* Notes Dialog */}
+      <NotesDialog
+        open={showNotesDialog}
+        onOpenChange={setShowNotesDialog}
+        itemId={editingNotesId}
+        itemType={editingNotesType}
+        initialNotes={editingNotes}
+        itemTitle={editingNotesTitle}
+        onSave={saveNotes}
+      />
     </div>
   )
 } 

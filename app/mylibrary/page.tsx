@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogC
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MassEditSubfolderModal } from '@/components/MassEditSubfolderModal'
 import { MassEditSelectedFilesModal } from '@/components/MassEditSelectedFilesModal'
+import { TrackMetadataDialog } from '@/components/TrackMetadataDialog'
+import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
 import {
   DropdownMenu,
@@ -35,7 +37,8 @@ interface Album {
   cover_art_url: string
   description?: string
   additional_covers?: { label: string; url: string }[]
-  status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
+  status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
+  production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
 }
 interface Single {
   id: string
@@ -48,7 +51,8 @@ interface Single {
   description?: string
   session_id?: string | null
   session_name?: string | null
-  status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
+  status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
+  production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
 }
 interface PlatformProfile {
   id: string
@@ -243,6 +247,19 @@ export default function MyLibrary() {
   const [convertingAlbumTrack, setConvertingAlbumTrack] = useState<string | null>(null);
   const [showCompressionDialog, setShowCompressionDialog] = useState(false);
   const [compressionFile, setCompressionFile] = useState<{ id: string; url: string; type: 'single' | 'album_track' } | null>(null);
+  
+  // Metadata states
+  const [showMetadataDialog, setShowMetadataDialog] = useState(false);
+  const [editingMetadata, setEditingMetadata] = useState<any>(null);
+  const [editingTrackId, setEditingTrackId] = useState('');
+  const [editingTrackType, setEditingTrackType] = useState<'single' | 'album_track'>('single');
+  
+  // Notes states
+  const [showNotesDialog, setShowNotesDialog] = useState(false);
+  const [editingNotes, setEditingNotes] = useState('');
+  const [editingNotesId, setEditingNotesId] = useState('');
+  const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track'>('single');
+  const [editingNotesTitle, setEditingNotesTitle] = useState('');
   
   // Handle file selection
   const toggleFileSelection = (fileId: string) => {
@@ -653,41 +670,120 @@ export default function MyLibrary() {
     }
   }
 
-  const getStatusColor = (status: string) => {
+      const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'production':
+          return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+        case 'draft':
+          return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+        case 'distribute':
+          return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+        case 'error':
+          return 'bg-red-500/10 text-red-400 border-red-500/20'
+        case 'published':
+          return 'bg-green-500/10 text-green-400 border-green-500/20'
+        case 'other':
+          return 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+        default:
+          return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+      }
+    }
+
+      const getStatusIcon = (status: string) => {
+      switch (status) {
+        case 'draft':
+          return <Circle className="h-3 w-3" />
+        case 'active':
+          return <CheckCircle2 className="h-3 w-3" />
+        case 'paused':
+          return <Pause className="h-3 w-3" />
+        case 'scheduled':
+          return <Calendar className="h-3 w-3" />
+        case 'archived':
+          return <Archive className="h-3 w-3" />
+        default:
+          return <Circle className="h-3 w-3" />
+      }
+    }
+
+      const getStatusBorderColor = (status: string) => {
+      switch (status) {
+        case 'draft':
+          return 'border-l-yellow-500'
+        case 'active':
+          return 'border-l-green-500'
+        case 'paused':
+          return 'border-l-orange-500'
+        case 'scheduled':
+          return 'border-l-blue-500'
+        case 'archived':
+          return 'border-l-gray-500'
+        default:
+          return 'border-l-yellow-500'
+      }
+    }
+
+  const getProductionStatusColor = (status: string) => {
     switch (status) {
-      case 'draft':
-        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-      case 'active':
-        return 'bg-green-500/10 text-green-400 border-green-500/20'
-      case 'paused':
-        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-      case 'scheduled':
-        return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-      case 'archived':
-        return 'bg-red-500/10 text-red-400 border-red-500/20'
+      case 'marketing':
+        return 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500';
+      case 'organization':
+        return 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500';
+      case 'production':
+        return 'bg-yellow-600 hover:bg-yellow-700 text-white border-yellow-500';
+      case 'quality_control':
+        return 'bg-orange-600 hover:bg-orange-700 text-white border-orange-500';
+      case 'ready_for_distribution':
+        return 'bg-green-600 hover:bg-green-700 text-white border-green-500';
       default:
-        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+        return 'bg-gray-600 hover:bg-gray-700 text-white border-gray-500';
     }
   }
 
-  const getStatusIcon = (status: string) => {
+  const getProductionStatusIcon = (status: string) => {
     switch (status) {
-      case 'draft':
-        return <Circle className="h-3 w-3" />
-      case 'active':
-        return <Play className="h-3 w-3" />
-      case 'paused':
-        return <Pause className="h-3 w-3" />
-      case 'scheduled':
-        return <Clock className="h-3 w-3" />
-      case 'archived':
-        return <Archive className="h-3 w-3" />
+      case 'marketing':
+        return <Globe className="h-4 w-4" />;
+      case 'organization':
+        return <Folder className="h-4 w-4" />;
+      case 'production':
+        return <Music className="h-4 w-4" />;
+      case 'quality_control':
+        return <CheckCircle2 className="h-4 w-4" />;
+      case 'ready_for_distribution':
+        return <ExternalLink className="h-4 w-4" />;
       default:
-        return <Circle className="h-3 w-3" />
+        return <Circle className="h-4 w-4" />;
     }
   }
 
-  const updateAlbumStatus = async (albumId: string, newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+  const getAudioFileLabel = (audioUrl: string) => {
+    if (!audioUrl) return null;
+    const extension = audioUrl.split('.').pop()?.toLowerCase();
+    if (extension === 'wav') {
+      return <span className="text-xs px-2 py-1 bg-blue-600 text-white rounded font-medium">WAV</span>;
+    } else if (extension === 'mp3') {
+      return <span className="text-xs px-2 py-1 bg-green-600 text-white rounded font-medium">MP3</span>;
+    } else {
+      return <span className="text-xs px-2 py-1 bg-gray-600 text-white rounded font-medium">{extension?.toUpperCase()}</span>;
+    }
+  }
+
+  const getFilteredAlbums = () => {
+    if (albumPhaseTab === 'all') {
+      return albums;
+    }
+    return albums.filter(album => album.production_status === albumPhaseTab);
+  }
+
+  const getFilteredSingles = () => {
+    if (singlePhaseTab === 'all') {
+      return singles;
+    }
+    return singles.filter(single => single.production_status === singlePhaseTab);
+  }
+
+      const updateAlbumStatus = async (albumId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
     const { error } = await supabase
       .from('albums')
       .update({ status: newStatus })
@@ -713,7 +809,7 @@ export default function MyLibrary() {
     });
   };
 
-  const updateSingleStatus = async (singleId: string, newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+      const updateSingleStatus = async (singleId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
     const { error } = await supabase
       .from('singles')
       .update({ status: newStatus })
@@ -736,6 +832,58 @@ export default function MyLibrary() {
     toast({
       title: "Success",
       description: `Single status updated to ${newStatus}`,
+    });
+  };
+
+  const updateAlbumProductionStatus = async (albumId: string, newStatus: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution') => {
+    const { error } = await supabase
+      .from('albums')
+      .update({ production_status: newStatus })
+      .eq('id', albumId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update album production status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setAlbums(albums.map(album => 
+      album.id === albumId ? { ...album, production_status: newStatus } : album
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Album production status updated to ${newStatus}`,
+    });
+  };
+
+  const updateSingleProductionStatus = async (singleId: string, newStatus: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution') => {
+    const { error } = await supabase
+      .from('singles')
+      .update({ production_status: newStatus })
+      .eq('id', singleId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update single production status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setSingles(singles.map(single => 
+      single.id === singleId ? { ...single, production_status: newStatus } : single
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Single production status updated to ${newStatus}`,
     });
   };
 
@@ -1067,7 +1215,9 @@ export default function MyLibrary() {
     setEditAdditionalCovers(editAdditionalCovers.filter((_, i) => i !== idx));
   }
 
-  const [selectedTab, setSelectedTab] = useState(searchParams?.get('tab') || 'audio');
+  const [selectedTab, setSelectedTab] = useState(searchParams?.get('tab') || 'albums');
+  const [albumPhaseTab, setAlbumPhaseTab] = useState('all');
+  const [singlePhaseTab, setSinglePhaseTab] = useState('all');
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [newAudio, setNewAudio] = useState({ 
     name: '', 
@@ -1124,6 +1274,8 @@ export default function MyLibrary() {
   // Search functionality
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilter, setSearchFilter] = useState<'all' | 'name' | 'type' | 'genre' | 'tags'>('all');
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [globalSearchFilter, setGlobalSearchFilter] = useState<'all' | 'albums' | 'singles' | 'audio'>('all');
 
   // Audio upload logic for Audio Library tab
   async function uploadAudioLibraryFile(file: File): Promise<string | null> {
@@ -1141,6 +1293,79 @@ export default function MyLibrary() {
     const { data } = supabase.storage.from('beats').getPublicUrl(filePath);
     setAudioUploading(false);
     return data?.publicUrl || null;
+  }
+
+  // Upload single audio file
+  const uploadSingleAudio = async (file: File, singleId: string): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${singleId}-${Date.now()}.${fileExt}`
+      const filePath = `singles/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('Error uploading single audio:', uploadError)
+        return null
+      }
+
+      const { data } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      return data.publicUrl
+    } catch (error) {
+      console.error('Error uploading single audio:', error)
+      return null
+    }
+  }
+
+  // Replace single audio file
+  const replaceSingleAudio = async (singleId: string, file: File) => {
+    try {
+      const audioUrl = await uploadSingleAudio(file, singleId)
+      if (!audioUrl) {
+        toast({
+          title: "Error",
+          description: "Failed to upload audio file.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from('singles')
+        .update({ audio_url: audioUrl })
+        .eq('id', singleId);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to update single audio: " + error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Update local state
+      setSingles(singles.map(single => 
+        single.id === singleId ? { ...single, audio_url: audioUrl } : single
+      ));
+
+      toast({
+        title: "Success",
+        description: "Audio file replaced successfully.",
+      });
+    } catch (error) {
+      console.error('Error replacing single audio:', error);
+      toast({
+        title: "Error",
+        description: "Failed to replace audio file.",
+        variant: "destructive"
+      });
+    }
   }
 
   // Add additional subgenre
@@ -1913,6 +2138,57 @@ export default function MyLibrary() {
     console.log('[DEBUG] Filtered results:', filtered.length);
     return filtered;
   };
+
+  // Global search functions
+  const getFilteredAlbumsForSearch = () => {
+    if (!globalSearchQuery.trim()) return getFilteredAlbums();
+    
+    const query = globalSearchQuery.toLowerCase().trim();
+    const phaseFiltered = getFilteredAlbums();
+    
+    return phaseFiltered.filter(album => 
+      album.title.toLowerCase().includes(query) ||
+      album.artist.toLowerCase().includes(query) ||
+      (album.description && album.description.toLowerCase().includes(query)) ||
+      (album.status && album.status.toLowerCase().includes(query)) ||
+      (album.production_status && album.production_status.toLowerCase().includes(query))
+    );
+  };
+
+  const getFilteredSinglesForSearch = () => {
+    if (!globalSearchQuery.trim()) return getFilteredSingles();
+    
+    const query = globalSearchQuery.toLowerCase().trim();
+    const phaseFiltered = getFilteredSingles();
+    
+    return phaseFiltered.filter(single => 
+      single.title.toLowerCase().includes(query) ||
+      single.artist.toLowerCase().includes(query) ||
+      (single.description && single.description.toLowerCase().includes(query)) ||
+      (single.status && single.status.toLowerCase().includes(query)) ||
+      (single.production_status && single.production_status.toLowerCase().includes(query)) ||
+      (single.session_name && single.session_name.toLowerCase().includes(query))
+    );
+  };
+
+  const getFilteredAudioItemsForSearch = () => {
+    if (!globalSearchQuery.trim()) return getFilteredAudioItems(audioItems);
+    
+    const query = globalSearchQuery.toLowerCase().trim();
+    const phaseFiltered = getFilteredAudioItems(audioItems);
+    
+    return phaseFiltered.filter(item => 
+      item.name.toLowerCase().includes(query) ||
+      item.type.toLowerCase().includes(query) ||
+      (item.audio_type && item.audio_type.toLowerCase().includes(query)) ||
+      (item.genre && item.genre.toLowerCase().includes(query)) ||
+      (item.subgenre && item.subgenre.toLowerCase().includes(query)) ||
+      (item.tags && item.tags.some(tag => tag.toLowerCase().includes(query))) ||
+      (item.description && item.description.toLowerCase().includes(query)) ||
+      (item.bpm && item.bpm.toString().includes(query)) ||
+      (item.key && item.key.toLowerCase().includes(query))
+    );
+  };
   
   // Handle delete subfolder
   async function handleDeleteSubfolder(subfolderId: string) {
@@ -2250,28 +2526,226 @@ export default function MyLibrary() {
     }
   };
 
+  // Download single function
+  const downloadSingle = async (singleId: string, audioUrl: string, title: string) => {
+    try {
+      const response = await fetch(audioUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch audio file');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}.${audioUrl.split('.').pop() || 'mp3'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast({
+        title: "Download started",
+        description: `${title} is being downloaded.`,
+      });
+    } catch (error) {
+      console.error('Error downloading single:', error);
+      toast({
+        title: "Download failed",
+        description: "Failed to download the audio file. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const openMetadataDialog = async (trackId: string, trackType: 'single' | 'album_track') => {
+    try {
+      const table = trackType === 'single' ? 'singles' : 'album_tracks';
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .eq('id', trackId)
+        .single();
+
+      if (error) throw error;
+
+      // Extract metadata fields
+      const metadata = {
+        distributor: data.distributor,
+        deadline_to_distribute: data.deadline_to_distribute,
+        performing_artists: data.performing_artists,
+        producers: data.producers,
+        engineers: data.engineers,
+        copyright_info: data.copyright_info,
+        songwriter: data.songwriter,
+        release_date: data.release_date,
+        label: data.label,
+        upc: data.upc,
+        primary_genre: data.primary_genre,
+        language: data.language,
+        release_id: data.release_id,
+        isrc: data.isrc,
+        recording_location: data.recording_location,
+        mix_engineer: data.mix_engineer,
+        mastering_engineer: data.mastering_engineer,
+        publishing_rights: data.publishing_rights,
+        mechanical_rights: data.mechanical_rights,
+        territory: data.territory,
+        explicit_content: data.explicit_content,
+        parental_advisory: data.parental_advisory
+      };
+
+      setEditingMetadata(metadata || {});
+      setEditingTrackId(trackId);
+      setEditingTrackType(trackType);
+      setShowMetadataDialog(true);
+    } catch (error) {
+      console.error('Error loading metadata:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load metadata.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const saveMetadata = async (metadata: any) => {
+    try {
+      const table = editingTrackType === 'single' ? 'singles' : 'album_tracks';
+      const { error } = await supabase
+        .from(table)
+        .update(metadata)
+        .eq('id', editingTrackId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Metadata saved successfully.",
+      });
+
+      // Refresh the data
+      if (editingTrackType === 'single') {
+        await refreshSingles();
+      } else {
+        await refreshAlbums();
+      }
+    } catch (error) {
+      console.error('Error saving metadata:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save metadata.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const openNotesDialog = async (itemId: string, itemType: 'album' | 'single' | 'album_track', itemTitle: string) => {
+    try {
+      const table = itemType === 'album' ? 'albums' : itemType === 'single' ? 'singles' : 'album_tracks';
+      const { data, error } = await supabase
+        .from(table)
+        .select('notes')
+        .eq('id', itemId)
+        .single();
+
+      if (error) throw error;
+
+      setEditingNotes(data.notes || '');
+      setEditingNotesId(itemId);
+      setEditingNotesType(itemType);
+      setEditingNotesTitle(itemTitle);
+      setShowNotesDialog(true);
+    } catch (error) {
+      console.error('Error loading notes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load notes.",
+        variant: "destructive"
+      });
+    }
+  }
+
+  const saveNotes = async (notes: string) => {
+    try {
+      const table = editingNotesType === 'album' ? 'albums' : editingNotesType === 'single' ? 'singles' : 'album_tracks';
+      const { error } = await supabase
+        .from(table)
+        .update({ notes })
+        .eq('id', editingNotesId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Notes saved successfully.",
+      });
+
+      // Refresh the data
+      if (editingNotesType === 'single') {
+        await refreshSingles();
+      } else if (editingNotesType === 'album') {
+        await refreshAlbums();
+      }
+    } catch (error) {
+      console.error('Error saving notes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save notes.",
+        variant: "destructive"
+      });
+    }
+  }
+
   return (
     <div className="container mx-auto py-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Library</h1>
-        {selectedTab === 'albums' && (
-          <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAlbumModal(true)}>
-          <Plus className="h-4 w-4" />
-          Add New Album
-        </Button>
-        )}
-        {selectedTab === 'audio' && (
-          <div className="flex gap-2">
-          <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAudioModal(true)}>
-            <Plus className="h-4 w-4" />
-            Add Audio
-          </Button>
-            <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2 rounded" onClick={() => setShowPackModal(true)}>
-              <Plus className="h-4 w-4" />
-              Create Pack
-            </Button>
+        <div className="flex items-center gap-4">
+          {/* Global Search */}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search all content..."
+                value={globalSearchQuery}
+                onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                className="pl-10 w-64 bg-zinc-900 border-zinc-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+              />
+            </div>
+            <Select value={globalSearchFilter} onValueChange={(value: 'all' | 'albums' | 'singles' | 'audio') => setGlobalSearchFilter(value)}>
+              <SelectTrigger className="w-32 bg-zinc-900 border-zinc-700 text-white focus:border-blue-500 focus:ring-blue-500">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="albums">Albums</SelectItem>
+                <SelectItem value="singles">Singles</SelectItem>
+                <SelectItem value="audio">Audio</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        )}
+          
+          {/* Action Buttons */}
+          {selectedTab === 'albums' && albumPhaseTab === 'all' && (
+            <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAlbumModal(true)}>
+              <Plus className="h-4 w-4" />
+              Add New Album
+            </Button>
+          )}
+          {selectedTab === 'audio' && (
+            <div className="flex gap-2">
+              <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAudioModal(true)}>
+                <Plus className="h-4 w-4" />
+                Add Audio
+              </Button>
+              <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2 rounded" onClick={() => setShowPackModal(true)}>
+                <Plus className="h-4 w-4" />
+                Create Pack
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
       {/* Create Album Modal */}
       <Dialog open={showAlbumModal} onOpenChange={setShowAlbumModal}>
@@ -2836,6 +3310,148 @@ export default function MyLibrary() {
         </DialogContent>
       </Dialog>
       
+      {/* Global Search Results */}
+      {globalSearchQuery.trim() && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">
+              Search Results for "{globalSearchQuery}"
+            </h2>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setGlobalSearchQuery('')}
+            >
+              Clear Search
+            </Button>
+          </div>
+          
+          {/* Show results based on filter */}
+          {(globalSearchFilter === 'all' || globalSearchFilter === 'albums') && getFilteredAlbumsForSearch().length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3 text-gray-300">Albums ({getFilteredAlbumsForSearch().length})</h3>
+              <div className="space-y-4">
+                {getFilteredAlbumsForSearch().slice(0, 3).map(album => (
+                  <Card key={album.id} className="p-4">
+                    <div className="flex gap-4">
+                      {album.cover_art_url ? (
+                        <img src={album.cover_art_url} alt={album.title} className="w-16 h-16 object-cover rounded-lg" />
+                      ) : (
+                        <img src="/placeholder.jpg" alt="No cover art" className="w-16 h-16 object-cover rounded-lg" />
+                      )}
+                      <div className="flex-1">
+                        <Link href={`/myalbums/${album.id}`} className="hover:underline">
+                          <h4 className="text-lg font-semibold">{album.title}</h4>
+                        </Link>
+                        <p className="text-gray-500">{album.artist}</p>
+                        <p className="text-sm text-gray-400">{album.description}</p>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+                {getFilteredAlbumsForSearch().length > 3 && (
+                  <div className="text-center">
+                    <Link href="#albums">
+                      <Button variant="outline" size="sm">
+                        View all {getFilteredAlbumsForSearch().length} albums
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {(globalSearchFilter === 'all' || globalSearchFilter === 'singles') && getFilteredSinglesForSearch().length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3 text-gray-300">Singles ({getFilteredSinglesForSearch().length})</h3>
+              <div className="space-y-4">
+                {getFilteredSinglesForSearch().slice(0, 3).map(single => (
+                  <Card key={single.id} className="p-4">
+                    <div className="flex gap-4">
+                      <div className="w-16 h-16 rounded-lg bg-gray-800 flex items-center justify-center">
+                        {single.cover_art_url ? (
+                          <img src={single.cover_art_url} alt={single.title} className="w-full h-full object-cover rounded-lg" />
+                        ) : (
+                          <Music className="w-6 h-6 text-gray-400" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <Link href={`/mysingles/${single.id}`} className="hover:underline">
+                          <h4 className="text-lg font-semibold">{single.title}</h4>
+                        </Link>
+                        <p className="text-gray-500">{single.artist}</p>
+                        <p className="text-sm text-gray-400">{single.description}</p>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+                {getFilteredSinglesForSearch().length > 3 && (
+                  <div className="text-center">
+                    <Link href="#singles">
+                      <Button variant="outline" size="sm">
+                        View all {getFilteredSinglesForSearch().length} singles
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {(globalSearchFilter === 'all' || globalSearchFilter === 'audio') && getFilteredAudioItemsForSearch().length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-3 text-gray-300">Audio Files ({getFilteredAudioItemsForSearch().length})</h3>
+              <div className="space-y-4">
+                {getFilteredAudioItemsForSearch().slice(0, 3).map(item => (
+                  <Card key={item.id} className="p-4">
+                    <div className="flex gap-4">
+                      <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
+                        {item.type === 'midi' && <Piano className="h-5 w-5 text-yellow-400" />}
+                        {item.type === 'soundkit' && <Drum className="h-5 w-5 text-red-400" />}
+                        {item.type === 'loop' && <Music className="h-5 w-5 text-blue-400" />}
+                        {item.type === 'patch' && <Music2 className="h-5 w-5 text-green-400" />}
+                        {item.type === 'sample' && <FileAudio className="h-5 w-5 text-purple-400" />}
+                        {item.type === 'clip' && <FileMusic className="h-5 w-5 text-pink-400" />}
+                        {item.type === 'other' && <File className="h-5 w-5 text-gray-400" />}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-semibold">{item.name}</h4>
+                        <p className="text-sm text-gray-400">{item.description}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge variant="secondary" className="text-xs">{item.type}</Badge>
+                          {item.bpm && <Badge variant="secondary" className="text-xs">{item.bpm} BPM</Badge>}
+                          {item.key && <Badge variant="secondary" className="text-xs">{item.key}</Badge>}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+                {getFilteredAudioItemsForSearch().length > 3 && (
+                  <div className="text-center">
+                    <Link href="#audio">
+                      <Button variant="outline" size="sm">
+                        View all {getFilteredAudioItemsForSearch().length} audio files
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {globalSearchQuery.trim() && 
+           getFilteredAlbumsForSearch().length === 0 && 
+           getFilteredSinglesForSearch().length === 0 && 
+           getFilteredAudioItemsForSearch().length === 0 && (
+            <div className="text-center py-8">
+              <p className="text-gray-400">No results found for "{globalSearchQuery}"</p>
+              <p className="text-sm text-gray-500 mt-2">Try searching for different terms or check your spelling</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <Tabs defaultValue={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="albums">Albums</TabsTrigger>
@@ -2848,13 +3464,79 @@ export default function MyLibrary() {
         </TabsList>
         {/* Albums Tab */}
         <TabsContent value="albums" className="space-y-4">
-          {loadingAlbums ? <div>Loading albums...</div> : albumError ? <div className="text-red-500">{albumError}</div> : albums.length === 0 ? <div>No albums found.</div> : albums.map(album => (
-            <Card key={album.id} className="p-6">
-              <div className="flex gap-6">
+          {/* Album Phase Tabs */}
+          <div className="mb-6">
+            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+              <button
+                onClick={() => setAlbumPhaseTab('all')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  albumPhaseTab === 'all' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setAlbumPhaseTab('marketing')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  albumPhaseTab === 'marketing' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Marketing
+              </button>
+              <button
+                onClick={() => setAlbumPhaseTab('organization')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  albumPhaseTab === 'organization' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Organization
+              </button>
+              <button
+                onClick={() => setAlbumPhaseTab('production')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  albumPhaseTab === 'production' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Production
+              </button>
+              <button
+                onClick={() => setAlbumPhaseTab('quality_control')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  albumPhaseTab === 'quality_control' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Quality Control
+              </button>
+              <button
+                onClick={() => setAlbumPhaseTab('ready_for_distribution')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  albumPhaseTab === 'ready_for_distribution' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Ready for Distribution
+              </button>
+            </div>
+          </div>
+          
+          {loadingAlbums ? <div>Loading albums...</div> : albumError ? <div className="text-red-500">{albumError}</div> : getFilteredAlbumsForSearch().length === 0 ? <div>No albums found in this phase.</div> : getFilteredAlbumsForSearch().map(album => (
+            <Card key={album.id} className="p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
                 {album.cover_art_url ? (
-                  <img src={album.cover_art_url} alt={album.title} className="w-32 h-32 object-cover rounded-lg" />
+                  <img src={album.cover_art_url} alt={album.title} className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg mx-auto sm:mx-0" />
                 ) : (
-                  <img src="/placeholder.jpg" alt="No cover art" className="w-32 h-32 object-cover rounded-lg" />
+                  <img src="/placeholder.jpg" alt="No cover art" className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg mx-auto sm:mx-0" />
                 )}
                 {album.additional_covers && album.additional_covers.length > 0 && (
                   <div className="mt-4">
@@ -2873,11 +3555,11 @@ export default function MyLibrary() {
                   <div className="flex justify-between items-start">
                     <div>
                       <Link href={`/myalbums/${album.id}`} className="hover:underline">
-                      <h2 className="text-2xl font-semibold">{album.title}</h2>
+                        <h2 className="text-2xl font-semibold">{album.title}</h2>
                       </Link>
                       <p className="text-gray-500">{album.artist}</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button 
@@ -2886,31 +3568,79 @@ export default function MyLibrary() {
                             className={`capitalize flex items-center gap-2 ${getStatusColor(album.status || 'draft')}`}
                           >
                             {getStatusIcon(album.status || 'draft')}
-                            {album.status || 'draft'}
+                            <span className="hidden sm:inline">{album.status || 'draft'}</span>
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'production')}>
+                            Production
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'draft')}>
                             Draft
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'active')}>
-                            Active
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'distribute')}>
+                            Distribute
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'paused')}>
-                            Paused
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'error')}>
+                            Error
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'scheduled')}>
-                            Scheduled
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'published')}>
+                            Published
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'archived')}>
-                            Archived
+                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'other')}>
+                            Other
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                      <Button variant="outline" size="sm" onClick={() => setEditAlbumId(album.id)}><FileText className="h-4 w-4 mr-2" />Edit</Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDeleteAlbum(album.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
-                      <Link href={`/myalbums/${album.id}`} passHref legacyBehavior>
-                        <Button asChild variant="default" size="sm">View Album</Button>
+                      {/* Phase Status Dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`capitalize flex items-center gap-2 ${getProductionStatusColor(album.production_status || 'production')}`}
+                          >
+                            {getProductionStatusIcon(album.production_status || 'production')}
+                            <span className="hidden sm:inline">{album.production_status || 'production'}</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'marketing')}>
+                            Marketing
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'organization')}>
+                            Organization
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'production')}>
+                            Production
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'quality_control')}>
+                            Quality Control
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'ready_for_distribution')}>
+                            Ready for Distribution
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button variant="outline" size="sm" onClick={() => setEditAlbumId(album.id)}>
+                        <FileText className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Edit</span>
+                      </Button>
+                      <Button variant="destructive" size="sm" onClick={() => handleDeleteAlbum(album.id)}>
+                        <Trash2 className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Delete</span>
+                      </Button>
+                      <Link href={`/myalbums/${album.id}`}>
+                        <Button variant="default" size="sm">
+                          <span className="hidden sm:inline">View Album</span>
+                          <span className="sm:hidden">View</span>
+                        </Button>
+                      </Link>
+                      <Link href={`/release-platforms/${album.id}`}>
+                        <Button variant="outline" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500">
+                          <Globe className="h-4 w-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Platforms</span>
+                        </Button>
                       </Link>
                     </div>
                   </div>
@@ -2943,9 +3673,75 @@ export default function MyLibrary() {
         </TabsContent>
         {/* Singles Tab */}
         <TabsContent value="singles" className="space-y-4">
-          {loadingSingles ? <div>Loading singles...</div> : singleError ? <div className="text-red-500">{singleError}</div> : singles.length === 0 ? <div>No singles found.</div> : (
-            <div className="space-y-4">
-              {singles.map(single => {
+          {/* Single Phase Tabs */}
+          <div className="mb-6">
+            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+              <button
+                onClick={() => setSinglePhaseTab('all')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  singlePhaseTab === 'all' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setSinglePhaseTab('marketing')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  singlePhaseTab === 'marketing' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Marketing
+              </button>
+              <button
+                onClick={() => setSinglePhaseTab('organization')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  singlePhaseTab === 'organization' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Organization
+              </button>
+              <button
+                onClick={() => setSinglePhaseTab('production')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  singlePhaseTab === 'production' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Production
+              </button>
+              <button
+                onClick={() => setSinglePhaseTab('quality_control')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  singlePhaseTab === 'quality_control' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Quality Control
+              </button>
+              <button
+                onClick={() => setSinglePhaseTab('ready_for_distribution')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  singlePhaseTab === 'ready_for_distribution' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Ready for Distribution
+              </button>
+            </div>
+          </div>
+          
+          {loadingSingles ? <div>Loading singles...</div> : singleError ? <div className="text-red-500">{singleError}</div> : getFilteredSinglesForSearch().length === 0 ? <div>No singles found in this phase.</div> : (
+                          <div className="space-y-4">
+                {getFilteredSinglesForSearch().map(single => {
                 // Check if this single has an MP3 conversion (title ends with .mp3)
                 const isMp3Conversion = single.title.endsWith('.mp3')
                 const originalTitle = isMp3Conversion ? single.title.replace('.mp3', '') : single.title
@@ -2968,10 +3764,10 @@ export default function MyLibrary() {
                 const mp3Conversions = singles.filter(s => s.title === single.title + '.mp3')
                 
                 return (
-                  <Card key={single.id} className="p-6">
-                    <div className="flex gap-6 items-center">
+                  <Card key={single.id} className={`p-4 sm:p-6 border-l-4 ${getStatusBorderColor(single.status || 'draft')}`}>
+                    <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start sm:items-center">
                       {/* Cover Art - Show placeholder if no cover art */}
-                      <div className="w-24 h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden mx-auto sm:mx-0">
                         {single.cover_art_url ? (
                           <img src={single.cover_art_url} alt={single.title} className="w-full h-full object-cover" />
                         ) : (
@@ -2981,13 +3777,16 @@ export default function MyLibrary() {
                           </div>
                         )}
                       </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
+                      <div className="flex-1 w-full">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
                           <div>
-                            <h2 className="text-xl font-semibold">{single.title}</h2>
-                            <p className="text-gray-500">{single.artist}</p>
+                            <h2 className="text-lg sm:text-xl font-semibold text-center sm:text-left">{single.title}</h2>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-center sm:text-left">
+                              <p className="text-gray-500">{single.artist}</p>
+                              {single.audio_url && getAudioFileLabel(single.audio_url)}
+                            </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
                             {/* Play Button */}
                             <Button 
                               variant="outline" 
@@ -3011,17 +3810,120 @@ export default function MyLibrary() {
                             >
                               {playingSingleId === single.id ? (
                                 <>
-                                  <Pause className="h-4 w-4 mr-2" />
-                                  Pause
+                                  <Pause className="h-4 w-4 sm:mr-2" />
+                                  <span className="hidden sm:inline">Pause</span>
                                 </>
                               ) : (
                                 <>
-                                  <Play className="h-4 w-4 mr-2" />
-                                  Play
+                                  <Play className="h-4 w-4 sm:mr-2" />
+                                  <span className="hidden sm:inline">Play</span>
                                 </>
                               )}
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => openEditSingleDialog(single)}><FileText className="h-4 w-4 mr-2" />Edit</Button>
+                            {/* Download Button */}
+                            {single.audio_url && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => downloadSingle(single.id, single.audio_url!, single.title)}
+                                className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                                title="Download audio file"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button variant="outline" size="sm" onClick={() => openEditSingleDialog(single)}>
+                              <FileText className="h-4 w-4 sm:mr-2" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </Button>
+                            <Link href={`/mysingles/${single.id}`}>
+                              <Button variant="default" size="sm">
+                                <span className="hidden sm:inline">View Single</span>
+                                <span className="sm:hidden">View</span>
+                              </Button>
+                            </Link>
+                            <Link href={`/release-platforms/${single.id}`}>
+                              <Button variant="outline" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500">
+                                <Globe className="h-4 w-4 sm:mr-2" />
+                                <span className="hidden sm:inline">Platforms</span>
+                              </Button>
+                            </Link>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openMetadataDialog(single.id, 'single')}
+                              className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                            >
+                              <FileTextIcon className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openNotesDialog(single.id, 'single', single.title)}
+                              className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                            >
+                              <StickyNote className="h-4 w-4" />
+                            </Button>
+                            {/* Upload Button */}
+                            <input
+                              type="file"
+                              id={`upload-single-${single.id}`}
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  replaceSingleAudio(single.id, file);
+                                }
+                              }}
+                            />
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => document.getElementById(`upload-single-${single.id}`)?.click()}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                              title="Upload new audio file"
+                            >
+                              <Upload className="h-4 w-4" />
+                            </Button>
+                            {/* Phase Status Dropdown */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className={`capitalize flex items-center gap-2 ${getProductionStatusColor(single.production_status || 'production')}`}
+                                >
+                                  {getProductionStatusIcon(single.production_status || 'production')}
+                                  {single.production_status || 'production'}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'marketing')}>
+                                  Marketing
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'organization')}>
+                                  Organization
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'production')}>
+                                  Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'quality_control')}>
+                                  Quality Control
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'ready_for_distribution')}>
+                                  Ready for Distribution
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openNotesDialog(single.id, 'single', single.title)}
+                              className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                            >
+                              <StickyNote className="h-4 w-4" />
+                            </Button>
                             {single.audio_url && (
                               <Button 
                                 variant="outline" 
@@ -3035,24 +3937,11 @@ export default function MyLibrary() {
                                     Converting...
                                   </>
                                 ) : (
-                                  <>
-                                    <FileAudio className="h-4 w-4 mr-2" />
-                                    MP3 Converter
-                                  </>
+                                  "MP3 Converter"
                                 )}
                               </Button>
                             )}
-                            {single.session_id && (
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => window.open(`/beat-maker?session=${single.session_id}`, '_blank')}
-                                className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
-                              >
-                                <LinkIcon className="h-4 w-4 mr-2" />
-                                Session
-                              </Button>
-                            )}
+
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button 
@@ -3064,23 +3953,26 @@ export default function MyLibrary() {
                                   {single.status || 'draft'}
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent>
-                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'draft')}>
-                                  Draft
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'active')}>
-                                  Active
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'paused')}>
-                                  Paused
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'scheduled')}>
-                                  Scheduled
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'archived')}>
-                                  Archived
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
+                                                                                     <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'production')}>
+                            Production
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'draft')}>
+                            Draft
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'distribute')}>
+                            Distribute
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'error')}>
+                            Error
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'published')}>
+                            Published
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'other')}>
+                            Other
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
                             </DropdownMenu>
                             <Link href="/platform-status">
                               <Button variant="outline" size="sm">
@@ -3093,7 +3985,10 @@ export default function MyLibrary() {
                         </div>
                         {single.session_id && single.session_name && (
                           <div className="mt-2 ml-4">
-                            <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md">
+                            <div 
+                              className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
+                              onClick={() => window.open(`/beat-maker?session=${single.session_id}`, '_blank')}
+                            >
                               <LinkIcon className="h-3 w-3 text-blue-400" />
                               <span className="text-sm font-medium text-blue-300">
                                 Session: {single.session_name}
@@ -3119,7 +4014,7 @@ export default function MyLibrary() {
                         <h4 className="text-sm font-medium text-gray-400 mb-2">MP3 Conversions:</h4>
                         <div className="space-y-2">
                           {mp3Conversions.map((mp3Track) => (
-                            <div key={mp3Track.id} className="flex items-center gap-4 bg-gray-800 rounded px-3 py-2 ml-6">
+                            <div key={mp3Track.id} className={`flex items-center gap-4 bg-gray-800 rounded px-3 py-2 ml-6 border-l-4 ${getStatusBorderColor(mp3Track.status || 'draft')}`}>
                               <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
                                 <div className="w-2 h-2 bg-white rounded-full"></div>
                               </div>
@@ -3144,6 +4039,65 @@ export default function MyLibrary() {
                                 className="text-xs h-6 px-2"
                               >
                                 {playingSingleId === mp3Track.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                              </Button>
+                              {/* Status Dropdown for MP3 Single */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className={`text-xs h-6 px-2 capitalize flex items-center gap-1 ${getStatusColor(mp3Track.status || 'draft')}`}
+                                  >
+                                    {getStatusIcon(mp3Track.status || 'draft')}
+                                    {mp3Track.status || 'draft'}
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                                                                          <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(mp3Track.id, 'production')}>
+                            Production
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(mp3Track.id, 'draft')}>
+                            Draft
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(mp3Track.id, 'distribute')}>
+                            Distribute
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(mp3Track.id, 'error')}>
+                            Error
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(mp3Track.id, 'published')}>
+                            Published
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(mp3Track.id, 'other')}>
+                            Other
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                              </DropdownMenu>
+                              {mp3Track.audio_url && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => downloadSingle(mp3Track.id, mp3Track.audio_url!, mp3Track.title)}
+                                  className="text-xs h-6 px-2 bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                                >
+                                  <Download className="h-3 w-3" />
+                                </Button>
+                              )}
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => openMetadataDialog(mp3Track.id, 'single')}
+                                className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                              >
+                                <FileTextIcon className="h-3 w-3" />
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => openNotesDialog(mp3Track.id, 'single', mp3Track.title)}
+                                className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                              >
+                                <StickyNote className="h-3 w-3" />
                               </Button>
                               <Button variant="destructive" size="sm" onClick={() => deleteSingle(mp3Track.id)} className="text-xs h-6 px-2">
                                 <Trash2 className="h-3 w-3" />
@@ -3316,14 +4270,14 @@ export default function MyLibrary() {
                 <div>Loading audio files...</div>
               ) : audioError ? (
                 <div className="text-red-500">{audioError}</div>
-              ) : audioItems.length === 0 ? (
+              ) : getFilteredAudioItemsForSearch().length === 0 ? (
                 <div>No audio files found.</div>
               ) : (
                 <>
                   <div className="text-sm text-gray-400 mb-4">
-                    Page {currentPage} of {Math.ceil(totalItems / itemsPerPage)} - Showing {audioItems.length} files
+                    Page {currentPage} of {Math.ceil(totalItems / itemsPerPage)} - Showing {getFilteredAudioItemsForSearch().length} files
                   </div>
-                  {audioItems.map(item => (
+                  {getFilteredAudioItemsForSearch().map(item => (
                   <Card 
                     key={item.id} 
                     className={`p-6 flex items-center gap-6 cursor-move transition-opacity ${
@@ -5068,6 +6022,27 @@ export default function MyLibrary() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Track Metadata Dialog */}
+      <TrackMetadataDialog
+        open={showMetadataDialog}
+        onOpenChange={setShowMetadataDialog}
+        trackId={editingTrackId}
+        trackType={editingTrackType}
+        initialMetadata={editingMetadata}
+        onSave={saveMetadata}
+      />
+
+      {/* Notes Dialog */}
+      <NotesDialog
+        open={showNotesDialog}
+        onOpenChange={setShowNotesDialog}
+        itemId={editingNotesId}
+        itemType={editingNotesType}
+        initialNotes={editingNotes}
+        itemTitle={editingNotesTitle}
+        onSave={saveNotes}
+      />
     </div>
   )
 } 

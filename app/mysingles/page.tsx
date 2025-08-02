@@ -224,7 +224,7 @@ export default function MySingles() {
     }
   }
 
-  const updateSingleStatus = async (singleId: string, newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+  const updateSingleStatus = async (singleId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
     try {
       const { error } = await supabase
         .from('singles')
@@ -313,20 +313,23 @@ export default function MySingles() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'production')}>
+                            Production
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'draft')}>
                             Draft
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'active')}>
-                            Active
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'distribute')}>
+                            Distribute
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'paused')}>
-                            Paused
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'error')}>
+                            Error
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'scheduled')}>
-                            Scheduled
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'published')}>
+                            Published
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'archived')}>
-                            Archived
+                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'other')}>
+                            Other
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

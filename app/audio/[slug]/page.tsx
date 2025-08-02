@@ -59,7 +59,7 @@ export default function AudioLibraryDetailPage() {
                       Download
                     </a>
                   </Button>
-                  <Link href={`/audio/${item.slug}/${file.id}`} passHref legacyBehavior>
+                  <Link href={`/audio/${item.slug}/${file.id}`}>
                     <Button variant="default" size="sm" className="ml-2">View</Button>
                   </Link>
                 </div>
