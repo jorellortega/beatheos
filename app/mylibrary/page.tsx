@@ -29,6 +29,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 // Types for DB tables
+interface AlbumTrack {
+  id: string
+  title: string
+  track_number: number
+  audio_url?: string | null
+  duration?: string
+  status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
+}
+
 interface Album {
   id: string
   title: string
@@ -39,6 +48,7 @@ interface Album {
   additional_covers?: { label: string; url: string }[]
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  album_tracks?: AlbumTrack[]
 }
 interface Single {
   id: string
@@ -260,6 +270,19 @@ export default function MyLibrary() {
   const [editingNotesId, setEditingNotesId] = useState('');
   const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track'>('single');
   const [editingNotesTitle, setEditingNotesTitle] = useState('');
+  
+  // Track replacement loading states
+  const [replacingSingle, setReplacingSingle] = useState<string | null>(null);
+  const [replacingAlbumTrack, setReplacingAlbumTrack] = useState<string | null>(null);
+  const [trackUploadProgress, setTrackUploadProgress] = useState<{
+    isUploading: boolean;
+    currentFile: string;
+    progress: number;
+  }>({
+    isUploading: false,
+    currentFile: '',
+    progress: 0
+  });
   
   // Handle file selection
   const toggleFileSelection = (fileId: string) => {
@@ -891,7 +914,10 @@ export default function MyLibrary() {
     try {
       const { data, error } = await supabase
         .from('albums')
-        .select('*')
+        .select(`
+          *,
+          album_tracks(*)
+        `)
         .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
 
@@ -923,7 +949,10 @@ export default function MyLibrary() {
     if (!user?.id) return;
     // Albums
     setLoadingAlbums(true);
-    supabase.from('albums').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+    supabase.from('albums').select(`
+      *,
+      album_tracks(*)
+    `).eq('user_id', user.id).order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) setAlbumError(error.message);
         setAlbums(data || []);
@@ -1322,10 +1351,61 @@ export default function MyLibrary() {
     }
   }
 
+  // Upload album track audio file for replacement
+  const uploadAlbumTrackAudio = async (file: File, trackId: string): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${trackId}-${Date.now()}.${fileExt}`
+      const filePath = `album-tracks/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('Error uploading album track audio:', uploadError)
+        return null
+      }
+
+      const { data } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      return data.publicUrl
+    } catch (error) {
+      console.error('Error uploading album track audio:', error)
+      return null
+    }
+  }
+
   // Replace single audio file
   const replaceSingleAudio = async (singleId: string, file: File) => {
+    setReplacingSingle(singleId);
+    setTrackUploadProgress({
+      isUploading: true,
+      currentFile: file.name,
+      progress: 0
+    });
+    
+    toast({
+      title: "Upload started",
+      description: `Uploading ${file.name}...`,
+    });
+    
     try {
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setTrackUploadProgress(prev => ({
+          ...prev,
+          progress: Math.min(prev.progress + 10, 90)
+        }));
+      }, 200);
+
       const audioUrl = await uploadSingleAudio(file, singleId)
+      
+      clearInterval(progressInterval);
+      setTrackUploadProgress(prev => ({ ...prev, progress: 100 }));
+      
       if (!audioUrl) {
         toast({
           title: "Error",
@@ -1364,6 +1444,88 @@ export default function MyLibrary() {
         title: "Error",
         description: "Failed to replace audio file.",
         variant: "destructive"
+      });
+    } finally {
+      setReplacingSingle(null);
+      setTrackUploadProgress({
+        isUploading: false,
+        currentFile: '',
+        progress: 0
+      });
+    }
+  }
+
+  // Replace album track audio file
+  const replaceAlbumTrackAudio = async (trackId: string, file: File) => {
+    setReplacingAlbumTrack(trackId);
+    setTrackUploadProgress({
+      isUploading: true,
+      currentFile: file.name,
+      progress: 0
+    });
+    
+    toast({
+      title: "Upload started",
+      description: `Uploading ${file.name}...`,
+    });
+    
+    try {
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setTrackUploadProgress(prev => ({
+          ...prev,
+          progress: Math.min(prev.progress + 10, 90)
+        }));
+      }, 200);
+
+      const audioUrl = await uploadAlbumTrackAudio(file, trackId)
+      
+      clearInterval(progressInterval);
+      setTrackUploadProgress(prev => ({ ...prev, progress: 100 }));
+      
+      if (!audioUrl) {
+        toast({
+          title: "Error",
+          description: "Failed to upload audio file.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from('album_tracks')
+        .update({ audio_url: audioUrl })
+        .eq('id', trackId);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to update album track audio: " + error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Refresh albums data to show updated track
+      await refreshAlbums();
+
+      toast({
+        title: "Success",
+        description: "Album track audio file replaced successfully.",
+      });
+    } catch (error) {
+      console.error('Error replacing album track audio:', error);
+      toast({
+        title: "Error",
+        description: "Failed to replace audio file.",
+        variant: "destructive"
+      });
+    } finally {
+      setReplacingAlbumTrack(null);
+      setTrackUploadProgress({
+        isUploading: false,
+        currentFile: '',
+        progress: 0
       });
     }
   }
@@ -2699,6 +2861,28 @@ export default function MyLibrary() {
 
   return (
     <div className="container mx-auto py-8">
+      {/* Track Upload Progress Bar */}
+      {trackUploadProgress.isUploading && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-blue-600 text-white p-3 shadow-lg">
+          <div className="flex items-center justify-between max-w-4xl mx-auto">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="font-medium">Uploading: {trackUploadProgress.currentFile}</span>
+              <span className="text-sm opacity-80">({trackUploadProgress.progress}% complete)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-32 bg-blue-800 rounded-full h-2">
+                <div 
+                  className="bg-white h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${trackUploadProgress.progress}%` }}
+                ></div>
+              </div>
+              <span className="text-sm">{trackUploadProgress.progress}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Library</h1>
         <div className="flex items-center gap-4">
@@ -3558,6 +3742,93 @@ export default function MyLibrary() {
                         <h2 className="text-2xl font-semibold">{album.title}</h2>
                       </Link>
                       <p className="text-gray-500">{album.artist}</p>
+                      
+                      {/* Album Tracks */}
+                      {album.album_tracks && album.album_tracks.length > 0 && (
+                        <div className="mt-4">
+                          <h3 className="font-medium mb-2">Tracks</h3>
+                          <div className="space-y-2">
+                                                         {album.album_tracks.map((track) => (
+                               <div key={track.id} className={`flex items-center justify-between p-2 rounded transition-all duration-200 ${
+                                 replacingAlbumTrack === track.id ? 'bg-orange-800 border border-orange-500' : 'bg-gray-800'
+                               }`}>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-sm text-gray-400 w-8">{track.track_number}.</span>
+                                  <span className="text-sm">{track.title}</span>
+                                  {track.audio_url && getAudioFileLabel(track.audio_url)}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {/* Upload Button for Track */}
+                                  <input
+                                    type="file"
+                                    id={`upload-track-${track.id}`}
+                                    accept="audio/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        replaceAlbumTrackAudio(track.id, file);
+                                      }
+                                    }}
+                                  />
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    disabled={replacingAlbumTrack === track.id}
+                                    onClick={() => document.getElementById(`upload-track-${track.id}`)?.click()}
+                                    className={`${replacingAlbumTrack === track.id ? 'bg-orange-600 hover:bg-orange-700 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'} text-white border-indigo-500`}
+                                    title="Upload new audio file"
+                                  >
+                                    {replacingAlbumTrack === track.id ? (
+                                      <>
+                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        <span className="text-xs">Uploading...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Upload className="h-4 w-4" />
+                                        <span className="text-xs ml-1">Replace</span>
+                                      </>
+                                    )}
+                                  </Button>
+                                  
+                                  {/* Play Button */}
+                                  {track.audio_url && (
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm" 
+                                      onClick={() => playSingle(track.id, track.audio_url!)}
+                                      className="bg-green-600 hover:bg-green-700 text-white border-green-500"
+                                    >
+                                      <Play className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  
+                                  {/* Convert Button */}
+                                  {track.audio_url && (
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm" 
+                                      disabled={convertingAlbumTrack === track.id}
+                                      onClick={() => showCompressionOptions(track.id, track.audio_url!, 'album_track')}
+                                      className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                                    >
+                                      {convertingAlbumTrack === track.id ? (
+                                        <>
+                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                          Converting...
+                                        </>
+                                      ) : (
+                                        "MP3"
+                                      )}
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <DropdownMenu>
@@ -3764,7 +4035,9 @@ export default function MyLibrary() {
                 const mp3Conversions = singles.filter(s => s.title === single.title + '.mp3')
                 
                 return (
-                  <Card key={single.id} className={`p-4 sm:p-6 border-l-4 ${getStatusBorderColor(single.status || 'draft')}`}>
+                                          <Card key={single.id} className={`p-4 sm:p-6 border-l-4 ${getStatusBorderColor(single.status || 'draft')} transition-all duration-200 ${
+                          replacingSingle === single.id ? 'bg-orange-900/20 border-orange-500' : ''
+                        }`}>
                     <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start sm:items-center">
                       {/* Cover Art - Show placeholder if no cover art */}
                       <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden mx-auto sm:mx-0">
@@ -3880,11 +4153,22 @@ export default function MyLibrary() {
                             <Button 
                               variant="outline" 
                               size="sm" 
+                              disabled={replacingSingle === single.id}
                               onClick={() => document.getElementById(`upload-single-${single.id}`)?.click()}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                              className={`${replacingSingle === single.id ? 'bg-orange-600 hover:bg-orange-700 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'} text-white border-indigo-500`}
                               title="Upload new audio file"
                             >
-                              <Upload className="h-4 w-4" />
+                              {replacingSingle === single.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  <span className="text-xs">Uploading...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="h-4 w-4" />
+                                  <span className="text-xs ml-1">Replace</span>
+                                </>
+                              )}
                             </Button>
                             {/* Phase Status Dropdown */}
                             <DropdownMenu>

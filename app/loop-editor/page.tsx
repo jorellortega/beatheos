@@ -65,7 +65,7 @@ interface Region {
 
 interface EditHistory {
   id: string
-  type: 'cut' | 'copy' | 'paste' | 'delete' | 'fade' | 'normalize' | 'reverse'
+  type: 'cut' | 'copy' | 'paste' | 'delete' | 'fade' | 'normalize' | 'reverse' | 'marker' | 'edit' | 'shuffle'
   data: any
   timestamp: number
 }
@@ -219,6 +219,9 @@ export default function LoopEditorPage() {
   const [clipboard, setClipboard] = useState<any>(null)
   const [editHistory, setEditHistory] = useState<EditHistory[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
+  
+  // Undo/Redo state - limit to 5 operations
+  const MAX_HISTORY = 5
   
   // UI state
   const [showSettings, setShowSettings] = useState(false)
@@ -1489,6 +1492,62 @@ export default function LoopEditorPage() {
     ))
   }
   
+  // Helper function to save current state for undo/redo
+  const saveStateForHistory = (type: string, description: string) => {
+    const currentState = {
+      waveformData: [...waveformData],
+      markers: [...markers],
+      regions: [...regions],
+      playheadPosition,
+      zoom,
+      verticalZoom,
+      waveformOffset,
+      selectionStart,
+      selectionEnd,
+      waveSelectionStart,
+      waveSelectionEnd
+    }
+    
+    const historyItem: EditHistory = {
+      id: `${type}-${Date.now()}`,
+      type: type as any,
+      data: { 
+        state: currentState,
+        description,
+        timestamp: Date.now()
+      },
+      timestamp: Date.now()
+    }
+    
+    setEditHistory(prev => {
+      const newHistory = [...prev.slice(0, historyIndex + 1), historyItem]
+      // Limit to MAX_HISTORY items
+      if (newHistory.length > MAX_HISTORY) {
+        return newHistory.slice(-MAX_HISTORY)
+      }
+      return newHistory
+    })
+    setHistoryIndex(prev => Math.min(prev + 1, MAX_HISTORY - 1))
+  }
+  
+  // Helper function to restore state from history
+  const restoreStateFromHistory = (historyItem: EditHistory) => {
+    if (historyItem.data?.state) {
+      const state = historyItem.data.state
+      setWaveformData(state.waveformData)
+      setMarkers(state.markers)
+      setRegions(state.regions)
+      setPlayheadPosition(state.playheadPosition)
+      setZoom(state.zoom)
+      setVerticalZoom(state.verticalZoom)
+      setWaveformOffset(state.waveformOffset)
+      setSelectionStart(state.selectionStart)
+      setSelectionEnd(state.selectionEnd)
+      setWaveSelectionStart(state.waveSelectionStart)
+      setWaveSelectionEnd(state.waveSelectionEnd)
+    }
+  }
+  
   // Edit functions
   const cutSelection = () => {
     if (selectionStart === null || selectionEnd === null) return
@@ -1496,16 +1555,8 @@ export default function LoopEditorPage() {
     const start = Math.min(selectionStart, selectionEnd)
     const end = Math.max(selectionStart, selectionEnd)
     
-    // Add to history
-    const historyItem: EditHistory = {
-      id: `cut-${Date.now()}`,
-      type: 'cut',
-      data: { start, end, waveformData: waveformData.slice() },
-      timestamp: Date.now()
-    }
-    
-    setEditHistory(prev => [...prev.slice(0, historyIndex + 1), historyItem])
-    setHistoryIndex(prev => prev + 1)
+    // Save state before cutting
+    saveStateForHistory('cut', `Cut selection ${start.toFixed(2)}s - ${end.toFixed(2)}s`)
     
     // TODO: Implement actual cutting logic
     console.log('Cut selection:', start, end)
@@ -1524,28 +1575,47 @@ export default function LoopEditorPage() {
   const pasteAtPlayhead = () => {
     if (!clipboard) return
     
+    // Save state before pasting
+    saveStateForHistory('paste', `Paste at ${playheadPosition.toFixed(2)}s`)
+    
     // TODO: Implement paste logic
     console.log('Paste at playhead:', playheadPosition)
   }
   
   const undo = () => {
     if (historyIndex >= 0) {
+      const historyItem = editHistory[historyIndex]
+      console.log('Undoing:', historyItem.data?.description)
+      
+      // Restore previous state
+      if (historyIndex > 0) {
+        const previousItem = editHistory[historyIndex - 1]
+        restoreStateFromHistory(previousItem)
+      } else {
+        // If we're at the beginning, restore to initial state
+        // This would need to be set when audio is first loaded
+        console.log('Restoring to initial state')
+      }
+      
       setHistoryIndex(prev => prev - 1)
-      // TODO: Implement undo logic
-      console.log('Undo')
     }
   }
   
   const redo = () => {
     if (historyIndex < editHistory.length - 1) {
+      const nextItem = editHistory[historyIndex + 1]
+      console.log('Redoing:', nextItem.data?.description)
+      
+      restoreStateFromHistory(nextItem)
       setHistoryIndex(prev => prev + 1)
-      // TODO: Implement redo logic
-      console.log('Redo')
     }
   }
   
   // Marker functions
   const addMarker = () => {
+    // Save state before adding marker
+    saveStateForHistory('marker', `Add marker at ${playheadPosition.toFixed(2)}s`)
+    
     const markerName = `Marker ${markers.length + 1}`
     const newMarker = {
       id: `marker-${Date.now()}`,
@@ -1830,6 +1900,10 @@ export default function LoopEditorPage() {
   }
   
   const removeMarker = (markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (marker) {
+      saveStateForHistory('delete', `Remove marker: ${marker.name}`)
+    }
     setMarkers(prev => prev.filter(marker => marker.id !== markerId))
   }
 
@@ -1858,6 +1932,9 @@ export default function LoopEditorPage() {
       })
       return
     }
+
+    // Save state before shuffling
+    saveStateForHistory('shuffle', 'Shuffle markers')
 
     try {
       console.log('🔍 Starting marker shuffle...')
@@ -2024,6 +2101,9 @@ export default function LoopEditorPage() {
       })
       return
     }
+
+    // Save state before shuffling
+    saveStateForHistory('shuffle', 'Shuffle grid')
 
     try {
       console.log('🔍 Starting grid shuffle...')
@@ -2226,6 +2306,9 @@ export default function LoopEditorPage() {
     const segment = getSelectedSegment()
     if (!segment || !audioRef.current) return
 
+    // Save state before deleting segment
+    saveStateForHistory('delete', `Delete segment ${segment.duration.toFixed(2)}s`)
+
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const response = await fetch(audioRef.current.src)
@@ -2248,14 +2331,14 @@ export default function LoopEditorPage() {
         // Copy before segment
         const beforeSamples = Math.floor(segment.start * originalBuffer.sampleRate)
         for (let i = 0; i < beforeSamples; i++) {
-          newData[i] = originalData[i]
+          newData[i] = newData[i] || 0
         }
         
         // Copy after segment
         const afterStart = Math.floor(segment.end * originalBuffer.sampleRate)
         const afterSamples = originalData.length - afterStart
         for (let i = 0; i < afterSamples; i++) {
-          newData[beforeSamples + i] = originalData[afterStart + i]
+          newData[beforeSamples + i] = originalData[afterStart + i] || 0
         }
       }
 
@@ -2403,6 +2486,9 @@ export default function LoopEditorPage() {
   const shuffleSelectedSegment = async () => {
     const segment = getSelectedSegment()
     if (!segment || !audioRef.current) return
+
+    // Save state before shuffling segment
+    saveStateForHistory('shuffle', `Shuffle segment ${segment.duration.toFixed(2)}s`)
 
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
@@ -2654,6 +2740,9 @@ export default function LoopEditorPage() {
       return
     }
 
+    // Save state before magic shuffle
+    saveStateForHistory('shuffle', 'Magic shuffle')
+
     try {
       console.log('🔍 Starting Magic Shuffle...')
       
@@ -2794,6 +2883,9 @@ export default function LoopEditorPage() {
           console.log('🔍 ADDING POSITION TO MARKER:', editingMarker.name, 'at', playheadPosition)
           console.log('🔍 All positions:', updatedPositions)
           
+          // Save state before adding position
+          saveStateForHistory('marker', `Add position to ${editingMarker.name}`)
+          
           setMarkers(prev => prev.map(marker => 
             marker.id === editingMarkerId 
               ? { ...marker, positions: updatedPositions }
@@ -2826,6 +2918,10 @@ export default function LoopEditorPage() {
         category: 'General',
         positions: [playheadPosition] // Initialize with first position
       }
+      
+      // Save state before creating marker
+      saveStateForHistory('marker', `Create marker at ${playheadPosition.toFixed(2)}s`)
+      
       setMarkers(prev => [...prev, newMarker])
       toast({
         title: "New Marker Created",
@@ -2854,6 +2950,12 @@ export default function LoopEditorPage() {
   
   const saveMarkerEdit = () => {
     if (!editingMarker) return
+    
+    const marker = markers.find(m => m.id === editingMarker)
+    if (!marker) return
+    
+    // Save state before editing marker
+    saveStateForHistory('edit', `Edit marker: ${marker.name}`)
     
     let finalTime = parseFloat(editingMarkerTime)
     
@@ -2930,6 +3032,15 @@ export default function LoopEditorPage() {
           const nextMarker = currentMarkers[currentIndex] || currentMarkers[0]
           if (nextMarker) jumpToMarker(nextMarker.time)
         }
+        // Undo/Redo shortcuts
+        if (e.code === 'KeyZ' && !e.shiftKey) {
+          e.preventDefault()
+          undo()
+        }
+        if ((e.code === 'KeyZ' && e.shiftKey) || e.code === 'KeyY') {
+          e.preventDefault()
+          redo()
+        }
       }
       
       // Marker editing
@@ -2997,7 +3108,7 @@ export default function LoopEditorPage() {
   
   return (
     <div className="min-h-screen bg-[#141414] text-white">
-      {/* Mobile-optimized Header */}
+      {/* Header */}
       <div className="bg-[#141414] border-b border-gray-700 p-3 sm:p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
@@ -3015,7 +3126,7 @@ export default function LoopEditorPage() {
                   </span>
                 </div>
               )}
-              {/* Mobile-optimized Debug Info */}
+              {/* Debug Info */}
               <div className="mt-1 grid grid-cols-2 sm:flex sm:items-center sm:gap-2 text-xs text-gray-400">
                 <span>Audio: {audioRef.current ? '✓' : '✗'}</span>
                 <span>Playing: {isPlaying ? '✓' : '✗'}</span>
@@ -3090,10 +3201,10 @@ export default function LoopEditorPage() {
         </div>
       </div>
       
-      {/* Mobile-optimized Toolbar */}
+      {/* Toolbar */}
       <div className="bg-[#141414] border-b border-gray-700 p-2">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          {/* Mobile-optimized Playback Controls */}
+          {/* Playback Controls */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
             <Button
               size="sm"
@@ -3144,7 +3255,7 @@ export default function LoopEditorPage() {
             </Button>
           </div>
           
-          {/* Mobile-optimized Tools */}
+          {/* Tools */}
           <div className="flex items-center gap-1 overflow-x-auto pb-2 sm:pb-0">
             <Button
               size="sm"
@@ -3220,7 +3331,7 @@ export default function LoopEditorPage() {
             </Button>
           </div>
           
-          {/* Mobile-optimized Edit Operations */}
+          {/* Edit Operations */}
           <div className="flex items-center gap-1 overflow-x-auto pb-2 sm:pb-0">
             <Button
               size="sm"
@@ -3254,22 +3365,34 @@ export default function LoopEditorPage() {
               variant="outline"
               onClick={undo}
               disabled={historyIndex < 0}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+              className={`flex-shrink-0 ${
+                historyIndex >= 0 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+              }`}
+              title={historyIndex >= 0 ? `Undo: ${editHistory[historyIndex]?.data?.description || 'Previous action'}` : 'Nothing to undo'}
             >
               <Undo className="w-4 h-4" />
+              <span className="ml-1 text-xs">{Math.max(0, historyIndex + 1)}</span>
             </Button>
             <Button
               size="sm"
               variant="outline"
               onClick={redo}
               disabled={historyIndex >= editHistory.length - 1}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+              className={`flex-shrink-0 ${
+                historyIndex < editHistory.length - 1 
+                  ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+              }`}
+              title={historyIndex < editHistory.length - 1 ? `Redo: ${editHistory[historyIndex + 1]?.data?.description || 'Next action'}` : 'Nothing to redo'}
             >
               <Redo className="w-4 h-4" />
+              <span className="ml-1 text-xs">{Math.max(0, editHistory.length - historyIndex - 1)}</span>
             </Button>
           </div>
           
-          {/* Mobile-optimized Grid Controls */}
+          {/* Grid Controls */}
           <div className="flex items-center gap-2">
             <Button
               size="sm"
@@ -3283,9 +3406,85 @@ export default function LoopEditorPage() {
             >
               <Grid3X3 className="w-4 h-4" />
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowDetailedGrid(!showDetailedGrid)}
+              className={showDetailedGrid 
+                ? 'bg-purple-600 text-white font-bold hover:bg-purple-700 transition-colors border-none' 
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+              }
+              title={`Detailed Grid: ${showDetailedGrid ? 'ON' : 'OFF'} (shows finer subdivisions)`}
+            >
+              <Grid3X3 className="w-4 h-4" />
+              <span className="ml-1 text-xs">+</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addBarTracker}
+              disabled={!audioFile}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              title="Add bar tracker marker with sub-bar tracking"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span className="ml-1 text-xs">Bar Tracker</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={markedBars.length > 0 ? "default" : "outline"}
+              onClick={() => {
+                if (markedBars.length > 0) {
+                  setMarkedBars([])
+                  setMarkedSubBars([])
+                } else {
+                  // Use the EXACT same math as sequencer grid
+                  const secondsPerBeat = 60 / bpm
+                  const gridDivision = 16 // 1/16 resolution like sequencer
+                  const stepDuration = secondsPerBeat / (gridDivision / 4)
+                  const loopBars = Math.round((totalDuration / stepDuration) / 4)
+                  const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
+                  setMarkedBars(allBars)
+                  const totalBeats = loopBars * 4
+                  const allSubBars = Array.from({ length: totalBeats }, (_, i) => i + 1)
+                  setMarkedSubBars(allSubBars)
+                }
+              }}
+              disabled={!audioFile}
+              className={markedBars.length > 0 
+                ? 'bg-green-600 text-white font-bold hover:bg-green-700 transition-colors border-none' 
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+              }
+              title={markedBars.length > 0 ? "Hide bars" : "Show bars"}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span className="ml-1 text-xs">{markedBars.length > 0 ? 'Hide Bars' : 'Show Bars'}</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={duplicateWaveTrack}
+              disabled={!audioFile}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              title="Duplicate wave track"
+            >
+              <Copy className="w-4 h-4" />
+              <span className="ml-1 text-xs">Duplicate</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={reverseDuplicateWave}
+              disabled={!duplicateWave}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+              title="Reverse duplicate wave"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span className="ml-1 text-xs">Reverse</span>
+            </Button>
           </div>
           
-          {/* Mobile-optimized Zoom Controls */}
+          {/* Zoom Controls */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 overflow-x-auto pb-2 sm:pb-0">
             <div className="flex items-center gap-2 flex-shrink-0">
               <Label className="text-xs text-gray-300 min-w-[1rem]">H:</Label>
@@ -3425,6 +3624,15 @@ export default function LoopEditorPage() {
               <span className="hidden sm:inline">Reset All</span>
               <span className="sm:hidden">Reset</span>
             </Button>
+            
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={saveProject}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+            >
+              <Save className="w-4 h-4" />
+            </Button>
           </div>
         </div>
       </div>
@@ -3433,10 +3641,10 @@ export default function LoopEditorPage() {
       <div className="flex h-[calc(100vh-120px)]">
         {/* Left Side - Transport, Waveform, and Toolbar */}
         <div className="flex-1 flex flex-col">
-          {/* Mobile-optimized Transport Controls - Above Waveform */}
+          {/* Transport Controls - Above Waveform */}
           <div className="bg-[#0f0f0f] border-b border-gray-600 p-3 sm:p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8">
-            {/* Mobile-optimized Left Section - Transport Info */}
+            {/* Left Section - Transport Info */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
                 <div className="flex items-center gap-2 sm:gap-4">
                   <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Time:</span>
@@ -3514,7 +3722,7 @@ export default function LoopEditorPage() {
                   </div>
                 </div>
                 
-                {/* Mobile-optimized Half Time Button - Like Fruity Loops Half Time Plugin */}
+                {/* Half Time Button - Like Fruity Loops Half Time Plugin */}
                 <div className="flex items-center gap-2">
                   <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Speed:</span>
                   <Button
@@ -3560,7 +3768,7 @@ export default function LoopEditorPage() {
                 </div>
             </div>
             
-            {/* Mobile-optimized Center Section - Playback Controls */}
+            {/* Center Section - Playback Controls */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
                 <div className="flex items-center gap-2 sm:gap-4">
                 <Label className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Rate:</Label>
@@ -3592,7 +3800,7 @@ export default function LoopEditorPage() {
               </div>
             </div>
             
-            {/* Mobile-optimized Right Section - Status Information */}
+            {/* Right Section - Status Information */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
                 <div className="flex items-center gap-2 sm:gap-3">
                 <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Status:</span>
@@ -3614,6 +3822,12 @@ export default function LoopEditorPage() {
                 <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Regions:</span>
                   <span className="text-purple-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-purple-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
                   {regions.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">History:</span>
+                  <span className="text-orange-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-orange-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
+                  {historyIndex + 1}/{editHistory.length}
                 </span>
               </div>
               </div>
@@ -3691,415 +3905,7 @@ export default function LoopEditorPage() {
           )}
         </div>
         
-        {/* Mobile-optimized Toolbar - Below Waveform */}
-        <div className="bg-[#141414] border-t border-gray-700 p-2">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            {/* Mobile-optimized Playback Controls */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
-              <Button
-                size="sm"
-                onClick={togglePlayback}
-                disabled={!audioFile}
-                className="bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none flex-shrink-0"
-              >
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setPlayheadPosition(0)}
-                disabled={!audioFile}
-                className="bg-gray-800 text-white font-bold hover:bg-gray-700 transition-colors border-gray-600 flex-shrink-0"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            {/* Tools */}
-            <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant={activeTool === 'select' ? 'default' : 'outline'}
-                onClick={() => setActiveTool(activeTool === 'select' ? 'select' : 'select')}
-                className={activeTool === 'select' 
-                  ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title="Select tool (default)"
-              >
-                <Target className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant={activeTool === 'cut' ? 'default' : 'outline'}
-                onClick={() => setActiveTool(activeTool === 'cut' ? 'select' : 'cut')}
-                className={activeTool === 'cut' 
-                  ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={activeTool === 'cut' ? 'Click to turn off cut mode' : 'Click to enable cut mode'}
-              >
-                <Scissors className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant={activeTool === 'fade' ? 'default' : 'outline'}
-                onClick={() => setActiveTool(activeTool === 'fade' ? 'select' : 'fade')}
-                className={activeTool === 'fade' 
-                  ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={activeTool === 'fade' ? 'Click to turn off fade mode' : 'Click to enable fade mode'}
-              >
-                <BarChart3 className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant={activeTool === 'marker' ? 'default' : 'outline'}
-                onClick={() => setActiveTool(activeTool === 'marker' ? 'select' : 'marker')}
-                className={activeTool === 'marker' 
-                  ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={activeTool === 'marker' ? 'Click to turn off marker mode' : 'Click to enable marker mode'}
-              >
-                <MapPin className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant={activeTool === 'region' ? 'default' : 'outline'}
-                onClick={() => setActiveTool(activeTool === 'region' ? 'select' : 'region')}
-                className={activeTool === 'region' 
-                  ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={activeTool === 'region' ? 'Click to turn off region mode' : 'Click to enable region mode'}
-              >
-                <Type className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant={activeTool === 'drag' ? 'default' : 'outline'}
-                onClick={() => setActiveTool(activeTool === 'drag' ? 'select' : 'drag')}
-                className={activeTool === 'drag' 
-                  ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={activeTool === 'drag' ? 'Click to turn off drag mode' : 'Click to enable drag mode'}
-              >
-                <Move className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            {/* Edit Operations */}
-            <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={cutSelection}
-                disabled={selectionStart === null || selectionEnd === null}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                <Scissors className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={copySelection}
-                disabled={selectionStart === null || selectionEnd === null}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                <Copy className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={pasteAtPlayhead}
-                disabled={!clipboard}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                <Clipboard className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={undo}
-                disabled={historyIndex < 0}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                <Undo className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={redo}
-                disabled={historyIndex >= editHistory.length - 1}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                <Redo className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            {/* Grid Controls */}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={snapToGrid ? "default" : "outline"}
-                onClick={() => setSnapToGrid(!snapToGrid)}
-                className={snapToGrid 
-                  ? 'bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={`Snap to Grid: ${snapToGrid ? 'ON' : 'OFF'}`}
-              >
-                <Grid3X3 className="w-4 h-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowDetailedGrid(!showDetailedGrid)}
-                className={showDetailedGrid 
-                  ? 'bg-purple-600 text-white font-bold hover:bg-purple-700 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={`Detailed Grid: ${showDetailedGrid ? 'ON' : 'OFF'} (shows finer subdivisions)`}
-              >
-                <Grid3X3 className="w-4 h-4" />
-                <span className="ml-1 text-xs">+</span>
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={addBarTracker}
-                disabled={!audioFile}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                title="Add bar tracker marker with sub-bar tracking"
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span className="ml-1 text-xs">Bar Tracker</span>
-              </Button>
-              <Button
-                size="sm"
-                variant={markedBars.length > 0 ? "default" : "outline"}
-                onClick={() => {
-                  if (markedBars.length > 0) {
-                    setMarkedBars([])
-                    setMarkedSubBars([])
-                  } else {
-                    // Use the EXACT same math as sequencer grid
-                    const secondsPerBeat = 60 / bpm
-                    const gridDivision = 16 // 1/16 resolution like sequencer
-                    const stepDuration = secondsPerBeat / (gridDivision / 4)
-                    const loopBars = Math.round((totalDuration / stepDuration) / 4)
-                    const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
-                    setMarkedBars(allBars)
-                    const totalBeats = loopBars * 4
-                    const allSubBars = Array.from({ length: totalBeats }, (_, i) => i + 1)
-                    setMarkedSubBars(allSubBars)
-                  }
-                }}
-                disabled={!audioFile}
-                className={markedBars.length > 0 
-                  ? 'bg-green-600 text-white font-bold hover:bg-green-700 transition-colors border-none' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-                }
-                title={markedBars.length > 0 ? "Hide bars" : "Show bars"}
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span className="ml-1 text-xs">{markedBars.length > 0 ? 'Hide Bars' : 'Show Bars'}</span>
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={duplicateWaveTrack}
-                disabled={!audioFile}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                title="Duplicate wave track"
-              >
-                <Copy className="w-4 h-4" />
-                <span className="ml-1 text-xs">Duplicate</span>
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={reverseDuplicateWave}
-                disabled={!duplicateWave}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                title="Reverse duplicate wave"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span className="ml-1 text-xs">Reverse</span>
-              </Button>
-            </div>
-            
-            {/* Zoom Controls */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-gray-300 min-w-[1rem]">H:</Label>
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      console.log('🔍 ZOOM OUT CLICKED - current zoom:', zoom)
-                      const newZoom = Math.max(0.1, zoom - 0.2)
-                      console.log('🔍 SETTING ZOOM TO:', newZoom)
-                      setZoom(newZoom)
-                      setTimeout(() => {
-                        console.log('🔍 MANUAL REDRAW AFTER ZOOM OUT')
-                        drawWaveform()
-                      }, 0)
-                    }}
-                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </Button>
-                  <Slider
-                    value={[zoom]}
-                    onValueChange={(value) => {
-                      console.log('🔍 ZOOM SLIDER CHANGED - new value:', value[0])
-                      setZoom(value[0])
-                      setTimeout(() => {
-                        console.log('🔍 MANUAL REDRAW AFTER SLIDER')
-                        drawWaveform()
-                      }, 0)
-                    }}
-                    min={0.1}
-                    max={5}
-                    step={0.1}
-                    className="w-20"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      console.log('🔍 ZOOM IN CLICKED - current zoom:', zoom)
-                      const newZoom = Math.min(5, zoom + 0.2)
-                      console.log('🔍 SETTING ZOOM TO:', newZoom)
-                      setZoom(newZoom)
-                      setTimeout(() => {
-                        console.log('🔍 MANUAL REDRAW AFTER ZOOM IN')
-                        drawWaveform()
-                      }, 0)
-                    }}
-                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </Button>
-                  <span className="text-xs min-w-[3rem] text-gray-300">{Math.round(zoom * 100)}%</span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    console.log('🔍 FIT TO VIEW CLICKED')
-                    setZoom(1.0) // Reset zoom to show full waveform
-                    setWaveformOffset(0) // Reset offset
-                    setTimeout(() => {
-                      console.log('🔍 MANUAL REDRAW AFTER FIT TO VIEW')
-                      drawWaveform()
-                    }, 0)
-                  }}
-                  className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500 ml-2"
-                  title="Fit waveform to view"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                  <span className="ml-1 text-xs">Fit</span>
-                </Button>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-gray-300 min-w-[1rem]">V:</Label>
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setVerticalZoom(Math.max(0.1, verticalZoom - 0.2))
-                      setTimeout(() => drawWaveform(), 0)
-                    }}
-                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </Button>
-                  <Slider
-                    value={[verticalZoom]}
-                    onValueChange={(value) => {
-                      setVerticalZoom(value[0])
-                      setTimeout(() => drawWaveform(), 0)
-                    }}
-                    min={0.1}
-                    max={5}
-                    step={0.1}
-                    className="w-20"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setVerticalZoom(Math.min(5, verticalZoom + 0.2))
-                      setTimeout(() => drawWaveform(), 0)
-                    }}
-                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </Button>
-                  <span className="text-xs min-w-[3rem] text-gray-300">{Math.round(verticalZoom * 100)}%</span>
-                </div>
-              </div>
-              
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setWaveformOffset(0)
-                  console.log('🔍 WAVEFORM OFFSET RESET')
-                }}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                Reset Wave
-              </Button>
-              
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setZoom(1)
-                  setVerticalZoom(1)
-                  setPlayheadPosition(0)
-                  setCurrentTime(0)
-                  setMarkers([])
-                  setRegions([])
-                  setSelectionStart(null)
-                  setSelectionEnd(null)
-                  setIsSelecting(false)
-                  setEditingMarker(null)
-                  setSelectedCategory('all')
-                  setCustomCategories([])
-                  if (audioRef.current) {
-                    audioRef.current.currentTime = 0
-                  }
-                  // Force reload waveform
-                  if (audioFile) {
-                    loadAudioFile(audioFile)
-                  }
-                }}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                Reset All
-              </Button>
-              
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={saveProject}
-                className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              >
-                <Save className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+
         
         {/* Sidebar */}
         <div className="w-[1000px] bg-[#141414] border-l border-gray-700 overflow-y-auto">

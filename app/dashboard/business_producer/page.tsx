@@ -1122,6 +1122,26 @@ export default function BusinessProducerDashboard() {
               </Card>
             </Link>
           </div>
+          {/* My Library Card */}
+          <div className="mb-8">
+            <Link href="/mylibrary" className="block">
+              <Card className="bg-black border-primary hover:border-yellow-400 transition-colors cursor-pointer">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Package className="mr-2 h-6 w-6 text-primary" />
+                    My Library
+                  </CardTitle>
+                  <CardDescription>Manage your albums, singles, and audio library.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
+                    Go to Library
+                  </Button>
+                </CardContent>
+              </Card>
+            </Link>
+          </div>
+          
           {/* Top 5 Beats by Plays */}
           <div className="mb-8">
             <div className="text-xl font-bold text-primary mb-4">Top 5 Most Played Beats</div>

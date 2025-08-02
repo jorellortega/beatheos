@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Music2, Users, User } from "lucide-react"
+import { Music2, Users, User, Package } from "lucide-react"
 
 export default function ProArtistDashboardPage() {
   const { user } = useAuth()
@@ -116,6 +116,22 @@ export default function ProArtistDashboardPage() {
             <Link href={`/artist/${user?.username?.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-') || 'my-profile'}`}>
               <Button className="w-full gradient-button text-black font-medium hover:text-white">
                 View My Profile
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-primary flex items-center">
+              <Package className="mr-2 h-5 w-5" />
+              My Library
+            </CardTitle>
+            <CardDescription>Manage your albums, singles, and audio library.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/mylibrary">
+              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                Go to Library
               </Button>
             </Link>
           </CardContent>

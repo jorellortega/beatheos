@@ -838,7 +838,7 @@ export default function FreeArtistDashboard() {
             </Link>
           </CardContent>
         </Card>
-        <Card className="bg-card border-primary hover:border-primary transition-all">
+                <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
             <CardTitle>My Beats</CardTitle>
             <CardDescription>View and download your beats.</CardDescription>
@@ -847,6 +847,22 @@ export default function FreeArtistDashboard() {
             <Link href="/mybeats">
               <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
                 My Beats
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Package className="mr-2 h-6 w-6 text-primary" />
+              My Library
+            </CardTitle>
+            <CardDescription>Manage your albums, singles, and audio library.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/mylibrary">
+              <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
+                Go to Library
               </Button>
             </Link>
           </CardContent>

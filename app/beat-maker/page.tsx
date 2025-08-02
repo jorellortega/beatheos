@@ -8035,24 +8035,23 @@ export default function BeatMakerPage() {
             </select>
           </div>
           
-          {/* Subgenre Selector */}
-          <div className="relative">
-            <select
-              value={selectedSubgenre}
-              onChange={(e) => handleSubgenreChange(e.target.value)}
-              className="bg-black border border-blue-400 text-white px-3 py-2 rounded pr-8"
-              disabled={!selectedGenre}
-            >
-              <option value="">
-                {selectedGenre ? 'All Subgenres' : 'Select Genre First'}
-              </option>
-              {availableSubgenres.map((subgenre) => (
-                <option key={subgenre} value={subgenre}>
-                  {subgenre}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Subgenre Selector - Only show when genre is selected */}
+          {selectedGenre && (
+            <div className="relative">
+              <select
+                value={selectedSubgenre}
+                onChange={(e) => handleSubgenreChange(e.target.value)}
+                className="bg-black border border-blue-400 text-white px-3 py-2 rounded pr-8"
+              >
+                <option value="">All Subgenres</option>
+                {availableSubgenres.map((subgenre) => (
+                  <option key={subgenre} value={subgenre}>
+                    {subgenre}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           
           <Button 
             variant="outline" 
