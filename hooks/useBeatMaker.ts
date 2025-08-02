@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import * as Tone from 'tone'
 import { PITCH_SHIFT_SETTINGS, createEnhancedPitchShifter, createProfessionalPitchShifter, getOptimalPitchSettings, createPitchShifter, applyPitchShiftWithEnhancement } from '@/lib/utils'
 
@@ -71,6 +71,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
+  const [reloadingTracks, setReloadingTracks] = useState<Set<number>>(new Set())
+  const [reloadTimeout, setReloadTimeout] = useState<NodeJS.Timeout | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | any>(null)
   const playheadRef = useRef<number>(0)
   const animationFrameRef = useRef<number | null>(null)
@@ -83,6 +85,69 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   // Store original sequencer data to preserve patterns when steps change
   const originalSequencerDataRef = useRef<SequencerData>({})
   const isLoadingPatternRef = useRef<boolean>(false)
+
+  // Memoize track dependencies for the auto-reload effect
+  const trackDependencies = useMemo(() => 
+    tracks.map(t => ({ 
+      id: t.id, 
+      audioUrl: t.audioUrl, 
+      playbackRate: t.playbackRate,
+      pitchShift: t.pitchShift,
+      loopStartTime: t.loopStartTime,
+      loopEndTime: t.loopEndTime
+    })), 
+    [tracks]
+  )
+
+  // Auto-reload effect to handle track changes and eliminate race conditions
+  useEffect(() => {
+    if (reloadTimeout) {
+      clearTimeout(reloadTimeout)
+    }
+
+    const timeout = setTimeout(() => {
+      const tracksToReload = tracks.filter(track => {
+        if (!track.audioUrl) return false
+        
+        const existingPlayer = samplesRef.current[track.id]
+        const needsReload = !existingPlayer || 
+                           !existingPlayer.loaded ||
+                           Math.abs((existingPlayer.playbackRate || 1.0) - (track.playbackRate || 1.0)) > 0.0001 ||
+                           Math.abs((pitchShiftersRef.current[track.id]?.pitch || 0) - (track.pitchShift || 0)) > 0.0001 ||
+                           existingPlayer.loopStart !== (track.loopStartTime || 0) ||
+                           existingPlayer.loopEnd !== (track.loopEndTime || 0)
+        
+        return needsReload
+      })
+
+      if (tracksToReload.length > 0) {
+        console.log(`[AUTO RELOAD] Reloading ${tracksToReload.length} tracks`)
+        
+        tracksToReload.forEach(async track => {
+          setReloadingTracks(prev => new Set(prev).add(track.id))
+          
+          try {
+            await forceReloadTrackSamples(track.id)
+            console.log(`[AUTO RELOAD] Successfully reloaded track ${track.name}`)
+          } catch (error) {
+            console.error(`[AUTO RELOAD] Failed to reload track ${track.name}:`, error)
+          } finally {
+            setReloadingTracks(prev => {
+              const next = new Set(prev)
+              next.delete(track.id)
+              return next
+            })
+          }
+        })
+      }
+    }, 100) // 100ms debounce to handle rapid changes
+
+    setReloadTimeout(timeout)
+
+    return () => {
+      if (timeout) clearTimeout(timeout)
+    }
+  }, [trackDependencies])
 
   // Function to set sequencer data from outside (for session loading)
   const setSequencerDataFromSession = useCallback((newSequencerData: SequencerData | ((prev: SequencerData) => SequencerData)) => {
@@ -1268,6 +1333,14 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       console.log(`[FORCE RELOAD] Time stretch mode: ${timeStretchMode}`)
       console.log(`[FORCE RELOAD] ${timeStretchMode === 'resampling' ? 'RM: Changing pitch & speed' : 'FT: Changing speed only, keeping original pitch'}`)
       
+      // CRITICAL DEBUG: Log transport BPM for comparison
+      console.log(`[FORCE RELOAD CRITICAL] Transport BPM: ${bpm}`)
+      console.log(`[FORCE RELOAD CRITICAL] Track should match transport BPM: ${track.currentBpm === bpm}`)
+      if (track.name === 'Drum Loop') {
+        console.log(`[FORCE RELOAD CRITICAL] DRUM LOOP - Expected BPM: ${bpm}, Track BPM: ${track.currentBpm}`)
+        console.log(`[FORCE RELOAD CRITICAL] DRUM LOOP - Expected rate: ${bpm / (track.originalBpm || 120)}, Actual rate: ${track.playbackRate}`)
+      }
+      
       // Create new pitch shifter with proper reset
       const pitchShift = new Tone.PitchShift({
         pitch: 0,  // Always start with 0 pitch shift
@@ -1550,6 +1623,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     stopAllLoops,
     samplesRef,
     pitchShiftersRef,
-    applyEQToTrack
+    applyEQToTrack,
+    reloadingTracks // Export loading state for UI feedback
   }
 } 

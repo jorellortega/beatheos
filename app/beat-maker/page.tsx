@@ -189,11 +189,8 @@ export default function BeatMakerPage() {
       track.id === trackId ? { ...track, audioUrl: newAudioUrl } : track
     ))
     
-    // Only force reload if the format system is enabled
-    if (formatSystemEnabled && forceReloadTrackSamples) {
-      console.log(`[FORMAT CHANGE] Force reloading track ${trackId} due to format change`)
-      forceReloadTrackSamples(trackId)
-    }
+    // Auto-reload will handle the audio reload automatically via useEffect
+    console.log(`[FORMAT CHANGE] Track state updated - auto-reload will handle audio reload`)
   }
 
   // Handler for track halftime changes
@@ -243,40 +240,8 @@ export default function BeatMakerPage() {
       }
     }
     
-    // Force reload the track to apply the new settings
-    setTimeout(async () => {
-      console.log(`🔍 TRACK HALFTIME - Force reloading track ${trackId} with new settings`)
-      try {
-        await stopTransport()
-        await forceReloadTrackSamples(trackId)
-        console.log(`🔍 TRACK HALFTIME - Successfully reloaded track ${trackId}`)
-        
-        // Verify the reload worked
-        setTimeout(() => {
-          const samples = samplesRef?.current
-          if (samples && samples[trackId]) {
-            const player = samples[trackId]
-            if (player && player.loaded) {
-              console.log(`🔍 TRACK HALFTIME - Verified reload for track ${trackId}`)
-            } else {
-              console.warn(`🔍 TRACK HALFTIME - Reload verification failed for track ${trackId}, retrying...`)
-              forceReloadTrackSamples(trackId)
-            }
-          }
-        }, 100)
-      } catch (error) {
-        console.error(`🔍 TRACK HALFTIME - Error reloading track ${trackId}:`, error)
-        // Retry once
-        setTimeout(async () => {
-          try {
-            await forceReloadTrackSamples(trackId)
-            console.log(`🔍 TRACK HALFTIME - Retry successful for track ${trackId}`)
-          } catch (retryError) {
-            console.error(`🔍 TRACK HALFTIME - Retry failed for track ${trackId}:`, retryError)
-          }
-        }, 300)
-      }
-    }, 200)
+    // Auto-reload will handle the audio reload automatically via useEffect
+    console.log(`🔍 TRACK HALFTIME - Track state updated - auto-reload will handle audio reload`)
   }
 
   // Fetch total audio items count
@@ -523,7 +488,8 @@ export default function BeatMakerPage() {
     restartAllLoopsAtPatternBoundary,
     stopAllLoops,
     samplesRef,
-    pitchShiftersRef
+    pitchShiftersRef,
+    reloadingTracks
   } = useBeatMaker(tracks, steps, bpm, timeStretchMode, gridDivision)
 
   // Custom playStep function that includes MIDI playback
@@ -2342,36 +2308,13 @@ export default function BeatMakerPage() {
       if (playbackRateChange > 0.001) {
         console.log(`[TEMPO CHANGE] Significant playback rate change detected: ${currentPlaybackRate} -> ${newPlaybackRate} (change: ${playbackRateChange.toFixed(4)})`)
         
-        // For Original BPM changes, we need to be more careful about the reload timing
-        if (isOriginalBpmChange) {
-          // Add a longer delay for Original BPM changes to ensure clean reload
-          setTimeout(async () => {
-            try {
-              await forceReloadTrackSamples(trackId)
-              console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after Original BPM change`)
-              
-              setTimeout(() => {
-                quantizeTrackTiming(trackId)
-              }, 200)
-            } catch (error) {
-              console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
-            }
-          }, 300) // Increased delay for Original BPM changes
-        } else {
-          // Regular tempo change - use normal timing
-          setTimeout(async () => {
-            try {
-              await forceReloadTrackSamples(trackId)
-              console.log(`[TEMPO CHANGE] Successfully reloaded track ${currentTrack.name} after tempo change`)
-              
-              setTimeout(() => {
-                quantizeTrackTiming(trackId)
-              }, 200)
-            } catch (error) {
-              console.error(`[TEMPO CHANGE] Failed to reload track ${currentTrack.name}:`, error)
-            }
-          }, 150) // Shorter delay for regular tempo changes
-        }
+        // Auto-reload will handle the audio reload automatically via useEffect
+        console.log(`[TEMPO CHANGE] Track state updated - auto-reload will handle audio reload`)
+        
+        // Schedule quantization after auto-reload completes
+        setTimeout(() => {
+          quantizeTrackTiming(trackId)
+        }, 500) // Increased delay to allow auto-reload to complete
       } else {
         console.log(`[TEMPO CHANGE] No significant playback rate change (${playbackRateChange.toFixed(4)}), skipping reload`)
       }
@@ -2614,11 +2557,8 @@ export default function BeatMakerPage() {
             
             updatedTracks++
             
-            // Force reload with new playback rate
-            setTimeout(() => {
-              console.log(`[TRANSPORT BPM] Force reloading track ${track.id}`)
-              forceReloadTrackSamples(track.id)
-            }, 50 * track.id) // Stagger reloads to prevent conflicts
+            // Auto-reload will handle the audio reload automatically via useEffect
+            console.log(`[TRANSPORT BPM] Track state updated - auto-reload will handle audio reload`)
           }
         })
         
@@ -2627,18 +2567,8 @@ export default function BeatMakerPage() {
         console.log(`[TRANSPORT BPM] M-T mode: Skipping track sync - Melody Loop controls transport`)
       }
       
-      // Force reload all tracks to apply current time stretch mode
-      // This ensures RM/FT mode is properly applied to all tracks
-      setTimeout(() => {
-        console.log(`[TRANSPORT BPM] Force reloading all tracks to apply ${timeStretchMode} mode`)
-        tracks.forEach(track => {
-          if (track.audioUrl && track.audioUrl !== 'undefined') {
-            setTimeout(() => {
-              forceReloadTrackSamples(track.id)
-            }, 100 * track.id) // Stagger reloads to prevent conflicts
-          }
-        })
-      }, 200)
+      // Auto-reload will handle the audio reload automatically via useEffect
+      console.log(`[TRANSPORT BPM] Track states updated - auto-reload will handle audio reload`)
     }
   }
 
@@ -2718,18 +2648,8 @@ export default function BeatMakerPage() {
     const tracksWithAudio = tracks.filter(track => track.audioUrl && track.audioUrl !== 'undefined')
     console.log(`[AUDIO RESET] Reloading ${tracksWithAudio.length} tracks with current settings`)
     
-    // Reload all tracks with current settings (don't change anything)
-    for (let i = 0; i < tracksWithAudio.length; i++) {
-      const track = tracksWithAudio[i]
-      setTimeout(async () => {
-        try {
-          await forceReloadTrackSamples(track.id)
-          console.log(`[AUDIO RESET] Reloaded track ${track.id} with current settings`)
-        } catch (error) {
-          console.error(`[AUDIO RESET] Error reloading track ${track.id}:`, error)
-        }
-      }, i * 100)
-    }
+    // Auto-reload will handle the audio reload automatically via useEffect
+    console.log(`[AUDIO RESET] Track states updated - auto-reload will handle audio reload`)
     
     if (countdownElement) {
       countdownElement.textContent = 'Audio reset complete!'
@@ -2795,13 +2715,7 @@ export default function BeatMakerPage() {
     const needsReload = absPitch > 7 // Reload for large pitch changes to use better algorithm
     
     if (needsReload) {
-      console.log(`[PITCH SHIFT] Large pitch change detected (${value}), forcing track reload for better quality`)
-      // Force reload all tracks to apply the new pitch shifting method
-      tracks.forEach(track => {
-        if (forceReloadTrackSamples) {
-          forceReloadTrackSamples(track.id)
-        }
-      })
+      console.log(`[PITCH SHIFT] Large pitch change detected (${value}), auto-reload will handle track reload for better quality`)
     } else {
       // Apply pitch shift to all tracks immediately
       tracks.forEach(track => {
@@ -3234,6 +3148,22 @@ export default function BeatMakerPage() {
       const track = tracks.find(t => t.id === trackId)
       if (!track) return
 
+      // CRITICAL DEBUG: Log the exact state before shuffling
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === STARTING INDIVIDUAL SHUFFLE FOR ${track.name} ===`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track ID: ${trackId}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track name: ${track.name}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Current transport BPM: ${bpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Current transport key: ${transportKey}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track currentBpm before shuffle: ${track.currentBpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track originalBpm before shuffle: ${track.originalBpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track playbackRate before shuffle: ${track.playbackRate}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track pitchShift before shuffle: ${track.pitchShift}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isBpmLocked: ${isBpmLocked}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isKeyLocked: ${isKeyLocked}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] melodyLoopMode: ${melodyLoopMode}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isDrumTrack: ${['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion', 'Drum Loop'].includes(track.name)}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isLoopTrack: ${track.name.includes(' Loop')}`)
+
       // CRITICAL: Stop any existing audio for this track first
       console.log(`[SHUFFLE AUDIO] Stopping existing audio for track: ${track.name}`)
       
@@ -3447,25 +3377,38 @@ export default function BeatMakerPage() {
       let pitchShift = 0
       let playbackRate = 1.0
       
+      // CRITICAL DEBUG: Log BPM calculation process
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === BPM CALCULATION PROCESS ===`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Selected audio BPM: ${selectedAudio.bpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Selected audio key: ${selectedAudio.key}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Transport BPM: ${bpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Transport key: ${transportKey}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isBpmLocked: ${isBpmLocked}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isKeyLocked: ${isKeyLocked}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isDrumTrack: ${isDrumTrack}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isLoopTrack: ${track.name.includes(' Loop')}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] melodyLoopMode: ${melodyLoopMode}`)
+      
       // Mark session as changed
       markSessionChanged()
       
       if (isBpmLocked || isKeyLocked) {
         // Transport is partially or fully locked - adapt tracks accordingly
         if (isBpmLocked) {
-          // DISABLED: Automatic BPM adaptation to prevent halftime-like behavior
-          // finalBpm = bpm
-          // Instead, always use original BPM to prevent automatic halftime
-          finalBpm = selectedAudio.bpm || 120
-          console.log(`[DISABLED] Automatic BPM adaptation prevented for track ${track.name}`)
-          
-          // DISABLED: Automatic playback rate calculation to prevent halftime-like behavior
-          // Calculate playback rate to match transport tempo
-          if (selectedAudio.bpm && selectedAudio.bpm > 0) {
-            // DISABLED: playbackRate = bpm / selectedAudio.bpm
-            // Instead, keep original playback rate to prevent automatic halftime
+          // For loop tracks, always adapt to transport BPM regardless of lock status
+          if (track.name.includes(' Loop')) {
+            finalBpm = bpm
+            if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+              playbackRate = bpm / selectedAudio.bpm
+            } else {
+              playbackRate = 1.0
+            }
+            console.log(`[LOOP TRACK LOCKED] ${track.name} adapted to transport BPM: ${bpm} (rate: ${playbackRate.toFixed(3)})`)
+          } else {
+            // For non-loop tracks, use original BPM when locked
+            finalBpm = selectedAudio.bpm || 120
             playbackRate = 1.0
-            console.log(`[DISABLED] Automatic BPM adaptation prevented for track ${track.name}`)
+            console.log(`[NON-LOOP LOCKED] ${track.name} using original BPM: ${finalBpm}`)
           }
         }
         
@@ -3494,8 +3437,10 @@ export default function BeatMakerPage() {
         
         if (isDrumTrack) {
           console.log(`[DRUM TRACK] ${track.name} adapts to Transport BPM only: ${selectedAudio.bpm}BPM -> ${finalBpm}BPM (rate: ${playbackRate.toFixed(2)}, no pitch shift)`)
+          console.log(`[INDIVIDUAL SHUFFLE DEBUG] DRUM TRACK - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         } else {
         console.log(`[TRANSPORT LOCKED] Track adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${finalBpm}BPM ${finalKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
+        console.log(`[INDIVIDUAL SHUFFLE DEBUG] TRANSPORT LOCKED - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         }
       } else if (track.name === 'Melody Loop') {
         // Melody Loop: Adapt to transport BPM based on melody loop mode
@@ -3525,6 +3470,7 @@ export default function BeatMakerPage() {
           }
           
           console.log(`[MELODY LOOP T→M] Original ${selectedAudio.bpm}BPM ${selectedAudio.key} → Transport ${bpm}BPM ${transportKey} (rate: ${playbackRate.toFixed(3)}, pitch: ${pitchShift})`)
+          console.log(`[INDIVIDUAL SHUFFLE DEBUG] MELODY LOOP T→M - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         } else {
           // Melody Loop dominates: Transport adapts to melody loop
           finalBpm = selectedAudio.bpm || 120
@@ -3533,6 +3479,7 @@ export default function BeatMakerPage() {
           pitchShift = 0
           
           console.log(`[MELODY LOOP M→T] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
+          console.log(`[INDIVIDUAL SHUFFLE DEBUG] MELODY LOOP M→T - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         }
       } else if (track.name.includes(' Loop')) {
         // Loop tracks: currentBpm MUST match transport BPM for proper sync
@@ -3549,6 +3496,7 @@ export default function BeatMakerPage() {
         pitchShift = 0
         
         console.log(`[LOOP TRACK] ${track.name}: Original ${selectedAudio.bpm}BPM → Transport ${bpm}BPM (rate: ${playbackRate.toFixed(3)})`)
+        console.log(`[INDIVIDUAL SHUFFLE DEBUG] LOOP TRACK - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
       } else {
         // Transport not locked and not a loop track - use original audio BPM and key
         finalBpm = selectedAudio.bpm || 120
@@ -3557,11 +3505,51 @@ export default function BeatMakerPage() {
         pitchShift = 0
         
         console.log(`[NORMAL] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
+        console.log(`[INDIVIDUAL SHUFFLE DEBUG] NORMAL TRACK - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
       }
       
       // Check if this is a relative key (not exact match with transport key)
       // Skip drum tracks as they don't need key matching
       const isRelativeKey = !isDrumTrack && transportKey && selectedAudio.key && selectedAudio.key !== transportKey
+      
+      // CRITICAL DEBUG: Log final calculated values
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === FINAL CALCULATED VALUES ===`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Final BPM: ${finalBpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Final key: ${finalKey}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Playback rate: ${playbackRate}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Pitch shift: ${pitchShift}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] CRITICAL: selectedAudio.bpm at state update: ${selectedAudio.bpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] CRITICAL: originalBpm being set to: ${selectedAudio.bpm || 120}`)
+      
+      // CRITICAL: For Drum Loop tracks, ensure they ALWAYS match transport BPM
+      // This must be the FINAL override to ensure Drum Loop tracks always sync properly
+      if (track.name === 'Drum Loop') {
+        console.log(`[DRUM LOOP CRITICAL] FINAL OVERRIDE: Ensuring Drum Loop matches transport BPM: ${bpm}`)
+        finalBpm = bpm
+        if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+          playbackRate = bpm / selectedAudio.bpm
+          console.log(`[DRUM LOOP CRITICAL] FINAL OVERRIDE: Calculated playback rate: ${playbackRate} (${bpm} / ${selectedAudio.bpm})`)
+        } else {
+          playbackRate = 1.0
+          console.log(`[DRUM LOOP CRITICAL] FINAL OVERRIDE: No original BPM found, using playback rate: 1.0`)
+        }
+        console.log(`[DRUM LOOP CRITICAL] FINAL OVERRIDE: Final values - BPM: ${finalBpm}, Rate: ${playbackRate}`)
+      }
+      
+      // CRITICAL: For ALL loop tracks, ensure they ALWAYS match transport BPM
+      // This is a final safety check to ensure loop tracks sync properly
+      if (track.name.includes(' Loop') && track.name !== 'Drum Loop') {
+        console.log(`[LOOP TRACK CRITICAL] FINAL OVERRIDE: Ensuring ${track.name} matches transport BPM: ${bpm}`)
+        finalBpm = bpm
+        if (selectedAudio.bpm && selectedAudio.bpm > 0) {
+          playbackRate = bpm / selectedAudio.bpm
+          console.log(`[LOOP TRACK CRITICAL] FINAL OVERRIDE: Calculated playback rate: ${playbackRate} (${bpm} / ${selectedAudio.bpm})`)
+        } else {
+          playbackRate = 1.0
+          console.log(`[LOOP TRACK CRITICAL] FINAL OVERRIDE: No original BPM found, using playback rate: 1.0`)
+        }
+        console.log(`[LOOP TRACK CRITICAL] FINAL OVERRIDE: Final values - BPM: ${finalBpm}, Rate: ${playbackRate}`)
+      }
       
       setTracks(prev => prev.map(t => 
         t.id === trackId ? { 
@@ -3569,7 +3557,7 @@ export default function BeatMakerPage() {
           audioUrl: publicUrl,
           audioName: selectedAudio.name,
           audioFileId: selectedAudio.id,
-          // Use calculated tempo and key values
+          // CRITICAL: Use the SAME selectedAudio.bpm that was used in calculations
           originalBpm: selectedAudio.bpm || 120,
           currentBpm: finalBpm,
           playbackRate: playbackRate,
@@ -3590,100 +3578,37 @@ export default function BeatMakerPage() {
         } : t
       ))
 
-      // CRITICAL: Force reload the audio player to use the new audio file immediately
-      console.log(`[SHUFFLE AUDIO] Forcing immediate reload of audio player for track: ${track.name}`)
+      // CRITICAL DEBUG: Log the track state after update
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === TRACK STATE AFTER UPDATE ===`)
+      const updatedTrack = tracks.find(t => t.id === trackId)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Updated track currentBpm: ${updatedTrack?.currentBpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Updated track originalBpm: ${updatedTrack?.originalBpm}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Updated track playbackRate: ${updatedTrack?.playbackRate}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Updated track pitchShift: ${updatedTrack?.pitchShift}`)
+      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === END INDIVIDUAL SHUFFLE FOR ${track.name} ===`)
       
-      // First, ensure we stop any existing audio immediately
-      const ToneModule = await import('tone')
-      if (ToneModule.Transport.state === 'started') {
-        ToneModule.Transport.stop()
-        console.log(`[SHUFFLE AUDIO] Stopped transport for track: ${track.name}`)
+      // CRITICAL: Verify that the track state is correct after the update
+      if (track.name.includes(' Loop')) {
+        const expectedBpm = bpm
+        const actualBpm = updatedTrack?.currentBpm
+        // Use the FINAL calculated values for verification, not recalculating
+        const expectedRate = playbackRate // Use the final calculated playbackRate
+        const actualRate = updatedTrack?.playbackRate
+        
+        console.log(`[LOOP TRACK VERIFICATION] ${track.name}:`)
+        console.log(`[LOOP TRACK VERIFICATION] Expected BPM: ${expectedBpm}, Actual BPM: ${actualBpm}, Match: ${expectedBpm === actualBpm}`)
+        console.log(`[LOOP TRACK VERIFICATION] Expected Rate: ${expectedRate.toFixed(4)}, Actual Rate: ${actualRate?.toFixed(4)}, Match: ${Math.abs(expectedRate - (actualRate || 0)) < 0.0001}`)
+        console.log(`[LOOP TRACK VERIFICATION] Using final calculated playbackRate: ${playbackRate} for verification`)
+        
+        if (expectedBpm !== actualBpm || Math.abs(expectedRate - (actualRate || 0)) > 0.0001) {
+          console.error(`[LOOP TRACK VERIFICATION ERROR] ${track.name} state mismatch detected!`)
+          console.error(`[LOOP TRACK VERIFICATION ERROR] Expected rate (final calculated): ${expectedRate}`)
+          console.error(`[LOOP TRACK VERIFICATION ERROR] Actual rate from track state: ${actualRate}`)
+        }
       }
       
-      // Wait a bit for state to settle, then force reload
-      setTimeout(async () => {
-        try {
-          // Double-check that the track has the new audio URL before reloading
-          const updatedTrack = tracks.find(t => t.id === trackId)
-          if (!updatedTrack || !updatedTrack.audioUrl) {
-            console.warn(`[SHUFFLE AUDIO] Track ${track.name} has no audio URL, skipping reload`)
-            return
-          }
-          
-          console.log(`[SHUFFLE AUDIO] Starting force reload for track: ${track.name} with URL: ${updatedTrack.audioUrl}`)
-          await forceReloadTrackSamples(trackId)
-          console.log(`[SHUFFLE AUDIO] Successfully reloaded audio player for track: ${track.name}`)
-          
-          // Additional verification that the audio loaded
-          setTimeout(() => {
-            const samples = samplesRef?.current
-            if (samples && samples[trackId]) {
-              const player = samples[trackId]
-              if (player && player.loaded) {
-                console.log(`[SHUFFLE AUDIO] Verified audio loaded for track: ${track.name}`)
-                
-                // CRITICAL: Reapply solo/mute states after audio reload
-                const updatedTracks = tracks.map(t => t.id === trackId ? { ...t, solo: preserveSolo, mute: preserveMute } : t)
-                const soloedTracks = updatedTracks.filter(track => track.solo)
-                const hasAnySolo = soloedTracks.length > 0
-                
-                updatedTracks.forEach(track => {
-                  const isSoloed = track.solo
-                  const shouldBeMuted = hasAnySolo && !isSoloed
-                  
-                  // Apply to sequencer players
-                  if (samplesRef?.current?.[track.id]) {
-                    const player = samplesRef.current[track.id]
-                    if (player && player.volume) {
-                      if (shouldBeMuted) {
-                        player.volume.value = -Infinity
-                        console.log(`[SHUFFLE SOLO] Muted track ${track.id} (not soloed)`)
-                      } else {
-                        // Restore volume based on mixer settings
-                        const trackSettings = mixerSettings[track.id]
-                        const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
-                        player.volume.value = volumeDb
-                        console.log(`[SHUFFLE SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
-                      }
-                    }
-                  }
-                })
-                
-                console.log(`[SHUFFLE SOLO] Reapplied solo states - ${soloedTracks.length} track(s) soloed`)
-                
-                // Test the audio playback to ensure it's working
-                try {
-                  const testPlayer = samples[trackId]
-                  if (testPlayer && testPlayer.loaded) {
-                    // Play a very short test (0.1 seconds) to verify audio works
-                    testPlayer.start(0, 0, 0.1)
-                    console.log(`[SHUFFLE AUDIO] Audio test playback successful for track: ${track.name}`)
-                  }
-                } catch (testError) {
-                  console.warn(`[SHUFFLE AUDIO] Audio test failed for track ${track.name}:`, testError)
-                }
-              } else {
-                console.warn(`[SHUFFLE AUDIO] Audio not loaded for track: ${track.name}, retrying...`)
-                forceReloadTrackSamples(trackId)
-              }
-            } else {
-              console.warn(`[SHUFFLE AUDIO] No samples found for track: ${track.name}, retrying...`)
-              forceReloadTrackSamples(trackId)
-            }
-          }, 200) // Increased delay for verification
-        } catch (error) {
-          console.error(`[SHUFFLE AUDIO] Error reloading audio player for track ${track.name}:`, error)
-          // Retry once more
-          setTimeout(async () => {
-            try {
-              await forceReloadTrackSamples(trackId)
-              console.log(`[SHUFFLE AUDIO] Retry successful for track: ${track.name}`)
-            } catch (retryError) {
-              console.error(`[SHUFFLE AUDIO] Retry failed for track ${track.name}:`, retryError)
-            }
-          }, 1000) // Increased retry delay
-        }
-      }, 300) // Wait for state to settle before reloading
+      // Auto-reload will handle the audio reload automatically via useEffect
+      console.log(`[SHUFFLE AUDIO] Track state updated - auto-reload will handle audio reload`)
 
     } catch (error) {
       console.error('Error shuffling audio:', error)
@@ -3694,17 +3619,9 @@ export default function BeatMakerPage() {
         console.error(`[SHUFFLE AUDIO ERROR] Stack: ${error.stack}`)
       }
       
-      // Try to recover by forcing a reload
-      try {
-        const currentTrack = tracks.find(t => t.id === trackId)
-        console.log(`[SHUFFLE AUDIO] Attempting recovery for track: ${currentTrack?.name}`)
-        await forceReloadTrackSamples(trackId)
-        console.log(`[SHUFFLE AUDIO] Recovery successful for track: ${currentTrack?.name}`)
-      } catch (recoveryError) {
-        const currentTrack = tracks.find(t => t.id === trackId)
-        console.error(`[SHUFFLE AUDIO] Recovery failed for track: ${currentTrack?.name}:`, recoveryError)
-        alert('Failed to shuffle audio. Please try again or reset the audio.')
-      }
+      // Auto-reload will handle recovery automatically
+      console.log(`[SHUFFLE AUDIO] Error occurred - auto-reload will handle recovery`)
+      alert('Failed to shuffle audio. Please try again or reset the audio.')
     }
   }
 
@@ -4706,6 +4623,13 @@ export default function BeatMakerPage() {
   const handleShuffleAll = async () => {
     try {
       console.log('[SHUFFLE ALL] Starting shuffle all operation...')
+      console.log('[SHUFFLE ALL DEBUG] === STARTING SHUFFLE ALL OPERATION ===')
+      console.log('[SHUFFLE ALL DEBUG] Current transport BPM:', bpm)
+      console.log('[SHUFFLE ALL DEBUG] Current transport key:', transportKey)
+      console.log('[SHUFFLE ALL DEBUG] isBpmLocked:', isBpmLocked)
+      console.log('[SHUFFLE ALL DEBUG] isKeyLocked:', isKeyLocked)
+      console.log('[SHUFFLE ALL DEBUG] melodyLoopMode:', melodyLoopMode)
+      console.log('[SHUFFLE ALL DEBUG] Current tracks:', tracks.map(t => ({ name: t.name, currentBpm: t.currentBpm, originalBpm: t.originalBpm, playbackRate: t.playbackRate })))
       
       // CRITICAL: Reset all halftime states before shuffling
       console.log('[SHUFFLE ALL] Resetting all halftime states...')
@@ -5525,6 +5449,21 @@ export default function BeatMakerPage() {
       }
 
       console.log('Shuffled all audio samples and patterns using tracking system')
+      
+      // CRITICAL DEBUG: Log final state after shuffle all
+      console.log('[SHUFFLE ALL DEBUG] === FINAL STATE AFTER SHUFFLE ALL ===')
+      console.log('[SHUFFLE ALL DEBUG] Final transport BPM:', bpm)
+      console.log('[SHUFFLE ALL DEBUG] Final transport key:', transportKey)
+      console.log('[SHUFFLE ALL DEBUG] Final tracks state:', tracks.map(t => ({ 
+        name: t.name, 
+        currentBpm: t.currentBpm, 
+        originalBpm: t.originalBpm, 
+        playbackRate: t.playbackRate,
+        pitchShift: t.pitchShift,
+        audioName: t.audioName
+      })))
+      console.log('[SHUFFLE ALL DEBUG] === END SHUFFLE ALL OPERATION ===')
+      
       markSessionChanged()
     } catch (error) {
       console.error('Error shuffling all tracks:', error)
@@ -7586,11 +7525,8 @@ export default function BeatMakerPage() {
       return newTracks
     })
     
-    // Force reload the sample with new settings
-    setTimeout(() => {
-      console.log(`[QUANTIZE] Force reloading track ${trackId} with new loop points`)
-      forceReloadTrackSamples(trackId)
-    }, 100)
+    // Auto-reload will handle the audio reload automatically via useEffect
+    console.log(`[QUANTIZE] Track state updated - auto-reload will handle audio reload`)
   }
 
   // Open quantization modal
@@ -8395,17 +8331,8 @@ export default function BeatMakerPage() {
                     setTimeStretchMode(newMode)
                     console.log(`[TIME STRETCH] Mode changed to: ${newMode}`)
                     
-                    // Force reload all tracks to apply new time stretch mode
-                    setTimeout(() => {
-                      console.log(`[TIME STRETCH] Force reloading all tracks to apply ${newMode} mode`)
-                      tracks.forEach(track => {
-                        if (track.audioUrl && track.audioUrl !== 'undefined') {
-                          setTimeout(() => {
-                            forceReloadTrackSamples(track.id)
-                          }, 100 * track.id) // Stagger reloads to prevent conflicts
-                        }
-                      })
-                    }, 100)
+                    // Auto-reload will handle the audio reload automatically via useEffect
+                    console.log(`[TIME STRETCH] Mode changed to ${newMode} - auto-reload will handle audio reload`)
                   }}
                   className={`text-xs font-bold px-2 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 ${
                     timeStretchMode === 'resampling'
