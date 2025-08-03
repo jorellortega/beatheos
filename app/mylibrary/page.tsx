@@ -156,6 +156,14 @@ export default function MyLibrary() {
   const [replacingSingleId, setReplacingSingleId] = useState<string | null>(null);
   const [replacingAlbumTrackId, setReplacingAlbumTrackId] = useState<string | null>(null);
   
+  // Track recently replaced files (for temporary labels)
+  const [recentlyReplacedSingles, setRecentlyReplacedSingles] = useState<Set<string>>(new Set());
+  const [recentlyReplacedAlbumTracks, setRecentlyReplacedAlbumTracks] = useState<Set<string>>(new Set());
+  
+  // Cover management state
+  const [replacingCoverId, setReplacingCoverId] = useState<string | null>(null);
+  const [replacingCoverType, setReplacingCoverType] = useState<'album' | 'single' | null>(null);
+  
   // Edit single state
   const [editingSingle, setEditingSingle] = useState<Single | null>(null);
   const [showEditSingleDialog, setShowEditSingleDialog] = useState(false);
@@ -1363,6 +1371,9 @@ export default function MyLibrary() {
         title: "Success",
         description: "Audio file replaced successfully.",
       });
+      
+      // Add to recently replaced set
+      setRecentlyReplacedSingles(prev => new Set([...prev, singleId]));
     } catch (error) {
       console.error('Error replacing single audio:', error);
       toast({
@@ -1376,6 +1387,116 @@ export default function MyLibrary() {
   }
 
   // Replace album track audio file
+  // Cover management functions
+  const uploadCoverArtForReplacement = async (file: File, itemId: string, type: 'album' | 'single'): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${type}_covers/${itemId}_${Date.now()}.${fileExt}`;
+      const { error } = await supabase.storage.from('beats').upload(filePath, file, { upsert: true });
+      if (error) {
+        console.error('Error uploading cover art:', error);
+        return null;
+      }
+      const { data } = supabase.storage.from('beats').getPublicUrl(filePath);
+      return data?.publicUrl || null;
+    } catch (error) {
+      console.error('Error uploading cover art:', error);
+      return null;
+    }
+  };
+
+  const replaceCoverArt = async (itemId: string, file: File, type: 'album' | 'single') => {
+    try {
+      setReplacingCoverId(itemId);
+      setReplacingCoverType(type);
+      
+      const coverUrl = await uploadCoverArtForReplacement(file, itemId, type);
+      if (!coverUrl) {
+        toast({
+          title: "Error",
+          description: "Failed to upload cover art.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const table = type === 'album' ? 'albums' : 'singles';
+      const { error } = await supabase
+        .from(table)
+        .update({ cover_art_url: coverUrl })
+        .eq('id', itemId);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to update cover art: " + error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      toast({
+        title: "Success",
+        description: "Cover art replaced successfully.",
+      });
+      
+      // Refresh data
+      if (type === 'album') {
+        refreshAlbums();
+      } else {
+        refreshSingles();
+      }
+    } catch (error) {
+      console.error('Error replacing cover art:', error);
+      toast({
+        title: "Error",
+        description: "Failed to replace cover art.",
+        variant: "destructive"
+      });
+    } finally {
+      setReplacingCoverId(null);
+      setReplacingCoverType(null);
+    }
+  };
+
+  const deleteCoverArt = async (itemId: string, type: 'album' | 'single') => {
+    try {
+      const table = type === 'album' ? 'albums' : 'singles';
+      const { error } = await supabase
+        .from(table)
+        .update({ cover_art_url: null })
+        .eq('id', itemId);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to delete cover art: " + error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      toast({
+        title: "Success",
+        description: "Cover art deleted successfully.",
+      });
+      
+      // Refresh data
+      if (type === 'album') {
+        refreshAlbums();
+      } else {
+        refreshSingles();
+      }
+    } catch (error) {
+      console.error('Error deleting cover art:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete cover art.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const replaceAlbumTrackAudio = async (trackId: string, file: File) => {
     try {
       setReplacingAlbumTrackId(trackId);
@@ -1407,6 +1528,9 @@ export default function MyLibrary() {
         title: "Success",
         description: "Album track audio file replaced successfully.",
       });
+      
+      // Add to recently replaced set
+      setRecentlyReplacedAlbumTracks(prev => new Set([...prev, trackId]));
     } catch (error) {
       console.error('Error replacing album track audio:', error);
       toast({
@@ -3691,6 +3815,48 @@ export default function MyLibrary() {
                   <div className="absolute bottom-1 left-1 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">
                     <span className="image-size">Loading...</span>
                   </div>
+                  
+                  {/* Cover Management Buttons */}
+                  <div className="absolute top-1 right-1 flex gap-1">
+                    <input
+                      type="file"
+                      id={`upload-cover-${album.id}`}
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          replaceCoverArt(album.id, file, 'album');
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => document.getElementById(`upload-cover-${album.id}`)?.click()}
+                      className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500 text-xs px-2 py-1 h-6"
+                      title="Replace cover art"
+                      disabled={replacingCoverId === album.id && replacingCoverType === 'album'}
+                    >
+                      {replacingCoverId === album.id && replacingCoverType === 'album' ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Upload className="h-3 w-3" />
+                      )}
+                    </Button>
+                    {album.cover_art_url && (
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => deleteCoverArt(album.id, 'album')}
+                        className="bg-red-600 hover:bg-red-700 text-white border-red-500 text-xs px-2 py-1 h-6"
+                        title="Delete cover art"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 {album.additional_covers && album.additional_covers.length > 0 && (
                   <div className="mt-4">
@@ -3955,11 +4121,60 @@ export default function MyLibrary() {
                             <span className="image-size">Loading...</span>
                           </div>
                         )}
+                        
+                        {/* Cover Management Buttons */}
+                        <div className="absolute top-0.5 right-0.5 flex gap-1">
+                          <input
+                            type="file"
+                            id={`upload-single-cover-${single.id}`}
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                replaceCoverArt(single.id, file, 'single');
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => document.getElementById(`upload-single-cover-${single.id}`)?.click()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500 text-xs px-1 py-0.5 h-5"
+                            title="Replace cover art"
+                            disabled={replacingCoverId === single.id && replacingCoverType === 'single'}
+                          >
+                            {replacingCoverId === single.id && replacingCoverType === 'single' ? (
+                              <Loader2 className="h-2 w-2 animate-spin" />
+                            ) : (
+                              <Upload className="h-2 w-2" />
+                            )}
+                          </Button>
+                          {single.cover_art_url && (
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => deleteCoverArt(single.id, 'single')}
+                              className="bg-red-600 hover:bg-red-700 text-white border-red-500 text-xs px-1 py-0.5 h-5"
+                              title="Delete cover art"
+                            >
+                              <Trash2 className="h-2 w-2" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       <div className="flex-1 w-full">
                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
                           <div>
-                            <h2 className="text-lg sm:text-xl font-semibold text-center sm:text-left">{single.title}</h2>
+                            <div className="flex items-center gap-2 text-center sm:text-left">
+                              <h2 className="text-lg sm:text-xl font-semibold">{single.title}</h2>
+                              {recentlyReplacedSingles.has(single.id) && (
+                                <Badge variant="secondary" className="bg-green-600 text-white text-xs px-2 py-1 animate-pulse">
+                                  File Replaced
+                                </Badge>
+                              )}
+                            </div>
                             <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-center sm:text-left">
                               <p className="text-gray-500">{single.artist}</p>
                               {single.audio_url && getAudioFileLabel(single.audio_url)}
@@ -4048,11 +4263,15 @@ export default function MyLibrary() {
                               type="file"
                               id={`upload-single-${single.id}`}
                               accept="audio/*"
+                              multiple
                               className="hidden"
                               onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  replaceSingleAudio(single.id, file);
+                                const files = Array.from(e.target.files || []);
+                                if (files.length > 0) {
+                                  files.forEach(file => {
+                                    replaceSingleAudio(single.id, file);
+                                  });
+                                  e.target.value = ''; // Reset input
                                 }
                               }}
                             />
@@ -4207,9 +4426,6 @@ export default function MyLibrary() {
                               </div>
                               <span className="text-sm text-gray-300">{mp3Track.title}</span>
                               <span className="text-xs text-gray-500">MP3</span>
-                              {mp3Track.audio_url && (
-                                <audio controls src={mp3Track.audio_url} className="h-6 text-xs" />
-                              )}
                               <Button 
                                 variant="outline" 
                                 size="sm" 

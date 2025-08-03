@@ -66,6 +66,13 @@ export default function AlbumDetailsPage() {
   const [replacingTrackId, setReplacingTrackId] = useState<string | null>(null);
   const [showCompressionDialog, setShowCompressionDialog] = useState(false);
   const [compressionFile, setCompressionFile] = useState<{ id: string; url: string } | null>(null);
+  
+  // Track recently replaced files (for temporary labels)
+  const [recentlyReplacedTracks, setRecentlyReplacedTracks] = useState<Set<string>>(new Set());
+  
+  // Audio playback state
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
 
   // Album editing state
   const [showEditAlbum, setShowEditAlbum] = useState(false);
@@ -140,6 +147,16 @@ export default function AlbumDetailsPage() {
         setLoadingTracks(false);
       });
   }, [albumId, showAddTrack]);
+
+  // Cleanup audio when component unmounts
+  useEffect(() => {
+    return () => {
+      if (audioRef) {
+        audioRef.pause();
+        audioRef.currentTime = 0;
+      }
+    };
+  }, [audioRef]);
 
   // Helper to upload audio file
   async function uploadTrackAudio(file: File, trackId?: string): Promise<string | null> {
@@ -651,6 +668,43 @@ export default function AlbumDetailsPage() {
   };
 
   // Download track function
+  // Audio playback functions
+  const playTrack = (trackId: string, audioUrl: string) => {
+    // Stop any currently playing audio
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+    }
+
+    // Create new audio element
+    const audio = new Audio(audioUrl);
+    audio.addEventListener('ended', () => {
+      setPlayingTrackId(null);
+      setAudioRef(null);
+    });
+
+    audio.play().then(() => {
+      setPlayingTrackId(trackId);
+      setAudioRef(audio);
+    }).catch((error) => {
+      console.error('Error playing audio:', error);
+      toast({
+        title: "Error",
+        description: "Error playing audio. Please check if the file exists.",
+        variant: "destructive"
+      });
+    });
+  };
+
+  const stopTrack = () => {
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+      setPlayingTrackId(null);
+      setAudioRef(null);
+    }
+  };
+
   const downloadTrack = async (trackId: string, audioUrl: string, title: string) => {
     try {
       const response = await fetch(audioUrl);
@@ -822,6 +876,9 @@ export default function AlbumDetailsPage() {
         title: "Success",
         description: "Audio file replaced successfully.",
       });
+      
+      // Add to recently replaced set
+      setRecentlyReplacedTracks(prev => new Set([...prev, trackId]));
     } catch (error) {
       console.error('Error replacing track audio:', error);
       toast({
@@ -1242,12 +1299,19 @@ export default function AlbumDetailsPage() {
                   <div key={track.id} className={`bg-zinc-800 rounded px-4 py-2 border-l-4 ${getStatusBorderColor(track.status || 'draft')}`}>
                   <div className="flex items-center gap-4">
                     <span className="font-bold text-lg text-gray-300">{idx + 1}</span>
-                    <span className="flex-1">{track.title}</span>
+                    <div className="flex items-center gap-2 flex-1">
+                      <span>{track.title}</span>
+                      {recentlyReplacedTracks.has(track.id) && (
+                        <Badge variant="secondary" className="bg-green-600 text-white text-xs px-2 py-1 animate-pulse">
+                          File Replaced
+                        </Badge>
+                      )}
+                    </div>
                     <span className="text-gray-400">{track.duration}</span>
                     <span className="text-gray-400">ISRC: {track.isrc}</span>
                     {track.audio_url && getAudioFileLabel(track.audio_url)}
                     {track.audio_url && (
-                      <audio controls src={track.audio_url} className="h-8" />
+                      <audio controls src={track.audio_url} className="h-10 w-64" />
                     )}
                     <div className="flex items-center gap-2">
                       {track.audio_url && (
@@ -1334,11 +1398,15 @@ export default function AlbumDetailsPage() {
                         type="file"
                         id={`upload-track-${track.id}`}
                         accept="audio/*"
+                        multiple
                         className="hidden"
                         onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            replaceTrackAudio(track.id, file);
+                          const files = Array.from(e.target.files || []);
+                          if (files.length > 0) {
+                            files.forEach(file => {
+                              replaceTrackAudio(track.id, file);
+                            });
+                            e.target.value = ''; // Reset input
                           }
                         }}
                       />
@@ -1396,7 +1464,7 @@ export default function AlbumDetailsPage() {
                             <span className="text-sm text-gray-300">{mp3Track.title}</span>
                             <span className="text-xs text-gray-500">MP3</span>
                             {mp3Track.audio_url && (
-                              <audio controls src={mp3Track.audio_url} className="h-6 text-xs" />
+                              <audio controls src={mp3Track.audio_url} className="h-8 w-48" />
                             )}
                             {/* Status Dropdown for MP3 Track */}
                             <DropdownMenu>
