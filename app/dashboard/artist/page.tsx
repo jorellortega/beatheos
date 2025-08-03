@@ -791,23 +791,40 @@ export default function FreeArtistDashboard() {
               </Link>
             )}
           </CardContent>
-        </Card>
-        {playlistId && (
-          <Link href="/playlist/edit" className="block mb-8">
-            <Card className="hover:border-primary transition-all cursor-pointer">
-              <CardHeader>
-                <CardTitle>My Playlists</CardTitle>
-                <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2">
-                  <Music2 className="h-8 w-8 text-primary" />
-                  <span className="font-semibold text-lg">Go to Playlists</span>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        )}
+                  </Card>
+          {playlistId && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <Link href="/playlist/edit">
+                <Card className="hover:border-primary transition-all cursor-pointer">
+                  <CardHeader>
+                    <CardTitle>My Playlists</CardTitle>
+                    <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-2">
+                      <Music2 className="h-8 w-8 text-primary" />
+                      <span className="font-semibold text-lg">Go to Playlists</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+              
+              <Link href="/mylibrary">
+                <Card className="hover:border-primary transition-all cursor-pointer">
+                  <CardHeader>
+                    <CardTitle>My Library</CardTitle>
+                    <CardDescription>Manage your albums, singles, and audio library files.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-2">
+                      <Package className="h-8 w-8 text-primary" />
+                      <span className="font-semibold text-lg">Go to Library</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </div>
+          )}
         {/* Artist Upload Card */}
         <Link href="/artist-upload" className="block mb-8">
           <Card className="hover:border-primary transition-all cursor-pointer">
@@ -838,7 +855,7 @@ export default function FreeArtistDashboard() {
             </Link>
           </CardContent>
         </Card>
-                <Card className="bg-card border-primary hover:border-primary transition-all">
+        <Card className="bg-card border-primary hover:border-primary transition-all">
           <CardHeader>
             <CardTitle>My Beats</CardTitle>
             <CardDescription>View and download your beats.</CardDescription>
@@ -847,22 +864,6 @@ export default function FreeArtistDashboard() {
             <Link href="/mybeats">
               <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
                 My Beats
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Package className="mr-2 h-6 w-6 text-primary" />
-              My Library
-            </CardTitle>
-            <CardDescription>Manage your albums, singles, and audio library.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/mylibrary">
-              <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
-                Go to Library
               </Button>
             </Link>
           </CardContent>

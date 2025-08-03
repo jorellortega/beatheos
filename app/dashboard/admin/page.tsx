@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Users, Music, BarChart, Settings, Music2, Timer } from "lucide-react"
+import { Users, Music, BarChart, Settings, Music2, Timer, Package } from "lucide-react"
 import Link from "next/link"
 import { supabase } from '@/lib/supabaseClient'
 
@@ -118,20 +118,37 @@ export default function AdminDashboard() {
         </div>
 
         {playlistId && (
-          <Link href="/playlist/edit" className="block mt-8">
-            <Card className="hover:border-primary transition-all cursor-pointer">
-              <CardHeader>
-                <CardTitle>My Playlists</CardTitle>
-                <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2">
-                  <Music2 className="h-8 w-8 text-primary" />
-                  <span className="font-semibold text-lg">Go to Playlists</span>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+            <Link href="/playlist/edit">
+              <Card className="hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <CardTitle>My Playlists</CardTitle>
+                  <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2">
+                    <Music2 className="h-8 w-8 text-primary" />
+                    <span className="font-semibold text-lg">Go to Playlists</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+            
+            <Link href="/mylibrary">
+              <Card className="hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <CardTitle>My Library</CardTitle>
+                  <CardDescription>Manage your albums, singles, and audio library files.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-2">
+                    <Package className="h-8 w-8 text-primary" />
+                    <span className="font-semibold text-lg">Go to Library</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          </div>
         )}
       </div>
     </div>

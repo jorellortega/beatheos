@@ -49,20 +49,37 @@ export default function FreeProducerDashboard() {
     <div className="min-h-screen bg-[#141414]">
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Free Producer Dashboard</h1>
-      <Link href="/playlist/edit" className="block mb-8">
-        <Card className="hover:border-primary transition-all cursor-pointer">
-          <CardHeader>
-            <CardTitle>My Playlists</CardTitle>
-            <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <Music2 className="h-8 w-8 text-primary" />
-              <span className="font-semibold text-lg">Go to Playlists</span>
-            </div>
-          </CardContent>
-        </Card>
-      </Link>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <Link href="/playlist/edit">
+          <Card className="hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle>My Playlists</CardTitle>
+              <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Music2 className="h-8 w-8 text-primary" />
+                <span className="font-semibold text-lg">Go to Playlists</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        
+        <Link href="/mylibrary">
+          <Card className="hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle>My Library</CardTitle>
+              <CardDescription>Manage your albums, singles, and audio library files.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-8 w-8 text-primary" />
+                <span className="font-semibold text-lg">Go to Library</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="bg-black border-primary hover:border-primary transition-all">
           <CardHeader>
@@ -93,20 +110,6 @@ export default function FreeProducerDashboard() {
             <p>See what the community is posting and join the conversation.</p>
             <Button className="mt-4" asChild>
               <Link href="/feed">Go to Feed</Link>
-            </Button>
-          </CardContent>
-        </Card>
-        <Card className="bg-black border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Package className="mr-2 h-5 w-5" />
-              My Library
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>Manage your albums, singles, and audio library.</p>
-            <Button className="mt-4" asChild>
-              <Link href="/mylibrary">Go to Library</Link>
             </Button>
           </CardContent>
         </Card>

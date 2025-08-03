@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -1028,7 +1028,7 @@ export default function BusinessProducerDashboard() {
     const { error } = await supabase
       .from('producers')
       .update({ vault_key: vaultKey })
-      .eq('user_id', user.id);
+      .eq('user_id', user?.id || '');
     setVaultKeyLoading(false);
     setVaultKeyEdit(false);
     if (!error) {
@@ -1122,26 +1122,6 @@ export default function BusinessProducerDashboard() {
               </Card>
             </Link>
           </div>
-          {/* My Library Card */}
-          <div className="mb-8">
-            <Link href="/mylibrary" className="block">
-              <Card className="bg-black border-primary hover:border-yellow-400 transition-colors cursor-pointer">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Package className="mr-2 h-6 w-6 text-primary" />
-                    My Library
-                  </CardTitle>
-                  <CardDescription>Manage your albums, singles, and audio library.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
-                    Go to Library
-                  </Button>
-                </CardContent>
-              </Card>
-            </Link>
-          </div>
-          
           {/* Top 5 Beats by Plays */}
           <div className="mb-8">
             <div className="text-xl font-bold text-primary mb-4">Top 5 Most Played Beats</div>
@@ -1322,27 +1302,44 @@ export default function BusinessProducerDashboard() {
             </Link>
           </div>
           {playlistId && (
-            <Link href="/playlist/edit" className="block mb-8">
-              <Card className="hover:border-primary transition-all cursor-pointer">
-                <CardHeader>
-                  <CardTitle>My Playlists</CardTitle>
-                  <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-2">
-                    <Music2 className="h-8 w-8 text-primary" />
-                    <span className="font-semibold text-lg">Go to Playlists</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <Link href="/playlist/edit">
+                <Card className="hover:border-primary transition-all cursor-pointer">
+                  <CardHeader>
+                    <CardTitle>My Playlists</CardTitle>
+                    <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-2">
+                      <Music2 className="h-8 w-8 text-primary" />
+                      <span className="font-semibold text-lg">Go to Playlists</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+              
+              <Link href="/mylibrary">
+                <Card className="hover:border-primary transition-all cursor-pointer">
+                  <CardHeader>
+                    <CardTitle>My Library</CardTitle>
+                    <CardDescription>Manage your albums, singles, and audio library files.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-2">
+                      <Archive className="h-8 w-8 text-primary" />
+                      <span className="font-semibold text-lg">Go to Library</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </div>
           )}
         </TabsContent>
         
         <TabsContent value="mybeats" className="mt-6">
             <Card className="bg-black border-primary">
               <CardContent className="p-6">
-                <MyBeatsManager userId={user.id} />
+                <MyBeatsManager userId={user?.id || ''} />
                 </CardContent>
               </Card>
         </TabsContent>
@@ -1350,7 +1347,7 @@ export default function BusinessProducerDashboard() {
         <TabsContent value="beats" className="mt-6">
           <Card className="bg-black border-primary">
             <CardContent className="p-6">
-              <SimpleBeatsList userId={user.id} />
+              <SimpleBeatsList userId={user?.id || ''} />
             </CardContent>
           </Card>
         </TabsContent>

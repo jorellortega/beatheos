@@ -63,6 +63,7 @@ export default function AlbumDetailsPage() {
 
   // Conversion state
   const [convertingTrack, setConvertingTrack] = useState<string | null>(null);
+  const [replacingTrackId, setReplacingTrackId] = useState<string | null>(null);
   const [showCompressionDialog, setShowCompressionDialog] = useState(false);
   const [compressionFile, setCompressionFile] = useState<{ id: string; url: string } | null>(null);
 
@@ -681,6 +682,82 @@ export default function AlbumDetailsPage() {
     }
   };
 
+  // Download album function
+  const downloadAlbum = async () => {
+    try {
+      if (!album) {
+        toast({
+          title: "Album not found",
+          description: "Album information is not available.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      if (!tracks || tracks.length === 0) {
+        toast({
+          title: "No tracks available",
+          description: "This album has no tracks to download.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const tracksWithAudio = tracks.filter(track => track.audio_url);
+      if (tracksWithAudio.length === 0) {
+        toast({
+          title: "No audio files available",
+          description: "This album has no audio files to download.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      toast({
+        title: "Download started",
+        description: `Downloading ${tracksWithAudio.length} tracks from ${album.title}...`,
+      });
+
+      // Download each track individually
+      for (const track of tracksWithAudio) {
+        try {
+          const response = await fetch(track.audio_url);
+          if (!response.ok) {
+            console.warn(`Failed to fetch track: ${track.title}`);
+            continue;
+          }
+          
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${album.title} - ${track.title}.${track.audio_url.split('.').pop() || 'mp3'}`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          
+          // Small delay to prevent browser from blocking multiple downloads
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (error) {
+          console.error(`Error downloading track ${track.title}:`, error);
+        }
+      }
+
+      toast({
+        title: "Download completed",
+        description: `All tracks from ${album.title} have been downloaded.`,
+      });
+    } catch (error) {
+      console.error('Error downloading album:', error);
+      toast({
+        title: "Download failed",
+        description: "Failed to download the album. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   // Upload track audio file for replacement
   const uploadTrackAudioForReplacement = async (file: File, trackId: string): Promise<string | null> => {
     try {
@@ -711,6 +788,7 @@ export default function AlbumDetailsPage() {
   // Replace track audio file
   const replaceTrackAudio = async (trackId: string, file: File) => {
     try {
+      setReplacingTrackId(trackId);
       const audioUrl = await uploadTrackAudioForReplacement(file, trackId)
       if (!audioUrl) {
         toast({
@@ -751,6 +829,8 @@ export default function AlbumDetailsPage() {
         description: "Failed to replace audio file.",
         variant: "destructive"
       });
+    } finally {
+      setReplacingTrackId(null);
     }
   }
 
@@ -981,11 +1061,49 @@ export default function AlbumDetailsPage() {
         <Button variant="outline" className="mb-6">&larr; Back to Library</Button>
       </Link>
       <div className="flex gap-8 items-start bg-zinc-900 rounded-xl p-8 shadow-lg">
-        {album.cover_art_url ? (
-          <img src={album.cover_art_url} alt={album.title} className="w-48 h-48 object-cover rounded-lg" />
-        ) : (
-          <img src="/placeholder.jpg" alt="No cover art" className="w-48 h-48 object-cover rounded-lg" />
-        )}
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            {album.cover_art_url ? (
+              <img 
+                src={album.cover_art_url} 
+                alt={album.title} 
+                className="w-48 h-48 object-cover rounded-lg"
+                onLoad={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  const sizeInfo = img.parentElement?.querySelector('.image-size');
+                  if (sizeInfo) {
+                    sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                  }
+                }}
+              />
+            ) : (
+              <img 
+                src="/placeholder.jpg" 
+                alt="No cover art" 
+                className="w-48 h-48 object-cover rounded-lg"
+                onLoad={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  const sizeInfo = img.parentElement?.querySelector('.image-size');
+                  if (sizeInfo) {
+                    sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                  }
+                }}
+              />
+            )}
+            <div className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+              <span className="image-size">Loading...</span>
+            </div>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={downloadAlbum}
+            className="bg-green-600 hover:bg-green-700 text-white border-green-500 w-full"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download Album
+          </Button>
+        </div>
         <div className="flex-1">
           <div className="flex justify-between items-start">
             <h1 className="text-4xl font-bold mb-2">{album.title}</h1>
@@ -1230,8 +1348,16 @@ export default function AlbumDetailsPage() {
                         onClick={() => document.getElementById(`upload-track-${track.id}`)?.click()}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
                         title="Upload new audio file"
+                        disabled={replacingTrackId === track.id}
                       >
-                        <Upload className="h-4 w-4" />
+                        {replacingTrackId === track.id ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Replacing...
+                          </>
+                        ) : (
+                          <Upload className="h-4 w-4" />
+                        )}
                       </Button>
                       <Button 
                         size="sm" 

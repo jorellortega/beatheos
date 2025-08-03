@@ -29,20 +29,37 @@ export default function ProArtistDashboardPage() {
         </div>
       </div>
 
-      <Link href="/playlist/edit" className="block mb-8">
-        <Card className="hover:border-primary transition-all cursor-pointer">
-          <CardHeader>
-            <CardTitle>My Playlists</CardTitle>
-            <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <Music2 className="h-8 w-8 text-primary" />
-              <span className="font-semibold text-lg">Go to Playlists</span>
-            </div>
-          </CardContent>
-        </Card>
-      </Link>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <Link href="/playlist/edit">
+          <Card className="hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle>My Playlists</CardTitle>
+              <CardDescription>Manage, edit, delete, add, search, and advanced edit your playlists.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Music2 className="h-8 w-8 text-primary" />
+                <span className="font-semibold text-lg">Go to Playlists</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        
+        <Link href="/mylibrary">
+          <Card className="hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle>My Library</CardTitle>
+              <CardDescription>Manage your albums, singles, and audio library files.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-8 w-8 text-primary" />
+                <span className="font-semibold text-lg">Go to Library</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card className="bg-card border-primary hover:border-primary transition-all">
@@ -116,22 +133,6 @@ export default function ProArtistDashboardPage() {
             <Link href={`/artist/${user?.username?.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-') || 'my-profile'}`}>
               <Button className="w-full gradient-button text-black font-medium hover:text-white">
                 View My Profile
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle className="text-2xl font-bold text-primary flex items-center">
-              <Package className="mr-2 h-5 w-5" />
-              My Library
-            </CardTitle>
-            <CardDescription>Manage your albums, singles, and audio library.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/mylibrary">
-              <Button className="w-full gradient-button text-black font-medium hover:text-white">
-                Go to Library
               </Button>
             </Link>
           </CardContent>

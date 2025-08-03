@@ -44,6 +44,7 @@ export default function SingleDetailsPage() {
   const [playingSingleId, setPlayingSingleId] = useState<string | null>(null)
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null)
   const [convertingSingle, setConvertingSingle] = useState<string | null>(null)
+  const [replacingSingleId, setReplacingSingleId] = useState<string | null>(null)
   const [showCompressionDialog, setShowCompressionDialog] = useState(false)
   const [compressionFile, setCompressionFile] = useState<{ id: string; url: string; type: 'single' | 'album_track' } | null>(null)
   const [showMetadataDialog, setShowMetadataDialog] = useState(false)
@@ -380,6 +381,7 @@ export default function SingleDetailsPage() {
   // Replace single audio file
   const replaceSingleAudio = async (singleId: string, file: File) => {
     try {
+      setReplacingSingleId(singleId);
       const audioUrl = await uploadSingleAudio(file, singleId)
       if (!audioUrl) {
         toast({
@@ -418,6 +420,8 @@ export default function SingleDetailsPage() {
         description: "Failed to replace audio file.",
         variant: "destructive"
       });
+    } finally {
+      setReplacingSingleId(null);
     }
   }
 
@@ -635,11 +639,51 @@ export default function SingleDetailsPage() {
         <Button variant="outline" className="mb-6">&larr; Back to Library</Button>
       </Link>
       <div className="flex gap-8 items-start bg-zinc-900 rounded-xl p-8 shadow-lg">
-        {single.cover_art_url ? (
-          <img src={single.cover_art_url} alt={single.title} className="w-48 h-48 object-cover rounded-lg" />
-        ) : (
-          <img src="/placeholder.jpg" alt="No cover art" className="w-48 h-48 object-cover rounded-lg" />
-        )}
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            {single.cover_art_url ? (
+              <img 
+                src={single.cover_art_url} 
+                alt={single.title} 
+                className="w-48 h-48 object-cover rounded-lg"
+                onLoad={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  const sizeInfo = img.parentElement?.querySelector('.image-size');
+                  if (sizeInfo) {
+                    sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                  }
+                }}
+              />
+            ) : (
+              <img 
+                src="/placeholder.jpg" 
+                alt="No cover art" 
+                className="w-48 h-48 object-cover rounded-lg"
+                onLoad={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  const sizeInfo = img.parentElement?.querySelector('.image-size');
+                  if (sizeInfo) {
+                    sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                  }
+                }}
+              />
+            )}
+            <div className="absolute bottom-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+              <span className="image-size">Loading...</span>
+            </div>
+          </div>
+          {single.audio_url && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => downloadSingle(single.id, single.audio_url!, single.title)}
+              className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500 w-full"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Single
+            </Button>
+          )}
+        </div>
         <div className="flex-1">
           <div className="flex justify-between items-start">
             <h1 className="text-4xl font-bold mb-2">{single.title}</h1>
@@ -737,8 +781,16 @@ export default function SingleDetailsPage() {
                 onClick={() => document.getElementById(`upload-single-${single.id}`)?.click()}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
                 title="Upload new audio file"
+                disabled={replacingSingleId === single.id}
               >
-                <Upload className="h-4 w-4" />
+                {replacingSingleId === single.id ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Replacing...
+                  </>
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
               </Button>
               
               {/* MP3 Conversion Button */}

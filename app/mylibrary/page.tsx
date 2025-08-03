@@ -29,15 +29,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 // Types for DB tables
-interface AlbumTrack {
-  id: string
-  title: string
-  track_number: number
-  audio_url?: string | null
-  duration?: string
-  status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
-}
-
 interface Album {
   id: string
   title: string
@@ -48,7 +39,6 @@ interface Album {
   additional_covers?: { label: string; url: string }[]
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
-  album_tracks?: AlbumTrack[]
 }
 interface Single {
   id: string
@@ -162,6 +152,10 @@ export default function MyLibrary() {
   const [playingSingleId, setPlayingSingleId] = useState<string | null>(null);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
   
+  // Track replacement loading states
+  const [replacingSingleId, setReplacingSingleId] = useState<string | null>(null);
+  const [replacingAlbumTrackId, setReplacingAlbumTrackId] = useState<string | null>(null);
+  
   // Edit single state
   const [editingSingle, setEditingSingle] = useState<Single | null>(null);
   const [showEditSingleDialog, setShowEditSingleDialog] = useState(false);
@@ -270,19 +264,6 @@ export default function MyLibrary() {
   const [editingNotesId, setEditingNotesId] = useState('');
   const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track'>('single');
   const [editingNotesTitle, setEditingNotesTitle] = useState('');
-  
-  // Track replacement loading states
-  const [replacingSingle, setReplacingSingle] = useState<string | null>(null);
-  const [replacingAlbumTrack, setReplacingAlbumTrack] = useState<string | null>(null);
-  const [trackUploadProgress, setTrackUploadProgress] = useState<{
-    isUploading: boolean;
-    currentFile: string;
-    progress: number;
-  }>({
-    isUploading: false,
-    currentFile: '',
-    progress: 0
-  });
   
   // Handle file selection
   const toggleFileSelection = (fileId: string) => {
@@ -914,10 +895,7 @@ export default function MyLibrary() {
     try {
       const { data, error } = await supabase
         .from('albums')
-        .select(`
-          *,
-          album_tracks(*)
-        `)
+        .select('*')
         .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
 
@@ -949,10 +927,7 @@ export default function MyLibrary() {
     if (!user?.id) return;
     // Albums
     setLoadingAlbums(true);
-    supabase.from('albums').select(`
-      *,
-      album_tracks(*)
-    `).eq('user_id', user.id).order('created_at', { ascending: false })
+    supabase.from('albums').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
       .then(({ data, error }) => {
         if (error) setAlbumError(error.message);
         setAlbums(data || []);
@@ -1351,61 +1326,11 @@ export default function MyLibrary() {
     }
   }
 
-  // Upload album track audio file for replacement
-  const uploadAlbumTrackAudio = async (file: File, trackId: string): Promise<string | null> => {
-    try {
-      const fileExt = file.name.split('.').pop()
-      const fileName = `${trackId}-${Date.now()}.${fileExt}`
-      const filePath = `album-tracks/${fileName}`
-
-      const { error: uploadError } = await supabase.storage
-        .from('beats')
-        .upload(filePath, file)
-
-      if (uploadError) {
-        console.error('Error uploading album track audio:', uploadError)
-        return null
-      }
-
-      const { data } = supabase.storage
-        .from('beats')
-        .getPublicUrl(filePath)
-
-      return data.publicUrl
-    } catch (error) {
-      console.error('Error uploading album track audio:', error)
-      return null
-    }
-  }
-
   // Replace single audio file
   const replaceSingleAudio = async (singleId: string, file: File) => {
-    setReplacingSingle(singleId);
-    setTrackUploadProgress({
-      isUploading: true,
-      currentFile: file.name,
-      progress: 0
-    });
-    
-    toast({
-      title: "Upload started",
-      description: `Uploading ${file.name}...`,
-    });
-    
     try {
-      // Simulate progress updates
-      const progressInterval = setInterval(() => {
-        setTrackUploadProgress(prev => ({
-          ...prev,
-          progress: Math.min(prev.progress + 10, 90)
-        }));
-      }, 200);
-
+      setReplacingSingleId(singleId);
       const audioUrl = await uploadSingleAudio(file, singleId)
-      
-      clearInterval(progressInterval);
-      setTrackUploadProgress(prev => ({ ...prev, progress: 100 }));
-      
       if (!audioUrl) {
         toast({
           title: "Error",
@@ -1446,43 +1371,15 @@ export default function MyLibrary() {
         variant: "destructive"
       });
     } finally {
-      setReplacingSingle(null);
-      setTrackUploadProgress({
-        isUploading: false,
-        currentFile: '',
-        progress: 0
-      });
+      setReplacingSingleId(null);
     }
   }
 
   // Replace album track audio file
   const replaceAlbumTrackAudio = async (trackId: string, file: File) => {
-    setReplacingAlbumTrack(trackId);
-    setTrackUploadProgress({
-      isUploading: true,
-      currentFile: file.name,
-      progress: 0
-    });
-    
-    toast({
-      title: "Upload started",
-      description: `Uploading ${file.name}...`,
-    });
-    
     try {
-      // Simulate progress updates
-      const progressInterval = setInterval(() => {
-        setTrackUploadProgress(prev => ({
-          ...prev,
-          progress: Math.min(prev.progress + 10, 90)
-        }));
-      }, 200);
-
-      const audioUrl = await uploadAlbumTrackAudio(file, trackId)
-      
-      clearInterval(progressInterval);
-      setTrackUploadProgress(prev => ({ ...prev, progress: 100 }));
-      
+      setReplacingAlbumTrackId(trackId);
+      const audioUrl = await uploadSingleAudio(file, trackId) // Reuse the same upload function
       if (!audioUrl) {
         toast({
           title: "Error",
@@ -1506,9 +1403,6 @@ export default function MyLibrary() {
         return;
       }
 
-      // Refresh albums data to show updated track
-      await refreshAlbums();
-
       toast({
         title: "Success",
         description: "Album track audio file replaced successfully.",
@@ -1517,16 +1411,11 @@ export default function MyLibrary() {
       console.error('Error replacing album track audio:', error);
       toast({
         title: "Error",
-        description: "Failed to replace audio file.",
+        description: "Failed to replace album track audio file.",
         variant: "destructive"
       });
     } finally {
-      setReplacingAlbumTrack(null);
-      setTrackUploadProgress({
-        isUploading: false,
-        currentFile: '',
-        progress: 0
-      });
+      setReplacingAlbumTrackId(null);
     }
   }
 
@@ -2720,6 +2609,82 @@ export default function MyLibrary() {
     }
   };
 
+  const downloadAlbum = async (albumId: string, albumTitle: string) => {
+    try {
+      // Fetch album tracks
+      const { data: tracks, error } = await supabase
+        .from('album_tracks')
+        .select('*')
+        .eq('album_id', albumId);
+
+      if (error) {
+        throw error;
+      }
+
+      if (!tracks || tracks.length === 0) {
+        toast({
+          title: "No tracks available",
+          description: "This album has no tracks to download.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const tracksWithAudio = tracks.filter(track => track.audio_url);
+      if (tracksWithAudio.length === 0) {
+        toast({
+          title: "No audio files available",
+          description: "This album has no audio files to download.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      toast({
+        title: "Download started",
+        description: `Downloading ${tracksWithAudio.length} tracks from ${albumTitle}...`,
+      });
+
+      // Download each track individually
+      for (const track of tracksWithAudio) {
+        try {
+          const response = await fetch(track.audio_url);
+          if (!response.ok) {
+            console.warn(`Failed to fetch track: ${track.title}`);
+            continue;
+          }
+          
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${albumTitle} - ${track.title}.${track.audio_url.split('.').pop() || 'mp3'}`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          
+          // Small delay to prevent browser from blocking multiple downloads
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (error) {
+          console.error(`Error downloading track ${track.title}:`, error);
+        }
+      }
+
+      toast({
+        title: "Download completed",
+        description: `All tracks from ${albumTitle} have been downloaded.`,
+      });
+    } catch (error) {
+      console.error('Error downloading album:', error);
+      toast({
+        title: "Download failed",
+        description: "Failed to download the album. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const openMetadataDialog = async (trackId: string, trackType: 'single' | 'album_track') => {
     try {
       const table = trackType === 'single' ? 'singles' : 'album_tracks';
@@ -2861,28 +2826,6 @@ export default function MyLibrary() {
 
   return (
     <div className="container mx-auto py-8">
-      {/* Track Upload Progress Bar */}
-      {trackUploadProgress.isUploading && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-blue-600 text-white p-3 shadow-lg">
-          <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="font-medium">Uploading: {trackUploadProgress.currentFile}</span>
-              <span className="text-sm opacity-80">({trackUploadProgress.progress}% complete)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-32 bg-blue-800 rounded-full h-2">
-                <div 
-                  className="bg-white h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${trackUploadProgress.progress}%` }}
-                ></div>
-              </div>
-              <span className="text-sm">{trackUploadProgress.progress}%</span>
-            </div>
-          </div>
-        </div>
-      )}
-      
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">My Library</h1>
         <div className="flex items-center gap-4">
@@ -3717,11 +3660,38 @@ export default function MyLibrary() {
           {loadingAlbums ? <div>Loading albums...</div> : albumError ? <div className="text-red-500">{albumError}</div> : getFilteredAlbumsForSearch().length === 0 ? <div>No albums found in this phase.</div> : getFilteredAlbumsForSearch().map(album => (
             <Card key={album.id} className="p-4 sm:p-6">
               <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
-                {album.cover_art_url ? (
-                  <img src={album.cover_art_url} alt={album.title} className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg mx-auto sm:mx-0" />
-                ) : (
-                  <img src="/placeholder.jpg" alt="No cover art" className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg mx-auto sm:mx-0" />
-                )}
+                <div className="relative">
+                  {album.cover_art_url ? (
+                    <img 
+                      src={album.cover_art_url} 
+                      alt={album.title} 
+                      className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg mx-auto sm:mx-0"
+                      onLoad={(e) => {
+                        const img = e.target as HTMLImageElement;
+                        const sizeInfo = img.parentElement?.querySelector('.image-size');
+                        if (sizeInfo) {
+                          sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                        }
+                      }}
+                    />
+                  ) : (
+                    <img 
+                      src="/placeholder.jpg" 
+                      alt="No cover art" 
+                      className="w-24 h-24 sm:w-32 sm:h-32 object-cover rounded-lg mx-auto sm:mx-0"
+                      onLoad={(e) => {
+                        const img = e.target as HTMLImageElement;
+                        const sizeInfo = img.parentElement?.querySelector('.image-size');
+                        if (sizeInfo) {
+                          sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                        }
+                      }}
+                    />
+                  )}
+                  <div className="absolute bottom-1 left-1 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">
+                    <span className="image-size">Loading...</span>
+                  </div>
+                </div>
                 {album.additional_covers && album.additional_covers.length > 0 && (
                   <div className="mt-4">
                     <h3 className="font-medium mb-2">Additional Covers</h3>
@@ -3742,93 +3712,6 @@ export default function MyLibrary() {
                         <h2 className="text-2xl font-semibold">{album.title}</h2>
                       </Link>
                       <p className="text-gray-500">{album.artist}</p>
-                      
-                      {/* Album Tracks */}
-                      {album.album_tracks && album.album_tracks.length > 0 && (
-                        <div className="mt-4">
-                          <h3 className="font-medium mb-2">Tracks</h3>
-                          <div className="space-y-2">
-                                                         {album.album_tracks.map((track) => (
-                               <div key={track.id} className={`flex items-center justify-between p-2 rounded transition-all duration-200 ${
-                                 replacingAlbumTrack === track.id ? 'bg-orange-800 border border-orange-500' : 'bg-gray-800'
-                               }`}>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-sm text-gray-400 w-8">{track.track_number}.</span>
-                                  <span className="text-sm">{track.title}</span>
-                                  {track.audio_url && getAudioFileLabel(track.audio_url)}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {/* Upload Button for Track */}
-                                  <input
-                                    type="file"
-                                    id={`upload-track-${track.id}`}
-                                    accept="audio/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) {
-                                        replaceAlbumTrackAudio(track.id, file);
-                                      }
-                                    }}
-                                  />
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    disabled={replacingAlbumTrack === track.id}
-                                    onClick={() => document.getElementById(`upload-track-${track.id}`)?.click()}
-                                    className={`${replacingAlbumTrack === track.id ? 'bg-orange-600 hover:bg-orange-700 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'} text-white border-indigo-500`}
-                                    title="Upload new audio file"
-                                  >
-                                    {replacingAlbumTrack === track.id ? (
-                                      <>
-                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                        <span className="text-xs">Uploading...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Upload className="h-4 w-4" />
-                                        <span className="text-xs ml-1">Replace</span>
-                                      </>
-                                    )}
-                                  </Button>
-                                  
-                                  {/* Play Button */}
-                                  {track.audio_url && (
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm" 
-                                      onClick={() => playSingle(track.id, track.audio_url!)}
-                                      className="bg-green-600 hover:bg-green-700 text-white border-green-500"
-                                    >
-                                      <Play className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                  
-                                  {/* Convert Button */}
-                                  {track.audio_url && (
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm" 
-                                      disabled={convertingAlbumTrack === track.id}
-                                      onClick={() => showCompressionOptions(track.id, track.audio_url!, 'album_track')}
-                                      className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
-                                    >
-                                      {convertingAlbumTrack === track.id ? (
-                                        <>
-                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                          Converting...
-                                        </>
-                                      ) : (
-                                        "MP3"
-                                      )}
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <DropdownMenu>
@@ -3907,6 +3790,14 @@ export default function MyLibrary() {
                           <span className="sm:hidden">View</span>
                         </Button>
                       </Link>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => downloadAlbum(album.id, album.title)}
+                        className="bg-green-600 hover:bg-green-700 text-white border-green-500"
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
                       <Link href={`/release-platforms/${album.id}`}>
                         <Button variant="outline" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500">
                           <Globe className="h-4 w-4 sm:mr-2" />
@@ -3930,10 +3821,11 @@ export default function MyLibrary() {
             </Card>
           ))}
         </TabsContent>
-        {/* Tracks Tab (placeholder) */}
+        {/* Tracks Tab */}
         <TabsContent value="tracks">
           <div className="text-center py-8 text-gray-500">
-            Track management coming soon...
+            <p className="mb-4">Track management is available in individual album pages.</p>
+            <p>Click on any album to manage its tracks and replace audio files.</p>
           </div>
         </TabsContent>
         {/* Platforms Tab (placeholder) */}
@@ -4035,18 +3927,32 @@ export default function MyLibrary() {
                 const mp3Conversions = singles.filter(s => s.title === single.title + '.mp3')
                 
                 return (
-                                          <Card key={single.id} className={`p-4 sm:p-6 border-l-4 ${getStatusBorderColor(single.status || 'draft')} transition-all duration-200 ${
-                          replacingSingle === single.id ? 'bg-orange-900/20 border-orange-500' : ''
-                        }`}>
+                  <Card key={single.id} className={`p-4 sm:p-6 border-l-4 ${getStatusBorderColor(single.status || 'draft')}`}>
                     <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start sm:items-center">
                       {/* Cover Art - Show placeholder if no cover art */}
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden mx-auto sm:mx-0">
+                      <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden mx-auto sm:mx-0">
                         {single.cover_art_url ? (
-                          <img src={single.cover_art_url} alt={single.title} className="w-full h-full object-cover" />
+                          <img 
+                            src={single.cover_art_url} 
+                            alt={single.title} 
+                            className="w-full h-full object-cover"
+                            onLoad={(e) => {
+                              const img = e.target as HTMLImageElement;
+                              const sizeInfo = img.parentElement?.querySelector('.image-size');
+                              if (sizeInfo) {
+                                sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                              }
+                            }}
+                          />
                         ) : (
                           <div className="text-center text-gray-400">
                             <Music className="w-8 h-8 mx-auto mb-1" />
                             <div className="text-xs font-medium">{single.title}</div>
+                          </div>
+                        )}
+                        {single.cover_art_url && (
+                          <div className="absolute bottom-0.5 left-0.5 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">
+                            <span className="image-size">Loading...</span>
                           </div>
                         )}
                       </div>
@@ -4153,21 +4059,18 @@ export default function MyLibrary() {
                             <Button 
                               variant="outline" 
                               size="sm" 
-                              disabled={replacingSingle === single.id}
                               onClick={() => document.getElementById(`upload-single-${single.id}`)?.click()}
-                              className={`${replacingSingle === single.id ? 'bg-orange-600 hover:bg-orange-700 animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700'} text-white border-indigo-500`}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
                               title="Upload new audio file"
+                              disabled={replacingSingleId === single.id}
                             >
-                              {replacingSingle === single.id ? (
+                              {replacingSingleId === single.id ? (
                                 <>
                                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  <span className="text-xs">Uploading...</span>
+                                  Replacing...
                                 </>
                               ) : (
-                                <>
-                                  <Upload className="h-4 w-4" />
-                                  <span className="text-xs ml-1">Replace</span>
-                                </>
+                                <Upload className="h-4 w-4" />
                               )}
                             </Button>
                             {/* Phase Status Dropdown */}
