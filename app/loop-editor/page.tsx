@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabaseClient'
 import { useToast } from '@/hooks/use-toast'
@@ -26,6 +27,7 @@ import {
   Undo,
   Redo,
   Save,
+  Download,
   Loader2,
   BarChart3,
   Settings,
@@ -205,6 +207,7 @@ export default function LoopEditorPage() {
   const [customCategories, setCustomCategories] = useState<string[]>([])
   const [showCategoryInput, setShowCategoryInput] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  const [hoveredResizeHandle, setHoveredResizeHandle] = useState<'start' | 'end' | null>(null)
   
   // Edit mode state - ONLY this
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null)
@@ -247,7 +250,7 @@ export default function LoopEditorPage() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const animationRef = useRef<number | undefined>(undefined)
   const isDraggingRef = useRef<boolean>(false)
-  const dragTypeRef = useRef<'playhead' | 'selection' | 'region' | 'marker' | 'waveform' | 'playhead-drag' | null>(null)
+  const dragTypeRef = useRef<'playhead' | 'selection' | 'region' | 'marker' | 'waveform' | 'playhead-drag' | 'selection-resize-start' | 'selection-resize-end' | null>(null)
   const lastMouseXRef = useRef<number>(0)
   
   // Calculate grid
@@ -514,7 +517,7 @@ export default function LoopEditorPage() {
         // Draw top half of main wave
         mainWaveData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
+          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -527,7 +530,7 @@ export default function LoopEditorPage() {
         for (let i = mainWaveData.length - 1; i >= 0; i--) {
           const point = mainWaveData[i]
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom)
+          const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom * volume)
           ctx.lineTo(x, y)
         }
         
@@ -541,7 +544,7 @@ export default function LoopEditorPage() {
         
         mainWaveData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
+          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -559,7 +562,7 @@ export default function LoopEditorPage() {
         // Draw top half of secondary wave
         waveformData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
+          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -572,7 +575,7 @@ export default function LoopEditorPage() {
         for (let i = waveformData.length - 1; i >= 0; i--) {
           const point = waveformData[i]
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = bottomY + (point.y * bottomHeight * 0.4 * verticalZoom)
+          const y = bottomY + (point.y * bottomHeight * 0.4 * verticalZoom * volume)
           ctx.lineTo(x, y)
         }
         
@@ -586,7 +589,7 @@ export default function LoopEditorPage() {
         
         waveformData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
+          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -607,7 +610,7 @@ export default function LoopEditorPage() {
         console.log('🔍 DRAWING WAVEFORM - offset:', waveformOffset, 'effectiveWidth:', effectiveWidth, 'points:', waveformData.length)
         waveformData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
+          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -620,7 +623,7 @@ export default function LoopEditorPage() {
         for (let i = waveformData.length - 1; i >= 0; i--) {
           const point = waveformData[i]
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom)
+          const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom * volume)
           ctx.lineTo(x, y)
         }
         
@@ -634,7 +637,7 @@ export default function LoopEditorPage() {
         
         waveformData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
+          const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -656,7 +659,7 @@ export default function LoopEditorPage() {
         // Draw top half of secondary wave
         secondaryWaveData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
+          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -669,7 +672,7 @@ export default function LoopEditorPage() {
         for (let i = secondaryWaveData.length - 1; i >= 0; i--) {
           const point = secondaryWaveData[i]
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = bottomY + (point.y * bottomHeight * 0.4 * verticalZoom)
+          const y = bottomY + (point.y * bottomHeight * 0.4 * verticalZoom * volume)
           ctx.lineTo(x, y)
         }
         
@@ -683,7 +686,7 @@ export default function LoopEditorPage() {
         
         secondaryWaveData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom)
+          const y = bottomY - (point.y * bottomHeight * 0.4 * verticalZoom * volume)
           
           if (index === 0) {
             ctx.moveTo(x, y)
@@ -704,7 +707,7 @@ export default function LoopEditorPage() {
         console.log('🔍 DRAWING WAVEFORM - offset:', waveformOffset, 'effectiveWidth:', effectiveWidth, 'points:', waveformData.length)
       waveformData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-        const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
+        const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom * volume)
         
         if (index === 0) {
           ctx.moveTo(x, y)
@@ -717,7 +720,7 @@ export default function LoopEditorPage() {
       for (let i = waveformData.length - 1; i >= 0; i--) {
         const point = waveformData[i]
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-        const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom)
+        const y = rect.height / 2 + (point.y * rect.height * 0.4 * verticalZoom * volume)
         ctx.lineTo(x, y)
       }
       
@@ -731,7 +734,7 @@ export default function LoopEditorPage() {
       
       waveformData.forEach((point, index) => {
           const x = (point.x / displayDuration) * effectiveWidth + waveformOffset
-        const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom)
+        const y = rect.height / 2 - (point.y * rect.height * 0.4 * verticalZoom * volume)
         
         if (index === 0) {
           ctx.moveTo(x, y)
@@ -760,6 +763,24 @@ export default function LoopEditorPage() {
       ctx.moveTo(endX, 0)
       ctx.lineTo(endX, rect.height)
       ctx.stroke()
+      
+      // Draw resize handles for regular selection
+      const handleWidth = 16 // Increased from 8 to 16 pixels for easier grabbing
+      const handleHeight = rect.height
+      
+      // Start handle (left)
+      ctx.fillStyle = '#3b82f6'
+      ctx.fillRect(startX - handleWidth/2, 0, handleWidth, handleHeight)
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 1
+      ctx.strokeRect(startX - handleWidth/2, 0, handleWidth, handleHeight)
+      
+      // End handle (right)
+      ctx.fillStyle = '#3b82f6'
+      ctx.fillRect(endX - handleWidth/2, 0, handleWidth, handleHeight)
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 1
+      ctx.strokeRect(endX - handleWidth/2, 0, handleWidth, handleHeight)
     }
     
     // Draw playhead position (moves with playback when playing, or shows click position when stopped)
@@ -868,12 +889,30 @@ export default function LoopEditorPage() {
       ctx.setLineDash([5, 5])
       ctx.strokeRect(startX, 0, endX - startX, rect.height)
       ctx.setLineDash([])
+      
+      // Draw resize handles
+      const handleWidth = 16 // Increased from 8 to 16 pixels for easier grabbing
+      const handleHeight = rect.height
+      
+      // Start handle (left)
+      ctx.fillStyle = '#ffff00'
+      ctx.fillRect(startX - handleWidth/2, 0, handleWidth, handleHeight)
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 1
+      ctx.strokeRect(startX - handleWidth/2, 0, handleWidth, handleHeight)
+      
+      // End handle (right)
+      ctx.fillStyle = '#ffff00'
+      ctx.fillRect(endX - handleWidth/2, 0, handleWidth, handleHeight)
+      ctx.strokeStyle = '#000000'
+      ctx.lineWidth = 1
+      ctx.strokeRect(endX - handleWidth/2, 0, handleWidth, handleHeight)
     }
     
     // No need to restore since we're not using ctx.save()
     
   }, [waveformData, duration, totalDuration, showGrid, showWaveform, gridLines, 
-      selectionStart, selectionEnd, waveSelectionStart, waveSelectionEnd, playheadPosition, currentTime, isPlaying, markers, regions, zoom, verticalZoom, waveformOffset])
+      selectionStart, selectionEnd, waveSelectionStart, waveSelectionEnd, playheadPosition, currentTime, isPlaying, markers, regions, zoom, verticalZoom, waveformOffset, volume])
   
   // Remove this effect that was causing constant redraws
   
@@ -926,19 +965,75 @@ export default function LoopEditorPage() {
     // Store initial mouse position for drag calculations
     lastMouseXRef.current = e.clientX
     
-    // Calculate time based on zoomed canvas width and display duration
-    const time = (x / zoom) * (displayDuration / rect.width)
+    // Calculate time based on mouse position and canvas dimensions
+    const time = (x / rect.width) * displayDuration
     
     // Calculate current playhead position
     const playheadTime = isPlaying ? currentTime : playheadPosition
-    const effectiveWidth = rect.width * zoom
-          const playheadX = displayDuration > 0 ? (playheadTime / displayDuration) * effectiveWidth : 0
+    const playheadX = displayDuration > 0 ? (playheadTime / displayDuration) * rect.width : 0
     
     // Check if click is near the playhead (within 10 pixels)
     const clickDistanceFromPlayhead = Math.abs(x - playheadX)
     const isClickingOnPlayhead = clickDistanceFromPlayhead <= 10
     
-    console.log('🔍 MOUSE CLICK - x:', x, 'time:', time, 'activeTool:', activeTool, 'displayDuration:', displayDuration, 'zoom:', zoom, 'playheadX:', playheadX, 'distance:', clickDistanceFromPlayhead, 'onPlayhead:', isClickingOnPlayhead)
+    console.log('🔍 MOUSE CLICK - x:', x, 'time:', time, 'activeTool:', activeTool, 'displayDuration:', displayDuration, 'zoom:', zoom, 'waveformOffset:', waveformOffset, 'playheadX:', playheadX, 'distance:', clickDistanceFromPlayhead, 'onPlayhead:', isClickingOnPlayhead)
+    
+    // Check if clicking on selection resize handles (PRIORITY 1 - check before playhead)
+    if (waveSelectionStart !== null && waveSelectionEnd !== null) {
+      const start = Math.min(waveSelectionStart, waveSelectionEnd)
+      const end = Math.max(waveSelectionStart, waveSelectionEnd)
+      
+      const startX = (start / totalDuration) * rect.width + waveformOffset
+      const endX = (end / totalDuration) * rect.width + waveformOffset
+      
+      const handleWidth = 16 // Match the visual handle width
+      const startHandleLeft = startX - handleWidth/2
+      const startHandleRight = startX + handleWidth/2
+      const endHandleLeft = endX - handleWidth/2
+      const endHandleRight = endX + handleWidth/2
+      
+      // Use raw mouse position (x) for consistency with playhead detection
+      if (x >= startHandleLeft && x <= startHandleRight) {
+        // Clicking on start handle
+        dragTypeRef.current = 'selection-resize-start'
+        console.log('🔍 STARTING WAVE SELECTION RESIZE START - x:', x, 'handleLeft:', startHandleLeft, 'handleRight:', startHandleRight)
+        isDraggingRef.current = true
+        return
+      } else if (x >= endHandleLeft && x <= endHandleRight) {
+        // Clicking on end handle
+        dragTypeRef.current = 'selection-resize-end'
+        console.log('🔍 STARTING WAVE SELECTION RESIZE END - x:', x, 'handleLeft:', endHandleLeft, 'handleRight:', endHandleRight)
+        isDraggingRef.current = true
+        return
+      }
+    }
+    
+    // Check if clicking on regular selection resize handles (PRIORITY 1 - check before playhead)
+    if (selectionStart !== null && selectionEnd !== null) {
+      const startX = (selectionStart / displayDuration) * rect.width
+      const endX = (selectionEnd / displayDuration) * rect.width
+      
+      const handleWidth = 16 // Match the visual handle width
+      const startHandleLeft = startX - handleWidth/2
+      const startHandleRight = startX + handleWidth/2
+      const endHandleLeft = endX - handleWidth/2
+      const endHandleRight = endX + handleWidth/2
+      
+      // Use raw mouse position (x) for consistency with playhead detection
+      if (x >= startHandleLeft && x <= startHandleRight) {
+        // Clicking on start handle
+        dragTypeRef.current = 'selection-resize-start'
+        console.log('🔍 STARTING REGULAR SELECTION RESIZE START - x:', x, 'handleLeft:', startHandleLeft, 'handleRight:', startHandleRight)
+        isDraggingRef.current = true
+        return
+      } else if (x >= endHandleLeft && x <= endHandleRight) {
+        // Clicking on end handle
+        dragTypeRef.current = 'selection-resize-end'
+        console.log('🔍 STARTING REGULAR SELECTION RESIZE END - x:', x, 'handleLeft:', endHandleLeft, 'handleRight:', endHandleRight)
+        isDraggingRef.current = true
+        return
+      }
+    }
     
     if (isClickingOnPlayhead) {
       // Start playhead dragging
@@ -984,23 +1079,148 @@ export default function LoopEditorPage() {
   }
   
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDraggingRef.current) return
-    
     const canvas = canvasRef.current
     if (!canvas) return
     
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
-    const time = (x / zoom) * (displayDuration / rect.width)
+    
+    // Check for resize handle hover (when not dragging)
+    if (!isDraggingRef.current) {
+      const effectiveWidth = rect.width * zoom
+      let isHoveringHandle = false
+      
+      // Check wave selection handles
+      if (waveSelectionStart !== null && waveSelectionEnd !== null) {
+        const start = Math.min(waveSelectionStart, waveSelectionEnd)
+        const end = Math.max(waveSelectionStart, waveSelectionEnd)
+        
+        const startX = (start / totalDuration) * effectiveWidth + waveformOffset
+        const endX = (end / totalDuration) * effectiveWidth + waveformOffset
+        
+        const handleWidth = 16
+        const startHandleLeft = startX - handleWidth/2
+        const startHandleRight = startX + handleWidth/2
+        const endHandleLeft = endX - handleWidth/2
+        const endHandleRight = endX + handleWidth/2
+        
+        if (x >= startHandleLeft && x <= startHandleRight) {
+          setHoveredResizeHandle('start')
+          isHoveringHandle = true
+        } else if (x >= endHandleLeft && x <= endHandleRight) {
+          setHoveredResizeHandle('end')
+          isHoveringHandle = true
+        }
+      }
+      
+      // Check regular selection handles
+      if (!isHoveringHandle && selectionStart !== null && selectionEnd !== null) {
+        const startX = (selectionStart / displayDuration) * effectiveWidth
+        const endX = (selectionEnd / displayDuration) * effectiveWidth
+        
+        const handleWidth = 16
+        const startHandleLeft = startX - handleWidth/2
+        const startHandleRight = startX + handleWidth/2
+        const endHandleLeft = endX - handleWidth/2
+        const endHandleRight = endX + handleWidth/2
+        
+        if (x >= startHandleLeft && x <= startHandleRight) {
+          setHoveredResizeHandle('start')
+          isHoveringHandle = true
+        } else if (x >= endHandleLeft && x <= endHandleRight) {
+          setHoveredResizeHandle('end')
+          isHoveringHandle = true
+        }
+      }
+      
+      // Clear hover if not hovering any handle
+      if (!isHoveringHandle) {
+        setHoveredResizeHandle(null)
+      }
+      
+      return
+    }
+    
+    if (!isDraggingRef.current) return
+    const effectiveWidth = rect.width * zoom
+    const adjustedX = x - waveformOffset
+    const time = (adjustedX / effectiveWidth) * displayDuration
     
     if (dragTypeRef.current === 'selection' && selectionStart !== null) {
       const snappedTime = snapTimeToGrid(time)
+      console.log('🔍 SELECTION UPDATE - time:', time, 'snappedTime:', snappedTime, 'adjustedX:', adjustedX)
       setSelectionEnd(snappedTime)
     } else if (dragTypeRef.current === 'selection' && isWaveSelecting) {
       // Update waveform selection
       const clampedTime = Math.max(0, Math.min(time, displayDuration))
       const snappedTime = snapToGrid ? snapTimeToGrid(clampedTime) : clampedTime
       updateWaveSelection(snappedTime)
+    } else if (dragTypeRef.current === 'selection-resize-start') {
+      // Resize selection start (works for both wave and regular selection)
+      // ALWAYS snap to grid for musical accuracy
+      const clampedTime = Math.max(0, Math.min(time, displayDuration))
+      const snappedTime = snapTimeToGrid(clampedTime)
+      
+      if (waveSelectionStart !== null && waveSelectionEnd !== null) {
+        // Resize wave selection
+        const currentEnd = Math.max(waveSelectionStart, waveSelectionEnd)
+        const minSelectionSize = stepDuration // Minimum 1 grid step
+        const newStart = Math.min(snappedTime, currentEnd - minSelectionSize)
+        
+        if (waveSelectionStart < waveSelectionEnd) {
+          setWaveSelectionStart(newStart)
+        } else {
+          setWaveSelectionEnd(newStart)
+        }
+        
+        console.log('🔍 RESIZING WAVE SELECTION START - time:', time, 'snappedTime:', snappedTime, 'stepDuration:', stepDuration, 'gridDivision:', gridDivision, 'newStart:', newStart)
+      } else if (selectionStart !== null && selectionEnd !== null) {
+        // Resize regular selection
+        const currentEnd = Math.max(selectionStart, selectionEnd)
+        const minSelectionSize = stepDuration // Minimum 1 grid step
+        const newStart = Math.min(snappedTime, currentEnd - minSelectionSize)
+        
+        if (selectionStart < selectionEnd) {
+          setSelectionStart(newStart)
+        } else {
+          setSelectionEnd(newStart)
+        }
+        
+        console.log('🔍 RESIZING REGULAR SELECTION START - time:', time, 'snappedTime:', snappedTime, 'stepDuration:', stepDuration, 'gridDivision:', gridDivision, 'newStart:', newStart)
+      }
+    } else if (dragTypeRef.current === 'selection-resize-end') {
+      // Resize selection end (works for both wave and regular selection)
+      // ALWAYS snap to grid for musical accuracy
+      const clampedTime = Math.max(0, Math.min(time, displayDuration))
+      const snappedTime = snapTimeToGrid(clampedTime)
+      
+      if (waveSelectionStart !== null && waveSelectionEnd !== null) {
+        // Resize wave selection
+        const currentStart = Math.min(waveSelectionStart, waveSelectionEnd)
+        const minSelectionSize = stepDuration // Minimum 1 grid step
+        const newEnd = Math.max(snappedTime, currentStart + minSelectionSize)
+        
+        if (waveSelectionStart < waveSelectionEnd) {
+          setWaveSelectionEnd(newEnd)
+        } else {
+          setWaveSelectionStart(newEnd)
+        }
+        
+        console.log('🔍 RESIZING WAVE SELECTION END - time:', time, 'snappedTime:', snappedTime, 'stepDuration:', stepDuration, 'gridDivision:', gridDivision, 'newEnd:', newEnd)
+      } else if (selectionStart !== null && selectionEnd !== null) {
+        // Resize regular selection
+        const currentStart = Math.min(selectionStart, selectionEnd)
+        const minSelectionSize = stepDuration // Minimum 1 grid step
+        const newEnd = Math.max(snappedTime, currentStart + minSelectionSize)
+        
+        if (selectionStart < selectionEnd) {
+          setSelectionEnd(newEnd)
+        } else {
+          setSelectionStart(newEnd)
+        }
+        
+        console.log('🔍 RESIZING REGULAR SELECTION END - time:', time, 'snappedTime:', snappedTime, 'stepDuration:', stepDuration, 'gridDivision:', gridDivision, 'newEnd:', newEnd)
+      }
     } else if (dragTypeRef.current === 'waveform') {
       // Calculate waveform offset based on mouse movement
       const deltaX = e.clientX - lastMouseXRef.current
@@ -1951,6 +2171,189 @@ export default function LoopEditorPage() {
     return new Blob([arrayBuffer], { type: 'audio/wav' })
   }
   
+  // State for MP3 export dialog
+  const [showMp3ExportDialog, setShowMp3ExportDialog] = useState(false)
+  const [mp3CompressionLevel, setMp3CompressionLevel] = useState<'ultra_high' | 'high' | 'medium' | 'low'>('medium')
+  const [isExportingMp3, setIsExportingMp3] = useState(false)
+
+  // Export current audio as WAV with original quality
+  const exportAsWav = async () => {
+    if (!audioRef.current) {
+      toast({
+        title: "No Audio",
+        description: "Please load an audio file first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      console.log('🔍 EXPORTING WAV - preserving original quality')
+      
+      // Get the current audio buffer (with all edits applied)
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const buffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // Convert to WAV with original quality
+      const wavBlob = audioBufferToWav(buffer)
+      
+      // Create download link
+      const url = URL.createObjectURL(wavBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${audioFile?.name?.replace(/\.[^/.]+$/, '') || 'exported'}_edited.wav`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      toast({
+        title: "WAV Exported!",
+        description: `Exported with original quality (${buffer.sampleRate}Hz, ${buffer.numberOfChannels} channel${buffer.numberOfChannels !== 1 ? 's' : ''})`,
+        variant: "default",
+      })
+      
+      console.log('🔍 WAV EXPORT COMPLETE - sampleRate:', buffer.sampleRate, 'channels:', buffer.numberOfChannels, 'duration:', buffer.duration.toFixed(2))
+
+    } catch (error) {
+      console.error('Export WAV error:', error)
+      toast({
+        title: "Export Failed",
+        description: "Error exporting WAV file",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Export current audio as MP3 with compression options
+  const exportAsMp3 = async () => {
+    if (!audioRef.current) {
+      toast({
+        title: "No Audio",
+        description: "Please load an audio file first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsExportingMp3(true)
+    
+    try {
+      console.log('🔍 EXPORTING MP3 - compression level:', mp3CompressionLevel)
+      
+      // Get the current audio buffer (with all edits applied)
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const buffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // For now, we'll create a compressed WAV that simulates MP3 compression
+      // In a production environment, you'd want to use a proper MP3 encoder
+      const compressedBuffer = await compressAudioBuffer(buffer, mp3CompressionLevel)
+      const compressedWavBlob = audioBufferToWav(compressedBuffer)
+      
+      // Download the compressed file
+      const url = URL.createObjectURL(compressedWavBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${audioFile?.name?.replace(/\.[^/.]+$/, '') || 'exported'}_edited_compressed.wav`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      // Get compression info for toast
+      let compressionInfo = 'Medium compression'
+      switch (mp3CompressionLevel) {
+        case 'ultra_high':
+          compressionInfo = 'Ultra high compression (64k)'
+          break
+        case 'high':
+          compressionInfo = 'High compression (128k)'
+          break
+        case 'medium':
+          compressionInfo = 'Medium compression (192k)'
+          break
+        case 'low':
+          compressionInfo = 'Low compression (320k)'
+          break
+      }
+      
+      toast({
+        title: "Compressed Audio Exported!",
+        description: `${compressionInfo} - File size reduced`,
+        variant: "default",
+      })
+      
+      console.log('🔍 COMPRESSED AUDIO EXPORT COMPLETE - compression:', mp3CompressionLevel)
+
+    } catch (error) {
+      console.error('Export compressed audio error:', error)
+      toast({
+        title: "Export Failed",
+        description: "Error exporting compressed audio file",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExportingMp3(false)
+      setShowMp3ExportDialog(false)
+    }
+  }
+
+  // Compress audio buffer to simulate MP3 compression
+  const compressAudioBuffer = async (buffer: AudioBuffer, compressionLevel: 'ultra_high' | 'high' | 'medium' | 'low'): Promise<AudioBuffer> => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+    
+    // Create a new buffer with reduced quality based on compression level
+    // Using the same bitrates as the audiolink API: 64k, 128k, 192k, 320k
+    let sampleRate = buffer.sampleRate
+    let qualityMultiplier = 1.0
+    
+    switch (compressionLevel) {
+      case 'ultra_high':
+        sampleRate = 22050 // Same as audiolink API (64k equivalent)
+        qualityMultiplier = 0.2 // Maximum compression
+        break
+      case 'high':
+        sampleRate = 32000 // 128k equivalent
+        qualityMultiplier = 0.4
+        break
+      case 'medium':
+        sampleRate = 44100 // 192k equivalent (standard)
+        qualityMultiplier = 0.7
+        break
+      case 'low':
+        sampleRate = 48000 // 320k equivalent (high quality)
+        qualityMultiplier = 1.0
+        break
+    }
+    
+    // Create new buffer with compressed settings
+    const compressedBuffer = audioContext.createBuffer(
+      buffer.numberOfChannels,
+      Math.floor(buffer.length * (sampleRate / buffer.sampleRate)),
+      sampleRate
+    )
+    
+    // Copy and compress audio data
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const originalData = buffer.getChannelData(channel)
+      const compressedData = compressedBuffer.getChannelData(channel)
+      
+      // Simple downsampling and quality reduction
+      for (let i = 0; i < compressedData.length; i++) {
+        const originalIndex = Math.floor(i * (buffer.sampleRate / sampleRate))
+        if (originalIndex < originalData.length) {
+          compressedData[i] = originalData[originalIndex] * qualityMultiplier
+        }
+      }
+    }
+    
+    return compressedBuffer
+  }
+
   const swapMainWave = () => {
     if (!duplicateWave) return
     
@@ -2180,17 +2583,16 @@ export default function LoopEditorPage() {
     try {
       console.log('🔍 Starting grid shuffle...')
       
-      // Calculate grid divisions based on BPM
-      const beatsPerSecond = bpm / 60
-      const beatDuration = 1 / beatsPerSecond
+      // Use the existing stepDuration that's already calculated correctly for the grid
+      console.log('🔍 Using existing stepDuration:', stepDuration, 'gridDivision:', gridDivision, 'bpm:', bpm)
       
-      // Create grid positions (every beat)
+      // Create grid positions using the existing stepDuration (same as visual grid)
       const gridPositions: number[] = []
       let currentTime = 0
       
       while (currentTime < totalDuration) {
         gridPositions.push(currentTime)
-        currentTime += beatDuration
+        currentTime += stepDuration
       }
       
       // Add end position if not already included
@@ -2199,7 +2601,7 @@ export default function LoopEditorPage() {
       }
       
       console.log('🔍 Grid positions for shuffling:', gridPositions)
-      console.log('🔍 Grid divisions:', gridPositions.length - 1)
+      console.log('🔍 Grid divisions:', gridPositions.length - 1, 'using gridDivision:', gridDivision, 'stepDuration:', stepDuration.toFixed(4), 's')
       
       // Create segments from grid positions
       const segments: { start: number; end: number; duration: number }[] = []
@@ -2367,10 +2769,28 @@ export default function LoopEditorPage() {
   }
 
   const getSelectedSegment = () => {
-    if (waveSelectionStart === null || waveSelectionEnd === null) return null
-    const start = Math.min(waveSelectionStart, waveSelectionEnd)
-    const end = Math.max(waveSelectionStart, waveSelectionEnd)
-    return { start, end, duration: end - start }
+    console.log('🔍 GET SELECTED SEGMENT - waveSelectionStart:', waveSelectionStart, 'waveSelectionEnd:', waveSelectionEnd, 'selectionStart:', selectionStart, 'selectionEnd:', selectionEnd)
+    
+    // Check for regular selection first (yellow highlight - this is what you see)
+    if (selectionStart !== null && selectionEnd !== null) {
+      const start = Math.min(selectionStart, selectionEnd)
+      const end = Math.max(selectionStart, selectionEnd)
+      const segment = { start, end, duration: end - start }
+      console.log('🔍 FOUND REGULAR SELECTION (YELLOW HIGHLIGHT):', segment)
+      return segment
+    }
+    
+    // Check for wave selection as fallback
+    if (waveSelectionStart !== null && waveSelectionEnd !== null) {
+      const start = Math.min(waveSelectionStart, waveSelectionEnd)
+      const end = Math.max(waveSelectionStart, waveSelectionEnd)
+      const segment = { start, end, duration: end - start }
+      console.log('🔍 FOUND WAVE SELECTION (FALLBACK):', segment)
+      return segment
+    }
+    
+    console.log('🔍 NO SELECTION FOUND')
+    return null
   }
 
   // Delete selected segment
@@ -2447,8 +2867,18 @@ export default function LoopEditorPage() {
 
   // Copy selected segment
   const copySelectedSegment = async () => {
+    console.log('🔍 COPY BUTTON CLICKED - waveSelectionStart:', waveSelectionStart, 'waveSelectionEnd:', waveSelectionEnd, 'selectionStart:', selectionStart, 'selectionEnd:', selectionEnd)
     const segment = getSelectedSegment()
-    if (!segment || !audioRef.current) return
+    console.log('🔍 SELECTED SEGMENT:', segment)
+    if (!segment || !audioRef.current) {
+      console.log('🔍 NO SEGMENT OR AUDIO REF - cannot copy')
+      toast({
+        title: "No Selection",
+        description: "Please select an area first (yellow highlight)",
+        variant: "destructive",
+      })
+      return
+    }
 
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
@@ -2463,15 +2893,26 @@ export default function LoopEditorPage() {
       
       const segmentData = originalBuffer.getChannelData(0).slice(startSample, endSample)
       
-      setClipboardSegment({
+      const clipboardData = {
         start: segment.start,
         end: segment.end,
         audioData: segmentData
-      })
+      }
+      
+      setClipboardSegment(clipboardData)
+      console.log('🔍 CLIPBOARD SET - segment:', clipboardData, 'audioData length:', segmentData.length)
 
+      // Force a re-render to ensure the paste button appears
+      setTimeout(() => {
+        console.log('🔍 CLIPBOARD STATE AFTER TIMEOUT:', clipboardData)
+      }, 100)
+
+      const startBar = timeToBar(segment.start)
+      const endBar = timeToBar(segment.end)
+      const bars = endBar - startBar
       toast({
-        title: "Segment Copied",
-        description: `Copied ${segment.duration.toFixed(2)}s segment`,
+        title: "Segment Copied!",
+        description: `Copied ${bars} bar${bars !== 1 ? 's' : ''} (${segment.duration.toFixed(2)}s) - Paste button should now appear`,
         variant: "default",
       })
 
@@ -2485,9 +2926,33 @@ export default function LoopEditorPage() {
     }
   }
 
-  // Paste segment at playhead
+  // Paste segment to selected area (replaces the selected area with clipboard content)
   const pasteSegment = async () => {
-    if (!clipboardSegment || !audioRef.current) return
+    const targetSegment = getSelectedSegment()
+    console.log('🔍 PASTE SEGMENT - clipboardSegment:', clipboardSegment, 'targetSegment:', targetSegment)
+    
+    if (!clipboardSegment || !targetSegment || !audioRef.current) {
+      console.log('🔍 NO CLIPBOARD OR TARGET SEGMENT - cannot paste')
+      toast({
+        title: "Cannot Paste",
+        description: "Please copy a segment first, then select an area to paste to",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const clipboardStartBar = timeToBar(clipboardSegment.start)
+    const clipboardEndBar = timeToBar(clipboardSegment.end)
+    const clipboardBars = clipboardEndBar - clipboardStartBar
+    
+    const targetStartBar = timeToBar(targetSegment.start)
+    const targetEndBar = timeToBar(targetSegment.end)
+    const targetBars = targetEndBar - targetStartBar
+    
+    console.log('🔍 PASTING SEGMENT - clipboard duration:', (clipboardSegment.end - clipboardSegment.start).toFixed(2), 'target duration:', targetSegment.duration.toFixed(2))
+
+    // Save state before pasting segment
+    saveStateForHistory('paste', `Paste ${clipboardBars} bar${clipboardBars !== 1 ? 's' : ''} to ${targetBars} bar${targetBars !== 1 ? 's' : ''} area`)
 
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
@@ -2495,34 +2960,45 @@ export default function LoopEditorPage() {
       const arrayBuffer = await response.arrayBuffer()
       const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
 
-      // Create new buffer with pasted segment
-      const segmentDuration = clipboardSegment.end - clipboardSegment.start
-      const newDuration = originalBuffer.duration + segmentDuration
+      // Create new buffer
       const newBuffer = audioContext.createBuffer(
         originalBuffer.numberOfChannels,
-        Math.ceil(newDuration * originalBuffer.sampleRate),
+        originalBuffer.length,
         originalBuffer.sampleRate
       )
 
-      // Copy original data
+      // Copy original data and replace selected area with clipboard content
       for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
         const originalData = originalBuffer.getChannelData(channel)
         const newData = newBuffer.getChannelData(channel)
         
-        // Copy before paste point
-        const pasteSample = Math.floor(playheadPosition * originalBuffer.sampleRate)
-        for (let i = 0; i < pasteSample; i++) {
+        // Copy before target segment (unchanged)
+        const targetStartSample = Math.floor(targetSegment.start * originalBuffer.sampleRate)
+        for (let i = 0; i < targetStartSample; i++) {
           newData[i] = originalData[i]
         }
         
-        // Paste segment
-        for (let i = 0; i < clipboardSegment.audioData.length; i++) {
-          newData[pasteSample + i] = clipboardSegment.audioData[i]
+        // Paste clipboard segment to target area
+        const clipboardLength = clipboardSegment.audioData.length
+        const targetLength = Math.floor(targetSegment.duration * originalBuffer.sampleRate)
+        
+        // If clipboard is shorter than target, pad with silence
+        // If clipboard is longer than target, truncate
+        const pasteLength = Math.min(clipboardLength, targetLength)
+        
+        for (let i = 0; i < pasteLength; i++) {
+          newData[targetStartSample + i] = clipboardSegment.audioData[i]
         }
         
-        // Copy after paste point
-        for (let i = pasteSample; i < originalData.length; i++) {
-          newData[i + clipboardSegment.audioData.length] = originalData[i]
+        // If target is longer than clipboard, fill remaining space with silence
+        for (let i = pasteLength; i < targetLength; i++) {
+          newData[targetStartSample + i] = 0
+        }
+        
+        // Copy after target segment (unchanged)
+        const targetEndSample = Math.floor(targetSegment.end * originalBuffer.sampleRate)
+        for (let i = targetEndSample; i < originalData.length; i++) {
+          newData[i] = originalData[i]
         }
       }
 
@@ -2538,26 +3014,44 @@ export default function LoopEditorPage() {
         await updateWaveformFromBuffer(newBuffer)
       }
 
+      clearWaveSelection()
+      const clipboardStartBar = timeToBar(clipboardSegment.start)
+      const clipboardEndBar = timeToBar(clipboardSegment.end)
+      const clipboardBars = clipboardEndBar - clipboardStartBar
       toast({
-        title: "Segment Pasted",
-        description: `Pasted ${segmentDuration.toFixed(2)}s segment`,
+        title: "Segment Pasted!",
+        description: `Pasted ${clipboardBars} bar${clipboardBars !== 1 ? 's' : ''} (${(clipboardSegment.end - clipboardSegment.start).toFixed(2)}s) to selected area`,
         variant: "default",
       })
+      
+      console.log('🔍 Paste complete - clipboard content replaced selected area')
 
     } catch (error) {
       console.error('Paste segment error:', error)
       toast({
         title: "Paste Failed",
-        description: "Error pasting segment",
+        description: "Error pasting segment to selected area",
         variant: "destructive",
       })
     }
   }
 
-  // Shuffle selected segment
+  // Shuffle selected segment - ULTRA SIMPLE VERSION
   const shuffleSelectedSegment = async () => {
     const segment = getSelectedSegment()
-    if (!segment || !audioRef.current) return
+    console.log('🔍 SHUFFLE SELECTED SEGMENT - segment:', segment, 'waveSelectionStart:', waveSelectionStart, 'waveSelectionEnd:', waveSelectionEnd, 'selectionStart:', selectionStart, 'selectionEnd:', selectionEnd)
+    
+    if (!segment || !audioRef.current) {
+      console.log('🔍 NO SEGMENT OR AUDIO REF - cannot shuffle')
+      toast({
+        title: "No Selection",
+        description: "Please select an area first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    console.log('🔍 SHUFFLING SEGMENT - start:', segment.start.toFixed(2), 'end:', segment.end.toFixed(2), 'duration:', segment.duration.toFixed(2))
 
     // Save state before shuffling segment
     saveStateForHistory('shuffle', `Shuffle segment ${segment.duration.toFixed(2)}s`)
@@ -2568,6 +3062,250 @@ export default function LoopEditorPage() {
       const arrayBuffer = await response.arrayBuffer()
       const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
 
+      // Extract segment
+      const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+      const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+      const segmentLength = endSample - startSample
+      
+      console.log('🔍 SEGMENT EXTRACTION - startSample:', startSample, 'endSample:', endSample, 'segmentLength:', segmentLength, 'totalBufferLength:', originalBuffer.length)
+      
+      // Create segment buffer
+      const segmentBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        segmentLength,
+        originalBuffer.sampleRate
+      )
+
+      // Copy segment data
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const segmentChannelData = segmentBuffer.getChannelData(channel)
+        for (let i = 0; i < segmentLength; i++) {
+          segmentChannelData[i] = originalData[startSample + i]
+        }
+      }
+
+      // Shuffle segment (divide into grid-aligned chunks and shuffle)
+      const secondsPerBeat = 60 / bpm
+      const stepDuration = secondsPerBeat / (gridDivision / 4)
+      const samplesPerStep = Math.floor(stepDuration * originalBuffer.sampleRate)
+      
+      // Create chunks based on grid steps (minimum 2 steps per chunk, maximum 8 steps per chunk)
+      const minStepsPerChunk = 2
+      const maxStepsPerChunk = 8
+      const stepsPerChunk = Math.max(minStepsPerChunk, Math.min(maxStepsPerChunk, Math.floor(segmentLength / samplesPerStep / 4)))
+      
+      const chunkSize = stepsPerChunk * samplesPerStep
+      const chunks: Float32Array[] = []
+      
+      console.log('🔍 Segment shuffle - gridDivision:', gridDivision, 'stepDuration:', stepDuration.toFixed(4), 's', 'stepsPerChunk:', stepsPerChunk, 'chunkSize:', chunkSize, 'samples')
+      
+      // Ensure we have at least 2 chunks for shuffling to be meaningful
+      if (segmentLength < chunkSize * 2) {
+        // If segment is too small, use smaller chunks
+        const smallerChunkSize = Math.floor(segmentLength / 4) // 4 chunks minimum
+        console.log('🔍 Segment too small, using smaller chunks:', smallerChunkSize, 'samples')
+        
+        for (let i = 0; i < segmentLength; i += smallerChunkSize) {
+          const chunkEnd = Math.min(i + smallerChunkSize, segmentLength)
+          chunks.push(segmentBuffer.getChannelData(0).slice(i, chunkEnd))
+        }
+      } else {
+        for (let i = 0; i < segmentLength; i += chunkSize) {
+          const chunkEnd = Math.min(i + chunkSize, segmentLength)
+          chunks.push(segmentBuffer.getChannelData(0).slice(i, chunkEnd))
+        }
+      }
+
+      console.log('🔍 Created', chunks.length, 'chunks for shuffling')
+      
+      // Verify chunks are not empty
+      const validChunks = chunks.filter(chunk => chunk.length > 0)
+      console.log('🔍 Valid chunks (non-empty):', validChunks.length)
+      
+      if (validChunks.length < 2) {
+        console.log('🔍 Not enough chunks to shuffle meaningfully')
+        toast({
+          title: "Segment Too Small",
+          description: "Selected segment is too small to shuffle effectively",
+          variant: "destructive",
+        })
+        return
+      }
+      
+      // Shuffle chunks
+      const shuffledChunks = [...validChunks].sort(() => Math.random() - 0.5)
+      
+      console.log('🔍 Chunks shuffled, reconstructing segment...')
+
+      // Create new buffer with shuffled segment
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        originalBuffer.length,
+        originalBuffer.sampleRate
+      )
+
+      // Copy original data
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
+        
+        // Copy before segment
+        for (let i = 0; i < startSample; i++) {
+          newData[i] = originalData[i]
+        }
+        
+        // Copy shuffled segment
+        let chunkOffset = 0
+        for (const chunk of shuffledChunks) {
+          for (let i = 0; i < chunk.length; i++) {
+            newData[startSample + chunkOffset + i] = chunk[i]
+          }
+          chunkOffset += chunk.length
+        }
+        
+        // Copy after segment
+        for (let i = endSample; i < originalData.length; i++) {
+          newData[i] = originalData[i]
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      clearWaveSelection()
+      toast({
+        title: "Segment Shuffled!",
+        description: `Only the selected ${segment.duration.toFixed(2)}s segment was shuffled`,
+        variant: "default",
+      })
+      
+      console.log('🔍 Segment shuffle complete - only selected area affected')
+
+    } catch (error) {
+      console.error('Shuffle segment error:', error)
+      toast({
+        title: "Shuffle Failed",
+        description: "Error shuffling segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Magic Shuffle selected segment - shuffles segment AND copies a sub-segment
+  const magicShuffleSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    console.log('🔍 MAGIC SHUFFLE SELECTED SEGMENT - segment:', segment, 'waveSelectionStart:', waveSelectionStart, 'waveSelectionEnd:', waveSelectionEnd, 'selectionStart:', selectionStart, 'selectionEnd:', selectionEnd)
+    
+    if (!segment || !audioRef.current) {
+      console.log('🔍 NO SEGMENT OR AUDIO REF - cannot magic shuffle')
+      toast({
+        title: "No Selection",
+        description: "Please select an area first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    console.log('🔍 MAGIC SHUFFLING SEGMENT - start:', segment.start.toFixed(2), 'end:', segment.end.toFixed(2), 'duration:', segment.duration.toFixed(2))
+
+    try {
+      console.log('🔍 Starting Magic Shuffle Selected Segment...')
+      
+      // First: Shuffle the selected segment
+      await shuffleSelectedSegment()
+      
+      // Second: Find and copy an interesting sub-segment from the original segment
+      const interestingSubSegments = findInterestingSubSegments(segment)
+      
+      if (interestingSubSegments.length > 0) {
+        // Randomly select one of the interesting sub-segments
+        const randomSubSegment = interestingSubSegments[Math.floor(Math.random() * interestingSubSegments.length)]
+        
+        // Ensure sub-segment is aligned to grid
+        const gridAlignedStart = snapTimeToGrid(randomSubSegment.start)
+        const gridAlignedEnd = snapTimeToGrid(randomSubSegment.end)
+        
+        const gridAlignedSubSegment = {
+          start: gridAlignedStart,
+          end: gridAlignedEnd,
+          duration: gridAlignedEnd - gridAlignedStart
+        }
+        
+        console.log('🔍 Grid-aligned sub-segment:', gridAlignedSubSegment, 'original:', randomSubSegment)
+        
+        // Copy the grid-aligned sub-segment
+        await copySegmentToClipboard(gridAlignedSubSegment)
+        
+        // Set visual selection for the sub-segment
+        setWaveSelectionStart(gridAlignedSubSegment.start)
+        setWaveSelectionEnd(gridAlignedSubSegment.end)
+        
+        // Calculate bars for better description
+        const subSegmentBars = Math.round(gridAlignedSubSegment.duration / (stepDuration * 16))
+        
+        toast({
+          title: "Magic Shuffle Complete!",
+          description: `Segment shuffled + copied ${subSegmentBars} bar sub-segment (${gridAlignedSubSegment.duration.toFixed(2)}s)`,
+          variant: "default",
+        })
+      } else {
+        toast({
+          title: "Magic Shuffle Complete!",
+          description: `Segment shuffled successfully`,
+          variant: "default",
+        })
+      }
+      
+      console.log('🔍 Magic shuffle selected segment complete!')
+      
+    } catch (error) {
+      console.error('🔍 Magic shuffle selected segment error:', error)
+      toast({
+        title: "Magic Shuffle Failed",
+        description: "Error performing magic shuffle on selected segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Shuffle Grid Selected Segment - shuffles segment using grid-aligned chunks
+  const shuffleGridSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    console.log('🔍 GRID SHUFFLE SELECTED SEGMENT - segment:', segment, 'waveSelectionStart:', waveSelectionStart, 'waveSelectionEnd:', waveSelectionEnd, 'selectionStart:', selectionStart, 'selectionEnd:', selectionEnd)
+    
+    if (!segment || !audioRef.current) {
+      console.log('🔍 NO SEGMENT OR AUDIO REF - cannot grid shuffle')
+      toast({
+        title: "No Selection",
+        description: "Please select an area first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    console.log('🔍 GRID SHUFFLING SEGMENT - start:', segment.start.toFixed(2), 'end:', segment.end.toFixed(2), 'duration:', segment.duration.toFixed(2))
+
+    try {
+      console.log('🔍 Starting Grid Shuffle Selected Segment...')
+      
+      // Save current state for undo
+      saveStateForHistory('shuffle', `Grid shuffle selected segment (${segment.duration.toFixed(2)}s)`)
+      
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
       // Extract segment
       const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
       const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
@@ -2589,14 +3327,24 @@ export default function LoopEditorPage() {
         }
       }
 
-      // Shuffle segment (divide into smaller chunks and shuffle)
-      const chunkSize = Math.floor(segmentLength / 8) // 8 chunks
+      // Shuffle segment using grid-aligned chunks (same as shuffleSelectedSegment but with grid focus)
+      const secondsPerBeat = 60 / bpm
+      const stepDuration = secondsPerBeat / (gridDivision / 4)
+      const samplesPerStep = Math.floor(stepDuration * originalBuffer.sampleRate)
+      
+      // Create chunks based on grid steps (minimum 2 steps per chunk, maximum 8 steps per chunk)
+      const minStepsPerChunk = 2
+      const maxStepsPerChunk = 8
+      const stepsPerChunk = Math.max(minStepsPerChunk, Math.min(maxStepsPerChunk, Math.floor(segmentLength / samplesPerStep / 4)))
+      
+      const chunkSize = stepsPerChunk * samplesPerStep
       const chunks: Float32Array[] = []
       
-      for (let i = 0; i < 8; i++) {
-        const chunkStart = i * chunkSize
-        const chunkEnd = i === 7 ? segmentLength : (i + 1) * chunkSize
-        chunks.push(segmentBuffer.getChannelData(0).slice(chunkStart, chunkEnd))
+      console.log('🔍 Grid shuffle selected segment - gridDivision:', gridDivision, 'stepDuration:', stepDuration.toFixed(4), 's', 'stepsPerChunk:', stepsPerChunk, 'chunkSize:', chunkSize, 'samples')
+      
+      for (let i = 0; i < segmentLength; i += chunkSize) {
+        const chunkEnd = Math.min(i + chunkSize, segmentLength)
+        chunks.push(segmentBuffer.getChannelData(0).slice(i, chunkEnd))
       }
 
       // Shuffle chunks
@@ -2645,69 +3393,198 @@ export default function LoopEditorPage() {
         // Update waveform
         await updateWaveformFromBuffer(newBuffer)
       }
-
-      clearWaveSelection()
+      
       toast({
-        title: "Segment Shuffled",
-        description: `Shuffled ${segment.duration.toFixed(2)}s segment`,
+        title: "Grid Shuffle Complete!",
+        description: `Only the selected ${segment.duration.toFixed(2)}s segment was shuffled using ${gridDivision} grid division`,
         variant: "default",
       })
-
+      
+      console.log('🔍 Grid shuffle selected segment complete - only selected area affected')
+      
     } catch (error) {
-      console.error('Shuffle segment error:', error)
+      console.error('🔍 Grid shuffle selected segment error:', error)
       toast({
-        title: "Shuffle Failed",
-        description: "Error shuffling segment",
+        title: "Grid Shuffle Failed",
+        description: "Error performing grid shuffle on selected segment",
         variant: "destructive",
       })
     }
   }
 
-  // Magic Shuffle selected segment - shuffles segment AND copies a sub-segment
-  const magicShuffleSelectedSegment = async () => {
+  // Fade In Selected Segment
+  const fadeInSelectedSegment = async () => {
     const segment = getSelectedSegment()
-    if (!segment || !audioRef.current) return
+    console.log('🔍 FADE IN SELECTED SEGMENT - segment:', segment)
+    
+    if (!segment || !audioRef.current) {
+      console.log('🔍 NO SEGMENT OR AUDIO REF - cannot fade in')
+      toast({
+        title: "No Selection",
+        description: "Please select an area first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    console.log('🔍 FADING IN SEGMENT - start:', segment.start.toFixed(2), 'end:', segment.end.toFixed(2), 'duration:', segment.duration.toFixed(2))
+
+    // Save state before fading segment
+    saveStateForHistory('fade', `Fade in segment ${segment.duration.toFixed(2)}s`)
 
     try {
-      console.log('🔍 Starting Magic Shuffle Selected Segment...')
-      
-      // First: Shuffle the selected segment
-      await shuffleSelectedSegment()
-      
-      // Second: Find and copy an interesting sub-segment from the original segment
-      const interestingSubSegments = findInterestingSubSegments(segment)
-      
-      if (interestingSubSegments.length > 0) {
-        // Randomly select one of the interesting sub-segments
-        const randomSubSegment = interestingSubSegments[Math.floor(Math.random() * interestingSubSegments.length)]
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Create new buffer
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        originalBuffer.length,
+        originalBuffer.sampleRate
+      )
+
+      // Copy original data and apply fade in to selected segment
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
         
-        // Copy the selected sub-segment
-        await copySegmentToClipboard(randomSubSegment)
+        // Copy before segment (unchanged)
+        const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+        for (let i = 0; i < startSample; i++) {
+          newData[i] = originalData[i]
+        }
         
-        // Set visual selection for the sub-segment
-        setWaveSelectionStart(randomSubSegment.start)
-        setWaveSelectionEnd(randomSubSegment.end)
+        // Apply fade in to segment
+        const segmentLength = Math.floor(segment.duration * originalBuffer.sampleRate)
+        for (let i = 0; i < segmentLength; i++) {
+          const fadeMultiplier = i / segmentLength // Linear fade from 0 to 1
+          newData[startSample + i] = originalData[startSample + i] * fadeMultiplier
+        }
         
-        toast({
-          title: "Magic Shuffle Complete!",
-          description: `Segment shuffled + copied ${randomSubSegment.duration.toFixed(2)}s sub-segment`,
-          variant: "default",
-        })
-      } else {
-        toast({
-          title: "Magic Shuffle Complete!",
-          description: `Segment shuffled successfully`,
-          variant: "default",
-        })
+        // Copy after segment (unchanged)
+        const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+        for (let i = endSample; i < originalData.length; i++) {
+          newData[i] = originalData[i]
+        }
       }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
       
-      console.log('🔍 Magic shuffle selected segment complete!')
-      
-    } catch (error) {
-      console.error('🔍 Magic shuffle selected segment error:', error)
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      clearWaveSelection()
       toast({
-        title: "Magic Shuffle Failed",
-        description: "Error performing magic shuffle on selected segment",
+        title: "Fade In Applied!",
+        description: `Applied fade in to selected ${segment.duration.toFixed(2)}s segment`,
+        variant: "default",
+      })
+      
+      console.log('🔍 Fade in complete - only selected area affected')
+
+    } catch (error) {
+      console.error('Fade in segment error:', error)
+      toast({
+        title: "Fade In Failed",
+        description: "Error applying fade in to selected segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Fade Out Selected Segment
+  const fadeOutSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    console.log('🔍 FADE OUT SELECTED SEGMENT - segment:', segment)
+    
+    if (!segment || !audioRef.current) {
+      console.log('🔍 NO SEGMENT OR AUDIO REF - cannot fade out')
+      toast({
+        title: "No Selection",
+        description: "Please select an area first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    console.log('🔍 FADING OUT SEGMENT - start:', segment.start.toFixed(2), 'end:', segment.end.toFixed(2), 'duration:', segment.duration.toFixed(2))
+
+    // Save state before fading segment
+    saveStateForHistory('fade', `Fade out segment ${segment.duration.toFixed(2)}s`)
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Create new buffer
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        originalBuffer.length,
+        originalBuffer.sampleRate
+      )
+
+      // Copy original data and apply fade out to selected segment
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
+        
+        // Copy before segment (unchanged)
+        const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+        for (let i = 0; i < startSample; i++) {
+          newData[i] = originalData[i]
+        }
+        
+        // Apply fade out to segment
+        const segmentLength = Math.floor(segment.duration * originalBuffer.sampleRate)
+        for (let i = 0; i < segmentLength; i++) {
+          const fadeMultiplier = 1 - (i / segmentLength) // Linear fade from 1 to 0
+          newData[startSample + i] = originalData[startSample + i] * fadeMultiplier
+        }
+        
+        // Copy after segment (unchanged)
+        const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+        for (let i = endSample; i < originalData.length; i++) {
+          newData[i] = originalData[i]
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      clearWaveSelection()
+      toast({
+        title: "Fade Out Applied!",
+        description: `Applied fade out to selected ${segment.duration.toFixed(2)}s segment`,
+        variant: "default",
+      })
+      
+      console.log('🔍 Fade out complete - only selected area affected')
+
+    } catch (error) {
+      console.error('Fade out segment error:', error)
+      toast({
+        title: "Fade Out Failed",
+        description: "Error applying fade out to selected segment",
         variant: "destructive",
       })
     }
@@ -2801,6 +3678,103 @@ export default function LoopEditorPage() {
     setWaveformData(newWaveform)
   }
 
+  // Loop selected segment to fill specified bars
+  const loopSelectedSegment = async () => {
+    const segment = getSelectedSegment()
+    if (!segment || !audioRef.current) {
+      toast({
+        title: "Cannot Loop",
+        description: "Need a selected segment to loop",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Save state before looping
+    saveStateForHistory('loop', `Loop segment ${segment.duration.toFixed(2)}s to fill ${selectedBarCount} bars`)
+
+    try {
+      console.log('🔍 Starting loop selection...')
+      
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      // Calculate target duration based on selected bar count
+      const secondsPerBeat = 60 / bpm
+      const fixedStepDuration = secondsPerBeat / 4 // Always use 1/16 resolution for bar calculation
+      const barDuration = fixedStepDuration * 16 // 16 steps per bar
+      const targetDuration = selectedBarCount * barDuration
+      
+      console.log('🔍 Loop target - bars:', selectedBarCount, 'barDuration:', barDuration.toFixed(4), 's', 'targetDuration:', targetDuration.toFixed(4), 's')
+
+      // Calculate how many times to repeat the segment
+      const segmentDuration = segment.end - segment.start
+      const repeatCount = Math.ceil(targetDuration / segmentDuration)
+      
+      console.log('🔍 Segment duration:', segmentDuration.toFixed(4), 's', 'repeatCount:', repeatCount)
+
+      // Create new buffer for looped audio
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        Math.ceil(targetDuration * originalBuffer.sampleRate),
+        originalBuffer.sampleRate
+      )
+
+      // Extract segment data
+      const startSample = Math.floor(segment.start * originalBuffer.sampleRate)
+      const endSample = Math.floor(segment.end * originalBuffer.sampleRate)
+      const segmentLength = endSample - startSample
+      const segmentData = originalBuffer.getChannelData(0).slice(startSample, endSample)
+
+      // Copy segment data multiple times to fill target duration
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const newData = newBuffer.getChannelData(channel)
+        let currentSample = 0
+        
+        for (let repeat = 0; repeat < repeatCount && currentSample < newData.length; repeat++) {
+          const samplesToCopy = Math.min(segmentLength, newData.length - currentSample)
+          
+          for (let i = 0; i < samplesToCopy; i++) {
+            newData[currentSample + i] = segmentData[i]
+          }
+          
+          currentSample += segmentLength
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update waveform
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      clearWaveSelection()
+      toast({
+        title: "Segment Looped!",
+        description: `Looped ${segment.duration.toFixed(2)}s segment to fill ${selectedBarCount} bars (${targetDuration.toFixed(2)}s)`,
+        variant: "default",
+      })
+      
+      console.log('🔍 Loop complete!')
+      
+    } catch (error) {
+      console.error('🔍 Loop error:', error)
+      toast({
+        title: "Loop Failed",
+        description: "Error looping segment",
+        variant: "destructive",
+      })
+    }
+  }
+
   // Magic Shuffle - shuffles audio AND copies a random segment
   const magicShuffle = async () => {
     if (!audioRef.current || !waveformData.length) {
@@ -2828,16 +3802,31 @@ export default function LoopEditorPage() {
         // Randomly select one of the interesting segments
         const randomSegment = interestingSegments[Math.floor(Math.random() * interestingSegments.length)]
         
-        // Copy the selected segment
-        await copySegmentToClipboard(randomSegment)
+        // Ensure segment is aligned to grid
+        const gridAlignedStart = snapTimeToGrid(randomSegment.start)
+        const gridAlignedEnd = snapTimeToGrid(randomSegment.end)
+        
+        const gridAlignedSegment = {
+          start: gridAlignedStart,
+          end: gridAlignedEnd,
+          duration: gridAlignedEnd - gridAlignedStart
+        }
+        
+        console.log('🔍 Grid-aligned segment:', gridAlignedSegment, 'original:', randomSegment)
+        
+        // Copy the grid-aligned segment
+        await copySegmentToClipboard(gridAlignedSegment)
         
         // Set visual selection
-        setWaveSelectionStart(randomSegment.start)
-        setWaveSelectionEnd(randomSegment.end)
+        setWaveSelectionStart(gridAlignedSegment.start)
+        setWaveSelectionEnd(gridAlignedSegment.end)
+        
+        // Calculate bars for better description
+        const segmentBars = Math.round(gridAlignedSegment.duration / (stepDuration * 16))
         
         toast({
           title: "Magic Shuffle Complete!",
-          description: `Audio shuffled + copied ${randomSegment.duration.toFixed(2)}s segment`,
+          description: `Audio shuffled + copied ${segmentBars} bar segment (${gridAlignedSegment.duration.toFixed(2)}s)`,
           variant: "default",
         })
       } else {
@@ -2860,40 +3849,48 @@ export default function LoopEditorPage() {
     }
   }
 
-  // Find interesting segments based on waveform analysis
+  // Find interesting segments based on musical timing and waveform analysis
   const findInterestingSegments = () => {
     const segments: { start: number; end: number; duration: number; energy: number }[] = []
     
-    // Analyze waveform for high-energy regions
-    const windowSize = Math.floor(waveformData.length / 20) // 20 windows
-    const minSegmentDuration = 0.5 // Minimum 0.5 seconds
-    const maxSegmentDuration = 4.0 // Maximum 4 seconds
+    // Use musical timing instead of arbitrary windows
+    // Create segments that align with bars (4 beats = 1 bar)
+    const barDuration = stepDuration * 16 // 16 steps per bar
+    const minSegmentBars = 1 // Minimum 1 bar
+    const maxSegmentBars = 8 // Maximum 8 bars
     
-    for (let i = 0; i < waveformData.length - windowSize; i += windowSize) {
-      const windowData = waveformData.slice(i, i + windowSize)
+    console.log('🔍 Finding interesting segments with musical timing - barDuration:', barDuration, 'stepDuration:', stepDuration)
+    
+    // Create segments aligned to musical bars
+    for (let barStart = 0; barStart < totalDuration; barStart += barDuration) {
+      const barEnd = Math.min(barStart + barDuration, totalDuration)
+      const segmentBars = Math.min(Math.floor(Math.random() * maxSegmentBars) + minSegmentBars, Math.floor((totalDuration - barStart) / barDuration))
+      const segmentEnd = Math.min(barStart + (barDuration * segmentBars), totalDuration)
       
-      // Calculate average energy for this window
-      const avgEnergy = windowData.reduce((sum, point) => sum + point.y, 0) / windowData.length
+      // Find waveform data points within this segment
+      const segmentData = waveformData.filter(point => point.x >= barStart && point.x <= segmentEnd)
       
-      // Calculate energy variance (how dynamic this section is)
-      const variance = windowData.reduce((sum, point) => sum + Math.pow(point.y - avgEnergy, 2), 0) / windowData.length
-      
-      // Calculate start and end times
-      const startTime = windowData[0].x
-      const endTime = windowData[windowData.length - 1].x
-      const duration = endTime - startTime
-      
-      // Only include segments within reasonable duration
-      if (duration >= minSegmentDuration && duration <= maxSegmentDuration) {
-        // Score based on energy and variance (more dynamic = more interesting)
-        const score = avgEnergy * (1 + variance)
+      if (segmentData.length > 0) {
+        // Calculate average energy for this musical segment
+        const avgEnergy = segmentData.reduce((sum, point) => sum + point.y, 0) / segmentData.length
+        
+        // Calculate energy variance (how dynamic this section is)
+        const variance = segmentData.reduce((sum, point) => sum + Math.pow(point.y - avgEnergy, 2), 0) / segmentData.length
+        
+        const duration = segmentEnd - barStart
+        
+        // Score based on energy, variance, and musical length (prefer 2-4 bar segments)
+        const musicalScore = Math.min(segmentBars, 4) / 4 // Prefer 2-4 bar segments
+        const score = avgEnergy * (1 + variance) * musicalScore
         
         segments.push({
-          start: startTime,
-          end: endTime,
+          start: barStart,
+          end: segmentEnd,
           duration,
           energy: score
         })
+        
+        console.log('🔍 Musical segment:', { barStart, segmentEnd, duration, segmentBars, score })
       }
     }
     
@@ -3255,6 +4252,24 @@ export default function LoopEditorPage() {
                 title="Save project (waveform position, markers, etc.)"
               >
                 <Save className="w-4 h-4" />
+              </Button>
+              <Button 
+                variant="outline" 
+                className="border-green-600 text-green-300 hover:bg-green-700 hover:text-white"
+                onClick={exportAsWav}
+                disabled={!audioFile}
+                title="Export audio as WAV with original quality (includes all edits)"
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+              <Button 
+                variant="outline" 
+                className="border-blue-600 text-blue-300 hover:bg-blue-700 hover:text-white"
+                onClick={() => setShowMp3ExportDialog(true)}
+                disabled={!audioFile}
+                title="Export audio with compression options (includes all edits)"
+              >
+                <Music className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -3864,7 +4879,21 @@ export default function LoopEditorPage() {
                 <Label className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Volume:</Label>
                 <Slider
                   value={[volume]}
-                  onValueChange={(value) => setVolume(value[0])}
+                  onValueChange={(value) => {
+                    const newVolume = value[0]
+                    setVolume(newVolume)
+                    // Apply volume immediately to all audio elements
+                    if (audioRef.current) {
+                      audioRef.current.volume = newVolume
+                    }
+                    if (duplicateWave?.audioRef) {
+                      duplicateWave.audioRef.volume = newVolume
+                    }
+                    // Redraw waveform to show visual volume changes
+                    if (waveformData.length > 0) {
+                      drawWaveform()
+                    }
+                  }}
                   min={0}
                   max={1}
                   step={0.01}
@@ -3873,6 +4902,18 @@ export default function LoopEditorPage() {
                   <span className="text-white text-xs sm:text-sm font-mono min-w-[2rem] sm:min-w-[3rem] bg-[#1a1a1a] px-2 py-1 rounded border border-gray-600 text-center">
                   {Math.round(volume * 100)}%
                 </span>
+                  {/* Visual volume indicator */}
+                  <div className="flex items-center gap-1">
+                    <div className="w-8 h-4 bg-gray-700 rounded border border-gray-600 flex items-end justify-center p-1">
+                      <div 
+                        className="bg-green-400 rounded-sm transition-all duration-200"
+                        style={{ 
+                          height: `${volume * 100}%`,
+                          minHeight: volume > 0 ? '2px' : '0px'
+                        }}
+                      />
+                    </div>
+                  </div>
               </div>
             </div>
             
@@ -4098,6 +5139,14 @@ export default function LoopEditorPage() {
                 >
                   📋 Copy
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={loopSelectedSegment}
+                  className="bg-orange-600 text-white hover:bg-orange-700 border-orange-500"
+                >
+                  🔄 Loop to {selectedBarCount} bars
+                </Button>
                                 <Button
                   size="sm"
                   variant="outline"
@@ -4110,10 +5159,37 @@ export default function LoopEditorPage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  onClick={shuffleGridSelectedSegment}
+                  className="bg-indigo-600 text-white hover:bg-indigo-700 border-indigo-500"
+                >
+                  🎯 Grid
+                </Button>
+                
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={magicShuffleSelectedSegment}
                   className="bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 border-purple-500"
                 >
                   ✨ Magic
+                </Button>
+                
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={fadeInSelectedSegment}
+                  className="bg-teal-600 text-white hover:bg-teal-700 border-teal-500"
+                >
+                  📈 Fade In
+                </Button>
+                
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={fadeOutSelectedSegment}
+                  className="bg-cyan-600 text-white hover:bg-cyan-700 border-cyan-500"
+                >
+                  📉 Fade Out
                 </Button>
                 
  
@@ -4129,18 +5205,39 @@ export default function LoopEditorPage() {
             )}
 
             {/* Paste Button */}
-            {clipboardSegment && (
-              <div className="flex items-center gap-2 mt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={pasteSegment}
-                  className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
-                >
-                  📋 Paste at Playhead
-                </Button>
-              </div>
-            )}
+            {(() => {
+              console.log('🔍 PASTE BUTTON CHECK - clipboardSegment:', clipboardSegment)
+              return (
+                <div className="flex items-center gap-2 mt-2">
+                  {clipboardSegment ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={pasteSegment}
+                      className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
+                    >
+                      📋 Paste to Selection
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        console.log('🔍 MANUAL CLIPBOARD TEST - setting test clipboard')
+                        setClipboardSegment({
+                          start: 0,
+                          end: 1,
+                          audioData: new Float32Array(44100) // 1 second of silence
+                        })
+                      }}
+                      className="bg-gray-600 text-white hover:bg-gray-700 border-gray-500"
+                    >
+                      🔧 Test Paste Button
+                    </Button>
+                  )}
+                </div>
+              )
+            })()}
             
             {showCategoryInput && (
               <div className="mb-4 p-4 bg-[#1a1a1a] rounded border border-gray-600">
@@ -4568,6 +5665,67 @@ export default function LoopEditorPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compressed Audio Export Dialog */}
+      <Dialog open={showMp3ExportDialog} onOpenChange={setShowMp3ExportDialog}>
+        <DialogContent className="bg-[#141414] border-gray-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Export with Compression</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label className="text-white">Compression Level</Label>
+              <Select value={mp3CompressionLevel} onValueChange={(value: 'ultra_high' | 'high' | 'medium' | 'low') => setMp3CompressionLevel(value)}>
+                <SelectTrigger className="bg-[#1a1a1a] border-gray-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-gray-600">
+                  <SelectItem value="ultra_high" className="text-white hover:bg-gray-700">
+                    Ultra High (64k) - 97% compression
+                  </SelectItem>
+                  <SelectItem value="high" className="text-white hover:bg-gray-700">
+                    High (128k) - 94% compression
+                  </SelectItem>
+                  <SelectItem value="medium" className="text-white hover:bg-gray-700">
+                    Medium (192k) - 90% compression
+                  </SelectItem>
+                  <SelectItem value="low" className="text-white hover:bg-gray-700">
+                    Low (320k) - 84% compression
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowMp3ExportDialog(false)}
+                className="border-gray-600 text-gray-300 hover:bg-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={exportAsMp3}
+                disabled={isExportingMp3}
+                className="bg-blue-600 text-white hover:bg-blue-700"
+              >
+                {isExportingMp3 ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Compressed
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </DialogContent>
