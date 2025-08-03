@@ -134,6 +134,9 @@ export default function LoopEditorPage() {
   const [duration, setDuration] = useState(0)
   const [waveformData, setWaveformData] = useState<WaveformPoint[]>([])
   
+  // Drag and drop state
+  const [isDragOver, setIsDragOver] = useState(false)
+  
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -355,13 +358,8 @@ export default function LoopEditorPage() {
   // Auto-show bars when audio file is loaded
   useEffect(() => {
     if (audioFile && totalDuration > 0 && markedBars.length === 0) {
-      // Use the EXACT same math as sequencer grid
-      // stepDuration = secondsPerBeat / (gridDivision / 4)
-      // loopBars = Math.round((displayLoopDuration / stepDuration) / 4)
-      const secondsPerBeat = 60 / bpm
-      const gridDivision = 16 // 1/16 resolution like sequencer
-      const stepDuration = secondsPerBeat / (gridDivision / 4)
-      const loopBars = Math.round((totalDuration / stepDuration) / 4)
+      // Use the FIXED bar calculation (like beat-maker) - always 16 steps per bar
+      const loopBars = Math.round((totalDuration / (fixedStepDuration * 16)))
       
       const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
       setMarkedBars(allBars)
@@ -424,22 +422,19 @@ export default function LoopEditorPage() {
           ctx.lineTo(x, rect.height)
           ctx.stroke()
           
-          // Draw step number (every step)
-          ctx.setLineDash([])
-          ctx.fillStyle = '#ffffff' // White color for all step numbers
-          ctx.font = 'bold 16px monospace'
-          ctx.textAlign = 'center'
-          
-          // Draw step number at top
-          ctx.fillText(index.toString(), x, 25)
-          
-          // Draw bar number (every 16 steps, starting from step 0)
-          if (index % 16 === 0) {
-            const barNumber = Math.floor(index / 16) + 1
-            ctx.fillStyle = '#4ade80' // Green color for bar numbers
-            ctx.font = 'bold 18px monospace'
-            ctx.fillText(`Bar ${barNumber}`, x, 50)
+          // Draw step number (every step) - ONLY if no bar markers are shown
+          if (markedBars.length === 0) {
+            ctx.setLineDash([])
+            ctx.fillStyle = '#ffffff' // White color for all step numbers
+            ctx.font = 'bold 16px monospace'
+            ctx.textAlign = 'center'
+            
+            // Draw step number at top
+            ctx.fillText(index.toString(), x, 25)
           }
+          
+          // Draw bar number (every 16 steps, starting from step 0) - REMOVED to avoid duplicate bar labels
+          // Bar labels are now handled by the separate bar marker drawing code below
           
           // Draw time label at bottom
           ctx.fillStyle = '#888888' // Gray color for time labels
@@ -1170,11 +1165,91 @@ export default function LoopEditorPage() {
     setPlayBothMode(!playBothMode)
   }
   
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set drag over to false if we're leaving the main container
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    const audioFile = files.find(file => {
+      const validTypes = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/aiff', 'audio/flac', 'audio/ogg', 'audio/m4a']
+      const validExtensions = ['.wav', '.mp3', '.aiff', '.flac', '.ogg', '.m4a']
+      
+      return validTypes.includes(file.type) || 
+             validExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
+    })
+    
+    if (audioFile) {
+      loadAudioFile(audioFile)
+      toast({
+        title: "File Loaded",
+        description: `${audioFile.name} loaded successfully`,
+        variant: "default",
+      })
+    } else {
+      toast({
+        title: "Invalid File",
+        description: "Please drop a valid audio file (WAV, MP3, AIFF, FLAC, OGG)",
+        variant: "destructive",
+      })
+    }
+  }
+
   // File input handler
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validate file type
+      const validTypes = ['audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/aiff', 'audio/flac', 'audio/ogg', 'audio/m4a']
+      const validExtensions = ['.wav', '.mp3', '.aiff', '.flac', '.ogg', '.m4a']
+      
+      const isValidType = validTypes.includes(file.type) || 
+                         validExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
+      
+      if (!isValidType) {
+        toast({
+          title: "Invalid File Type",
+          description: "Please select a valid audio file (WAV, MP3, AIFF, FLAC, OGG, M4A)",
+          variant: "destructive",
+        })
+        return
+      }
+      
+      // Validate file size (100MB limit)
+      if (file.size > 100 * 1024 * 1024) {
+        toast({
+          title: "File Too Large",
+          description: "Please select a file smaller than 100MB",
+          variant: "destructive",
+        })
+        return
+      }
+      
       loadAudioFile(file)
+      toast({
+        title: "File Loaded",
+        description: `${file.name} loaded successfully`,
+        variant: "default",
+      })
+      
+      // Reset the file input so the same file can be selected again
+      e.target.value = ''
     }
   }
   
@@ -1361,8 +1436,11 @@ export default function LoopEditorPage() {
   // Helper functions to convert between time, step, and bar
   const timeToStep = (time: number) => Math.floor(time / stepDuration)
   const stepToTime = (step: number) => step * stepDuration
-  const timeToBar = (time: number) => Math.floor(time / (stepDuration * 16)) + 1 // 16 steps per bar (like beat maker)
-  const barToTime = (bar: number) => (bar - 1) * stepDuration * 16
+  
+  // FIXED BAR CALCULATION - always 16 steps per bar regardless of grid division (like beat-maker)
+  const fixedStepDuration = secondsPerBeat / 4 // Always use 1/16 resolution for bar calculation
+  const timeToBar = (time: number) => Math.floor(time / (fixedStepDuration * 16)) + 1 // 16 steps per bar (like beat maker)
+  const barToTime = (bar: number) => (bar - 1) * fixedStepDuration * 16
   const stepToBar = (step: number) => Math.floor(step / 16) + 1
   const barToStep = (bar: number) => (bar - 1) * 16
   
@@ -1629,11 +1707,8 @@ export default function LoopEditorPage() {
   const addBarTracker = () => {
     if (!audioFile || totalDuration <= 0) return
     
-    // Use the EXACT same math as sequencer grid
-    const secondsPerBeat = 60 / bpm
-    const gridDivision = 16 // 1/16 resolution like sequencer
-    const stepDuration = secondsPerBeat / (gridDivision / 4)
-    const loopBars = Math.round((totalDuration / stepDuration) / 4)
+    // Use the FIXED bar calculation (like beat-maker) - always 16 steps per bar
+    const loopBars = Math.round((totalDuration / (fixedStepDuration * 16)))
     const beatsPerBar = 4 // Assuming 4/4 time signature
     const totalBeats = loopBars * beatsPerBar
     const currentBar = timeToBar(playheadPosition)
@@ -1686,11 +1761,8 @@ export default function LoopEditorPage() {
     )
     
     if (existingBarTracker) {
-      // Use the EXACT same math as sequencer grid
-      const secondsPerBeat = 60 / bpm
-      const gridDivision = 16 // 1/16 resolution like sequencer
-      const stepDuration = secondsPerBeat / (gridDivision / 4)
-      const loopBars = Math.round((totalDuration / stepDuration) / 4)
+      // Use the FIXED bar calculation (like beat-maker) - always 16 steps per bar
+      const loopBars = Math.round((totalDuration / (fixedStepDuration * 16)))
       const currentBar = timeToBar(playheadPosition)
       
       setMarkers(prev => prev.map(marker => 
@@ -3107,7 +3179,12 @@ export default function LoopEditorPage() {
   }, [playheadPosition, editingMarker, editingMarkerId, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, addMarkerToSelection, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, stopEditingMarker, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
   
   return (
-    <div className="min-h-screen bg-[#141414] text-white">
+    <div 
+      className="min-h-screen bg-[#141414] text-white"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Header */}
       <div className="bg-[#141414] border-b border-gray-700 p-3 sm:p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
@@ -3115,6 +3192,7 @@ export default function LoopEditorPage() {
             <div className="flex-1 min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-white truncate">Audio Science Lab</h1>
               <p className="text-xs sm:text-sm text-gray-400">Professional Waveform Analysis & Editing Suite</p>
+              <p className="text-xs text-blue-400 mt-1">💡 Drag & drop audio files to load them quickly</p>
               {audioFile && (
                 <div className="mt-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                   <span className="text-xs text-gray-500">Current File:</span>
@@ -3147,13 +3225,14 @@ export default function LoopEditorPage() {
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="file"
-                accept="audio/*"
+                accept="audio/*,.wav,.mp3,.aiff,.flac,.ogg,.m4a"
                 onChange={handleFileSelect}
                 className="hidden"
                 id="audio-file-input"
+                multiple={false}
               />
-              <label htmlFor="audio-file-input">
-                <Button variant="outline" className="cursor-pointer border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white text-xs sm:text-sm">
+              <label htmlFor="audio-file-input" className="cursor-pointer">
+                <Button variant="outline" className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white text-xs sm:text-sm">
                   <span className="hidden sm:inline">Load Audio</span>
                   <span className="sm:hidden">Load</span>
                 </Button>
@@ -3438,11 +3517,8 @@ export default function LoopEditorPage() {
                   setMarkedBars([])
                   setMarkedSubBars([])
                 } else {
-                  // Use the EXACT same math as sequencer grid
-                  const secondsPerBeat = 60 / bpm
-                  const gridDivision = 16 // 1/16 resolution like sequencer
-                  const stepDuration = secondsPerBeat / (gridDivision / 4)
-                  const loopBars = Math.round((totalDuration / stepDuration) / 4)
+                  // Use the FIXED bar calculation (like beat-maker) - always 16 steps per bar
+                  const loopBars = Math.round((totalDuration / (fixedStepDuration * 16)))
                   const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
                   setMarkedBars(allBars)
                   const totalBeats = loopBars * 4
@@ -3690,7 +3766,7 @@ export default function LoopEditorPage() {
                   <div className="flex gap-1">
                     {[2, 4, 8, 16].map((barCount) => {
                       const stepCount = barCount * 16; // Convert bars to steps (16 steps per bar for 1/16 resolution)
-                      const calculatedBars = Math.round((totalDuration / stepDuration) / 4);
+                      const calculatedBars = Math.round((totalDuration / (fixedStepDuration * 16)));
                       const isActive = selectedBarCount === barCount;
                       return (
                         <Button
@@ -3836,6 +3912,16 @@ export default function LoopEditorPage() {
           
           {/* Waveform Canvas */}
           <div className="flex-1 relative bg-[#141414] overflow-hidden">
+            {/* Drag Overlay */}
+            {isDragOver && (
+              <div className="absolute inset-0 bg-blue-600/20 border-4 border-dashed border-blue-400 z-50 flex items-center justify-center">
+                <div className="text-center text-white bg-black/50 rounded-lg p-8">
+                  <Music className="w-16 h-16 mx-auto mb-4 text-blue-400" />
+                  <p className="text-xl font-bold mb-2">Drop Audio File</p>
+                  <p className="text-sm">Release to load your audio file</p>
+                </div>
+              </div>
+            )}
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="flex items-center gap-2 text-gray-400">
@@ -3845,10 +3931,15 @@ export default function LoopEditorPage() {
             </div>
           ) : !audioFile ? (
             <div className="flex items-center justify-center h-full">
-              <div className="text-center text-gray-400">
-                <Music className="w-16 h-16 mx-auto mb-4" />
+              <div className={`text-center text-gray-400 transition-all duration-200 ${
+                isDragOver ? 'scale-105 text-blue-400' : ''
+              }`}>
+                <Music className={`w-16 h-16 mx-auto mb-4 transition-all duration-200 ${
+                  isDragOver ? 'text-blue-400 scale-110' : ''
+                }`} />
                 <p className="text-lg">Load an audio file to start editing</p>
                 <p className="text-sm">Supports MP3, WAV, and other audio formats</p>
+                <p className="text-xs text-blue-400 mt-2">💡 Drag & drop audio files here to load them quickly</p>
               </div>
             </div>
           ) : (
@@ -3865,6 +3956,9 @@ export default function LoopEditorPage() {
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
               onTouchStart={(e) => {
                 e.preventDefault();
                 const touch = e.touches[0];

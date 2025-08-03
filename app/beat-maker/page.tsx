@@ -2185,6 +2185,8 @@ export default function BeatMakerPage() {
     audioFileId?: string // Add audio file ID to metadata
   }) => {
     const publicUrl = getPublicAudioUrl(audioUrlOrPath)
+    console.log(`[AUDIO SELECT] Assigning audio to track ${trackId}: ${audioName} (${publicUrl})`)
+    
     setTracks(prev => prev.map(track => 
       track.id === trackId ? { 
         ...track, 
@@ -3106,6 +3108,8 @@ export default function BeatMakerPage() {
     }
     
     setTracks(prev => [...prev, newTrack])
+    
+    console.log(`[TRACK CREATION] Created new track: ${trackType} with ID: ${newTrackId}`)
     
     // Check if this is a Loop track and automatically activate the first step
     const isLoopTrack = trackType.toLowerCase().includes('loop')

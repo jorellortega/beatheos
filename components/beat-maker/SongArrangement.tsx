@@ -352,12 +352,22 @@ export function SongArrangement({
       console.log(`[EXPORT TIMER] New duration: ${newTotalDurationSeconds}s (${newExportDurationBars} bars)`)
       
       // Clear existing timer
-      clearTimeout((window as any).exportTimer)
+      if ((window as any).exportTimer) {
+        clearTimeout((window as any).exportTimer)
+      }
       
       // Set new timer
       (window as any).exportTimer = setTimeout(() => {
         console.log('[EXPORT TIMER] Updated timer fired - stopping recording')
-        stopExportLive()
+        try {
+          // Create a separate function to call stopExportLive
+          const executeStop = () => {
+            stopExportLive()
+          }
+          executeStop()
+        } catch (error) {
+          console.error('[EXPORT TIMER] Error calling stopExportLive:', error)
+        }
       }, newTotalDurationSeconds * 1000)
       
       console.log(`[EXPORT TIMER] Timer updated to ${newTotalDurationSeconds}s`)
@@ -365,7 +375,9 @@ export function SongArrangement({
   }
 
   // Manual stop function for export live
-  const stopExportLive = () => {
+  const stopExportLiveRef = useRef<(() => void) | null>(null)
+  
+  const stopExportLive = (): void => {
     try {
       console.log('[EXPORT LIVE] Manual stop triggered')
       
@@ -381,7 +393,9 @@ export function SongArrangement({
       (window as any).mediaRecorderForExport = null
       
       // Stop arrangement
-      stopArrangement()
+      if (typeof stopArrangement === 'function') {
+        stopArrangement()
+      }
       
       // Reset recording state
       setIsExportLiveRecording(false)
@@ -391,9 +405,16 @@ export function SongArrangement({
       console.error('[EXPORT LIVE] Error in manual stop:', error)
       // Force reset state even if there's an error
       setIsExportLiveRecording(false)
-      (window as any).mediaRecorderForExport = null
+      try {
+        ;(window as any).mediaRecorderForExport = null
+      } catch (error) {
+        console.error('[EXPORT LIVE] Error setting mediaRecorderForExport to null:', error)
+      }
     }
   }
+  
+  // Store the function in ref
+  stopExportLiveRef.current = stopExportLive
 
   // Function to get track display name with icons (same as sequencer)
   const getTrackDisplayName = (trackName: string) => {
@@ -3209,7 +3230,7 @@ export function SongArrangement({
   }
 
   // Export by recording live audio output (Option 2: Real-time capture)
-  const exportBeatAsWavLive = async () => {
+  const exportBeatAsWavLive = async (): Promise<Blob | null> => {
     console.log('[EXPORT LIVE] HIGH QUALITY RECORDING - Starting export')
     
     try {
@@ -3329,14 +3350,27 @@ export function SongArrangement({
                   console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Export completed and downloaded!')
                   
                   // HIGH QUALITY RECORDING: Clean up
-                  (window as any).mediaRecorderForExport = null
+                  try {
+                    ;(window as any).mediaRecorderForExport = null
+                  } catch (error) {
+                    console.error('[EXPORT LIVE] Error setting mediaRecorderForExport to null:', error)
+                  }
                   Tone.Destination.disconnect(mediaStreamDestination)
                   setIsExportLiveRecording(false)
+                  
+                  // Resolve the promise with the blob
+                  if ((window as any).exportResolve) {
+                    (window as any).exportResolve(wavBlob)
+                  }
                 }
               }
             }
           } catch (error) {
             console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Error in onstop:', error)
+            // Reject the promise on error
+            if ((window as any).exportReject) {
+              (window as any).exportReject(error)
+            }
           }
         }, 100)
       }
@@ -3354,7 +3388,9 @@ export function SongArrangement({
       const endTime = exportEndBar * secondsPerBar
       
       // Schedule the arrangement to play for the exact duration
-      playArrangement()
+      if (typeof playArrangement === 'function') {
+        playArrangement()
+      }
       
       // Set a timer to stop recording after exact duration
       const timerMs = Math.floor(totalDurationSeconds * 1000)
@@ -3370,7 +3406,9 @@ export function SongArrangement({
           }
           
           // Stop arrangement playback
-          stopArrangement()
+          if (typeof stopArrangement === 'function') {
+            stopArrangement()
+          }
           
           // HIGH QUALITY RECORDING: Clean up
           (window as any).mediaRecorderForExport = null
@@ -3385,8 +3423,15 @@ export function SongArrangement({
       
       console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Export setup complete - recording with high quality...')
       
-      // HIGH QUALITY RECORDING: Return success immediately
-      return true
+      // HIGH QUALITY RECORDING: Return a promise that resolves with the blob when recording is complete
+      return new Promise<Blob | null>((resolve, reject) => {
+        try {
+          ;(window as any).exportResolve = resolve
+          ;(window as any).exportReject = reject
+        } catch (error) {
+          console.error('[EXPORT LIVE] Error setting export resolve/reject:', error)
+        }
+      })
       
     } catch (error) {
       console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Error:', error)
@@ -4584,7 +4629,7 @@ export function SongArrangement({
   }
 
   // Play the entire arrangement using arrangement audio system
-  const playArrangement = async () => {
+  const playArrangement = async (): Promise<void> => {
     console.log('=== PLAY ARRANGEMENT FUNCTION STARTED ===')
     console.log('[ARRANGEMENT AUDIO] Play arrangement called')
     console.log('[PLAY DEBUG] Current state:', { 
@@ -4932,7 +4977,7 @@ export function SongArrangement({
   }
 
   // Stop the arrangement - AGGRESSIVE STOP to prevent any audio from continuing
-  const stopArrangement = () => {
+  const stopArrangement = (): void => {
     // CRITICAL: If we're in export mode and the arrangement stops, we need to stop the MediaRecorder too
     if (exportMarkersActive && (window as any).mediaRecorderForExport) {
       console.log('[STOP] Export mode detected - stopping MediaRecorder')

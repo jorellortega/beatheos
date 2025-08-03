@@ -262,6 +262,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
         // Check if we need to reload this track
         const needsReload = !existingPlayer || 
                            !existingPitchShifter ||
+                           ((existingPlayer as any)._audioUrl !== track.audioUrl) || // Check if audio URL has changed
                            (track.playbackRate !== undefined && Math.abs((existingPlayer.playbackRate || 1) - track.playbackRate) > 0.001) ||
                            (track.pitchShift !== undefined && Math.abs((existingPitchShifter.pitch || 0) - track.pitchShift) > 0.1) ||
                            (track.loopStartTime !== undefined && existingPlayer.loopStart !== track.loopStartTime) ||
@@ -271,6 +272,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
           console.log(`[AUDIO LOAD] Track ${track.name} needs reload:`, {
             hasPlayer: !!existingPlayer,
             hasPitchShifter: !!existingPitchShifter,
+            audioUrlChanged: existingPlayer ? ((existingPlayer as any)._audioUrl !== track.audioUrl) : false,
             playbackRateChanged: existingPlayer ? Math.abs((existingPlayer.playbackRate || 1) - (track.playbackRate || 1)) > 0.001 : false,
             pitchChanged: existingPitchShifter ? Math.abs((existingPitchShifter.pitch || 0) - (track.pitchShift || 0)) > 0.1 : false,
             loopPointsChanged: existingPlayer ? (existingPlayer.loopStart !== track.loopStartTime || existingPlayer.loopEnd !== track.loopEndTime) : false
@@ -482,6 +484,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               pitchShift._pitchShifterType = 'phase-vocoder'
             }
             
+            // Store the audio URL on the player for comparison
+            (player as any)._audioUrl = track.audioUrl
             samplesRef.current[track.id] = player
             console.log(`[AUDIO LOAD] Successfully created player for track ${track.name}`)
           } catch (error) {
