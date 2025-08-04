@@ -47,7 +47,6 @@ interface SongArrangementProps {
     volume: number
     pan: number
     mute: boolean
-    solo: boolean
     eq: { low: number, mid: number, high: number }
     effects: { reverb: number, delay: number }
   }}
@@ -294,6 +293,11 @@ export function SongArrangement({
   
   // State for export live mode in save to library dialog
   const [isExportLiveMode, setIsExportLiveMode] = useState(false)
+  
+  // State for track selection in existing albums
+  const [existingAlbumTracks, setExistingAlbumTracks] = useState<any[]>([])
+  const [selectedTrackPosition, setSelectedTrackPosition] = useState<number>(1)
+  const [showTrackSelection, setShowTrackSelection] = useState(false)
   
 
 
@@ -3628,7 +3632,7 @@ export function SongArrangement({
   }
 
   // Handle album selection
-  const handleAlbumSelection = (albumId: string) => {
+  const handleAlbumSelection = async (albumId: string) => {
     setSelectedItemId(albumId)
     const selectedAlbum = existingItems.find(item => item.id === albumId)
     if (selectedAlbum && saveToLibraryType === 'album') {
@@ -3639,8 +3643,37 @@ export function SongArrangement({
         cover_art_url: selectedAlbum.cover_art_url || '',
         description: selectedAlbum.description
       })
+      
+      // Load existing tracks for this album
+      try {
+        const { data: tracks, error } = await supabase
+          .from('album_tracks')
+          .select('id, title, track_order, duration')
+          .eq('album_id', albumId)
+          .order('track_order', { ascending: true })
+        
+        if (!error && tracks) {
+          setExistingAlbumTracks(tracks)
+          // Set default position to after the last track
+          const maxTrackOrder = tracks.length > 0 ? Math.max(...tracks.map(t => t.track_order)) : 0
+          setSelectedTrackPosition(maxTrackOrder + 1)
+          setShowTrackSelection(true)
+        } else if (error) {
+          console.error('Error loading album tracks:', error)
+          setExistingAlbumTracks([])
+          setSelectedTrackPosition(1)
+          setShowTrackSelection(true)
+        }
+      } catch (error) {
+        console.error('Error loading album tracks:', error)
+        setExistingAlbumTracks([])
+        setSelectedTrackPosition(1)
+        setShowTrackSelection(true)
+      }
     } else {
       setSelectedAlbumDetails(null)
+      setExistingAlbumTracks([])
+      setShowTrackSelection(false)
     }
   }
 
@@ -3764,6 +3797,7 @@ export function SongArrangement({
               audio_url: urlData.publicUrl,
               isrc: '', // Optional ISRC code
               session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+              track_order: 1, // First track in new album
               created_at: new Date().toISOString()
             })
             .select()
@@ -3798,7 +3832,34 @@ export function SongArrangement({
             throw new Error(`Album with ID ${existingAlbum.id} does not exist in the database`)
           }
 
-          // Add the track to the existing album
+          // Update existing tracks to make room for the new track
+          if (selectedTrackPosition > 0) {
+            // Get all tracks that need to be moved
+            const { data: tracksToUpdate, error: fetchError } = await supabase
+              .from('album_tracks')
+              .select('id, track_order')
+              .eq('album_id', existingAlbum.id)
+              .gte('track_order', selectedTrackPosition)
+              .order('track_order', { ascending: false }) // Update from highest to lowest to avoid conflicts
+            
+            if (fetchError) {
+              throw new Error(`Failed to fetch tracks for reordering: ${fetchError.message}`)
+            }
+            
+            // Update each track's position
+            for (const track of tracksToUpdate || []) {
+              const { error: updateError } = await supabase
+                .from('album_tracks')
+                .update({ track_order: track.track_order + 1 })
+                .eq('id', track.id)
+              
+              if (updateError) {
+                throw new Error(`Failed to update track position: ${updateError.message}`)
+              }
+            }
+          }
+
+          // Add the track to the existing album at the selected position
           const { data: trackData, error: trackError } = await supabase
             .from('album_tracks')
             .insert({
@@ -3808,6 +3869,7 @@ export function SongArrangement({
               audio_url: urlData.publicUrl,
               isrc: '', // Optional ISRC code
               session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+              track_order: selectedTrackPosition, // Use user-selected track position
               created_at: new Date().toISOString()
             })
             .select()
@@ -4055,6 +4117,7 @@ export function SongArrangement({
                         audio_url: urlData.publicUrl,
                         isrc: '', // Optional ISRC code
                         session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        track_order: 1, // First track in new album
                         created_at: new Date().toISOString()
                       })
                       .select()
@@ -4073,7 +4136,34 @@ export function SongArrangement({
                     }
                     savedItem = existingAlbum
 
-                    // Add the track to the existing album
+                    // Update existing tracks to make room for the new track
+                    if (selectedTrackPosition > 0) {
+                      // Get all tracks that need to be moved
+                      const { data: tracksToUpdate, error: fetchError } = await supabase
+                        .from('album_tracks')
+                        .select('id, track_order')
+                        .eq('album_id', existingAlbum.id)
+                        .gte('track_order', selectedTrackPosition)
+                        .order('track_order', { ascending: false }) // Update from highest to lowest to avoid conflicts
+                      
+                      if (fetchError) {
+                        throw new Error(`Failed to fetch tracks for reordering: ${fetchError.message}`)
+                      }
+                      
+                      // Update each track's position
+                      for (const track of tracksToUpdate || []) {
+                        const { error: updateError } = await supabase
+                          .from('album_tracks')
+                          .update({ track_order: track.track_order + 1 })
+                          .eq('id', track.id)
+                        
+                        if (updateError) {
+                          throw new Error(`Failed to update track position: ${updateError.message}`)
+                        }
+                      }
+                    }
+
+                    // Add the track to the existing album at the selected position
                     const { data: trackData, error: trackError } = await supabase
                       .from('album_tracks')
                       .insert({
@@ -4083,6 +4173,7 @@ export function SongArrangement({
                         audio_url: urlData.publicUrl,
                         isrc: '', // Optional ISRC code
                         session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        track_order: selectedTrackPosition, // Use user-selected track position
                         created_at: new Date().toISOString()
                       })
                       .select()
@@ -4646,25 +4737,9 @@ export function SongArrangement({
     console.log('[ARRANGEMENT AUDIO] Current players:', arrangementPlayersRef.current)
     
     if (patternBlocks.length === 0) {
-      console.log('[ARRANGEMENT AUDIO] No pattern blocks found - auto-loading patterns')
-      console.log('[ARRANGEMENT AUDIO] patternBlocks array:', JSON.stringify(patternBlocks, null, 2))
-      
-      // Auto-load patterns instead of showing modal
-      if (tracks.length > 0) {
-        console.log('[ARRANGEMENT AUDIO] Auto-loading patterns from tracks')
-        loadElevenPatternsFromEachTrack()
-        
-        // Wait a moment for patterns to be loaded, then continue
-        setTimeout(() => {
-          console.log('[ARRANGEMENT AUDIO] Patterns loaded, continuing with play')
-          playArrangement()
-        }, 100)
-        return
-      } else {
-        console.log('[ARRANGEMENT AUDIO] No tracks available - showing modal')
-        setShowNoPatternsModal(true)
-        return
-      }
+      console.log('[ARRANGEMENT AUDIO] No pattern blocks found - manual loading required')
+      showNotification('No Patterns', 'Please load patterns manually before playing the arrangement', 'warning')
+      return
     }
     
     // CRITICAL: Ensure we're completely stopped before starting
@@ -5343,9 +5418,9 @@ export function SongArrangement({
               }}
               variant={isArrangementPlaying ? "destructive" : patternBlocks.length === 0 ? "outline" : "default"}
               size="lg"
-              className={`w-16 h-16 rounded-full ${patternBlocks.length === 0 ? 'border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white' : ''}`}
-              disabled={false}
-              title={patternBlocks.length === 0 ? "Click to auto-load patterns and play" : isArrangementPlaying ? "Stop arrangement" : "Play arrangement"}
+              className={`w-16 h-16 rounded-full ${patternBlocks.length === 0 ? 'border-gray-500 text-gray-500' : ''}`}
+              disabled={patternBlocks.length === 0}
+              title={patternBlocks.length === 0 ? "No patterns loaded - load patterns manually first" : isArrangementPlaying ? "Stop arrangement" : "Play arrangement"}
             >
               {isArrangementPlaying ? <Square className="w-6 h-6" /> : <Play className="w-6 h-6" />}
             </Button>
@@ -5360,14 +5435,14 @@ export function SongArrangement({
               {isArrangementPlaying 
                 ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` 
                 : patternBlocks.length === 0 
-                  ? 'No patterns loaded - click play to auto-load' 
+                  ? 'No patterns loaded - load patterns manually' 
                   : 'Ready to play'
               }
             </div>
             {patternBlocks.length === 0 && (
-              <Badge variant="outline" className="text-xs bg-orange-600 text-white border-orange-500">
-                <Plus className="w-3 h-3 mr-1" />
-                No Patterns - Click Play to Auto-Load
+              <Badge variant="outline" className="text-xs bg-gray-600 text-white border-gray-500">
+                <Library className="w-3 h-3 mr-1" />
+                No Patterns - Load Manually
               </Badge>
             )}
             <Button
@@ -5512,7 +5587,7 @@ export function SongArrangement({
               variant="outline"
               size="sm"
               className="text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
-              title="Load 11 patterns from each track automatically"
+              title="Load 11 patterns from each track (manual action)"
             >
               <Plus className="w-4 h-4 mr-1" />
               Load 11 Patterns
@@ -7080,16 +7155,105 @@ export function SongArrangement({
                 )}
                 
                 {saveToLibraryType === 'album' && selectedItemId && (
-                  <div>
-                    <Label htmlFor="existingTrackTitle" className="text-white">Track Title</Label>
-                    <Input
-                      id="existingTrackTitle"
-                      value={newTrackTitle}
-                      onChange={(e) => setNewTrackTitle(e.target.value)}
-                      placeholder="Enter track title"
-                      className="bg-gray-800 border-gray-600 text-white"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <Label htmlFor="existingTrackTitle" className="text-white">Track Title</Label>
+                      <Input
+                        id="existingTrackTitle"
+                        value={newTrackTitle}
+                        onChange={(e) => setNewTrackTitle(e.target.value)}
+                        placeholder="Enter track title"
+                        className="bg-gray-800 border-gray-600 text-white"
+                      />
+                    </div>
+                    
+                    {/* Track Position Selection */}
+                    {showTrackSelection && existingAlbumTracks.length > 0 && (
+                      <div className="space-y-3">
+                        <Label className="text-white">Track Position</Label>
+                        <div className="bg-gray-800 border border-gray-600 rounded-lg p-4 max-h-48 overflow-y-auto">
+                          <div className="space-y-2">
+                            {/* Option to add at the beginning */}
+                            <div className="flex items-center gap-3 p-2 rounded hover:bg-gray-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                id="position-0"
+                                name="trackPosition"
+                                value="0"
+                                checked={selectedTrackPosition === 0}
+                                onChange={(e) => setSelectedTrackPosition(0)}
+                                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                              />
+                              <Label htmlFor="position-0" className="text-white cursor-pointer flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium">1</span>
+                                  <span className="text-gray-300">Add at the beginning</span>
+                                </div>
+                              </Label>
+                            </div>
+                            
+                            {/* Existing tracks with insert positions */}
+                            {existingAlbumTracks.map((track, index) => (
+                              <div key={track.id} className="space-y-1">
+                                {/* Existing track */}
+                                <div className="flex items-center gap-3 p-2 rounded bg-gray-700/50">
+                                  <span className="bg-gray-600 text-white px-2 py-1 rounded text-xs font-medium">
+                                    {track.track_order}
+                                  </span>
+                                  <div className="flex-1">
+                                    <div className="text-white text-sm font-medium">{track.title}</div>
+                                    <div className="text-gray-400 text-xs">{track.duration}</div>
+                                  </div>
+                                </div>
+                                
+                                {/* Insert position after this track */}
+                                <div className="flex items-center gap-3 p-2 rounded hover:bg-gray-700 cursor-pointer ml-4">
+                                  <input
+                                    type="radio"
+                                    id={`position-${track.track_order}`}
+                                    name="trackPosition"
+                                    value={track.track_order}
+                                    checked={selectedTrackPosition === track.track_order}
+                                    onChange={(e) => setSelectedTrackPosition(track.track_order)}
+                                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                                  />
+                                  <Label htmlFor={`position-${track.track_order}`} className="text-white cursor-pointer flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-medium">
+                                        {track.track_order + 1}
+                                      </span>
+                                      <span className="text-gray-300">Insert after "{track.title}"</span>
+                                    </div>
+                                  </Label>
+                                </div>
+                              </div>
+                            ))}
+                            
+                            {/* Option to add at the end */}
+                            <div className="flex items-center gap-3 p-2 rounded hover:bg-gray-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                id={`position-${existingAlbumTracks.length > 0 ? Math.max(...existingAlbumTracks.map(t => t.track_order)) + 1 : 1}`}
+                                name="trackPosition"
+                                value={existingAlbumTracks.length > 0 ? Math.max(...existingAlbumTracks.map(t => t.track_order)) + 1 : 1}
+                                checked={selectedTrackPosition === (existingAlbumTracks.length > 0 ? Math.max(...existingAlbumTracks.map(t => t.track_order)) + 1 : 1)}
+                                onChange={(e) => setSelectedTrackPosition(existingAlbumTracks.length > 0 ? Math.max(...existingAlbumTracks.map(t => t.track_order)) + 1 : 1)}
+                                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                              />
+                              <Label htmlFor={`position-${existingAlbumTracks.length > 0 ? Math.max(...existingAlbumTracks.map(t => t.track_order)) + 1 : 1}`} className="text-white cursor-pointer flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="bg-purple-600 text-white px-2 py-1 rounded text-xs font-medium">
+                                    {existingAlbumTracks.length > 0 ? Math.max(...existingAlbumTracks.map(t => t.track_order)) + 1 : 1}
+                                  </span>
+                                  <span className="text-gray-300">Add at the end</span>
+                                </div>
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

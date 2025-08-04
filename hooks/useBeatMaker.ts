@@ -10,7 +10,7 @@ export interface Track {
   audioFileId?: string | null // Add audio file ID for format detection
   color: string
   mute?: boolean
-  solo?: boolean
+
   locked?: boolean // Whether the track is locked from shuffle
   // Tempo properties for individual sample editing
   originalBpm?: number // The original BPM of the sample (auto-detected or user-set)

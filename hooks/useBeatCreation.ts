@@ -14,7 +14,7 @@ interface Track {
   volume: number
   pan: number
   mute: boolean
-  solo: boolean
+
   synth: Tone.Synth
   effects: {
     reverb: number
@@ -62,7 +62,7 @@ export function useBeatCreation() {
       volume: 0,
       pan: 0,
       mute: false,
-      solo: false,
+
       synth,
       effects: {
         reverb: 0,
@@ -111,16 +111,7 @@ export function useBeatCreation() {
     ))
   }
 
-  const toggleTrackSolo = (trackId: string) => {
-    const updatedTracks = tracks.map(track =>
-      track.id === trackId ? { ...track, solo: !track.solo } : track
-    )
-    const soloTracks = updatedTracks.filter(track => track.solo)
-    updatedTracks.forEach(track => {
-      track.synth.set({ mute: soloTracks.length > 0 && !track.solo })
-    })
-    setTracks(updatedTracks)
-  }
+
 
   const playBeat = () => {
     if (Tone.Transport.state === 'started') {
@@ -210,7 +201,7 @@ export function useBeatCreation() {
     setTrackVolume,
     setTrackPan,
     toggleTrackMute,
-    toggleTrackSolo,
+
     playBeat,
     stopBeat,
     recordBeat,

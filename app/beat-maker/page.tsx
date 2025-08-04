@@ -826,7 +826,6 @@ export default function BeatMakerPage() {
     volume: number, 
     pan: number, 
     mute: boolean, 
-    solo: boolean,
     eq: { low: number, mid: number, high: number },
     effects: { reverb: number, delay: number }
   }}>({})
@@ -856,7 +855,7 @@ export default function BeatMakerPage() {
             volume: 0.7,
             pan: 0,
             mute: false,
-            solo: false,
+
             eq: { low: 0, mid: 0, high: 0 },
             effects: { reverb: 0, delay: 0 }
           }
@@ -1812,6 +1811,11 @@ export default function BeatMakerPage() {
 
     // Apply mute changes to audio players in real-time
     if (setting === 'mute') {
+      // Synchronize with track mute state
+      setTracks(prev => prev.map(track => 
+        track.id === trackId ? { ...track, mute: value } : track
+      ))
+      
       if (samplesRef?.current?.[trackId]) {
         const player = samplesRef.current[trackId]
         if (player && player.volume) {
@@ -1833,66 +1837,9 @@ export default function BeatMakerPage() {
           }
         }
       }
-
-
     }
 
-    // Apply solo changes to audio players in real-time
-    if (setting === 'solo') {
-      // Use setTimeout to ensure the state is updated before applying solo logic
-      setTimeout(() => {
-        // Get the updated mixer settings that include the current change
-        const updatedMixerSettings = {
-          ...mixerSettings,
-          [trackId]: {
-            ...mixerSettings[trackId],
-            [setting]: value
-          }
-        }
-        
-        // Get all currently soloed tracks
-        const soloedTracks = Object.entries(updatedMixerSettings)
-          .filter(([id, settings]) => settings.solo)
-          .map(([id]) => parseInt(id))
-        
-        console.log(`[MIXER] Solo state changed for track ${trackId}, value: ${value}`)
-        console.log(`[MIXER] Current soloed tracks:`, soloedTracks)
-        
-        const hasAnySolo = soloedTracks.length > 0
-        
-        // Apply solo logic to all tracks
-        tracks.forEach(track => {
-          const isSoloed = soloedTracks.includes(track.id)
-          const shouldBeMuted = hasAnySolo && !isSoloed
-          
-          // Update sequencer players
-          if (samplesRef?.current?.[track.id]) {
-            const player = samplesRef.current[track.id]
-            if (player && player.volume) {
-              if (shouldBeMuted) {
-                player.volume.value = -Infinity
-                console.log(`[MIXER] Muted track ${track.id} due to solo`)
-              } else {
-                // Restore volume based on mixer settings
-                const trackSettings = updatedMixerSettings[track.id]
-                if (trackSettings) {
-                  const volumeDb = trackSettings.mute ? -Infinity : 
-                    (trackSettings.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings.volume))
-                  player.volume.value = volumeDb
-                  console.log(`[MIXER] Restored volume for track ${track.id}: ${trackSettings.volume}`)
-                }
-              }
-            }
-          }
-        })
-        
-        if (hasAnySolo) {
-          console.log(`[MIXER] ${soloedTracks.length} track(s) soloed:`, soloedTracks.map(id => tracks.find(t => t.id === id)?.name).join(', '))
-        } else {
-          console.log(`[MIXER] No tracks soloed - all tracks restored`)
-        }
-      }, 0)
-    }
+
     
     // Mark session as changed so mixer settings are saved
     markSessionChanged()
@@ -2774,64 +2721,21 @@ export default function BeatMakerPage() {
 
   // Function to toggle track mute
   const handleToggleTrackMute = (trackId: number) => {
+    const currentTrack = tracks.find(t => t.id === trackId)
+    const newMuteState = !currentTrack?.mute
+    
+    // Update track mute state
     setTracks(prev => prev.map(track => 
-      track.id === trackId ? { ...track, mute: !track.mute } : track
+      track.id === trackId ? { ...track, mute: newMuteState } : track
     ))
+    
+    // Synchronize with mixer settings
+    updateMixerSetting(trackId, 'mute', newMuteState)
+    
     markSessionChanged()
   }
 
-  // Function to toggle track solo
-  const handleToggleTrackSolo = (trackId: number) => {
-    setTracks(prev => {
-      const updatedTracks = prev.map(track => {
-        if (track.id === trackId) {
-          // Toggle solo for the clicked track
-          return { ...track, solo: !track.solo }
-        }
-        return track // Don't change other tracks' mute state
-      })
-      
-      // Apply solo logic to audio players
-      setTimeout(() => {
-        // Get all soloed tracks
-        const soloedTracks = updatedTracks.filter(track => track.solo)
-        const hasAnySolo = soloedTracks.length > 0
-        
-        updatedTracks.forEach(track => {
-          const isSoloed = track.solo
-          const shouldBeMuted = hasAnySolo && !isSoloed
-          
-          // Apply to sequencer players
-          if (samplesRef?.current?.[track.id]) {
-            const player = samplesRef.current[track.id]
-            if (player && player.volume) {
-              if (shouldBeMuted) {
-                player.volume.value = -Infinity
-                console.log(`[SOLO] Muted track ${track.id} (not soloed)`)
-              } else {
-                // Restore volume based on mixer settings
-                const trackSettings = mixerSettings[track.id]
-                const volumeDb = trackSettings?.volume === 0 ? -Infinity : 20 * Math.log10(trackSettings?.volume || 1)
-                player.volume.value = volumeDb
-                console.log(`[SOLO] Restored volume for track ${track.id} (soloed or no solo active)`)
-              }
-            }
-          }
-          
 
-        })
-        
-        if (hasAnySolo) {
-          console.log(`[SOLO] ${soloedTracks.length} track(s) soloed:`, soloedTracks.map(t => t.name).join(', '))
-        } else {
-          console.log(`[SOLO] No tracks soloed - all tracks restored`)
-        }
-      }, 0)
-      
-      return updatedTracks
-    })
-    markSessionChanged()
-  }
 
   // Copy key from one track to another
   const handleCopyTrackKey = (fromTrackId: number, toTrackId: number, key: string) => {
@@ -3109,6 +3013,18 @@ export default function BeatMakerPage() {
     
     setTracks(prev => [...prev, newTrack])
     
+    // Initialize mixer settings for the new track
+    setMixerSettings(prev => ({
+      ...prev,
+      [newTrackId]: {
+        volume: 0.7,
+        pan: 0,
+        mute: false, // Initialize with unmuted state
+        eq: { low: 0, mid: 0, high: 0 },
+        effects: { reverb: 0, delay: 0 }
+      }
+    }))
+    
     console.log(`[TRACK CREATION] Created new track: ${trackType} with ID: ${newTrackId}`)
     
     // Check if this is a Loop track and automatically activate the first step
@@ -3210,10 +3126,9 @@ export default function BeatMakerPage() {
         }
       }
       
-      // CRITICAL: Preserve solo/mute states when shuffling
-      console.log(`[SHUFFLE AUDIO] Preserving solo/mute states for track: ${track.name}`)
+      // CRITICAL: Preserve mute state when shuffling
+      console.log(`[SHUFFLE AUDIO] Preserving mute state for track: ${track.name}`)
       const currentTrack = tracks.find(t => t.id === trackId)
-      const preserveSolo = currentTrack?.solo || false
       const preserveMute = currentTrack?.mute || false
       
       // Small delay to ensure cleanup is complete and halftime states are reset
@@ -3576,8 +3491,7 @@ export default function BeatMakerPage() {
           tags: selectedAudio.tags,
           // Store relative key indicator
           isRelativeKey: isRelativeKey,
-          // CRITICAL: Preserve solo and mute states
-          solo: preserveSolo,
+          // CRITICAL: Preserve mute state
           mute: preserveMute
         } : t
       ))
@@ -6796,6 +6710,13 @@ export default function BeatMakerPage() {
       // Restore mixer settings
       if (data.mixer_data) {
         setMixerSettings(data.mixer_data)
+        
+        // Synchronize track mute states with mixer settings
+        const tracksWithSyncedMute = tracksWithHalftimeOff.map((track: Track) => ({
+          ...track,
+          mute: data.mixer_data[track.id]?.mute || false
+        }))
+        setTracks(tracksWithSyncedMute)
       }
 
       // Restore song arrangement data
@@ -9146,19 +9067,19 @@ export default function BeatMakerPage() {
             onSetTransportKey={setTransportKey}
             onToggleTrackLock={handleToggleTrackLock}
             onToggleTrackMute={handleToggleTrackMute}
-            onToggleTrackSolo={handleToggleTrackSolo}
             onQuantizeLoop={openQuantizeModal}
             onSwitchTrackType={handleSwitchTrackType}
             onDuplicateTrackEmpty={handleDuplicateTrackEmpty}
             onTrackGenreChange={handleTrackGenreChange}
             transportKey={transportKey}
             melodyLoopMode={melodyLoopMode}
-            preferMp3={formatSystemEnabled ? preferMp3 : false} // Only use format preference if system is enabled
-            fileLinks={fileLinks} // Add file links for format detection
-            genres={genres} // Available genres for track selection
-            genreSubgenres={genreSubgenres} // Genre to subgenre mapping
-            onTrackAudioUrlChange={handleTrackAudioUrlChange} // Add callback for URL changes
-            
+            preferMp3={formatSystemEnabled ? preferMp3 : false}
+            fileLinks={fileLinks}
+            genres={genres}
+            genreSubgenres={genreSubgenres}
+            onTrackAudioUrlChange={handleTrackAudioUrlChange}
+            mixerSettings={mixerSettings}
+            onVolumeChange={(trackId, volume) => updateMixerSetting(trackId, 'volume', volume)}
           />
         </div>
 
@@ -9313,7 +9234,7 @@ export default function BeatMakerPage() {
               <div className="flex gap-4 overflow-x-auto">
                 {tracks.map((track) => {
                   const settings = mixerSettings[track.id] || {
-                    volume: 0.7, pan: 0, mute: false, solo: false,
+                    volume: 0.7, pan: 0, mute: false,
                     eq: { low: 0, mid: 0, high: 0 },
                     effects: { reverb: 0, delay: 0 }
                   }
@@ -9378,7 +9299,7 @@ export default function BeatMakerPage() {
                         </div>
                       </div>
 
-                      {/* Mute/Solo Buttons */}
+                      {/* Mute Button */}
                       <div className="mb-4 space-y-1">
                         <Button
                           size="sm"
@@ -9387,14 +9308,6 @@ export default function BeatMakerPage() {
                           onClick={() => updateMixerSetting(track.id, 'mute', !settings.mute)}
                         >
                           MUTE
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={settings.solo ? "default" : "outline"}
-                          className={`w-full h-6 text-xs ${settings.solo ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}
-                          onClick={() => updateMixerSetting(track.id, 'solo', !settings.solo)}
-                        >
-                          SOLO
                         </Button>
                       </div>
 

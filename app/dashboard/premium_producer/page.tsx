@@ -99,15 +99,7 @@ export default function PremiumProducerDashboard() {
             <Button className="mt-4">View Analytics</Button>
           </CardContent>
         </Card>
-          <Card className="bg-black border-primary hover:border-primary transition-all">
-          <CardHeader>
-            <CardTitle>Rhythm Forge</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>Use our advanced beat creation tool.</p>
-            <Button className="mt-4">Open Rhythm Forge</Button>
-          </CardContent>
-        </Card>
+
         <Card className="bg-black border-primary hover:border-primary transition-all">
           <CardHeader>
             <CardTitle className="flex items-center">

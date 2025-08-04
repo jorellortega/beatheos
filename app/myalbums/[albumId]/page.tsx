@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload } from 'lucide-react'
+import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -98,6 +98,10 @@ export default function AlbumDetailsPage() {
 
   // Metadata states
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
+  
+  // Drag and drop reordering state
+  const [draggedTrack, setDraggedTrack] = useState<any>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [editingMetadata, setEditingMetadata] = useState<any>(null);
   const [editingTrackId, setEditingTrackId] = useState('');
   const [editingTrackType, setEditingTrackType] = useState<'single' | 'album_track'>('album_track');
@@ -133,7 +137,7 @@ export default function AlbumDetailsPage() {
     supabase.from('album_tracks').select(`
       *,
       beat_sessions!inner(name)
-    `).eq('album_id', albumId).order('created_at', { ascending: true })
+    `).eq('album_id', albumId).order('track_order', { ascending: true })
       .then(({ data, error }) => {
         if (error) setTrackError(error.message);
         
@@ -206,7 +210,8 @@ export default function AlbumDetailsPage() {
       setAddingTrack(false);
       return;
     }
-    const { data, error } = await supabase.from('album_tracks').insert([{ ...newTrack, album_id: albumId, audio_url: audioUrl }]).select('*').single();
+    const nextTrackOrder = tracks.length + 1;
+    const { data, error } = await supabase.from('album_tracks').insert([{ ...newTrack, album_id: albumId, audio_url: audioUrl, track_order: nextTrackOrder }]).select('*').single();
     setAddingTrack(false);
     if (error) {
       setAddTrackError(error.message);
@@ -1073,6 +1078,90 @@ export default function AlbumDetailsPage() {
   };
 
   // Update album production status function
+  // Drag and drop reordering functions
+  const handleDragStart = (e: React.DragEvent, track: any) => {
+    setDraggedTrack(track);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (!draggedTrack) return;
+
+    const draggedIndex = tracks.findIndex(track => track.id === draggedTrack.id);
+    if (draggedIndex === -1) return;
+
+    const newTracks = [...tracks];
+    const [removed] = newTracks.splice(draggedIndex, 1);
+    newTracks.splice(dropIndex, 0, removed);
+
+    setTracks(newTracks);
+    setDraggedTrack(null);
+    setDragOverIndex(null);
+
+    // Save the new order to the database
+    saveTrackOrder(newTracks);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTrack(null);
+    setDragOverIndex(null);
+  };
+
+  const saveTrackOrder = async (newTracks: any[]) => {
+    try {
+      // Update the track_order field in the album_tracks table
+      // Include all existing track data to avoid NOT NULL constraint violations
+      const updates = newTracks.map((track, index) => ({
+        id: track.id,
+        album_id: track.album_id,
+        title: track.title,
+        duration: track.duration,
+        isrc: track.isrc,
+        audio_url: track.audio_url,
+        status: track.status,
+        created_at: track.created_at,
+        updated_at: track.updated_at,
+        track_order: index + 1
+      }));
+
+      const { error } = await supabase
+        .from('album_tracks')
+        .upsert(updates, { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error saving track order:', error);
+        toast({
+          title: "Error",
+          description: "Failed to save track order",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Track order updated",
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Error saving track order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save track order",
+        variant: "destructive"
+      });
+    }
+  };
+
   const updateAlbumProductionStatus = async (newStatus: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution') => {
     try {
       const { error } = await supabase
@@ -1296,8 +1385,24 @@ export default function AlbumDetailsPage() {
               const mp3Conversions = tracks.filter(t => t.title === track.title + '.mp3')
               
                               return (
-                  <div key={track.id} className={`bg-zinc-800 rounded px-4 py-2 border-l-4 ${getStatusBorderColor(track.status || 'draft')}`}>
+                  <div 
+                    key={track.id} 
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, track)}
+                    onDragOver={(e) => handleDragOver(e, idx)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, idx)}
+                    onDragEnd={handleDragEnd}
+                    className={`bg-zinc-800 rounded px-4 py-2 border-l-4 transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                      getStatusBorderColor(track.status || 'draft')
+                    } ${
+                      draggedTrack?.id === track.id ? 'opacity-50 scale-95' : ''
+                    } ${
+                      dragOverIndex === idx ? 'ring-2 ring-blue-500 transform scale-[1.02]' : ''
+                    }`}
+                  >
                   <div className="flex items-center gap-4">
+                    <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
                     <span className="font-bold text-lg text-gray-300">{idx + 1}</span>
                     <div className="flex items-center gap-2 flex-1">
                       <span>{track.title}</span>

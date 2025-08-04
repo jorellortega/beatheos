@@ -234,7 +234,7 @@ interface TrackListProps {
   onSetTransportKey?: (key: string) => void
   onToggleTrackLock?: (trackId: number) => void
   onToggleTrackMute?: (trackId: number) => void
-  onToggleTrackSolo?: (trackId: number) => void
+
   onQuantizeLoop?: (track: any) => void
   onSwitchTrackType?: (trackId: number) => void
   onDuplicateTrackEmpty?: (trackId: number) => void
@@ -249,10 +249,18 @@ interface TrackListProps {
   fileLinks?: any[] // Add file links for format detection
   genres?: any[] // Available genres for track selection
   genreSubgenres?: {[key: string]: string[]} // Genre to subgenre mapping
-  onTrackAudioUrlChange?: (trackId: number, newAudioUrl: string) => void // Add callback for URL changes
+  onTrackAudioUrlChange?: (trackId: number, newAudioUrl: string) => void, // Add callback for URL changes
+  mixerSettings?: {[trackId: number]: {
+    volume: number
+    pan: number
+    mute: boolean
+    eq: { low: number, mid: number, high: number }
+    effects: { reverb: number, delay: number }
+  }}, // Mixer settings for volume sync
+  onVolumeChange?: (trackId: number, volume: number) => void // Callback for volume changes
 }
 
-export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onToggleTrackSolo, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, onSaveTrackPattern, onLoadTrackPattern, onClearTrackPattern, onShuffleTrackPattern, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
+export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerData, onAddTrack, onRemoveTrack, onReorderTracks, onDirectAudioDrop, onCreateCustomSampleTrack, onEditTrack, onTrackTempoChange, onTrackPitchChange, onShuffleAudio, onShuffleAllAudio, onDuplicateWithShuffle, onCopyTrackKey, onCopyTrackBpm, onOpenPianoRoll, onTrackStockSoundSelect, onSetTransportBpm, onSetTransportKey, onToggleTrackLock, onToggleTrackMute, onQuantizeLoop, onSwitchTrackType, onDuplicateTrackEmpty, onTrackGenreChange, onSaveTrackPattern, onLoadTrackPattern, onClearTrackPattern, onShuffleTrackPattern, transportKey, melodyLoopMode, preferMp3 = false, fileLinks = [], genres = [], genreSubgenres = {}, onTrackAudioUrlChange, mixerSettings = {}, onVolumeChange }: TrackListProps & { onTrackStockSoundSelect?: (trackId: number, sound: any) => void }) {
   const [draggedTrack, setDraggedTrack] = useState<Track | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [showGenreSelector, setShowGenreSelector] = useState(false)
@@ -951,7 +959,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                 onMouseEnter={() => handleTrackHover(track.id)}
                 onMouseLeave={handleTrackLeave}
                 onDragEnd={handleDragEnd}
-                className={`p-3 rounded-lg border transition-all duration-200 ${
+                className={`p-3 rounded-lg border transition-all duration-200 relative ${
                   sequencerData[track.id]?.[currentStep] ? 'border-white bg-[#2a2a2a]' : 'border-gray-600 bg-[#1f1f1f]'
                 } ${
                   draggedTrack?.id === track.id ? 'opacity-50 scale-95' : ''
@@ -973,11 +981,8 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     ? 'ring-2 ring-purple-400 border-purple-400 bg-purple-500/10 shadow-lg shadow-purple-500/20' 
                     : ''
                 } ${
-                  // Highlight soloed tracks with yellow tint
-                  track.solo ? 'ring-2 ring-yellow-400 border-yellow-400 bg-yellow-500/10 shadow-lg shadow-yellow-500/20' : ''
-                } ${
-                  // Highlight muted tracks with red tint (but not if soloed)
-                  track.mute && !track.solo ? 'ring-2 ring-red-400 border-red-400 bg-red-500/10 shadow-lg shadow-red-500/20' : ''
+                  // Highlight muted tracks with red tint
+                  track.mute ? 'ring-2 ring-red-400 border-red-400 bg-red-500/10 shadow-lg shadow-red-500/20' : ''
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -998,6 +1003,26 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                     )}
                   </div>
                 </div>
+
+                {/* Volume Fader - DAW-style synchronized with mixer */}
+                {onVolumeChange && (
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex flex-col items-center">
+                    <div className="text-gray-400 text-xs mb-1">
+                      {Math.round((mixerSettings[track.id]?.volume || 0.7) * 100)}
+                    </div>
+                    <div className="relative w-4 h-16 bg-gray-700 rounded-full flex items-end">
+                      <Slider
+                        value={[mixerSettings[track.id]?.volume || 0.7]}
+                        onValueChange={(value) => onVolumeChange(track.id, value[0])}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        orientation="vertical"
+                        className="h-16"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2">
                   {/* Audio Info Row */}
@@ -1211,22 +1236,6 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                             title={track.mute ? 'Unmute track' : 'Mute track'}
                           >
                             M
-                          </Button>
-                        )}
-                        {/* Solo button - show for all tracks */}
-                        {onToggleTrackSolo && (
-                          <Button
-                            variant={track.solo ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => onToggleTrackSolo(track.id)}
-                            className={`w-8 h-8 text-sm font-bold transition-all duration-200 ${
-                              track.solo 
-                                ? 'bg-yellow-600 hover:bg-yellow-700 text-white border-yellow-500 shadow-lg' 
-                                : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-600 hover:text-white hover:border-gray-500'
-                            }`}
-                            title={track.solo ? 'Disable solo' : 'Solo track'}
-                          >
-                            S
                           </Button>
                         )}
                         {/* Shuffle button - show for all track types that support shuffle */}
