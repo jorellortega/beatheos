@@ -204,6 +204,20 @@ export default function MyLibrary() {
   const [editSingleAudioUrl, setEditSingleAudioUrl] = useState('');
   const [isSavingSingle, setIsSavingSingle] = useState(false);
   
+  // Create single state
+  const [showCreateSingleDialog, setShowCreateSingleDialog] = useState(false);
+  const [newSingle, setNewSingle] = useState({
+    title: '',
+    artist: '',
+    description: '',
+    release_date: '',
+    cover_art_url: '',
+    audio_url: '',
+    duration: ''
+  });
+  const [creatingSingle, setCreatingSingle] = useState(false);
+  const [createSingleError, setCreateSingleError] = useState<string | null>(null);
+  
   // Edit track state
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [showEditTrackDialog, setShowEditTrackDialog] = useState(false);
@@ -232,6 +246,26 @@ export default function MyLibrary() {
   const [newTrackSubgenre, setNewTrackSubgenre] = useState('');
   const [newTrackAudioFile, setNewTrackAudioFile] = useState<File | null>(null);
   const [isCreatingTrack, setIsCreatingTrack] = useState(false);
+  
+  // Create album track state
+  const [showCreateAlbumTrackDialog, setShowCreateAlbumTrackDialog] = useState(false);
+  const [selectedAlbumForTrack, setSelectedAlbumForTrack] = useState<Album | null>(null);
+  const [newAlbumTrack, setNewAlbumTrack] = useState({
+    title: '',
+    artist: '',
+    description: '',
+    release_date: '',
+    cover_art_url: '',
+    audio_url: '',
+    duration: '',
+    bpm: '',
+    key: '',
+    genre: '',
+    subgenre: '',
+    tags: ''
+  });
+  const [creatingAlbumTrack, setCreatingAlbumTrack] = useState(false);
+  const [createAlbumTrackError, setCreateAlbumTrackError] = useState<string | null>(null);
   
   // Beat upload state
   const [showBeatUploadDialog, setShowBeatUploadDialog] = useState(false);
@@ -658,6 +692,154 @@ export default function MyLibrary() {
     } catch (error) {
       console.error('Error deleting single:', error);
       alert('Failed to delete single. Please try again.');
+    }
+  };
+
+  // Create single functions
+  const openCreateSingleDialog = () => {
+    setNewSingle({
+      title: '',
+      artist: '',
+      description: '',
+      release_date: '',
+      cover_art_url: '',
+      audio_url: '',
+      duration: ''
+    });
+    setShowCreateSingleDialog(true);
+  };
+
+  const createSingle = async () => {
+    if (!newSingle.title.trim()) return;
+
+    setCreatingSingle(true);
+    try {
+      const { data, error } = await supabase
+        .from('singles')
+        .insert([{
+          title: newSingle.title,
+          artist: newSingle.artist,
+          description: newSingle.description,
+          release_date: newSingle.release_date,
+          cover_art_url: newSingle.cover_art_url,
+          audio_url: newSingle.audio_url,
+          duration: newSingle.duration,
+          user_id: user?.id,
+          status: 'draft'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Update local state
+      if (data) {
+        setSingles(prev => [data, ...prev]);
+      }
+      setShowCreateSingleDialog(false);
+      setNewSingle({
+        title: '',
+        artist: '',
+        description: '',
+        release_date: '',
+        cover_art_url: '',
+        audio_url: '',
+        duration: ''
+      });
+    } catch (error) {
+      console.error('Error creating single:', error);
+      setCreateSingleError('Failed to create single. Please try again.');
+    } finally {
+      setCreatingSingle(false);
+    }
+  };
+
+  // Create album track functions
+  const openCreateAlbumTrackDialog = (album: Album) => {
+    setSelectedAlbumForTrack(album);
+    setNewAlbumTrack({
+      title: '',
+      artist: '',
+      description: '',
+      release_date: '',
+      cover_art_url: '',
+      audio_url: '',
+      duration: '',
+      bpm: '',
+      key: '',
+      genre: '',
+      subgenre: '',
+      tags: ''
+    });
+    setShowCreateAlbumTrackDialog(true);
+  };
+
+  const createAlbumTrack = async () => {
+    if (!newAlbumTrack.title.trim() || !selectedAlbumForTrack) return;
+
+    setCreatingAlbumTrack(true);
+    try {
+      // Get the next track order for this album
+      const { data: existingTracks } = await supabase
+        .from('album_tracks')
+        .select('track_order')
+        .eq('album_id', selectedAlbumForTrack.id)
+        .order('track_order', { ascending: false })
+        .limit(1);
+
+      const nextTrackOrder = existingTracks && existingTracks.length > 0 
+        ? (existingTracks[0].track_order || 0) + 1 
+        : 1;
+
+      const { data, error } = await supabase
+        .from('album_tracks')
+        .insert([{
+          album_id: selectedAlbumForTrack.id,
+          title: newAlbumTrack.title,
+          artist: newAlbumTrack.artist,
+          description: newAlbumTrack.description,
+          release_date: newAlbumTrack.release_date,
+          cover_art_url: newAlbumTrack.cover_art_url,
+          audio_url: newAlbumTrack.audio_url,
+          duration: newAlbumTrack.duration,
+          bpm: newAlbumTrack.bpm ? parseInt(newAlbumTrack.bpm) : null,
+          key: newAlbumTrack.key,
+          genre: newAlbumTrack.genre,
+          subgenre: newAlbumTrack.subgenre,
+          tags: newAlbumTrack.tags ? newAlbumTrack.tags.split(',').map(tag => tag.trim()) : [],
+          status: 'draft',
+          track_order: nextTrackOrder
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Update local state
+      if (data) {
+        setTracks(prev => [data, ...prev]);
+      }
+      setShowCreateAlbumTrackDialog(false);
+      setSelectedAlbumForTrack(null);
+      setNewAlbumTrack({
+        title: '',
+        artist: '',
+        description: '',
+        release_date: '',
+        cover_art_url: '',
+        audio_url: '',
+        duration: '',
+        bpm: '',
+        key: '',
+        genre: '',
+        subgenre: '',
+        tags: ''
+      });
+    } catch (error) {
+      console.error('Error creating album track:', error);
+      setCreateAlbumTrackError('Failed to create album track. Please try again.');
+    } finally {
+      setCreatingAlbumTrack(false);
     }
   };
 
@@ -4732,6 +4914,15 @@ export default function MyLibrary() {
                           <span className="hidden sm:inline">Platforms</span>
                         </Button>
                       </Link>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => openCreateAlbumTrackDialog(album)}
+                        className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                      >
+                        <Plus className="h-4 w-4 sm:mr-2" />
+                        <span className="hidden sm:inline">Add Track</span>
+                      </Button>
                     </div>
                   </div>
                   <div className="mt-4">
@@ -5104,13 +5295,22 @@ export default function MyLibrary() {
           {/* Upload Beat Button */}
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-white">Singles</h2>
-            <Button 
-              onClick={openBeatUploadDialog}
-              className="bg-green-600 hover:bg-green-700 text-white"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Upload Beat
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={openCreateSingleDialog}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create Single
+              </Button>
+              <Button 
+                onClick={openBeatUploadDialog}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Upload Beat
+              </Button>
+            </div>
           </div>
           
           {/* Single Phase Tabs */}
@@ -8078,6 +8278,178 @@ export default function MyLibrary() {
         itemTitle={editingNotesTitle}
         onSave={saveNotes}
       />
+
+      {/* Create Single Dialog */}
+      <Dialog open={showCreateSingleDialog} onOpenChange={setShowCreateSingleDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Single</DialogTitle>
+            <DialogDescription>
+              Create a new single without audio. You can add the audio file later.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); createSingle(); }} className="space-y-4">
+            <div>
+              <Label htmlFor="single-title">Title *</Label>
+              <Input
+                id="single-title"
+                placeholder="Single Title"
+                value={newSingle.title}
+                onChange={e => setNewSingle({ ...newSingle, title: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="single-artist">Artist *</Label>
+              <Input
+                id="single-artist"
+                placeholder="Artist Name"
+                value={newSingle.artist}
+                onChange={e => setNewSingle({ ...newSingle, artist: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="single-release-date">Release Date</Label>
+              <Input
+                id="single-release-date"
+                type="date"
+                value={newSingle.release_date}
+                onChange={e => setNewSingle({ ...newSingle, release_date: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="single-description">Description</Label>
+              <Textarea
+                id="single-description"
+                placeholder="Description"
+                value={newSingle.description}
+                onChange={e => setNewSingle({ ...newSingle, description: e.target.value })}
+              />
+            </div>
+            {createSingleError && <div className="text-red-500 text-sm">{createSingleError}</div>}
+            <DialogFooter>
+              <Button type="submit" disabled={creatingSingle} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {creatingSingle ? 'Creating...' : 'Create Single'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Album Track Dialog */}
+      <Dialog open={showCreateAlbumTrackDialog} onOpenChange={setShowCreateAlbumTrackDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Track to Album</DialogTitle>
+            <DialogDescription>
+              {selectedAlbumForTrack && `Add a new track to "${selectedAlbumForTrack.title}". You can add the audio file later.`}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); createAlbumTrack(); }} className="space-y-4">
+            <div>
+              <Label htmlFor="track-title">Track Title *</Label>
+              <Input
+                id="track-title"
+                placeholder="Track Title"
+                value={newAlbumTrack.title}
+                onChange={e => setNewAlbumTrack({ ...newAlbumTrack, title: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-artist">Artist *</Label>
+              <Input
+                id="track-artist"
+                placeholder="Artist Name"
+                value={newAlbumTrack.artist}
+                onChange={e => setNewAlbumTrack({ ...newAlbumTrack, artist: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-release-date">Release Date</Label>
+              <Input
+                id="track-release-date"
+                type="date"
+                value={newAlbumTrack.release_date}
+                onChange={e => setNewAlbumTrack({ ...newAlbumTrack, release_date: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-description">Description</Label>
+              <Textarea
+                id="track-description"
+                placeholder="Description"
+                value={newAlbumTrack.description}
+                onChange={e => setNewAlbumTrack({ ...newAlbumTrack, description: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="track-bpm">BPM</Label>
+                <Input
+                  id="track-bpm"
+                  type="number"
+                  placeholder="140"
+                  value={newAlbumTrack.bpm}
+                  onChange={e => setNewAlbumTrack({ ...newAlbumTrack, bpm: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="track-key">Key</Label>
+                <Input
+                  id="track-key"
+                  placeholder="C, Am, F#"
+                  value={newAlbumTrack.key}
+                  onChange={e => setNewAlbumTrack({ ...newAlbumTrack, key: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="track-genre">Genre</Label>
+                <Input
+                  id="track-genre"
+                  placeholder="Hip-hop, Trap, House"
+                  value={newAlbumTrack.genre}
+                  onChange={e => setNewAlbumTrack({ ...newAlbumTrack, genre: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="track-subgenre">Subgenre</Label>
+                <Input
+                  id="track-subgenre"
+                  placeholder="Drill, Boom Bap, Deep House"
+                  value={newAlbumTrack.subgenre}
+                  onChange={e => setNewAlbumTrack({ ...newAlbumTrack, subgenre: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="track-tags">Tags</Label>
+              <Input
+                id="track-tags"
+                placeholder="dark, aggressive, 808 (comma-separated)"
+                value={newAlbumTrack.tags}
+                onChange={e => setNewAlbumTrack({ ...newAlbumTrack, tags: e.target.value })}
+              />
+            </div>
+            {createAlbumTrackError && <div className="text-red-500 text-sm">{createAlbumTrackError}</div>}
+            <DialogFooter>
+              <Button type="submit" disabled={creatingAlbumTrack} className="bg-purple-600 hover:bg-purple-700 text-white">
+                {creatingAlbumTrack ? 'Creating...' : 'Add Track'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

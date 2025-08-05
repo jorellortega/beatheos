@@ -6893,8 +6893,8 @@ export function SongArrangement({
       
       {/* Save to Library Dialog */}
       <Dialog open={showSaveToLibraryDialog} onOpenChange={setShowSaveToLibraryDialog}>
-        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-4xl w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="text-xl font-bold text-white">
               {isExportLiveMode ? 'Export Live to Library' : 'Save Arrangement to Library'}
             </DialogTitle>
@@ -6949,11 +6949,11 @@ export function SongArrangement({
             )}
           </DialogHeader>
           
-          <div className="space-y-6">
+          <div className="space-y-6 overflow-y-auto flex-1 pr-2 pb-4 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
             {/* Type Selection */}
             <div className="space-y-3">
               <Label className="text-white">Save to:</Label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Button
                   variant={saveToLibraryType === 'album' ? 'default' : 'outline'}
                   onClick={() => handleTypeChange('album')}
@@ -6980,7 +6980,7 @@ export function SongArrangement({
 
             {/* Create New or Select Existing */}
             <div className="space-y-3">
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Button
                   type="button"
                   variant={createNew ? 'default' : 'outline'}
@@ -7027,7 +7027,7 @@ export function SongArrangement({
                       <Label className="text-white">Artist(s) *</Label>
                       <div className="space-y-2">
                         {/* Artist input */}
-                        <div className="flex gap-2">
+                        <div className="flex flex-col sm:flex-row gap-2">
                           <Input
                             value={newArtistInput}
                             onChange={(e) => setNewArtistInput(e.target.value)}
@@ -7171,7 +7171,7 @@ export function SongArrangement({
                     {showTrackSelection && existingAlbumTracks.length > 0 && (
                       <div className="space-y-3">
                         <Label className="text-white">Track Position</Label>
-                        <div className="bg-gray-800 border border-gray-600 rounded-lg p-4 max-h-48 overflow-y-auto">
+                        <div className="bg-gray-800 border border-gray-600 rounded-lg p-4 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-700">
                           <div className="space-y-2">
                             {/* Option to add at the beginning */}
                             <div className="flex items-center gap-3 p-2 rounded hover:bg-gray-700 cursor-pointer">
@@ -7301,7 +7301,7 @@ export function SongArrangement({
             )}
           </div>
 
-          <DialogFooter className="flex gap-3">
+          <DialogFooter className="flex gap-3 flex-shrink-0 pt-4 border-t border-gray-700">
             <Button
               variant="outline"
               onClick={() => setShowSaveToLibraryDialog(false)}
