@@ -104,53 +104,43 @@ export function BeatUploadForm() {
     }
     setIsUploading(true)
     try {
-      const userId = user.id
-      const cleanTitle = values.title.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_")
-      // Helper to sanitize file names (especially for screenshots)
-      const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_")
-      // MP3 upload
-      const mp3Ext = selectedFile.name.split('.').pop();
-      const mp3Base = selectedFile.name.replace(/\.[^/.]+$/, '');
-      const mp3Unique = `${mp3Base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${mp3Ext}`;
-      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3Unique}`;
-      const { data: mp3Upload, error: mp3Error } = await supabase.storage.from('beats').upload(mp3Path, selectedFile, { upsert: true })
-      if (mp3Error) throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)))
-      const { data: { publicUrl: mp3Url } } = supabase.storage.from('beats').getPublicUrl(mp3Path)
-      // WAV upload
-      let wavUrl = null
-      if (selectedWavFile) {
-        const wavExt = selectedWavFile.name.split('.').pop();
-        const wavBase = selectedWavFile.name.replace(/\.[^/.]+$/, '');
-        const wavUnique = `${wavBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${wavExt}`;
-        const wavPath = `profiles/${userId}/${cleanTitle}/${wavUnique}`;
-        const { data: wavUpload, error: wavError } = await supabase.storage.from('beats').upload(wavPath, selectedWavFile, { upsert: true })
-        if (wavError) throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)))
-        const { data: { publicUrl: wUrl } } = supabase.storage.from('beats').getPublicUrl(wavPath)
-        wavUrl = wUrl
+      // Get session for API call
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('You must be logged in to upload beats');
       }
-      // Cover art upload
-      let coverArtUrl = null
-      if (coverArtFile) {
-        const coverExt = coverArtFile.name.split('.').pop();
-        const coverBase = coverArtFile.name.replace(/\.[^/.]+$/, '');
-        const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
-        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverUnique}`;
-        const { data: coverUpload, error: coverError } = await supabase.storage.from('beats').upload(coverPath, coverArtFile, { upsert: true })
-        if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)))
-        const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath)
-        coverArtUrl = cUrl
+
+      // Prepare form data for API call
+      const formData = new FormData();
+      formData.append('title', values.title);
+      formData.append('description', '');
+      formData.append('genre', values.genre);
+      formData.append('bpm', values.bpm);
+      formData.append('key', values.key);
+      formData.append('tags', JSON.stringify([]));
+      formData.append('licensing', JSON.stringify({}));
+      formData.append('isDraft', 'false');
+      formData.append('mp3File', selectedFile);
+      
+      if (selectedWavFile) formData.append('wavFile', selectedWavFile);
+      if (coverArtFile) formData.append('coverArt', coverArtFile);
+
+      console.log('[DEBUG] Calling /api/beats endpoint');
+      const response = await fetch('/api/beats', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('[DEBUG] API response error:', error);
+        throw new Error(error.error || 'Failed to upload beat');
       }
-      // Prepare beat data for backend
-      const beatData = {
-        ...values,
-        mp3_url: mp3Url,
-        mp3_path: mp3Path,
-        wav_url: wavUrl,
-        cover_art_url: coverArtUrl,
-        producer_id: userId,
-      }
-      // Send to backend (replace with your actual API call)
-      console.log('Uploading beat with data:', beatData)
+
+      const beat = await response.json();
+      console.log('[DEBUG] Beat uploaded successfully:', beat);
+
       toast.success("Beat uploaded successfully!")
       form.reset()
       setSelectedFile(null)

@@ -39,7 +39,11 @@ import {
   Target,
   Square,
   Move,
-  Maximize2
+  Maximize2,
+  FolderOpen,
+  Library,
+  Search,
+  Sparkles
 } from 'lucide-react'
 
 interface WaveformPoint {
@@ -4217,80 +4221,9 @@ export default function LoopEditorPage() {
                     Dup: {duplicateWave.isReversed ? 'Rev' : 'Norm'} | Main: {isDuplicateMain ? 'Dup' : 'Orig'} | Mode: {playBothMode ? 'Both' : 'Single'}
                   </span>
                 )}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="file"
-                accept="audio/*,.wav,.mp3,.aiff,.flac,.ogg,.m4a"
-                onChange={handleFileSelect}
-                className="hidden"
-                id="audio-file-input"
-                multiple={false}
-              />
-              <label htmlFor="audio-file-input" className="cursor-pointer">
-                <Button variant="outline" className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white text-xs sm:text-sm">
-                  <span className="hidden sm:inline">Load Audio</span>
-                  <span className="sm:hidden">Load</span>
-                </Button>
-              </label>
-              <Button 
-                variant="outline" 
-                className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white text-xs sm:text-sm"
-                onClick={() => {
-                  setShowLibrary(true)
-                  fetchAudioLibrary()
-                }}
-              >
-                Library
-              </Button>
-              <Button 
-                variant="outline" 
-                className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
-                onClick={saveProject}
-                disabled={!audioFile}
-                title="Save project (waveform position, markers, etc.)"
-              >
-                <Save className="w-4 h-4" />
-              </Button>
-              <Button 
-                variant="outline" 
-                className="border-green-600 text-green-300 hover:bg-green-700 hover:text-white"
-                onClick={exportAsWav}
-                disabled={!audioFile}
-                title="Export audio as WAV with original quality (includes all edits)"
-              >
-                <Download className="w-4 h-4" />
-              </Button>
-              <Button 
-                variant="outline" 
-                className="border-blue-600 text-blue-300 hover:bg-blue-700 hover:text-white"
-                onClick={() => setShowMp3ExportDialog(true)}
-                disabled={!audioFile}
-                title="Export audio with compression options (includes all edits)"
-              >
-                <Music className="w-4 h-4" />
-              </Button>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowSettings(!showSettings)}
-              size="sm"
-              className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
-            >
-              <Settings className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowLayers(!showLayers)}
-              size="sm"
-              className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
-            >
-              <Layers className="w-4 h-4" />
-            </Button>
           </div>
         </div>
       </div>
@@ -4349,231 +4282,7 @@ export default function LoopEditorPage() {
             </Button>
           </div>
           
-          {/* Tools */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-2 sm:pb-0">
-            <Button
-              size="sm"
-              variant={activeTool === 'select' ? 'default' : 'outline'}
-              onClick={() => setActiveTool(activeTool === 'select' ? 'select' : 'select')}
-              className={`flex-shrink-0 ${activeTool === 'select' 
-                ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title="Select tool (default)"
-            >
-              <Target className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={activeTool === 'cut' ? 'default' : 'outline'}
-              onClick={() => setActiveTool(activeTool === 'cut' ? 'select' : 'cut')}
-              className={`flex-shrink-0 ${activeTool === 'cut' 
-                ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={activeTool === 'cut' ? 'Click to turn off cut mode' : 'Click to enable cut mode'}
-            >
-              <Scissors className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={activeTool === 'fade' ? 'default' : 'outline'}
-              onClick={() => setActiveTool(activeTool === 'fade' ? 'select' : 'fade')}
-              className={`flex-shrink-0 ${activeTool === 'fade' 
-                ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={activeTool === 'fade' ? 'Click to turn off fade mode' : 'Click to enable fade mode'}
-            >
-              <BarChart3 className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={activeTool === 'marker' ? 'default' : 'outline'}
-              onClick={() => setActiveTool(activeTool === 'marker' ? 'select' : 'marker')}
-              className={`flex-shrink-0 ${activeTool === 'marker' 
-                ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={activeTool === 'marker' ? 'Click to turn off marker mode' : 'Click to enable marker mode'}
-            >
-              <MapPin className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={activeTool === 'region' ? 'default' : 'outline'}
-              onClick={() => setActiveTool(activeTool === 'region' ? 'select' : 'region')}
-              className={`flex-shrink-0 ${activeTool === 'region' 
-                ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={activeTool === 'region' ? 'Click to turn off region mode' : 'Click to enable region mode'}
-            >
-              <Type className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant={activeTool === 'drag' ? 'default' : 'outline'}
-              onClick={() => setActiveTool(activeTool === 'drag' ? 'select' : 'drag')}
-              className={`flex-shrink-0 ${activeTool === 'drag' 
-                ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={activeTool === 'drag' ? 'Click to turn off drag mode' : 'Click to enable drag mode'}
-            >
-              <Move className="w-4 h-4" />
-            </Button>
-          </div>
-          
-          {/* Edit Operations */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-2 sm:pb-0">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={cutSelection}
-              disabled={selectionStart === null || selectionEnd === null}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
-            >
-              <Scissors className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={copySelection}
-              disabled={selectionStart === null || selectionEnd === null}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
-            >
-              <Copy className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={pasteAtPlayhead}
-              disabled={!clipboard}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
-            >
-              <Clipboard className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={undo}
-              disabled={historyIndex < 0}
-              className={`flex-shrink-0 ${
-                historyIndex >= 0 
-                  ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={historyIndex >= 0 ? `Undo: ${editHistory[historyIndex]?.data?.description || 'Previous action'}` : 'Nothing to undo'}
-            >
-              <Undo className="w-4 h-4" />
-              <span className="ml-1 text-xs">{Math.max(0, historyIndex + 1)}</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={redo}
-              disabled={historyIndex >= editHistory.length - 1}
-              className={`flex-shrink-0 ${
-                historyIndex < editHistory.length - 1 
-                  ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={historyIndex < editHistory.length - 1 ? `Redo: ${editHistory[historyIndex + 1]?.data?.description || 'Next action'}` : 'Nothing to redo'}
-            >
-              <Redo className="w-4 h-4" />
-              <span className="ml-1 text-xs">{Math.max(0, editHistory.length - historyIndex - 1)}</span>
-            </Button>
-          </div>
-          
-          {/* Grid Controls */}
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant={snapToGrid ? "default" : "outline"}
-              onClick={() => setSnapToGrid(!snapToGrid)}
-              className={`flex-shrink-0 ${snapToGrid 
-                ? 'bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }`}
-              title={`Snap to Grid: ${snapToGrid ? 'ON' : 'OFF'}`}
-            >
-              <Grid3X3 className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowDetailedGrid(!showDetailedGrid)}
-              className={showDetailedGrid 
-                ? 'bg-purple-600 text-white font-bold hover:bg-purple-700 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
-              title={`Detailed Grid: ${showDetailedGrid ? 'ON' : 'OFF'} (shows finer subdivisions)`}
-            >
-              <Grid3X3 className="w-4 h-4" />
-              <span className="ml-1 text-xs">+</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={addBarTracker}
-              disabled={!audioFile}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              title="Add bar tracker marker with sub-bar tracking"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span className="ml-1 text-xs">Bar Tracker</span>
-            </Button>
-            <Button
-              size="sm"
-              variant={markedBars.length > 0 ? "default" : "outline"}
-              onClick={() => {
-                if (markedBars.length > 0) {
-                  setMarkedBars([])
-                  setMarkedSubBars([])
-                } else {
-                  // Use the FIXED bar calculation (like beat-maker) - always 16 steps per bar
-                  const loopBars = Math.round((totalDuration / (fixedStepDuration * 16)))
-                  const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
-                  setMarkedBars(allBars)
-                  const totalBeats = loopBars * 4
-                  const allSubBars = Array.from({ length: totalBeats }, (_, i) => i + 1)
-                  setMarkedSubBars(allSubBars)
-                }
-              }}
-              disabled={!audioFile}
-              className={markedBars.length > 0 
-                ? 'bg-green-600 text-white font-bold hover:bg-green-700 transition-colors border-none' 
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
-              }
-              title={markedBars.length > 0 ? "Hide bars" : "Show bars"}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span className="ml-1 text-xs">{markedBars.length > 0 ? 'Hide Bars' : 'Show Bars'}</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={duplicateWaveTrack}
-              disabled={!audioFile}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              title="Duplicate wave track"
-            >
-              <Copy className="w-4 h-4" />
-              <span className="ml-1 text-xs">Duplicate</span>
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={reverseDuplicateWave}
-              disabled={!duplicateWave}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-              title="Reverse duplicate wave"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span className="ml-1 text-xs">Reverse</span>
-            </Button>
-          </div>
+
           
           {/* Zoom Controls */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 overflow-x-auto pb-2 sm:pb-0">
@@ -4673,6 +4382,88 @@ export default function LoopEditorPage() {
               </div>
             </div>
             
+            {/* File Management */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Label className="text-xs text-gray-300 min-w-[2rem]">File:</Label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="file"
+                  accept="audio/*,.wav,.mp3,.aiff,.flac,.ogg,.m4a"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="audio-file-input"
+                  multiple={false}
+                />
+                <label htmlFor="audio-file-input" className="cursor-pointer">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <span className="text-xs">Load</span>
+                  </Button>
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setShowLibrary(true)
+                    fetchAudioLibrary()
+                  }}
+                  className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                >
+                  <Library className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            
+            {/* Project Management */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Label className="text-xs text-gray-300 min-w-[2rem]">Project:</Label>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={saveProject}
+                  className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                >
+                  <Save className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={loadProject}
+                  className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            
+            {/* Wave Management */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Label className="text-xs text-gray-300 min-w-[2rem]">Wave:</Label>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={duplicateWaveTrack}
+                  disabled={!audioFile}
+                  className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                >
+                  <Copy className="w-4 h-4" />
+                  <span className="ml-1 text-xs">Duplicate</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={reverseDuplicateWave}
+                  disabled={!duplicateWave}
+                  className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span className="ml-1 text-xs">Reverse</span>
+                </Button>
             <Button
               size="sm"
               variant="outline"
@@ -4682,10 +4473,8 @@ export default function LoopEditorPage() {
               }}
               className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
-              <span className="hidden sm:inline">Reset Wave</span>
-              <span className="sm:hidden">Reset</span>
+                  <span className="text-xs">Reset Wave</span>
             </Button>
-            
             <Button
               size="sm"
               variant="outline"
@@ -4712,18 +4501,10 @@ export default function LoopEditorPage() {
               }}
               className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
-              <span className="hidden sm:inline">Reset All</span>
-              <span className="sm:hidden">Reset</span>
+                  <span className="text-xs">Reset All</span>
             </Button>
-            
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={saveProject}
-              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
-            >
-              <Save className="w-4 h-4" />
-            </Button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -4856,11 +4637,9 @@ export default function LoopEditorPage() {
                     <option value={2.0}>2x</option>
                     <option value={4.0}>4x</option>
                   </select>
-                </div>
             </div>
             
-            {/* Center Section - Playback Controls */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+                {/* Rate Control - Moved closer to Speed */}
                 <div className="flex items-center gap-2 sm:gap-4">
                 <Label className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Rate:</Label>
                 <Slider
@@ -4875,6 +4654,8 @@ export default function LoopEditorPage() {
                   {playbackRate}x
                 </span>
               </div>
+                
+                {/* Volume Control - Moved closer to Speed */}
                 <div className="flex items-center gap-2 sm:gap-4">
                 <Label className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Volume:</Label>
                 <Slider
@@ -4912,42 +4693,32 @@ export default function LoopEditorPage() {
                           minHeight: volume > 0 ? '2px' : '0px'
                         }}
                       />
-                    </div>
                   </div>
               </div>
             </div>
             
-            {/* Right Section - Status Information */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
-                <div className="flex items-center gap-2 sm:gap-3">
-                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Status:</span>
-                  <span className={`text-xs sm:text-sm font-mono px-2 sm:px-3 py-1 rounded border min-w-[3rem] sm:min-w-[4rem] text-center ${
-                  isPlaying 
-                    ? 'text-green-400 border-green-400 bg-green-900/20' 
-                    : 'text-gray-400 border-gray-600 bg-[#1a1a1a]'
-                }`}>
-                  {isPlaying ? 'LIVE' : 'STOPPED'}
-                </span>
-              </div>
-                <div className="flex items-center gap-2 sm:gap-3">
-                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Markers:</span>
-                  <span className="text-blue-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-blue-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
-                  {markers.length}
-                </span>
-              </div>
-                <div className="flex items-center gap-2 sm:gap-3">
-                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Regions:</span>
-                  <span className="text-purple-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-purple-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
-                  {regions.length}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 sm:gap-3">
-                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">History:</span>
-                  <span className="text-orange-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-orange-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
-                  {historyIndex + 1}/{editHistory.length}
-                </span>
+                {/* Settings & Layers Controls - Moved to left side */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowSettings(!showSettings)}
+                    size="sm"
+                    className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowLayers(!showLayers)}
+                    size="sm"
+                    className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+                  >
+                    <Layers className="w-4 h-4" />
+                  </Button>
               </div>
               </div>
+            
+
             </div>
           </div>
           
@@ -5040,10 +4811,547 @@ export default function LoopEditorPage() {
           )}
         </div>
         
+        {/* Bottom Control Bar - Below Waveform */}
+        <div className="bg-[#0f0f0f] border-t border-gray-600 p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8">
+            {/* Left Section - Additional Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Tools:</span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant={activeTool === 'select' ? 'default' : 'outline'}
+                    onClick={() => setActiveTool(activeTool === 'select' ? 'select' : 'select')}
+                    className={`flex-shrink-0 ${activeTool === 'select' 
+                      ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title="Select tool (default)"
+                  >
+                    <Target className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={activeTool === 'cut' ? 'default' : 'outline'}
+                    onClick={() => setActiveTool(activeTool === 'cut' ? 'select' : 'cut')}
+                    className={`flex-shrink-0 ${activeTool === 'cut' 
+                      ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={activeTool === 'cut' ? 'Click to turn off cut mode' : 'Click to enable cut mode'}
+                  >
+                    <Scissors className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={activeTool === 'fade' ? 'default' : 'outline'}
+                    onClick={() => setActiveTool(activeTool === 'fade' ? 'select' : 'fade')}
+                    className={`flex-shrink-0 ${activeTool === 'fade' 
+                      ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={activeTool === 'fade' ? 'Click to turn off fade mode' : 'Click to enable fade mode'}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={activeTool === 'marker' ? 'default' : 'outline'}
+                    onClick={() => setActiveTool(activeTool === 'marker' ? 'select' : 'marker')}
+                    className={`flex-shrink-0 ${activeTool === 'marker' 
+                      ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={activeTool === 'marker' ? 'Click to turn off marker mode' : 'Click to enable marker mode'}
+                  >
+                    <MapPin className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={activeTool === 'region' ? 'default' : 'outline'}
+                    onClick={() => setActiveTool(activeTool === 'region' ? 'select' : 'region')}
+                    className={`flex-shrink-0 ${activeTool === 'region' 
+                      ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={activeTool === 'region' ? 'Click to turn off region mode' : 'Click to enable region mode'}
+                  >
+                    <Type className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={activeTool === 'drag' ? 'default' : 'outline'}
+                    onClick={() => setActiveTool(activeTool === 'drag' ? 'select' : 'drag')}
+                    className={`flex-shrink-0 ${activeTool === 'drag' 
+                      ? 'bg-black text-white font-bold hover:bg-gray-900 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={activeTool === 'drag' ? 'Click to turn off drag mode' : 'Click to enable drag mode'}
+                  >
+                    <Move className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 sm:gap-4">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Edit:</span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={cutSelection}
+                    disabled={selectionStart === null || selectionEnd === null}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <Scissors className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={copySelection}
+                    disabled={selectionStart === null || selectionEnd === null}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={pasteAtPlayhead}
+                    disabled={!clipboard}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <Clipboard className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={undo}
+                    disabled={historyIndex < 0}
+                    className={`flex-shrink-0 ${
+                      historyIndex >= 0 
+                        ? 'bg-blue-600 text-white hover:bg-blue-700 border-blue-500' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={historyIndex >= 0 ? `Undo: ${editHistory[historyIndex]?.data?.description || 'Previous action'}` : 'Nothing to undo'}
+                  >
+                    <Undo className="w-4 h-4" />
+                    <span className="ml-1 text-xs">{Math.max(0, historyIndex + 1)}</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={redo}
+                    disabled={historyIndex >= editHistory.length - 1}
+                    className={`flex-shrink-0 ${
+                      historyIndex < editHistory.length - 1 
+                        ? 'bg-green-600 text-white hover:bg-green-700 border-green-500' 
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={historyIndex < editHistory.length - 1 ? `Redo: ${editHistory[historyIndex + 1]?.data?.description || 'Next action'}` : 'Nothing to redo'}
+                  >
+                    <Redo className="w-4 h-4" />
+                    <span className="ml-1 text-xs">{Math.max(0, editHistory.length - historyIndex - 1)}</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Center Section - Grid Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Grid:</span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant={snapToGrid ? "default" : "outline"}
+                    onClick={() => setSnapToGrid(!snapToGrid)}
+                    className={`flex-shrink-0 ${snapToGrid 
+                      ? 'bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }`}
+                    title={`Snap to Grid: ${snapToGrid ? 'ON' : 'OFF'}`}
+                  >
+                    <Grid3X3 className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowDetailedGrid(!showDetailedGrid)}
+                    className={showDetailedGrid 
+                      ? 'bg-purple-600 text-white font-bold hover:bg-purple-700 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }
+                    title={`Detailed Grid: ${showDetailedGrid ? 'ON' : 'OFF'} (shows finer subdivisions)`}
+                  >
+                    <Grid3X3 className="w-4 h-4" />
+                    <span className="ml-1 text-xs">+</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={addBarTracker}
+                    disabled={!audioFile}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+                    title="Add bar tracker marker with sub-bar tracking"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    <span className="ml-1 text-xs">Bar Tracker</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={markedBars.length > 0 ? "default" : "outline"}
+                    onClick={() => {
+                      if (markedBars.length > 0) {
+                        setMarkedBars([])
+                        setMarkedSubBars([])
+                      } else {
+                        // Use the FIXED bar calculation (like beat-maker) - always 16 steps per bar
+                        const loopBars = Math.round((totalDuration / (fixedStepDuration * 16)))
+                        const allBars = Array.from({ length: loopBars }, (_, i) => i + 1)
+                        setMarkedBars(allBars)
+                        const totalBeats = loopBars * 4
+                        const allSubBars = Array.from({ length: totalBeats }, (_, i) => i + 1)
+                        setMarkedSubBars(allSubBars)
+                      }
+                    }}
+                    disabled={!audioFile}
+                    className={markedBars.length > 0 
+                      ? 'bg-green-600 text-white font-bold hover:bg-green-700 transition-colors border-none' 
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500'
+                    }
+                    title={markedBars.length > 0 ? "Hide bars" : "Show bars"}
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    <span className="ml-1 text-xs">{markedBars.length > 0 ? 'Hide Bars' : 'Show Bars'}</span>
+                  </Button>
+                </div>
+              </div>
+              
 
-        
-        {/* Sidebar */}
-        <div className="w-[1000px] bg-[#141414] border-l border-gray-700 overflow-y-auto">
+            </div>
+            
+
+          </div>
+        </div>
+
+        {/* Second Bottom Control Bar - File Management & Advanced */}
+        <div className="bg-[#0f0f0f] border-t border-gray-600 p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8">
+            {/* Left Section - Export Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Export:</span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={exportAsWav}
+                    disabled={!audioFile}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="ml-1 text-xs">WAV</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={exportAsMp3}
+                    disabled={!audioFile}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="ml-1 text-xs">MP3</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Right Section - Advanced Features & Status */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
+              <div className="flex items-center gap-2 sm:gap-4">
+                <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Advanced:</span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={findInterestingSegments}
+                    disabled={!audioFile}
+                    className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  >
+                    <Search className="w-4 h-4" />
+                    <span className="ml-1 text-xs">Find Segments</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={magicShuffle}
+                    disabled={!audioFile}
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 border-purple-500 flex-shrink-0"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span className="ml-1 text-xs">Magic Shuffle</span>
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Status Information */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem]">Status:</span>
+                  <span className={`text-xs sm:text-sm font-mono px-2 sm:px-3 py-1 rounded border min-w-[3rem] sm:min-w-[4rem] text-center ${
+                    isPlaying 
+                      ? 'text-green-400 border-green-400 bg-green-900/20' 
+                      : 'text-gray-400 border-gray-600 bg-[#1a1a1a]'
+                  }`}>
+                    {isPlaying ? 'LIVE' : 'STOPPED'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Markers:</span>
+                  <span className="text-blue-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-blue-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
+                    {markers.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">Regions:</span>
+                  <span className="text-purple-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-purple-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
+                    {regions.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-gray-400 text-xs sm:text-sm font-medium min-w-[3rem] sm:min-w-[4rem]">History:</span>
+                  <span className="text-orange-400 text-xs sm:text-sm font-mono bg-[#1a1a1a] px-2 sm:px-3 py-1 rounded border border-orange-600 min-w-[1.5rem] sm:min-w-[2rem] text-center">
+                    {historyIndex + 1}/{editHistory.length}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        </div>
+      </div>
+      
+      {/* Hidden audio element */}
+      <audio
+        ref={audioRef}
+        onTimeUpdate={() => {
+          if (audioRef.current) {
+            setCurrentTime(audioRef.current.currentTime)
+          }
+        }}
+        onEnded={() => setIsPlaying(false)}
+        onLoadedData={() => {
+          console.log('🔍 AUDIO LOADED - duration:', audioRef.current?.duration, 'src:', audioRef.current?.src)
+        }}
+        onError={(e) => {
+          console.error('🔍 AUDIO ERROR:', e)
+        }}
+        style={{ display: 'none' }}
+      />
+      
+      {/* Library Modal */}
+      <Dialog open={showLibrary} onOpenChange={setShowLibrary}>
+        <DialogContent className="bg-[#141414] border-gray-700 max-w-4xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-white">Audio Library</DialogTitle>
+          </DialogHeader>
+          
+          <div className="flex h-[60vh]">
+            {/* Packs Sidebar */}
+            <div className="w-64 border-r border-gray-700 overflow-y-auto">
+              <div className="p-4">
+                <h3 className="text-sm font-medium text-white mb-3">Packs</h3>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => setSelectedPack(null)}
+                    className={`w-full text-left p-2 rounded text-sm transition-colors ${
+                      selectedPack === null 
+                        ? 'bg-black text-white' 
+                        : 'text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    All Files ({audioLibraryItems.length})
+                  </button>
+                  
+                  {audioPacks.map(pack => (
+                    <div key={pack.id}>
+                      <button
+                        onClick={() => setSelectedPack(pack.id)}
+                        className={`w-full text-left p-2 rounded text-sm transition-colors ${
+                          selectedPack === pack.id 
+                            ? 'bg-black text-white' 
+                            : 'text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>{pack.name}</span>
+                          <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
+                            {pack.item_count || 0}
+                          </Badge>
+                        </div>
+                      </button>
+                      
+                      {/* Subfolders */}
+                      {pack.subfolders && pack.subfolders.length > 0 && (
+                        <div className="ml-4 mt-1 space-y-1">
+                          {pack.subfolders.map(subfolder => (
+                            <button
+                              key={subfolder.id}
+                              onClick={() => setSelectedPack(`${pack.id}-${subfolder.name}`)}
+                              className={`w-full text-left p-1 rounded text-xs transition-colors ${
+                                selectedPack === `${pack.id}-${subfolder.name}` 
+                                  ? 'bg-gray-800 text-white' 
+                                  : 'text-gray-400 hover:bg-gray-700'
+                              }`}
+                            >
+                              📁 {subfolder.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            {/* Files List */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4">
+                {loadingLibrary ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="flex items-center gap-2 text-gray-400">
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                      Loading library...
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {getFilteredAudioItems(audioLibraryItems).map(item => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-600 rounded hover:bg-gray-700 transition-colors cursor-pointer"
+                        onClick={() => loadAudioFromLibrary(item)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <Music className="w-4 h-4 text-gray-400" />
+                            <span className="text-white font-medium">{item.name}</span>
+                            {item.pack && (
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs border-gray-600 text-gray-400"
+                                style={{ borderColor: item.pack.color, color: item.pack.color }}
+                              >
+                                {item.pack.name}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {item.bpm && <span>BPM: {item.bpm} </span>}
+                            {item.key && <span>Key: {item.key} </span>}
+                            {item.duration && <span>Duration: {item.duration.toFixed(1)}s</span>}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            loadAudioFromLibrary(item)
+                          }}
+                        >
+                          Load
+                        </Button>
+                      </div>
+                    ))}
+                    
+                    {getFilteredAudioItems(audioLibraryItems).length === 0 && (
+                      <div className="text-center text-gray-400 py-8">
+                        <Music className="w-12 h-12 mx-auto mb-2" />
+                        <p>No audio files found</p>
+                        <p className="text-sm">Upload files to your library first</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compressed Audio Export Dialog */}
+      <Dialog open={showMp3ExportDialog} onOpenChange={setShowMp3ExportDialog}>
+        <DialogContent className="bg-[#141414] border-gray-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Export with Compression</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label className="text-white">Compression Level</Label>
+              <Select value={mp3CompressionLevel} onValueChange={(value: 'ultra_high' | 'high' | 'medium' | 'low') => setMp3CompressionLevel(value)}>
+                <SelectTrigger className="bg-[#1a1a1a] border-gray-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#1a1a1a] border-gray-600">
+                  <SelectItem value="ultra_high" className="text-white hover:bg-gray-700">
+                    Ultra High (64k) - 97% compression
+                  </SelectItem>
+                  <SelectItem value="high" className="text-white hover:bg-gray-700">
+                    High (128k) - 94% compression
+                  </SelectItem>
+                  <SelectItem value="medium" className="text-white hover:bg-gray-700">
+                    Medium (192k) - 90% compression
+                  </SelectItem>
+                  <SelectItem value="low" className="text-white hover:bg-gray-700">
+                    Low (320k) - 84% compression
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowMp3ExportDialog(false)}
+                className="border-gray-600 text-gray-300 hover:bg-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={exportAsMp3}
+                disabled={isExportingMp3}
+                className="bg-blue-600 text-white hover:bg-blue-700"
+              >
+                {isExportingMp3 ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Compressed
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Temporal Markers & Regions Card at the bottom */}
+      <Card className="max-w-3xl mx-auto mt-12 mb-8 bg-[#18181c] border-gray-700">
+        <CardHeader>
+          <CardTitle>Temporal Markers & Regions</CardTitle>
+        </CardHeader>
+        <CardContent>
           {/* Markers */}
           <div className="p-6 border-b border-gray-700">
             <div className="flex items-center justify-between mb-4">
@@ -5515,221 +5823,8 @@ export default function LoopEditorPage() {
               ))}
             </div>
           </div>
-        </div>
-        </div>
-      </div>
-      
-      {/* Hidden audio element */}
-      <audio
-        ref={audioRef}
-        onTimeUpdate={() => {
-          if (audioRef.current) {
-            setCurrentTime(audioRef.current.currentTime)
-          }
-        }}
-        onEnded={() => setIsPlaying(false)}
-        onLoadedData={() => {
-          console.log('🔍 AUDIO LOADED - duration:', audioRef.current?.duration, 'src:', audioRef.current?.src)
-        }}
-        onError={(e) => {
-          console.error('🔍 AUDIO ERROR:', e)
-        }}
-        style={{ display: 'none' }}
-      />
-      
-      {/* Library Modal */}
-      <Dialog open={showLibrary} onOpenChange={setShowLibrary}>
-        <DialogContent className="bg-[#141414] border-gray-700 max-w-4xl max-h-[80vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="text-white">Audio Library</DialogTitle>
-          </DialogHeader>
-          
-          <div className="flex h-[60vh]">
-            {/* Packs Sidebar */}
-            <div className="w-64 border-r border-gray-700 overflow-y-auto">
-              <div className="p-4">
-                <h3 className="text-sm font-medium text-white mb-3">Packs</h3>
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setSelectedPack(null)}
-                    className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                      selectedPack === null 
-                        ? 'bg-black text-white' 
-                        : 'text-gray-300 hover:bg-gray-700'
-                    }`}
-                  >
-                    All Files ({audioLibraryItems.length})
-                  </button>
-                  
-                  {audioPacks.map(pack => (
-                    <div key={pack.id}>
-                      <button
-                        onClick={() => setSelectedPack(pack.id)}
-                        className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                          selectedPack === pack.id 
-                            ? 'bg-black text-white' 
-                            : 'text-gray-300 hover:bg-gray-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span>{pack.name}</span>
-                          <Badge variant="outline" className="text-xs border-gray-600 text-gray-400">
-                            {pack.item_count || 0}
-                          </Badge>
-                        </div>
-                      </button>
-                      
-                      {/* Subfolders */}
-                      {pack.subfolders && pack.subfolders.length > 0 && (
-                        <div className="ml-4 mt-1 space-y-1">
-                          {pack.subfolders.map(subfolder => (
-                            <button
-                              key={subfolder.id}
-                              onClick={() => setSelectedPack(`${pack.id}-${subfolder.name}`)}
-                              className={`w-full text-left p-1 rounded text-xs transition-colors ${
-                                selectedPack === `${pack.id}-${subfolder.name}` 
-                                  ? 'bg-gray-800 text-white' 
-                                  : 'text-gray-400 hover:bg-gray-700'
-                              }`}
-                            >
-                              📁 {subfolder.name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            {/* Files List */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="p-4">
-                {loadingLibrary ? (
-                  <div className="flex items-center justify-center h-32">
-                    <div className="flex items-center gap-2 text-gray-400">
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                      Loading library...
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {getFilteredAudioItems(audioLibraryItems).map(item => (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between p-3 bg-gray-800/50 border border-gray-600 rounded hover:bg-gray-700 transition-colors cursor-pointer"
-                        onClick={() => loadAudioFromLibrary(item)}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <Music className="w-4 h-4 text-gray-400" />
-                            <span className="text-white font-medium">{item.name}</span>
-                            {item.pack && (
-                              <Badge 
-                                variant="outline" 
-                                className="text-xs border-gray-600 text-gray-400"
-                                style={{ borderColor: item.pack.color, color: item.pack.color }}
-                              >
-                                {item.pack.name}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            {item.bpm && <span>BPM: {item.bpm} </span>}
-                            {item.key && <span>Key: {item.key} </span>}
-                            {item.duration && <span>Duration: {item.duration.toFixed(1)}s</span>}
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            loadAudioFromLibrary(item)
-                          }}
-                        >
-                          Load
-                        </Button>
-                      </div>
-                    ))}
-                    
-                    {getFilteredAudioItems(audioLibraryItems).length === 0 && (
-                      <div className="text-center text-gray-400 py-8">
-                        <Music className="w-12 h-12 mx-auto mb-2" />
-                        <p>No audio files found</p>
-                        <p className="text-sm">Upload files to your library first</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Compressed Audio Export Dialog */}
-      <Dialog open={showMp3ExportDialog} onOpenChange={setShowMp3ExportDialog}>
-        <DialogContent className="bg-[#141414] border-gray-700 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-white">Export with Compression</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label className="text-white">Compression Level</Label>
-              <Select value={mp3CompressionLevel} onValueChange={(value: 'ultra_high' | 'high' | 'medium' | 'low') => setMp3CompressionLevel(value)}>
-                <SelectTrigger className="bg-[#1a1a1a] border-gray-600 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-gray-600">
-                  <SelectItem value="ultra_high" className="text-white hover:bg-gray-700">
-                    Ultra High (64k) - 97% compression
-                  </SelectItem>
-                  <SelectItem value="high" className="text-white hover:bg-gray-700">
-                    High (128k) - 94% compression
-                  </SelectItem>
-                  <SelectItem value="medium" className="text-white hover:bg-gray-700">
-                    Medium (192k) - 90% compression
-                  </SelectItem>
-                  <SelectItem value="low" className="text-white hover:bg-gray-700">
-                    Low (320k) - 84% compression
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowMp3ExportDialog(false)}
-                className="border-gray-600 text-gray-300 hover:bg-gray-700"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={exportAsMp3}
-                disabled={isExportingMp3}
-                className="bg-blue-600 text-white hover:bg-blue-700"
-              >
-                {isExportingMp3 ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    Export Compressed
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </CardContent>
+      </Card>
     </div>
   )
 } 

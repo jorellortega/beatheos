@@ -143,3 +143,36 @@ export const arrangement_tags = mysqlTable("arrangement_tags", {
   created_at: timestamp("created_at").defaultNow(),
 })
 
+// Tracks table for completed beats that can be moved to singles or albums
+export const tracks = mysqlTable("tracks", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  user_id: varchar("user_id", { length: 255 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  artist: varchar("artist", { length: 255 }).notNull(),
+  description: text("description"),
+  audio_url: varchar("audio_url", { length: 255 }),
+  cover_art_url: varchar("cover_art_url", { length: 255 }),
+  duration: varchar("duration", { length: 50 }),
+  bpm: int("bpm"),
+  key: varchar("key", { length: 10 }),
+  genre: varchar("genre", { length: 100 }),
+  subgenre: varchar("subgenre", { length: 100 }),
+  
+  // Session information (if exported from beat maker)
+  session_id: varchar("session_id", { length: 255 }),
+  session_name: varchar("session_name", { length: 255 }),
+  
+  // Status and production phase (same as singles)
+  status: varchar("status", { length: 50 }).default("draft"),
+  production_status: varchar("production_status", { length: 50 }).default("production"),
+  
+  // Metadata
+  tags: text("tags"), // JSON array of tags
+  notes: text("notes"),
+  
+  // Timestamps
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+  release_date: varchar("release_date", { length: 10 }), // DATE as string
+})
+

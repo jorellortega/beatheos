@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -26,6 +26,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 
 // Types for DB tables
@@ -51,6 +52,27 @@ interface Single {
   description?: string
   session_id?: string | null
   session_name?: string | null
+  status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
+  production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+}
+
+interface Track {
+  id: string
+  title: string
+  artist: string
+  release_date?: string | null
+  cover_art_url?: string
+  audio_url?: string | null
+  duration?: string
+  description?: string
+  session_id?: string | null
+  session_name?: string | null
+  bpm?: number | null
+  key?: string | null
+  genre?: string | null
+  subgenre?: string | null
+  tags?: string[]
+  notes?: string
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
 }
@@ -134,6 +156,10 @@ export default function MyLibrary() {
   const [singles, setSingles] = useState<Single[]>([]);
   const [loadingSingles, setLoadingSingles] = useState(false);
   const [singleError, setSingleError] = useState<string | null>(null);
+  // Tracks
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [loadingTracks, setLoadingTracks] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
   // Platform Profiles
   const [platformProfiles, setPlatformProfiles] = useState<PlatformProfile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
@@ -150,19 +176,22 @@ export default function MyLibrary() {
   
   // Audio playback state
   const [playingSingleId, setPlayingSingleId] = useState<string | null>(null);
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
   
   // Track replacement loading states
   const [replacingSingleId, setReplacingSingleId] = useState<string | null>(null);
   const [replacingAlbumTrackId, setReplacingAlbumTrackId] = useState<string | null>(null);
+  const [replacingTrackId, setReplacingTrackId] = useState<string | null>(null);
   
   // Track recently replaced files (for temporary labels)
   const [recentlyReplacedSingles, setRecentlyReplacedSingles] = useState<Set<string>>(new Set());
   const [recentlyReplacedAlbumTracks, setRecentlyReplacedAlbumTracks] = useState<Set<string>>(new Set());
+  const [recentlyReplacedTracks, setRecentlyReplacedTracks] = useState<Set<string>>(new Set());
   
   // Cover management state
   const [replacingCoverId, setReplacingCoverId] = useState<string | null>(null);
-  const [replacingCoverType, setReplacingCoverType] = useState<'album' | 'single' | null>(null);
+  const [replacingCoverType, setReplacingCoverType] = useState<'album' | 'single' | 'track' | null>(null);
   
   // Edit single state
   const [editingSingle, setEditingSingle] = useState<Single | null>(null);
@@ -174,6 +203,47 @@ export default function MyLibrary() {
   const [editSingleDuration, setEditSingleDuration] = useState('');
   const [editSingleAudioUrl, setEditSingleAudioUrl] = useState('');
   const [isSavingSingle, setIsSavingSingle] = useState(false);
+  
+  // Edit track state
+  const [editingTrack, setEditingTrack] = useState<Track | null>(null);
+  const [showEditTrackDialog, setShowEditTrackDialog] = useState(false);
+  const [editTrackTitle, setEditTrackTitle] = useState('');
+  const [editTrackDescription, setEditTrackDescription] = useState('');
+  const [editTrackArtist, setEditTrackArtist] = useState('');
+  const [editTrackReleaseDate, setEditTrackReleaseDate] = useState('');
+  const [editTrackDuration, setEditTrackDuration] = useState('');
+  const [editTrackAudioUrl, setEditTrackAudioUrl] = useState('');
+  const [editTrackBpm, setEditTrackBpm] = useState('');
+  const [editTrackKey, setEditTrackKey] = useState('');
+  const [editTrackGenre, setEditTrackGenre] = useState('');
+  const [editTrackSubgenre, setEditTrackSubgenre] = useState('');
+  const [isSavingTrack, setIsSavingTrack] = useState(false);
+  
+  // Create track state
+  const [showCreateTrackDialog, setShowCreateTrackDialog] = useState(false);
+  const [newTrackTitle, setNewTrackTitle] = useState('');
+  const [newTrackDescription, setNewTrackDescription] = useState('');
+  const [newTrackArtist, setNewTrackArtist] = useState('');
+  const [newTrackReleaseDate, setNewTrackReleaseDate] = useState('');
+  const [newTrackDuration, setNewTrackDuration] = useState('');
+  const [newTrackBpm, setNewTrackBpm] = useState('');
+  const [newTrackKey, setNewTrackKey] = useState('');
+  const [newTrackGenre, setNewTrackGenre] = useState('');
+  const [newTrackSubgenre, setNewTrackSubgenre] = useState('');
+  const [newTrackAudioFile, setNewTrackAudioFile] = useState<File | null>(null);
+  const [isCreatingTrack, setIsCreatingTrack] = useState(false);
+  
+  // Beat upload state
+  const [showBeatUploadDialog, setShowBeatUploadDialog] = useState(false);
+  const [beatTitle, setBeatTitle] = useState('');
+  const [beatBpm, setBeatBpm] = useState('');
+  const [beatKey, setBeatKey] = useState('');
+  const [beatGenre, setBeatGenre] = useState('');
+  const [beatPrice, setBeatPrice] = useState('');
+  const [beatAudioFile, setBeatAudioFile] = useState<File | null>(null);
+  const [beatWavFile, setBeatWavFile] = useState<File | null>(null);
+  const [beatCoverArtFile, setBeatCoverArtFile] = useState<File | null>(null);
+  const [isUploadingBeat, setIsUploadingBeat] = useState(false);
   const [totalItems, setTotalItems] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   
@@ -257,8 +327,9 @@ export default function MyLibrary() {
   // Conversion states
   const [convertingSingle, setConvertingSingle] = useState<string | null>(null);
   const [convertingAlbumTrack, setConvertingAlbumTrack] = useState<string | null>(null);
+  const [convertingTrack, setConvertingTrack] = useState<string | null>(null);
   const [showCompressionDialog, setShowCompressionDialog] = useState(false);
-  const [compressionFile, setCompressionFile] = useState<{ id: string; url: string; type: 'single' | 'album_track' } | null>(null);
+  const [compressionFile, setCompressionFile] = useState<{ id: string; url: string; type: 'single' | 'album_track' | 'track' } | null>(null);
   
   // Metadata states
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
@@ -270,7 +341,7 @@ export default function MyLibrary() {
   const [showNotesDialog, setShowNotesDialog] = useState(false);
   const [editingNotes, setEditingNotes] = useState('');
   const [editingNotesId, setEditingNotesId] = useState('');
-  const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track'>('single');
+  const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track' | 'track'>('single');
   const [editingNotesTitle, setEditingNotesTitle] = useState('');
   
   // Handle file selection
@@ -479,6 +550,42 @@ export default function MyLibrary() {
     }
   };
 
+  const playTrack = (trackId: string, audioUrl: string) => {
+    if (playingTrackId === trackId) {
+      stopTrack();
+      return;
+    }
+
+    if (audioRef) {
+      audioRef.pause();
+    }
+
+    const newAudioRef = new Audio(audioUrl);
+    newAudioRef.addEventListener('ended', () => {
+      setPlayingTrackId(null);
+    });
+
+    newAudioRef.play().catch(error => {
+      console.error('Error playing track:', error);
+      toast({
+        title: "Error",
+        description: "Failed to play track audio.",
+        variant: "destructive"
+      });
+    });
+
+    setAudioRef(newAudioRef);
+    setPlayingTrackId(trackId);
+  };
+
+  const stopTrack = () => {
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+    }
+    setPlayingTrackId(null);
+  };
+
   // Edit single functions
   const openEditSingleDialog = (single: Single) => {
     setEditingSingle(single);
@@ -551,6 +658,389 @@ export default function MyLibrary() {
     } catch (error) {
       console.error('Error deleting single:', error);
       alert('Failed to delete single. Please try again.');
+    }
+  };
+
+  // Edit track functions
+  const openEditTrackDialog = (track: Track) => {
+    setEditingTrack(track);
+    setEditTrackTitle(track.title);
+    setEditTrackDescription(track.description || '');
+    setEditTrackArtist(track.artist);
+    setEditTrackReleaseDate(track.release_date || '');
+    setEditTrackDuration(track.duration || '');
+    setEditTrackAudioUrl(track.audio_url || '');
+    setEditTrackBpm(track.bpm?.toString() || '');
+    setEditTrackKey(track.key || '');
+    setEditTrackGenre(track.genre || '');
+    setEditTrackSubgenre(track.subgenre || '');
+    setShowEditTrackDialog(true);
+  };
+
+  const saveTrack = async () => {
+    if (!editingTrack || !editTrackTitle.trim()) return;
+
+    setIsSavingTrack(true);
+    try {
+      const { error } = await supabase
+        .from('tracks')
+        .update({
+          title: editTrackTitle,
+          description: editTrackDescription,
+          artist: editTrackArtist,
+          release_date: editTrackReleaseDate || null,
+          duration: editTrackDuration,
+          audio_url: editTrackAudioUrl || null,
+          bpm: editTrackBpm ? parseInt(editTrackBpm) : null,
+          key: editTrackKey || null,
+          genre: editTrackGenre || null,
+          subgenre: editTrackSubgenre || null
+        })
+        .eq('id', editingTrack.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setTracks(prev => prev.map(track => 
+        track.id === editingTrack.id 
+          ? { 
+              ...track, 
+              title: editTrackTitle,
+              description: editTrackDescription,
+              artist: editTrackArtist,
+              release_date: editTrackReleaseDate || null,
+              duration: editTrackDuration,
+              audio_url: editTrackAudioUrl || null,
+              bpm: editTrackBpm ? parseInt(editTrackBpm) : null,
+              key: editTrackKey || null,
+              genre: editTrackGenre || null,
+              subgenre: editTrackSubgenre || null
+            }
+          : track
+      ));
+
+      setShowEditTrackDialog(false);
+      setEditingTrack(null);
+    } catch (error) {
+      console.error('Error updating track:', error);
+      alert('Failed to update track. Please try again.');
+    } finally {
+      setIsSavingTrack(false);
+    }
+  };
+
+  const deleteTrack = async (trackId: string) => {
+    if (!confirm('Are you sure you want to delete this track?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('tracks')
+        .delete()
+        .eq('id', trackId);
+
+      if (error) throw error;
+
+      // Update local state
+      setTracks(prev => prev.filter(track => track.id !== trackId));
+    } catch (error) {
+      console.error('Error deleting track:', error);
+      alert('Failed to delete track. Please try again.');
+    }
+  };
+
+  // Create track functions
+  const openCreateTrackDialog = () => {
+    setNewTrackTitle('');
+    setNewTrackDescription('');
+    setNewTrackArtist('');
+    setNewTrackReleaseDate('');
+    setNewTrackDuration('');
+    setNewTrackBpm('');
+    setNewTrackKey('');
+    setNewTrackGenre('');
+    setNewTrackSubgenre('');
+    setNewTrackAudioFile(null);
+    setShowCreateTrackDialog(true);
+  };
+
+  const createTrack = async () => {
+    if (!newTrackTitle.trim() || !newTrackArtist.trim()) {
+      alert('Title and Artist are required.');
+      return;
+    }
+
+    if (!user) {
+      alert('You must be logged in to create a track.');
+      return;
+    }
+
+    setIsCreatingTrack(true);
+    try {
+      // First create the track
+      const { data, error } = await supabase
+        .from('tracks')
+        .insert([{
+          user_id: user.id,
+          title: newTrackTitle,
+          description: newTrackDescription,
+          artist: newTrackArtist,
+          release_date: newTrackReleaseDate || null,
+          duration: newTrackDuration,
+          bpm: newTrackBpm ? parseInt(newTrackBpm) : null,
+          key: newTrackKey || null,
+          genre: newTrackGenre || null,
+          subgenre: newTrackSubgenre || null,
+          status: 'draft',
+          production_status: 'production'
+        }])
+        .select();
+
+      if (error) throw error;
+
+      // If audio file is provided, upload it
+      if (data && data[0] && newTrackAudioFile) {
+        const audioUrl = await uploadTrackAudio(newTrackAudioFile, data[0].id);
+        if (audioUrl) {
+          // Update the track with the audio URL
+          await supabase
+            .from('tracks')
+            .update({ audio_url: audioUrl })
+            .eq('id', data[0].id);
+          
+          // Update local state with audio URL
+          setTracks(prev => prev.map(track => 
+            track.id === data[0].id 
+              ? { ...track, audio_url: audioUrl }
+              : track
+          ));
+        }
+      }
+
+      // Add to local state
+      if (data && data[0]) {
+        setTracks(prev => [data[0], ...prev]);
+      }
+
+      setShowCreateTrackDialog(false);
+      toast({
+        title: "Track created successfully!",
+        description: "Your new track has been added to the library.",
+      });
+    } catch (error) {
+      console.error('Error creating track:', error);
+      alert('Failed to create track. Please try again.');
+    } finally {
+      setIsCreatingTrack(false);
+    }
+  };
+
+  // Beat upload functions
+  const openBeatUploadDialog = () => {
+    setBeatTitle('');
+    setBeatBpm('');
+    setBeatKey('');
+    setBeatGenre('');
+    setBeatPrice('');
+    setBeatAudioFile(null);
+    setBeatWavFile(null);
+    setBeatCoverArtFile(null);
+    setShowBeatUploadDialog(true);
+  };
+
+  const uploadBeat = async () => {
+    if (!beatTitle.trim() || !beatBpm.trim() || !beatKey.trim() || !beatGenre.trim()) {
+      alert('Title, BPM, Key, and Genre are required.');
+      return;
+    }
+
+    if (!beatAudioFile) {
+      alert('Please select an audio file.');
+      return;
+    }
+
+    if (!user) {
+      alert('You must be logged in to upload beats.');
+      return;
+    }
+
+    setIsUploadingBeat(true);
+    try {
+      const userId = user.id;
+      const cleanTitle = beatTitle.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
+      
+      // MP3 upload
+      const mp3Ext = beatAudioFile.name.split('.').pop();
+      const mp3Base = beatAudioFile.name.replace(/\.[^/.]+$/, '');
+      const mp3Unique = `${mp3Base}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${mp3Ext}`;
+      const mp3Path = `profiles/${userId}/${cleanTitle}/${mp3Unique}`;
+      const { data: mp3Upload, error: mp3Error } = await supabase.storage.from('beats').upload(mp3Path, beatAudioFile, { upsert: true });
+      if (mp3Error) throw new Error('MP3 upload failed: ' + (mp3Error.message || JSON.stringify(mp3Error)));
+      const { data: { publicUrl: mp3Url } } = supabase.storage.from('beats').getPublicUrl(mp3Path);
+      
+      // WAV upload
+      let wavUrl = null;
+      if (beatWavFile) {
+        const wavExt = beatWavFile.name.split('.').pop();
+        const wavBase = beatWavFile.name.replace(/\.[^/.]+$/, '');
+        const wavUnique = `${wavBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${wavExt}`;
+        const wavPath = `profiles/${userId}/${cleanTitle}/${wavUnique}`;
+        const { data: wavUpload, error: wavError } = await supabase.storage.from('beats').upload(wavPath, beatWavFile, { upsert: true });
+        if (wavError) throw new Error('WAV upload failed: ' + (wavError.message || JSON.stringify(wavError)));
+        const { data: { publicUrl: wUrl } } = supabase.storage.from('beats').getPublicUrl(wavPath);
+        wavUrl = wUrl;
+      }
+      
+      // Cover art upload
+      let coverArtUrl = null;
+      if (beatCoverArtFile) {
+        const coverExt = beatCoverArtFile.name.split('.').pop();
+        const coverBase = beatCoverArtFile.name.replace(/\.[^/.]+$/, '');
+        const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverUnique}`;
+        const { data: coverUpload, error: coverError } = await supabase.storage.from('beats').upload(coverPath, beatCoverArtFile, { upsert: true });
+        if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)));
+        const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath);
+        coverArtUrl = cUrl;
+      }
+      
+      // Insert beat into database
+      const { data: beatData, error: insertError } = await supabase
+        .from('beats')
+        .insert([{
+          producer_id: userId,
+          title: beatTitle,
+          bpm: parseInt(beatBpm),
+          key: beatKey,
+          genre: beatGenre,
+          price: beatPrice ? parseFloat(beatPrice) : null,
+          mp3_url: mp3Url,
+          wav_url: wavUrl,
+          cover_art_url: coverArtUrl,
+          is_draft: false
+        }])
+        .select();
+
+      if (insertError) throw insertError;
+
+      setShowBeatUploadDialog(false);
+      toast({
+        title: "Beat uploaded successfully!",
+        description: "Your beat has been published to the marketplace.",
+      });
+    } catch (error) {
+      console.error('Error uploading beat:', error);
+      alert('Failed to upload beat. Please try again.');
+    } finally {
+      setIsUploadingBeat(false);
+    }
+  };
+
+  // Publish single to marketplace
+  const publishSingleToMarketplace = async (single: Single) => {
+    if (!single.audio_url) {
+      alert('This single does not have an audio file to publish.');
+      return;
+    }
+
+    if (!user) {
+      alert('You must be logged in to publish beats.');
+      return;
+    }
+
+    // Show a dialog to get required and optional fields for marketplace
+    const title = prompt('Enter beat title for marketplace:', single.title);
+    if (!title) return;
+
+    const bpm = prompt('Enter BPM (optional, press Cancel to skip):', '120') || '120';
+    const key = prompt('Enter musical key (optional, press Cancel to skip):', 'C Major') || 'C Major';
+    const genre = prompt('Enter genre (optional, press Cancel to skip):', 'Hip Hop') || 'Hip Hop';
+    
+    const price = prompt('Enter price ($) - REQUIRED:', '29.99');
+    if (!price) {
+      alert('Price is required to publish to marketplace.');
+      return;
+    }
+
+    try {
+      const userId = user.id;
+      const cleanTitle = title.trim().replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
+      
+      // Copy the audio file to the beats storage
+      const audioExt = single.audio_url.split('.').pop() || 'mp3';
+      const audioUnique = `${cleanTitle}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${audioExt}`;
+      const audioPath = `profiles/${userId}/${cleanTitle}/${audioUnique}`;
+      
+      // Download the audio file from singles storage and upload to beats storage
+      const audioResponse = await fetch(single.audio_url);
+      const audioBlob = await audioResponse.blob();
+      const audioFile = new Blob([audioBlob], { type: `audio/${audioExt}` });
+      
+      const { data: audioUpload, error: audioError } = await supabase.storage
+        .from('beats')
+        .upload(audioPath, audioFile, { upsert: true });
+      
+      if (audioError) throw new Error('Audio upload failed: ' + (audioError.message || JSON.stringify(audioError)));
+      const { data: { publicUrl: audioUrl } } = supabase.storage.from('beats').getPublicUrl(audioPath);
+      
+      // Copy cover art if it exists
+      let coverArtUrl = null;
+      if (single.cover_art_url) {
+        const coverExt = single.cover_art_url.split('.').pop() || 'jpg';
+        const coverUnique = `${cleanTitle}_cover_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
+        const coverPath = `profiles/${userId}/${cleanTitle}/cover/${coverUnique}`;
+        
+        const coverResponse = await fetch(single.cover_art_url);
+        const coverBlob = await coverResponse.blob();
+        const coverFile = new Blob([coverBlob], { type: `image/${coverExt}` });
+        
+        const { data: coverUpload, error: coverError } = await supabase.storage
+          .from('beats')
+          .upload(coverPath, coverFile, { upsert: true });
+        
+        if (coverError) throw new Error('Cover art upload failed: ' + (coverError.message || JSON.stringify(coverError)));
+        const { data: { publicUrl: cUrl } } = supabase.storage.from('beats').getPublicUrl(coverPath);
+        coverArtUrl = cUrl;
+      }
+      
+      // Insert beat into database
+      const { data: beatData, error: insertError } = await supabase
+        .from('beats')
+        .insert([{
+          producer_id: userId,
+          title: title,
+          description: single.description || '',
+          bpm: parseInt(bpm),
+          key: key,
+          genre: genre,
+          price: parseFloat(price),
+          mp3_url: audioUrl,
+          cover_art_url: coverArtUrl,
+          is_draft: false
+        }])
+        .select();
+
+      if (insertError) throw insertError;
+
+      // Update the single's status to indicate it's been published
+      await supabase
+        .from('singles')
+        .update({ status: 'published' })
+        .eq('id', single.id);
+
+      // Update local state
+      setSingles(prev => prev.map(s => 
+        s.id === single.id 
+          ? { ...s, status: 'published' }
+          : s
+      ));
+
+      toast({
+        title: "✅ Beat Published Successfully!",
+        description: `"${title}" has been published to the Beatheos marketplace and is now available for artists to discover and purchase.`,
+      });
+    } catch (error) {
+      console.error('Error publishing single to marketplace:', error);
+      alert('Failed to publish single to marketplace. Please try again.');
     }
   };
 
@@ -656,6 +1146,57 @@ export default function MyLibrary() {
     }
   }
 
+  // Convert track to MP3
+  const convertTrackToMp3 = async (trackId: string, audioUrl: string, compressionLevel: 'ultra_high' | 'high' | 'medium' | 'low' = 'medium') => {
+    setConvertingTrack(trackId)
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error('No access token available')
+      }
+
+      const response = await fetch('/api/audio/convert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          fileId: trackId,
+          filePath: audioUrl,
+          targetFormat: 'mp3',
+          compressionLevel,
+          fileType: 'track'
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Conversion failed')
+      }
+
+      const result = await response.json()
+      
+      // Refresh tracks data
+      await refreshTracks()
+      
+      toast({
+        title: "Conversion successful",
+        description: `Track has been converted to MP3 format with ${compressionLevel} compression.`,
+      })
+    } catch (error) {
+      console.error('Error converting track:', error)
+      toast({
+        title: "Conversion failed",
+        description: error instanceof Error ? error.message : "Failed to convert track.",
+        variant: "destructive"
+      })
+    } finally {
+      setConvertingTrack(null)
+    }
+  }
+
   // Refresh functions
   const refreshSingles = async () => {
     try {
@@ -679,6 +1220,31 @@ export default function MyLibrary() {
       setSingles(singlesWithSessionName)
     } catch (error) {
       console.error('Error refreshing singles:', error)
+    }
+  }
+
+  const refreshTracks = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tracks')
+        .select(`
+          *,
+          beat_sessions!inner(name)
+        `)
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      
+      // Transform data to include session_name
+      const tracksWithSessionName = data?.map(track => ({
+        ...track,
+        session_name: track.beat_sessions?.name || null
+      })) || []
+      
+      setTracks(tracksWithSessionName)
+    } catch (error) {
+      console.error('Error refreshing tracks:', error)
     }
   }
 
@@ -795,6 +1361,13 @@ export default function MyLibrary() {
     return singles.filter(single => single.production_status === singlePhaseTab);
   }
 
+  const getFilteredTracks = () => {
+    if (trackPhaseTab === 'all') {
+      return tracks;
+    }
+    return tracks.filter(track => track.production_status === trackPhaseTab);
+  }
+
       const updateAlbumStatus = async (albumId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
     const { error } = await supabase
       .from('albums')
@@ -899,6 +1472,58 @@ export default function MyLibrary() {
     });
   };
 
+  const updateTrackStatus = async (trackId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
+    const { error } = await supabase
+      .from('tracks')
+      .update({ status: newStatus })
+      .eq('id', trackId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update track status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setTracks(tracks.map(track => 
+      track.id === trackId ? { ...track, status: newStatus } : track
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Track status updated to ${newStatus}`,
+    });
+  };
+
+  const updateTrackProductionStatus = async (trackId: string, newStatus: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution') => {
+    const { error } = await supabase
+      .from('tracks')
+      .update({ production_status: newStatus })
+      .eq('id', trackId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update track production status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setTracks(tracks.map(track => 
+      track.id === trackId ? { ...track, production_status: newStatus } : track
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Track production status updated to ${newStatus}`,
+    });
+  };
+
   const refreshAlbums = async () => {
     try {
       const { data, error } = await supabase
@@ -915,7 +1540,7 @@ export default function MyLibrary() {
   }
 
   // Show compression options dialog
-  const showCompressionOptions = (fileId: string, fileUrl: string, type: 'single' | 'album_track') => {
+  const showCompressionOptions = (fileId: string, fileUrl: string, type: 'single' | 'album_track' | 'track') => {
     setCompressionFile({ id: fileId, url: fileUrl, type })
     setShowCompressionDialog(true)
   }
@@ -948,6 +1573,14 @@ export default function MyLibrary() {
         if (error) setSingleError(error.message);
         setSingles(data || []);
         setLoadingSingles(false);
+      });
+    // Tracks
+    setLoadingTracks(true);
+    supabase.from('tracks').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) setTrackError(error.message);
+        setTracks(data || []);
+        setLoadingTracks(false);
       });
     // Platform Profiles
     setLoadingProfiles(true);
@@ -1230,6 +1863,7 @@ export default function MyLibrary() {
   const [selectedTab, setSelectedTab] = useState(searchParams?.get('tab') || 'albums');
   const [albumPhaseTab, setAlbumPhaseTab] = useState('all');
   const [singlePhaseTab, setSinglePhaseTab] = useState('all');
+  const [trackPhaseTab, setTrackPhaseTab] = useState('all');
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [newAudio, setNewAudio] = useState({ 
     name: '', 
@@ -1287,7 +1921,7 @@ export default function MyLibrary() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilter, setSearchFilter] = useState<'all' | 'name' | 'type' | 'genre' | 'tags'>('all');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
-  const [globalSearchFilter, setGlobalSearchFilter] = useState<'all' | 'albums' | 'singles' | 'audio'>('all');
+  const [globalSearchFilter, setGlobalSearchFilter] = useState<'all' | 'albums' | 'singles' | 'tracks' | 'audio'>('all');
 
   // Audio upload logic for Audio Library tab
   async function uploadAudioLibraryFile(file: File): Promise<string | null> {
@@ -1330,6 +1964,32 @@ export default function MyLibrary() {
       return data.publicUrl
     } catch (error) {
       console.error('Error uploading single audio:', error)
+      return null
+    }
+  }
+
+  const uploadTrackAudio = async (file: File, trackId: string): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${trackId}-${Date.now()}.${fileExt}`
+      const filePath = `tracks/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file)
+
+      if (uploadError) {
+        console.error('Error uploading track audio:', uploadError)
+        return null
+      }
+
+      const { data } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      return data.publicUrl
+    } catch (error) {
+      console.error('Error uploading track audio:', error)
       return null
     }
   }
@@ -1386,9 +2046,60 @@ export default function MyLibrary() {
     }
   }
 
+  const replaceTrackAudio = async (trackId: string, file: File) => {
+    try {
+      setReplacingTrackId(trackId);
+      const audioUrl = await uploadTrackAudio(file, trackId)
+      if (!audioUrl) {
+        toast({
+          title: "Error",
+          description: "Failed to upload audio file.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const { error } = await supabase
+        .from('tracks')
+        .update({ audio_url: audioUrl })
+        .eq('id', trackId);
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to update track audio: " + error.message,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Update local state
+      setTracks(tracks.map(track => 
+        track.id === trackId ? { ...track, audio_url: audioUrl } : track
+      ));
+
+      toast({
+        title: "Success",
+        description: "Audio file replaced successfully.",
+      });
+      
+      // Add to recently replaced set
+      setRecentlyReplacedTracks(prev => new Set([...prev, trackId]));
+    } catch (error) {
+      console.error('Error replacing track audio:', error);
+      toast({
+        title: "Error",
+        description: "Failed to replace audio file.",
+        variant: "destructive"
+      });
+    } finally {
+      setReplacingTrackId(null);
+    }
+  };
+
   // Replace album track audio file
   // Cover management functions
-  const uploadCoverArtForReplacement = async (file: File, itemId: string, type: 'album' | 'single'): Promise<string | null> => {
+  const uploadCoverArtForReplacement = async (file: File, itemId: string, type: 'album' | 'single' | 'track'): Promise<string | null> => {
     try {
       const fileExt = file.name.split('.').pop();
       const filePath = `${type}_covers/${itemId}_${Date.now()}.${fileExt}`;
@@ -1405,7 +2116,7 @@ export default function MyLibrary() {
     }
   };
 
-  const replaceCoverArt = async (itemId: string, file: File, type: 'album' | 'single') => {
+  const replaceCoverArt = async (itemId: string, file: File, type: 'album' | 'single' | 'track') => {
     try {
       setReplacingCoverId(itemId);
       setReplacingCoverType(type);
@@ -1420,7 +2131,7 @@ export default function MyLibrary() {
         return;
       }
 
-      const table = type === 'album' ? 'albums' : 'singles';
+      const table = type === 'album' ? 'albums' : type === 'single' ? 'singles' : 'tracks';
       const { error } = await supabase
         .from(table)
         .update({ cover_art_url: coverUrl })
@@ -1459,9 +2170,9 @@ export default function MyLibrary() {
     }
   };
 
-  const deleteCoverArt = async (itemId: string, type: 'album' | 'single') => {
+  const deleteCoverArt = async (itemId: string, type: 'album' | 'single' | 'track') => {
     try {
-      const table = type === 'album' ? 'albums' : 'singles';
+      const table = type === 'album' ? 'albums' : type === 'single' ? 'singles' : 'tracks';
       const { error } = await supabase
         .from(table)
         .update({ cover_art_url: null })
@@ -2346,6 +3057,24 @@ export default function MyLibrary() {
     );
   };
 
+  const getFilteredTracksForSearch = () => {
+    if (!globalSearchQuery.trim()) return getFilteredTracks();
+    
+    const query = globalSearchQuery.toLowerCase().trim();
+    const phaseFiltered = getFilteredTracks();
+    
+    return phaseFiltered.filter(track => 
+      track.title.toLowerCase().includes(query) ||
+      track.artist.toLowerCase().includes(query) ||
+      (track.description && track.description.toLowerCase().includes(query)) ||
+      (track.status && track.status.toLowerCase().includes(query)) ||
+      (track.production_status && track.production_status.toLowerCase().includes(query)) ||
+      (track.session_name && track.session_name.toLowerCase().includes(query)) ||
+      (track.genre && track.genre.toLowerCase().includes(query)) ||
+      (track.subgenre && track.subgenre.toLowerCase().includes(query))
+    );
+  };
+
   const getFilteredAudioItemsForSearch = () => {
     if (!globalSearchQuery.trim()) return getFilteredAudioItems(audioItems);
     
@@ -2809,6 +3538,37 @@ export default function MyLibrary() {
     }
   };
 
+  const downloadTrack = async (trackId: string, audioUrl: string, title: string) => {
+    try {
+      const response = await fetch(audioUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch audio file');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}.${audioUrl.split('.').pop() || 'mp3'}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast({
+        title: "Download completed",
+        description: `${title} has been downloaded successfully.`,
+      });
+    } catch (error) {
+      console.error('Error downloading track:', error);
+      toast({
+        title: "Download failed",
+        description: "Failed to download the track. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const openMetadataDialog = async (trackId: string, trackType: 'single' | 'album_track') => {
     try {
       const table = trackType === 'single' ? 'singles' : 'album_tracks';
@@ -2891,9 +3651,9 @@ export default function MyLibrary() {
     }
   }
 
-  const openNotesDialog = async (itemId: string, itemType: 'album' | 'single' | 'album_track', itemTitle: string) => {
+  const openNotesDialog = async (itemId: string, itemType: 'album' | 'single' | 'album_track' | 'track', itemTitle: string) => {
     try {
-      const table = itemType === 'album' ? 'albums' : itemType === 'single' ? 'singles' : 'album_tracks';
+              const table = itemType === 'album' ? 'albums' : itemType === 'single' ? 'singles' : itemType === 'track' ? 'tracks' : 'album_tracks';
       const { data, error } = await supabase
         .from(table)
         .select('notes')
@@ -2919,7 +3679,7 @@ export default function MyLibrary() {
 
   const saveNotes = async (notes: string) => {
     try {
-      const table = editingNotesType === 'album' ? 'albums' : editingNotesType === 'single' ? 'singles' : 'album_tracks';
+      const table = editingNotesType === 'album' ? 'albums' : editingNotesType === 'single' ? 'singles' : editingNotesType === 'track' ? 'tracks' : 'album_tracks';
       const { error } = await supabase
         .from(table)
         .update({ notes })
@@ -2937,6 +3697,8 @@ export default function MyLibrary() {
         await refreshSingles();
       } else if (editingNotesType === 'album') {
         await refreshAlbums();
+      } else if (editingNotesType === 'track') {
+        await refreshTracks();
       }
     } catch (error) {
       console.error('Error saving notes:', error);
@@ -3988,11 +4750,348 @@ export default function MyLibrary() {
           ))}
         </TabsContent>
         {/* Tracks Tab */}
-        <TabsContent value="tracks">
-          <div className="text-center py-8 text-gray-500">
-            <p className="mb-4">Track management is available in individual album pages.</p>
-            <p>Click on any album to manage its tracks and replace audio files.</p>
+        <TabsContent value="tracks" className="space-y-4">
+          {/* Create Track Button */}
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-white">Tracks</h2>
+            <Button 
+              onClick={openCreateTrackDialog}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Track
+            </Button>
           </div>
+          
+          {/* Track Phase Tabs */}
+          <div className="mb-6">
+            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+              <button
+                onClick={() => setTrackPhaseTab('all')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  trackPhaseTab === 'all' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setTrackPhaseTab('marketing')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  trackPhaseTab === 'marketing' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Marketing
+              </button>
+              <button
+                onClick={() => setTrackPhaseTab('organization')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  trackPhaseTab === 'organization' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Organization
+              </button>
+              <button
+                onClick={() => setTrackPhaseTab('production')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  trackPhaseTab === 'production' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Production
+              </button>
+              <button
+                onClick={() => setTrackPhaseTab('quality_control')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  trackPhaseTab === 'quality_control' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Quality Control
+              </button>
+              <button
+                onClick={() => setTrackPhaseTab('ready_for_distribution')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  trackPhaseTab === 'ready_for_distribution' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Ready for Distribution
+              </button>
+            </div>
+          </div>
+          
+          {loadingTracks ? <div>Loading tracks...</div> : trackError ? <div className="text-red-500">{trackError}</div> : getFilteredTracksForSearch().length === 0 ? <div>No tracks found in this phase.</div> : (
+            <div className="space-y-4">
+              {getFilteredTracksForSearch().map(track => (
+                <Card key={track.id} className="p-4 sm:p-6">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    {/* Cover Art */}
+                    <div className="flex-shrink-0">
+                      <div className="w-24 h-24 bg-zinc-800 rounded-lg flex items-center justify-center">
+                        {track.cover_art_url ? (
+                          <img 
+                            src={track.cover_art_url} 
+                            alt={track.title}
+                            className="w-full h-full object-cover rounded-lg"
+                          />
+                        ) : (
+                          <Music className="h-8 w-8 text-zinc-600" />
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Track Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-semibold text-white truncate">{track.title}</h3>
+                          <p className="text-gray-400 text-sm">{track.artist}</p>
+                          
+                          {/* Status Badges */}
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            <Badge className={`text-xs ${getStatusColor(track.status || 'draft')}`}>
+                              {getStatusIcon(track.status || 'draft')}
+                              {track.status || 'draft'}
+                            </Badge>
+                            <Badge className={`text-xs ${getProductionStatusColor(track.production_status || 'production')}`}>
+                              {getProductionStatusIcon(track.production_status || 'production')}
+                              {track.production_status || 'production'}
+                            </Badge>
+                          </div>
+                          
+                          {/* Metadata */}
+                          <div className="mt-2 text-sm text-gray-500 space-y-1">
+                            {track.bpm && <div>BPM: {track.bpm}</div>}
+                            {track.key && <div>Key: {track.key}</div>}
+                            {track.genre && <div>Genre: {track.genre}</div>}
+                            {track.subgenre && <div>Subgenre: {track.subgenre}</div>}
+                            {track.duration && <div>Duration: {track.duration}</div>}
+                            {track.session_name && <div>Session: {track.session_name}</div>}
+                          </div>
+                          
+                          {/* Description */}
+                          {track.description && (
+                            <div className="mt-2 text-sm text-gray-400">
+                              {track.description}
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Actions */}
+                        <div className="flex flex-col gap-2 ml-4">
+                          {/* Audio Controls */}
+                          {track.audio_url && (
+                            <div className="flex gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => playTrack(track.id, track.audio_url!)}
+                                className="text-xs h-6 px-2"
+                              >
+                                {playingTrackId === track.id ? (
+                                  <Pause className="h-3 w-3" />
+                                ) : (
+                                  <Play className="h-3 w-3" />
+                                )}
+                              </Button>
+                            </div>
+                          )}
+                          
+                          {/* Action Buttons */}
+                          <div className="flex gap-1">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="text-xs h-6 px-2">
+                                  <MoreHorizontal className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>Track Actions</DropdownMenuLabel>
+                                
+                                {/* Status Updates */}
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'production')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Set to Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'draft')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Set to Draft
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'distribute')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Set to Distribute
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'published')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Set to Published
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuSeparator />
+                                
+                                {/* Production Status Updates */}
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'marketing')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Set to Marketing
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'organization')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Set to Organization
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'production')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Set to Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'quality_control')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Set to Quality Control
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'ready_for_distribution')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Set to Ready for Distribution
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuSeparator />
+                                
+                                <DropdownMenuItem onClick={() => openEditTrackDialog(track)}>
+                                  <Pencil className="h-3 w-3 mr-2" />
+                                  Edit Track
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuItem onClick={() => deleteTrack(track.id)}>
+                                  <Trash2 className="h-3 w-3 mr-2" />
+                                  Delete Track
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            
+                            {/* Audio Upload/Replace */}
+                            <input
+                              type="file"
+                              id={`track-audio-${track.id}`}
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  replaceTrackAudio(track.id, file);
+                                }
+                              }}
+                            />
+                            <label
+                              htmlFor={`track-audio-${track.id}`}
+                              className="cursor-pointer"
+                            >
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-xs h-6 px-2 bg-green-600 hover:bg-green-700 text-white border-green-500"
+                                disabled={replacingTrackId === track.id}
+                              >
+                                {replacingTrackId === track.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Upload className="h-3 w-3" />
+                                )}
+                              </Button>
+                            </label>
+                            
+                            {/* Cover Art Upload/Replace */}
+                            <input
+                              type="file"
+                              id={`track-cover-${track.id}`}
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  replaceCoverArt(track.id, file, 'track');
+                                }
+                              }}
+                            />
+                            <label
+                              htmlFor={`track-cover-${track.id}`}
+                              className="cursor-pointer"
+                            >
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                                disabled={replacingCoverId === track.id}
+                              >
+                                {replacingCoverId === track.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Image className="h-3 w-3" />
+                                )}
+                              </Button>
+                            </label>
+                            
+                            {/* Download */}
+                            {track.audio_url && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => downloadTrack(track.id, track.audio_url!, track.title)}
+                                className="text-xs h-6 px-2 bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                              >
+                                <Download className="h-3 w-3" />
+                              </Button>
+                            )}
+                            
+                            {/* Convert to MP3 */}
+                            {track.audio_url && !track.audio_url.endsWith('.mp3') && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => showCompressionOptions(track.id, track.audio_url!, 'track')}
+                                className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                                disabled={convertingTrack === track.id}
+                              >
+                                {convertingTrack === track.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <FileAudio className="h-3 w-3" />
+                                )}
+                              </Button>
+                            )}
+                            
+                            {/* Metadata */}
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openMetadataDialog(track.id, 'track')}
+                              className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                            >
+                              <FileTextIcon className="h-3 w-3" />
+                            </Button>
+                            
+                            {/* Notes */}
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openNotesDialog(track.id, 'track', track.title)}
+                              className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                            >
+                              <StickyNote className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
         {/* Platforms Tab (placeholder) */}
         <TabsContent value="platforms">
@@ -4002,6 +5101,18 @@ export default function MyLibrary() {
         </TabsContent>
         {/* Singles Tab */}
         <TabsContent value="singles" className="space-y-4">
+          {/* Upload Beat Button */}
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-white">Singles</h2>
+            <Button 
+              onClick={openBeatUploadDialog}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Upload Beat
+            </Button>
+          </div>
+          
           {/* Single Phase Tabs */}
           <div className="mb-6">
             <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
@@ -4386,6 +5497,29 @@ export default function MyLibrary() {
                                 Platform Status
                               </Button>
                             </Link>
+                            {single.audio_url && (
+                              single.status === 'published' ? (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  disabled
+                                  className="bg-green-800 text-green-300 border-green-600 cursor-not-allowed"
+                                >
+                                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                                  Published to Beatheos ✓
+                                </Button>
+                              ) : (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => publishSingleToMarketplace(single)}
+                                  className="bg-green-600 hover:bg-green-700 text-white border-green-500"
+                                >
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Publish to Beatheos
+                                </Button>
+                              )
+                            )}
                             <Button variant="destructive" size="sm" onClick={() => deleteSingle(single.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
                           </div>
                         </div>
@@ -6309,6 +7443,500 @@ export default function MyLibrary() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Track Dialog */}
+      <Dialog open={showEditTrackDialog} onOpenChange={setShowEditTrackDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Edit Track
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Update the details of your track
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="editTrackTitle" className="text-white">Title</Label>
+              <Input
+                id="editTrackTitle"
+                value={editTrackTitle}
+                onChange={(e) => setEditTrackTitle(e.target.value)}
+                placeholder="Enter track title"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editTrackArtist" className="text-white">Artist</Label>
+              <Input
+                id="editTrackArtist"
+                value={editTrackArtist}
+                onChange={(e) => setEditTrackArtist(e.target.value)}
+                placeholder="Enter artist name"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="editTrackBpm" className="text-white">BPM</Label>
+                <Input
+                  id="editTrackBpm"
+                  value={editTrackBpm}
+                  onChange={(e) => setEditTrackBpm(e.target.value)}
+                  placeholder="120"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="editTrackKey" className="text-white">Key</Label>
+                <Input
+                  id="editTrackKey"
+                  value={editTrackKey}
+                  onChange={(e) => setEditTrackKey(e.target.value)}
+                  placeholder="C Major"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="editTrackGenre" className="text-white">Genre</Label>
+                <Input
+                  id="editTrackGenre"
+                  value={editTrackGenre}
+                  onChange={(e) => setEditTrackGenre(e.target.value)}
+                  placeholder="Hip Hop"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="editTrackSubgenre" className="text-white">Subgenre</Label>
+                <Input
+                  id="editTrackSubgenre"
+                  value={editTrackSubgenre}
+                  onChange={(e) => setEditTrackSubgenre(e.target.value)}
+                  placeholder="Trap"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="editTrackReleaseDate" className="text-white">Release Date</Label>
+              <Input
+                id="editTrackReleaseDate"
+                type="date"
+                value={editTrackReleaseDate}
+                onChange={(e) => setEditTrackReleaseDate(e.target.value)}
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editTrackDuration" className="text-white">Duration (e.g., 3:45)</Label>
+              <Input
+                id="editTrackDuration"
+                value={editTrackDuration}
+                onChange={(e) => setEditTrackDuration(e.target.value)}
+                placeholder="Enter duration"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editTrackAudioUrl" className="text-white">Audio URL</Label>
+              <Input
+                id="editTrackAudioUrl"
+                value={editTrackAudioUrl}
+                onChange={(e) => setEditTrackAudioUrl(e.target.value)}
+                placeholder="Enter audio file URL"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="editTrackDescription" className="text-white">Description</Label>
+              <Textarea
+                id="editTrackDescription"
+                value={editTrackDescription}
+                onChange={(e) => setEditTrackDescription(e.target.value)}
+                placeholder="Enter description..."
+                className="bg-gray-800 border-gray-600 text-white"
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowEditTrackDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveTrack}
+              disabled={isSavingTrack || !editTrackTitle.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isSavingTrack ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Track Dialog */}
+      <Dialog open={showCreateTrackDialog} onOpenChange={setShowCreateTrackDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Create New Track
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Add a new track to your library
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="newTrackTitle" className="text-white">Title *</Label>
+              <Input
+                id="newTrackTitle"
+                value={newTrackTitle}
+                onChange={(e) => setNewTrackTitle(e.target.value)}
+                placeholder="Enter track title"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="newTrackArtist" className="text-white">Artist *</Label>
+              <Input
+                id="newTrackArtist"
+                value={newTrackArtist}
+                onChange={(e) => setNewTrackArtist(e.target.value)}
+                placeholder="Enter artist name"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="newTrackBpm" className="text-white">BPM</Label>
+                <Input
+                  id="newTrackBpm"
+                  value={newTrackBpm}
+                  onChange={(e) => setNewTrackBpm(e.target.value)}
+                  placeholder="120"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="newTrackKey" className="text-white">Key</Label>
+                <Input
+                  id="newTrackKey"
+                  value={newTrackKey}
+                  onChange={(e) => setNewTrackKey(e.target.value)}
+                  placeholder="C Major"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="newTrackGenre" className="text-white">Genre</Label>
+                <Input
+                  id="newTrackGenre"
+                  value={newTrackGenre}
+                  onChange={(e) => setNewTrackGenre(e.target.value)}
+                  placeholder="Hip Hop"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="newTrackSubgenre" className="text-white">Subgenre</Label>
+                <Input
+                  id="newTrackSubgenre"
+                  value={newTrackSubgenre}
+                  onChange={(e) => setNewTrackSubgenre(e.target.value)}
+                  placeholder="Trap"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="newTrackReleaseDate" className="text-white">Release Date</Label>
+              <Input
+                id="newTrackReleaseDate"
+                type="date"
+                value={newTrackReleaseDate}
+                onChange={(e) => setNewTrackReleaseDate(e.target.value)}
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="newTrackDuration" className="text-white">Duration (e.g., 3:45)</Label>
+              <Input
+                id="newTrackDuration"
+                value={newTrackDuration}
+                onChange={(e) => setNewTrackDuration(e.target.value)}
+                placeholder="Enter duration"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="newTrackDescription" className="text-white">Description</Label>
+              <Textarea
+                id="newTrackDescription"
+                value={newTrackDescription}
+                onChange={(e) => setNewTrackDescription(e.target.value)}
+                placeholder="Enter description..."
+                className="bg-gray-800 border-gray-600 text-white"
+                rows={3}
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="newTrackAudio" className="text-white">Audio File</Label>
+              <input
+                type="file"
+                id="newTrackAudio"
+                accept="audio/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setNewTrackAudioFile(file);
+                  }
+                }}
+                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-600 file:text-white hover:file:bg-blue-700 file:cursor-pointer bg-gray-800 border border-gray-600 rounded-md"
+              />
+              {newTrackAudioFile && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Selected: {newTrackAudioFile.name}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowCreateTrackDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={createTrack}
+              disabled={isCreatingTrack || !newTrackTitle.trim() || !newTrackArtist.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isCreatingTrack ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Track
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Beat Upload Dialog */}
+      <Dialog open={showBeatUploadDialog} onOpenChange={setShowBeatUploadDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Upload Beat to Marketplace
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Publish your beat to the marketplace for artists to discover and purchase
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="beatTitle" className="text-white">Title *</Label>
+              <Input
+                id="beatTitle"
+                value={beatTitle}
+                onChange={(e) => setBeatTitle(e.target.value)}
+                placeholder="Enter beat title"
+                className="bg-gray-800 border-gray-600 text-white"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="beatBpm" className="text-white">BPM *</Label>
+                <Input
+                  id="beatBpm"
+                  value={beatBpm}
+                  onChange={(e) => setBeatBpm(e.target.value)}
+                  placeholder="120"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="beatKey" className="text-white">Key *</Label>
+                <Input
+                  id="beatKey"
+                  value={beatKey}
+                  onChange={(e) => setBeatKey(e.target.value)}
+                  placeholder="C Major"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="beatGenre" className="text-white">Genre *</Label>
+                <Input
+                  id="beatGenre"
+                  value={beatGenre}
+                  onChange={(e) => setBeatGenre(e.target.value)}
+                  placeholder="Hip Hop"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="beatPrice" className="text-white">Price ($)</Label>
+                <Input
+                  id="beatPrice"
+                  value={beatPrice}
+                  onChange={(e) => setBeatPrice(e.target.value)}
+                  placeholder="29.99"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="bg-gray-800 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="beatAudioFile" className="text-white">Audio File (MP3) *</Label>
+              <input
+                type="file"
+                id="beatAudioFile"
+                accept="audio/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setBeatAudioFile(file);
+                  }
+                }}
+                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-600 file:text-white hover:file:bg-blue-700 file:cursor-pointer bg-gray-800 border border-gray-600 rounded-md"
+              />
+              {beatAudioFile && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Selected: {beatAudioFile.name}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <Label htmlFor="beatWavFile" className="text-white">WAV File (Optional)</Label>
+              <input
+                type="file"
+                id="beatWavFile"
+                accept="audio/wav"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setBeatWavFile(file);
+                  }
+                }}
+                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-green-600 file:text-white hover:file:bg-green-700 file:cursor-pointer bg-gray-800 border border-gray-600 rounded-md"
+              />
+              {beatWavFile && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Selected: {beatWavFile.name}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <Label htmlFor="beatCoverArtFile" className="text-white">Cover Art (Optional)</Label>
+              <input
+                type="file"
+                id="beatCoverArtFile"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setBeatCoverArtFile(file);
+                  }
+                }}
+                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-purple-600 file:text-white hover:file:bg-purple-700 file:cursor-pointer bg-gray-800 border border-gray-600 rounded-md"
+              />
+              {beatCoverArtFile && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Selected: {beatCoverArtFile.name}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowBeatUploadDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={uploadBeat}
+              disabled={isUploadingBeat || !beatTitle.trim() || !beatBpm.trim() || !beatKey.trim() || !beatGenre.trim() || !beatAudioFile}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {isUploadingBeat ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Beat
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Compression Options Dialog */}
       <Dialog open={showCompressionDialog} onOpenChange={setShowCompressionDialog}>
         <DialogContent>
@@ -6327,6 +7955,8 @@ export default function MyLibrary() {
                   if (compressionFile) {
                     if (compressionFile.type === 'single') {
                       convertSingleToMp3(compressionFile.id, compressionFile.url, 'ultra_high')
+                    } else if (compressionFile.type === 'track') {
+                      convertTrackToMp3(compressionFile.id, compressionFile.url, 'ultra_high')
                     } else {
                       convertAlbumTrackToMp3(compressionFile.id, compressionFile.url, 'ultra_high')
                     }
@@ -6349,6 +7979,8 @@ export default function MyLibrary() {
                   if (compressionFile) {
                     if (compressionFile.type === 'single') {
                       convertSingleToMp3(compressionFile.id, compressionFile.url, 'high')
+                    } else if (compressionFile.type === 'track') {
+                      convertTrackToMp3(compressionFile.id, compressionFile.url, 'high')
                     } else {
                       convertAlbumTrackToMp3(compressionFile.id, compressionFile.url, 'high')
                     }
