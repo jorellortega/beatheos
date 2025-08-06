@@ -63,6 +63,17 @@ interface Marker {
   category: string
   color?: string
   positions?: number[] // Multiple positions within one marker
+  // Metadata fields
+  audioType?: string
+  instrument?: string
+  genre?: string
+  bpm?: number
+  key?: string
+  mood?: string
+  energyLevel?: number
+  complexity?: number
+  tags?: string[]
+  notes?: string
 }
 
 interface Region {
@@ -286,6 +297,29 @@ export default function LoopEditorPage() {
   const [availableAlbumTracks, setAvailableAlbumTracks] = useState<any[]>([])
   const [selectedAlbumForTrack, setSelectedAlbumForTrack] = useState<string | null>(null)
   const [loadingSaveToLibrary, setLoadingSaveToLibrary] = useState(false)
+  
+  // Custom marker naming dialog state
+  const [showMarkerNameDialog, setShowMarkerNameDialog] = useState(false)
+  const [markerNameInput, setMarkerNameInput] = useState('')
+  const [markerNameCallback, setMarkerNameCallback] = useState<((name: string) => void) | null>(null)
+  const [markerNameDialogTitle, setMarkerNameDialogTitle] = useState('')
+  const [markerNameDialogDefault, setMarkerNameDialogDefault] = useState('')
+  
+  // Marker data dialog state
+  const [showMarkerDataDialog, setShowMarkerDataDialog] = useState(false)
+  const [editingMarkerData, setEditingMarkerData] = useState<Marker | null>(null)
+  const [markerDataForm, setMarkerDataForm] = useState({
+    audioType: '',
+    instrument: '',
+    genre: '',
+    bpm: '',
+    key: '',
+    mood: '',
+    energyLevel: '',
+    complexity: '',
+    tags: [] as string[],
+    notes: ''
+  })
   
   const { user } = useAuth()
   const { toast } = useToast()
@@ -927,47 +961,105 @@ export default function LoopEditorPage() {
     ctx.textAlign = 'center'
     ctx.fillText('▶', playheadX, rect.height - 20)
     
+    // Draw edit mode indicator
+    if (editingMarkerId) {
+      const editingMarker = markers.find(m => m.id === editingMarkerId)
+      if (editingMarker) {
+        // Draw a pulsing orange border around the canvas when in edit mode
+        ctx.strokeStyle = '#f59e0b'
+        ctx.lineWidth = 3
+        ctx.setLineDash([10, 5])
+        ctx.strokeRect(2, 2, rect.width - 4, rect.height - 4)
+        ctx.setLineDash([])
+        
+        // Draw edit mode text at the top
+        ctx.fillStyle = '#f59e0b'
+        ctx.font = 'bold 16px monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText(`EDIT MODE: ${editingMarker.name}`, rect.width / 2, 30)
+        ctx.font = '12px monospace'
+        ctx.fillText('Click on waveform to add positions', rect.width / 2, 50)
+      }
+    }
+    
     // Draw markers
     markers.forEach(marker => {
-      const markerX = (marker.time / totalDuration) * effectiveWidth
+      // Get all positions for this marker (main time + additional positions)
+      const allPositions = marker.positions || [marker.time]
+      const isMultiMarker = allPositions.length > 1
+      const isEditing = editingMarkerId === marker.id
       
-      // Draw main vertical line (dashed)
-      ctx.strokeStyle = marker.color || '#10b981'
-      ctx.lineWidth = 2
-      ctx.setLineDash([3, 3])
-      ctx.beginPath()
-      ctx.moveTo(markerX, 0)
-      ctx.lineTo(markerX, rect.height)
-      ctx.stroke()
-      ctx.setLineDash([])
-      
-      // Draw small solid vertical line at exact position (more visible)
-      ctx.strokeStyle = marker.color || '#10b981'
-      ctx.lineWidth = 3
-      ctx.beginPath()
-      ctx.moveTo(markerX, 60)
-      ctx.lineTo(markerX, 120)
-      ctx.stroke()
-      
-      // Draw small triangle indicator at the top
-      ctx.fillStyle = marker.color || '#10b981'
-      ctx.beginPath()
-      ctx.moveTo(markerX - 4, 60)
-      ctx.lineTo(markerX + 4, 60)
-      ctx.lineTo(markerX, 52)
-      ctx.closePath()
-      ctx.fill()
-      
-      // Draw marker label
-      ctx.fillStyle = marker.color || '#10b981'
-      ctx.font = 'bold 12px monospace'
-      ctx.textAlign = 'center'
-      ctx.fillText(marker.name, markerX, 140)
-      
-      // Draw time position below label
-      ctx.fillStyle = '#888888'
-      ctx.font = '10px monospace'
-      ctx.fillText(`${marker.time.toFixed(2)}s`, markerX, 155)
+      // Draw each position
+      allPositions.forEach((position, index) => {
+        const markerX = (position / displayDuration) * effectiveWidth + waveformOffset
+        
+        // Use individual marker colors, with special states overriding
+        let markerColor = marker.color || generateMarkerColor(marker.id)
+        if (isEditing) {
+          markerColor = '#f59e0b' // Orange for editing
+        } else if (isMultiMarker) {
+          // For multi-markers, use the marker's color but make it slightly different
+          // to indicate it's a multi-marker while keeping the same base color
+          const baseColor = marker.color || generateMarkerColor(marker.id)
+          // Add a subtle purple tint to multi-markers
+          markerColor = baseColor
+        }
+        
+        // Draw main vertical line (dashed)
+        ctx.strokeStyle = markerColor
+        ctx.lineWidth = isMultiMarker ? 3 : 2
+        ctx.setLineDash([3, 3])
+        ctx.beginPath()
+        ctx.moveTo(markerX, 0)
+        ctx.lineTo(markerX, rect.height)
+        ctx.stroke()
+        ctx.setLineDash([])
+        
+        // Draw small solid vertical line at exact position (more visible)
+        ctx.strokeStyle = markerColor
+        ctx.lineWidth = isMultiMarker ? 4 : 3
+        ctx.beginPath()
+        ctx.moveTo(markerX, 60)
+        ctx.lineTo(markerX, 120)
+        ctx.stroke()
+        
+        // Draw small triangle indicator at the top
+        ctx.fillStyle = markerColor
+        ctx.beginPath()
+        ctx.moveTo(markerX - 4, 60)
+        ctx.lineTo(markerX + 4, 60)
+        ctx.lineTo(markerX, 52)
+        ctx.closePath()
+        ctx.fill()
+        
+        // Draw position number for multi-markers
+        if (isMultiMarker) {
+          ctx.fillStyle = markerColor
+          ctx.font = 'bold 10px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText(`${index + 1}`, markerX, 45)
+        }
+        
+        // Draw marker label only on the main position (first position)
+        if (index === 0) {
+          ctx.fillStyle = markerColor
+          ctx.font = 'bold 12px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText(marker.name, markerX, 140)
+          
+          // Draw time position below label
+          ctx.fillStyle = '#888888'
+          ctx.font = '10px monospace'
+          ctx.fillText(`${position.toFixed(2)}s`, markerX, 155)
+          
+          // Show position count for multi-markers
+          if (isMultiMarker) {
+            ctx.fillStyle = '#888888'
+            ctx.font = '10px monospace'
+            ctx.fillText(`(${allPositions.length} positions)`, markerX, 170)
+          }
+        }
+      })
     })
     
     // Draw regions
@@ -1091,11 +1183,14 @@ export default function LoopEditorPage() {
     lastMouseXRef.current = e.clientX
     
     // Calculate time based on mouse position and canvas dimensions
-    const time = (x / rect.width) * displayDuration
+    // Account for zoom and waveform offset to match the drawing coordinate system
+    const effectiveWidth = rect.width * zoom
+    const adjustedX = x - waveformOffset
+    const time = (adjustedX / effectiveWidth) * displayDuration
     
     // Calculate current playhead position
     const playheadTime = isPlaying ? currentTime : playheadPosition
-    const playheadX = displayDuration > 0 ? (playheadTime / displayDuration) * rect.width : 0
+    const playheadX = displayDuration > 0 ? (playheadTime / displayDuration) * effectiveWidth + waveformOffset : 0
     
     // Check if click is near the playhead (within 10 pixels)
     const clickDistanceFromPlayhead = Math.abs(x - playheadX)
@@ -1108,8 +1203,8 @@ export default function LoopEditorPage() {
       const start = Math.min(waveSelectionStart, waveSelectionEnd)
       const end = Math.max(waveSelectionStart, waveSelectionEnd)
       
-      const startX = (start / totalDuration) * rect.width + waveformOffset
-      const endX = (end / totalDuration) * rect.width + waveformOffset
+      const startX = (start / displayDuration) * effectiveWidth + waveformOffset
+      const endX = (end / displayDuration) * effectiveWidth + waveformOffset
       
       const handleWidth = 16 // Match the visual handle width
       const startHandleLeft = startX - handleWidth/2
@@ -1135,8 +1230,8 @@ export default function LoopEditorPage() {
     
     // Check if clicking on regular selection resize handles (PRIORITY 1 - check before playhead)
     if (selectionStart !== null && selectionEnd !== null) {
-      const startX = (selectionStart / displayDuration) * rect.width
-      const endX = (selectionEnd / displayDuration) * rect.width
+      const startX = (selectionStart / displayDuration) * effectiveWidth + waveformOffset
+      const endX = (selectionEnd / displayDuration) * effectiveWidth + waveformOffset
       
       const handleWidth = 16 // Match the visual handle width
       const startHandleLeft = startX - handleWidth/2
@@ -1171,14 +1266,61 @@ export default function LoopEditorPage() {
     } else if (activeTool === 'marker') {
       // Add marker
       const snappedTime = snapTimeToGrid(time)
-      const markerName = `Marker ${markers.length + 1}`
-      const newMarker: Marker = {
-        id: `marker-${Date.now()}`,
-        time: snappedTime,
-        name: markerName,
-        category: 'General'
+      
+      if (editingMarkerId) {
+        // Edit mode active - add position to existing marker
+        const editingMarker = markers.find(m => m.id === editingMarkerId)
+        if (editingMarker) {
+          const currentPositions = editingMarker.positions || [editingMarker.time]
+          
+          // Add new position if it's not already there
+          if (!currentPositions.includes(snappedTime)) {
+            const updatedPositions = [...currentPositions, snappedTime].sort((a, b) => a - b)
+            
+            setMarkers(prev => prev.map(marker => 
+              marker.id === editingMarkerId 
+                ? { ...marker, positions: updatedPositions }
+                : marker
+            ))
+            
+            toast({
+              title: "Position Added",
+              description: `${editingMarker.name} now has ${updatedPositions.length} positions`,
+              variant: "default",
+            })
+          } else {
+            toast({
+              title: "Position Already Exists",
+              description: `Position ${snappedTime.toFixed(2)}s already in ${editingMarker.name}`,
+              variant: "default",
+            })
+          }
+        }
+            } else {
+        // Normal mode - create new marker
+        const defaultName = `Marker ${markers.length + 1}`
+        showCustomMarkerNameDialog(
+          'Create New Marker',
+          defaultName,
+          (finalName) => {
+            const markerId = `marker-${Date.now()}`
+            const newMarker: Marker = {
+              id: markerId,
+              time: snappedTime,
+              name: finalName,
+              category: 'General',
+              color: generateMarkerColor(markerId)
+            }
+            setMarkers(prev => [...prev, newMarker])
+            
+            toast({
+              title: "Marker Created",
+              description: `Created "${finalName}" at ${snappedTime.toFixed(2)}s`,
+              variant: "default",
+            })
+          }
+        )
       }
-      setMarkers(prev => [...prev, newMarker])
     } else if (activeTool === 'region') {
       // Start region selection
       const snappedTime = snapTimeToGrid(time)
@@ -1220,8 +1362,8 @@ export default function LoopEditorPage() {
         const start = Math.min(waveSelectionStart, waveSelectionEnd)
         const end = Math.max(waveSelectionStart, waveSelectionEnd)
         
-        const startX = (start / totalDuration) * effectiveWidth + waveformOffset
-        const endX = (end / totalDuration) * effectiveWidth + waveformOffset
+        const startX = (start / displayDuration) * effectiveWidth + waveformOffset
+        const endX = (end / displayDuration) * effectiveWidth + waveformOffset
         
         const handleWidth = 16
         const startHandleLeft = startX - handleWidth/2
@@ -1240,8 +1382,8 @@ export default function LoopEditorPage() {
       
       // Check regular selection handles
       if (!isHoveringHandle && selectionStart !== null && selectionEnd !== null) {
-        const startX = (selectionStart / displayDuration) * effectiveWidth
-        const endX = (selectionEnd / displayDuration) * effectiveWidth
+        const startX = (selectionStart / displayDuration) * effectiveWidth + waveformOffset
+        const endX = (selectionEnd / displayDuration) * effectiveWidth + waveformOffset
         
         const handleWidth = 16
         const startHandleLeft = startX - handleWidth/2
@@ -2238,6 +2380,24 @@ export default function LoopEditorPage() {
     }
   }, [waveformOffset, markers, regions, duplicateWave, isDuplicateMain, playBothMode, showDetailedGrid, audioFile])
   
+  // Generate unique colors for markers
+  const generateMarkerColor = (markerId: string) => {
+    // Create a hash from the marker ID to generate consistent colors
+    let hash = 0
+    for (let i = 0; i < markerId.length; i++) {
+      const char = markerId.charCodeAt(i)
+      hash = ((hash << 5) - hash) + char
+      hash = hash & hash // Convert to 32-bit integer
+    }
+    
+    // Use the hash to generate a color
+    const hue = Math.abs(hash) % 360
+    const saturation = 70 + (Math.abs(hash) % 20) // 70-90% saturation
+    const lightness = 50 + (Math.abs(hash) % 20) // 50-70% lightness
+    
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`
+  }
+
   // Category helper functions
   const getCategoryColor = (category: string) => {
     const colors: { [key: string]: string } = {
@@ -2442,11 +2602,13 @@ export default function LoopEditorPage() {
       console.log(`Updated bar tracker: Bar ${currentBar} / ${loopBars}`)
     } else {
       // Create new bar tracker marker
+      const markerId = `bar-tracker-${Date.now()}`
       const newMarker: Marker = {
-        id: `bar-tracker-${Date.now()}`,
+        id: markerId,
         time: playheadPosition,
         name: `Bar ${currentBar} / ${loopBars}`,
-        category: 'Bar Tracker'
+        category: 'Bar Tracker',
+        color: generateMarkerColor(markerId)
       }
       setMarkers(prev => [...prev, newMarker])
       console.log(`Created bar tracker: Bar ${currentBar} / ${loopBars}`)
@@ -2872,8 +3034,188 @@ export default function LoopEditorPage() {
     setMarkers(prev => prev.filter(marker => marker.id !== markerId))
   }
 
+  const removePositionFromMarker = (markerId: string, position: number) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (marker) {
+      const currentPositions = marker.positions || [marker.time]
+      const updatedPositions = currentPositions.filter(p => p !== position)
+      
+      if (updatedPositions.length === 0) {
+        // If no positions left, remove the entire marker
+        setMarkers(prev => prev.filter(m => m.id !== markerId))
+        toast({
+          title: "Marker Removed",
+          description: "All positions removed, marker deleted",
+          variant: "default",
+        })
+      } else {
+        // Update marker with remaining positions
+        setMarkers(prev => prev.map(m => 
+          m.id === markerId 
+            ? { ...m, positions: updatedPositions }
+            : m
+        ))
+        toast({
+          title: "Position Removed",
+          description: `Position ${position.toFixed(2)}s removed from ${marker.name}`,
+          variant: "default",
+        })
+      }
+    }
+  }
+
+  const changeMarkerColor = (markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (marker) {
+      // Generate a new random color for this marker
+      const newColor = generateMarkerColor(markerId + Date.now()) // Add timestamp for variation
+      setMarkers(prev => prev.map(m => 
+        m.id === markerId 
+          ? { ...m, color: newColor }
+          : m
+      ))
+      toast({
+        title: "Color Changed",
+        description: `Changed color for "${marker.name}"`,
+        variant: "default",
+      })
+    }
+  }
+
+  // Custom marker naming dialog function
+  const showCustomMarkerNameDialog = (title: string, defaultValue: string, callback: (name: string) => void) => {
+    setMarkerNameDialogTitle(title)
+    setMarkerNameDialogDefault(defaultValue)
+    setMarkerNameInput(defaultValue)
+    setMarkerNameCallback(() => callback)
+    setShowMarkerNameDialog(true)
+  }
+
+  const handleMarkerNameConfirm = () => {
+    if (markerNameCallback) {
+      const finalName = markerNameInput.trim() || markerNameDialogDefault
+      markerNameCallback(finalName)
+    }
+    setShowMarkerNameDialog(false)
+    setMarkerNameInput('')
+    setMarkerNameCallback(null)
+  }
+
+  const handleMarkerNameCancel = () => {
+    setShowMarkerNameDialog(false)
+    setMarkerNameInput('')
+    setMarkerNameCallback(null)
+  }
+
+  // Marker data dialog functions
+  const openMarkerDataDialog = (marker: Marker) => {
+    setEditingMarkerData(marker)
+    setMarkerDataForm({
+      audioType: marker.audioType || '',
+      instrument: marker.instrument || '',
+      genre: marker.genre || '',
+      bpm: marker.bpm?.toString() || '',
+      key: marker.key || '',
+      mood: marker.mood || '',
+      energyLevel: marker.energyLevel?.toString() || '',
+      complexity: marker.complexity?.toString() || '',
+      tags: marker.tags || [],
+      notes: marker.notes || ''
+    })
+    setShowMarkerDataDialog(true)
+  }
+
+  const handleMarkerDataSave = () => {
+    if (!editingMarkerData) return
+
+    const updatedMarker: Marker = {
+      ...editingMarkerData,
+      audioType: markerDataForm.audioType || undefined,
+      instrument: markerDataForm.instrument || undefined,
+      genre: markerDataForm.genre || undefined,
+      bpm: markerDataForm.bpm ? parseFloat(markerDataForm.bpm) : undefined,
+      key: markerDataForm.key || undefined,
+      mood: markerDataForm.mood || undefined,
+      energyLevel: markerDataForm.energyLevel ? parseInt(markerDataForm.energyLevel) : undefined,
+      complexity: markerDataForm.complexity ? parseInt(markerDataForm.complexity) : undefined,
+      tags: markerDataForm.tags.length > 0 ? markerDataForm.tags : undefined,
+      notes: markerDataForm.notes || undefined
+    }
+
+    setMarkers(prev => prev.map(m => 
+      m.id === editingMarkerData.id ? updatedMarker : m
+    ))
+
+    toast({
+      title: "Marker Data Updated",
+      description: `Updated metadata for "${editingMarkerData.name}"`,
+      variant: "default",
+    })
+
+    setShowMarkerDataDialog(false)
+    setEditingMarkerData(null)
+  }
+
+  const handleMarkerDataCancel = () => {
+    setShowMarkerDataDialog(false)
+    setEditingMarkerData(null)
+  }
+
+  const addTagToMarker = (tag: string) => {
+    if (tag.trim() && !markerDataForm.tags.includes(tag.trim())) {
+      setMarkerDataForm(prev => ({
+        ...prev,
+        tags: [...prev.tags, tag.trim()]
+      }))
+    }
+  }
+
+  const removeTagFromMarker = (tagToRemove: string) => {
+    setMarkerDataForm(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }))
+  }
+
+  // Quick naming function - makes it easy to name markers
+  const quickNameMarker = (markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (!marker) return
+    
+    showCustomMarkerNameDialog(
+      `Rename Marker`,
+      marker.name,
+      (newName) => {
+        if (newName.trim() !== '') {
+          setMarkers(prev => prev.map(m => 
+            m.id === markerId 
+              ? { ...m, name: newName.trim() }
+              : m
+          ))
+          toast({
+            title: "Marker Renamed",
+            description: `"${marker.name}" renamed to "${newName.trim()}"`,
+            variant: "default",
+          })
+        }
+      }
+    )
+  }
+
   // Multi-selection functions
 
+  const startEditMode = (markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (marker) {
+      console.log('🔍 STARTING EDIT MODE for marker:', marker.name)
+      setEditingMarkerId(markerId)
+      toast({
+        title: "Edit Mode Enabled",
+        description: `Now editing "${marker.name}". Click on the waveform to add positions to this marker.`,
+        variant: "default",
+      })
+    }
+  }
 
   const stopEditingMarker = () => {
     if (editingMarkerId) {
@@ -4469,24 +4811,33 @@ export default function LoopEditorPage() {
       }
     } else {
       console.log('🔍 NO EDIT MODE - Creating new marker')
-      // Create new marker
-      const newMarker: Marker = {
-        id: `marker-${Date.now()}`,
-        time: playheadPosition,
-        name: `Marker ${markers.length + 1}`,
-        category: 'General',
-        positions: [playheadPosition] // Initialize with first position
-      }
-      
-      // Save state before creating marker
-      saveStateForHistory('marker', `Create marker at ${playheadPosition.toFixed(2)}s`)
-      
-      setMarkers(prev => [...prev, newMarker])
-      toast({
-        title: "New Marker Created",
-        description: `New marker created at ${playheadPosition.toFixed(2)}s`,
-        variant: "default",
-      })
+      // Create new marker with naming
+      const defaultName = `Marker ${markers.length + 1}`
+      showCustomMarkerNameDialog(
+        'Create New Marker',
+        defaultName,
+        (finalName) => {
+          const markerId = `marker-${Date.now()}`
+          const newMarker: Marker = {
+            id: markerId,
+            time: playheadPosition,
+            name: finalName,
+            category: 'General',
+            color: generateMarkerColor(markerId),
+            positions: [playheadPosition] // Initialize with first position
+          }
+          
+          // Save state before creating marker
+          saveStateForHistory('marker', `Create marker at ${playheadPosition.toFixed(2)}s`)
+          
+          setMarkers(prev => [...prev, newMarker])
+          toast({
+            title: "New Marker Created",
+            description: `Created "${finalName}" at ${playheadPosition.toFixed(2)}s`,
+            variant: "default",
+          })
+        }
+      )
     }
   }
   
@@ -4573,6 +4924,21 @@ export default function LoopEditorPage() {
       if (e.code === 'KeyM') {
         e.preventDefault()
         addMarkerToSelection()
+      }
+      
+      // Quick naming shortcut - Ctrl+N or Cmd+N
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyN') {
+        e.preventDefault()
+        // Find the marker closest to the current playhead position
+        const currentMarkers = getFilteredMarkers()
+        if (currentMarkers.length > 0) {
+          const closestMarker = currentMarkers.reduce((closest, marker) => {
+            const closestDistance = Math.abs(closest.time - playheadPosition)
+            const currentDistance = Math.abs(marker.time - playheadPosition)
+            return currentDistance < closestDistance ? marker : closest
+          })
+          quickNameMarker(closestMarker.id)
+        }
       }
       
       // Marker navigation
@@ -4663,7 +5029,7 @@ export default function LoopEditorPage() {
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [playheadPosition, editingMarker, editingMarkerId, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, addMarkerToSelection, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, stopEditingMarker, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
+  }, [playheadPosition, editingMarker, editingMarkerId, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, addMarkerToSelection, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, stopEditingMarker, startEditMode, quickNameMarker, changeMarkerColor, showCustomMarkerNameDialog, handleMarkerNameConfirm, handleMarkerNameCancel, openMarkerDataDialog, handleMarkerDataSave, handleMarkerDataCancel, addTagToMarker, removeTagFromMarker, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
   
   // Save to Library Functions
   const openSaveToLibraryDialog = async () => {
@@ -5095,7 +5461,7 @@ export default function LoopEditorPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-white truncate">Audio Science Lab</h1>
+                              <h1 className="text-xl sm:text-2xl font-bold text-white truncate">AI Audio Editor</h1>
               <p className="text-xs sm:text-sm text-gray-400">Professional Waveform Analysis & Editing Suite</p>
               <p className="text-xs text-blue-400 mt-1">💡 Drag & drop audio files to load them quickly</p>
               {audioFile && (
@@ -6286,13 +6652,13 @@ export default function LoopEditorPage() {
       </Dialog>
 
       {/* Temporal Markers & Regions Card at the bottom */}
-      <Card className="max-w-3xl mx-auto mt-12 mb-8 bg-[#18181c] border-gray-700">
+      <Card className="w-full max-w-7xl mx-auto mt-12 mb-8 bg-[#18181c] border-gray-700">
         <CardHeader>
           <CardTitle>Temporal Markers & Regions</CardTitle>
         </CardHeader>
         <CardContent>
           {/* Markers */}
-          <div className="p-6 border-b border-gray-700">
+          <div className="p-8 border-b border-gray-700">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-white">Temporal Markers</h3>
               <div className="flex items-center gap-2">
@@ -6318,7 +6684,7 @@ export default function LoopEditorPage() {
             </div>
             
             {/* Edit mode indicator and shuffle button */}
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-4 mb-6">
               {editingMarkerId && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-orange-600 text-white rounded text-sm font-medium">
                   <span>🎯 Editing Mode</span>
@@ -6536,13 +6902,13 @@ export default function LoopEditorPage() {
                         : 'bg-[#1a1a1a] border-gray-600'
                   }`}
                 >
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="flex items-center gap-6 flex-1 min-w-0">
                     <MapPin className="w-5 h-5 text-green-400" />
                     
                     {editingMarker === marker.id ? (
                       // Editing mode
-                      <div className="flex items-center gap-6 flex-1">
-                        <div className="flex items-center gap-3 flex-1">
+                      <div className="flex items-center gap-8 flex-1">
+                        <div className="flex items-center gap-4 flex-1">
                           <Label className="text-sm text-gray-400 whitespace-nowrap">Name:</Label>
                           <Input
                             value={editingMarkerName}
@@ -6552,7 +6918,7 @@ export default function LoopEditorPage() {
                             autoFocus
                           />
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-6">
                           <div className="flex items-center gap-2">
                             <Label className="text-sm text-gray-400 whitespace-nowrap">Time:</Label>
                             <Input
@@ -6607,32 +6973,20 @@ export default function LoopEditorPage() {
                     ) : (
                       // Display mode
                       <>
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="flex items-center gap-4 min-w-0 flex-1">
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => {
-                              console.log('🔍 ===== EDIT MODE BUTTON CLICKED =====')
-                              console.log('🔍 Marker ID:', marker.id)
-                              console.log('🔍 Marker Name:', marker.name)
-                              console.log('🔍 Current editingMarkerId before setting:', editingMarkerId)
-                              
-                              setEditingMarkerId(marker.id)
-                              setSelectedMarkers(new Set([marker.id]))
-                              
-                              console.log('🔍 Set editingMarkerId to:', marker.id)
-                              
-                              // Test: Log the current state after setting
-                              setTimeout(() => {
-                                console.log('🔍 TEST: Current editingMarkerId after setting:', editingMarkerId)
-                              }, 100)
-                              
-                              toast({
-                                title: "Edit Mode Activated",
-                                description: `Now editing ${marker.name}. Press 'M' to move it, 'Escape' to stop.`,
-                                variant: "default",
-                              })
-                            }}
+                            onClick={() => quickNameMarker(marker.id)}
+                            className="h-6 px-2 text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                            title="Quickly rename this marker"
+                          >
+                            ✏️ Name
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => startEditMode(marker.id)}
                             className={`h-6 px-2 text-xs ${
                               editingMarkerId === marker.id 
                                 ? 'bg-orange-600 hover:bg-orange-700 text-white' 
@@ -6641,15 +6995,37 @@ export default function LoopEditorPage() {
                           >
                             Edit Mode
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => changeMarkerColor(marker.id)}
+                            className="h-6 px-2 text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                            title="Change marker color"
+                            style={{
+                              backgroundColor: marker.color || generateMarkerColor(marker.id),
+                              borderColor: marker.color || generateMarkerColor(marker.id)
+                            }}
+                          >
+                            🎨
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openMarkerDataDialog(marker)}
+                            className="h-6 px-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                            title="Edit marker metadata"
+                          >
+                            Data
+                          </Button>
                           <span 
                             className="text-base text-white cursor-pointer hover:text-blue-300 font-medium min-w-0 flex-1 truncate"
-                            onClick={() => startEditingMarker(marker)}
-                            title="Click to edit name"
+                            onClick={() => quickNameMarker(marker.id)}
+                            title="Click to quickly rename marker"
                           >
                             {marker.name}
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="flex items-center gap-4 flex-shrink-0">
                           <span 
                             className="text-sm text-gray-400 font-mono cursor-pointer hover:text-blue-300"
                             onClick={() => startEditingMarker(marker)}
@@ -6714,7 +7090,7 @@ export default function LoopEditorPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => jumpToMarker(marker.time)}
-                          className="h-8 px-4 text-sm bg-[#141414] text-gray-300 hover:bg-gray-600 border-gray-500"
+                          className="h-8 px-4 text-sm bg-[#1a1a1a] text-gray-300 hover:bg-gray-700 border-gray-400 hover:border-gray-300"
                         >
                           Jump
                         </Button>
@@ -7299,6 +7675,258 @@ export default function LoopEditorPage() {
                   Save to Library
                 </>
               )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Marker Naming Dialog */}
+      <Dialog open={showMarkerNameDialog} onOpenChange={setShowMarkerNameDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-white flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-green-400" />
+              {markerNameDialogTitle}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="marker-name" className="text-sm text-gray-300">
+                Marker Name
+              </Label>
+              <Input
+                id="marker-name"
+                value={markerNameInput}
+                onChange={(e) => setMarkerNameInput(e.target.value)}
+                placeholder="Enter marker name..."
+                className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleMarkerNameConfirm()
+                  } else if (e.key === 'Escape') {
+                    handleMarkerNameCancel()
+                  }
+                }}
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+            <Button
+              variant="outline"
+              onClick={handleMarkerNameCancel}
+              className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleMarkerNameConfirm}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              Confirm
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Marker Data Dialog */}
+      <Dialog open={showMarkerDataDialog} onOpenChange={setShowMarkerDataDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-white flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-green-400" />
+              Marker Data: {editingMarkerData?.name}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Basic Information */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="audio-type" className="text-sm text-gray-300">
+                  Audio Type
+                </Label>
+                <Input
+                  id="audio-type"
+                  value={markerDataForm.audioType}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, audioType: e.target.value }))}
+                  placeholder="e.g., Drum, Bass, Melody..."
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="instrument" className="text-sm text-gray-300">
+                  Instrument
+                </Label>
+                <Input
+                  id="instrument"
+                  value={markerDataForm.instrument}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, instrument: e.target.value }))}
+                  placeholder="e.g., Piano, Guitar, Synth..."
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="genre" className="text-sm text-gray-300">
+                  Genre
+                </Label>
+                <Input
+                  id="genre"
+                  value={markerDataForm.genre}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, genre: e.target.value }))}
+                  placeholder="e.g., Hip Hop, Electronic, Rock..."
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="bpm" className="text-sm text-gray-300">
+                  BPM
+                </Label>
+                <Input
+                  id="bpm"
+                  type="number"
+                  value={markerDataForm.bpm}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, bpm: e.target.value }))}
+                  placeholder="e.g., 120"
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="key" className="text-sm text-gray-300">
+                  Key
+                </Label>
+                <Input
+                  id="key"
+                  value={markerDataForm.key}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, key: e.target.value }))}
+                  placeholder="e.g., C Major, A Minor..."
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="mood" className="text-sm text-gray-300">
+                  Mood
+                </Label>
+                <Input
+                  id="mood"
+                  value={markerDataForm.mood}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, mood: e.target.value }))}
+                  placeholder="e.g., Dark, Energetic, Melancholic..."
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="energy-level" className="text-sm text-gray-300">
+                  Energy Level (1-10)
+                </Label>
+                <Input
+                  id="energy-level"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={markerDataForm.energyLevel}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, energyLevel: e.target.value }))}
+                  placeholder="1-10"
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="complexity" className="text-sm text-gray-300">
+                  Complexity (1-10)
+                </Label>
+                <Input
+                  id="complexity"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={markerDataForm.complexity}
+                  onChange={(e) => setMarkerDataForm(prev => ({ ...prev, complexity: e.target.value }))}
+                  placeholder="1-10"
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+            </div>
+            
+            {/* Tags */}
+            <div className="space-y-2">
+              <Label className="text-sm text-gray-300">Tags</Label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {markerDataForm.tags.map((tag, index) => (
+                  <Badge
+                    key={index}
+                    variant="secondary"
+                    className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                    onClick={() => removeTagFromMarker(tag)}
+                  >
+                    {tag} ×
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add a tag..."
+                  className="flex-1 bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      addTagToMarker(e.currentTarget.value)
+                      e.currentTarget.value = ''
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const input = document.querySelector('input[placeholder="Add a tag..."]') as HTMLInputElement
+                    if (input && input.value.trim()) {
+                      addTagToMarker(input.value)
+                      input.value = ''
+                    }
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+            
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label htmlFor="notes" className="text-sm text-gray-300">
+                Notes
+              </Label>
+              <textarea
+                id="notes"
+                value={markerDataForm.notes}
+                onChange={(e) => setMarkerDataForm(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="Add any additional notes about this marker..."
+                rows={4}
+                className="w-full bg-[#141414] border border-gray-600 rounded-md px-3 py-2 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500 resize-none"
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+            <Button
+              variant="outline"
+              onClick={handleMarkerDataCancel}
+              className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleMarkerDataSave}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              Save Data
             </Button>
           </div>
         </DialogContent>
