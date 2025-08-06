@@ -11,7 +11,7 @@ interface NotesDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   itemId: string
-  itemType: 'album' | 'single' | 'album_track'
+  itemType: 'album' | 'single' | 'album_track' | 'track'
   initialNotes?: string
   itemTitle?: string
   onSave: (notes: string) => Promise<void>
@@ -54,6 +54,8 @@ export function NotesDialog({
       case 'single':
         return 'Single'
       case 'album_track':
+        return 'Track'
+      case 'track':
         return 'Track'
       default:
         return 'Item'

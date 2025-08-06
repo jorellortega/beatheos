@@ -75,6 +75,64 @@ interface Track {
   notes?: string
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  
+  // Commercial & Legal
+  isrc?: string
+  upc?: string
+  license_type?: string
+  license_terms?: string
+  publisher?: string
+  publishing_rights?: string
+  distribution_rights?: string
+  
+  // Commercial Metadata
+  price?: number
+  currency?: string
+  is_available_for_purchase?: boolean
+  is_available_for_streaming?: boolean
+  
+  // Content & Credits
+  language?: string
+  explicit_content?: boolean
+  parental_advisory?: string
+  featured_artists?: string[]
+  producers?: string[]
+  writers?: string[]
+  mixers?: string[]
+  mastering_engineer?: string
+  
+  // Technical Metadata
+  sample_rate?: number
+  bit_depth?: number
+  file_format?: string
+  file_size?: number
+  
+  // Analytics & Engagement
+  play_count?: number
+  like_count?: number
+  share_count?: number
+  download_count?: number
+  average_rating?: number
+  rating_count?: number
+  review_count?: number
+  
+  // Workflow & Approval
+  approval_status?: string
+  approved_by?: string
+  approved_at?: string
+  rejection_reason?: string
+  
+  // Version Control
+  version?: string
+  is_remix?: boolean
+  original_track_id?: string
+  remix_credits?: string
+  
+  // Platform Integration
+  spotify_id?: string
+  apple_music_id?: string
+  youtube_id?: string
+  soundcloud_id?: string
 }
 interface PlatformProfile {
   id: string
@@ -347,7 +405,17 @@ export default function MyLibrary() {
     license_type: '',
     is_new: true,
     distribution_type: 'private'
-  });
+  })
+  
+  // Move single state
+  const [showMoveSingleDialog, setShowMoveSingleDialog] = useState(false)
+  const [moveSingleId, setMoveSingleId] = useState<string | null>(null)
+  const [moveSingleTitle, setMoveSingleTitle] = useState('')
+  const [moveToTracks, setMoveToTracks] = useState(false)
+  const [selectedTargetAlbum, setSelectedTargetAlbum] = useState('')
+  const [availableAlbums, setAvailableAlbums] = useState<{ id: string; title: string }[]>([])
+  const [movingSingle, setMovingSingle] = useState(false)
+  const [moveSingleError, setMoveSingleError] = useState<string | null>(null)
   const [savingAudio, setSavingAudio] = useState(false);
   const [audioEditError, setAudioEditError] = useState<string | null>(null);
   
@@ -370,7 +438,7 @@ export default function MyLibrary() {
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
   const [editingMetadata, setEditingMetadata] = useState<any>(null);
   const [editingTrackId, setEditingTrackId] = useState('');
-  const [editingTrackType, setEditingTrackType] = useState<'single' | 'album_track'>('single');
+  const [editingTrackType, setEditingTrackType] = useState<'single' | 'album_track' | 'track'>('single');
   
   // Notes states
   const [showNotesDialog, setShowNotesDialog] = useState(false);
@@ -3752,7 +3820,7 @@ export default function MyLibrary() {
     }
   };
 
-  const openMetadataDialog = async (trackId: string, trackType: 'single' | 'album_track') => {
+  const openMetadataDialog = async (trackId: string, trackType: 'single' | 'album_track' | 'track') => {
     try {
       const table = trackType === 'single' ? 'singles' : 'album_tracks';
       const { data, error } = await supabase
@@ -3955,6 +4023,133 @@ export default function MyLibrary() {
         description: "Failed to open file in loop editor. Please try again.",
         variant: "destructive",
       })
+    }
+  }
+
+  // Move single function
+  const handleMoveSingle = async (singleId: string, singleTitle: string) => {
+    setMoveSingleId(singleId)
+    setMoveSingleTitle(singleTitle)
+    setMoveSingleError(null)
+    
+    try {
+      // Fetch available albums
+      const { data: albums, error } = await supabase
+        .from('albums')
+        .select('id, title')
+        .order('title')
+
+      if (error) {
+        throw error
+      }
+
+      setAvailableAlbums(albums || [])
+      setShowMoveSingleDialog(true)
+    } catch (error) {
+      console.error('Error fetching albums:', error)
+      toast({
+        title: "Error",
+        description: "Failed to load available albums",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Execute move single
+  const executeMoveSingle = async () => {
+    if (!moveSingleId) return
+
+    setMovingSingle(true)
+    setMoveSingleError(null)
+
+    try {
+      // Get the single data
+      const singleToMove = singles.find(single => single.id === moveSingleId)
+      if (!singleToMove) {
+        throw new Error('Single not found')
+      }
+
+      if (moveToTracks) {
+        // Move to tracks table
+        const { error: trackError } = await supabase
+          .from('tracks')
+          .insert([{
+            title: singleToMove.title,
+            artist: singleToMove.artist,
+            release_date: singleToMove.release_date,
+            audio_url: singleToMove.audio_url,
+            duration: singleToMove.duration,
+            description: singleToMove.description,
+            session_id: singleToMove.session_id,
+            status: 'draft',
+            user_id: (await supabase.auth.getUser()).data.user?.id
+          }])
+
+        if (trackError) {
+          throw trackError
+        }
+
+        toast({
+          title: "Success",
+          description: `Single "${singleToMove.title}" moved to tracks successfully!`,
+        })
+      } else if (selectedTargetAlbum) {
+        // Move to album as a track
+        const { error: albumError } = await supabase
+          .from('album_tracks')
+          .insert([{
+            album_id: selectedTargetAlbum,
+            title: singleToMove.title,
+            audio_url: singleToMove.audio_url,
+            duration: singleToMove.duration,
+            description: singleToMove.description,
+            session_id: singleToMove.session_id,
+            status: 'draft',
+            user_id: (await supabase.auth.getUser()).data.user?.id
+          }])
+
+        if (albumError) {
+          throw albumError
+        }
+
+        toast({
+          title: "Success",
+          description: `Single "${singleToMove.title}" moved to album successfully!`,
+        })
+      } else {
+        throw new Error('Please select a destination')
+      }
+
+      // Delete the single from singles table
+      const { error: deleteError } = await supabase
+        .from('singles')
+        .delete()
+        .eq('id', moveSingleId)
+
+      if (deleteError) {
+        throw deleteError
+      }
+
+      // Remove single from local state
+      setSingles(prev => prev.filter(single => single.id !== moveSingleId))
+      
+      // Close dialog and reset state
+      setShowMoveSingleDialog(false)
+      setMoveSingleId(null)
+      setMoveSingleTitle('')
+      setSelectedTargetAlbum('')
+      setMoveToTracks(false)
+
+    } catch (error) {
+      console.error('Error moving single:', error)
+      setMoveSingleError(error instanceof Error ? error.message : 'Failed to move single')
+      toast({
+        title: "Error",
+        description: "Failed to move single",
+        variant: "destructive",
+      })
+    } finally {
+      setMovingSingle(false)
     }
   }
 
@@ -4892,32 +5087,34 @@ export default function MyLibrary() {
                     <div className="flex flex-wrap gap-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className={`capitalize flex items-center gap-2 ${getStatusColor(album.status || 'draft')}`}
-                          >
+                          <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getStatusColor(album.status || 'draft')}`}>
                             {getStatusIcon(album.status || 'draft')}
-                            <span className="hidden sm:inline">{album.status || 'draft'}</span>
-                          </Button>
+                            {album.status || 'draft'}
+                          </Badge>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'production')}>
+                            <Circle className="h-3 w-3 mr-2" />
                             Production
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'draft')}>
+                            <Circle className="h-3 w-3 mr-2" />
                             Draft
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'distribute')}>
+                            <Circle className="h-3 w-3 mr-2" />
                             Distribute
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'error')}>
+                            <Circle className="h-3 w-3 mr-2" />
                             Error
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'published')}>
+                            <Circle className="h-3 w-3 mr-2" />
                             Published
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'other')}>
+                            <Circle className="h-3 w-3 mr-2" />
                             Other
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -4925,29 +5122,30 @@ export default function MyLibrary() {
                       {/* Phase Status Dropdown */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className={`capitalize flex items-center gap-2 ${getProductionStatusColor(album.production_status || 'production')}`}
-                          >
+                          <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getProductionStatusColor(album.production_status || 'production')}`}>
                             {getProductionStatusIcon(album.production_status || 'production')}
-                            <span className="hidden sm:inline">{album.production_status || 'production'}</span>
-                          </Button>
+                            {album.production_status || 'production'}
+                          </Badge>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'marketing')}>
+                            <CheckCircle2 className="h-3 w-3 mr-2" />
                             Marketing
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'organization')}>
+                            <CheckCircle2 className="h-3 w-3 mr-2" />
                             Organization
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'production')}>
+                            <CheckCircle2 className="h-3 w-3 mr-2" />
                             Production
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'quality_control')}>
+                            <CheckCircle2 className="h-3 w-3 mr-2" />
                             Quality Control
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'ready_for_distribution')}>
+                            <CheckCircle2 className="h-3 w-3 mr-2" />
                             Ready for Distribution
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -5089,19 +5287,74 @@ export default function MyLibrary() {
           {loadingTracks ? <div>Loading tracks...</div> : trackError ? <div className="text-red-500">{trackError}</div> : getFilteredTracksForSearch().length === 0 ? <div>No tracks found in this phase.</div> : (
             <div className="space-y-4">
               {getFilteredTracksForSearch().map(track => (
-                <Card key={track.id} className="p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    {/* Cover Art */}
-                    <div className="flex-shrink-0">
-                      <div className="w-24 h-24 bg-zinc-800 rounded-lg flex items-center justify-center">
-                        {track.cover_art_url ? (
-                          <img 
-                            src={track.cover_art_url} 
-                            alt={track.title}
-                            className="w-full h-full object-cover rounded-lg"
-                          />
-                        ) : (
-                          <Music className="h-8 w-8 text-zinc-600" />
+                <Card key={track.id} className={`p-4 sm:p-6 border-l-4 ${getStatusBorderColor(track.status || 'draft')}`}>
+                  <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-start sm:items-center">
+                    {/* Cover Art - Show placeholder if no cover art */}
+                    <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-lg bg-gray-800 flex items-center justify-center overflow-hidden mx-auto sm:mx-0">
+                      {track.cover_art_url ? (
+                        <img 
+                          src={track.cover_art_url} 
+                          alt={track.title} 
+                          className="w-full h-full object-cover"
+                          onLoad={(e) => {
+                            const img = e.target as HTMLImageElement;
+                            const sizeInfo = img.parentElement?.querySelector('.image-size');
+                            if (sizeInfo) {
+                              sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="text-center text-gray-400">
+                          <Music className="w-8 h-8 mx-auto mb-1" />
+                          <div className="text-xs font-medium">{track.title}</div>
+                        </div>
+                      )}
+                      {track.cover_art_url && (
+                        <div className="absolute bottom-0.5 left-0.5 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">
+                          <span className="image-size">Loading...</span>
+                        </div>
+                      )}
+                      
+                      {/* Cover Management Buttons */}
+                      <div className="absolute top-0.5 right-0.5 flex gap-1">
+                        <input
+                          type="file"
+                          id={`upload-track-cover-${track.id}`}
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              replaceCoverArt(track.id, file, 'track');
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => document.getElementById(`upload-track-cover-${track.id}`)?.click()}
+                          className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500 text-xs px-1 py-0.5 h-5"
+                          title="Replace cover art"
+                          disabled={replacingCoverId === track.id && replacingCoverType === 'track'}
+                        >
+                          {replacingCoverId === track.id && replacingCoverType === 'track' ? (
+                            <Loader2 className="h-2 w-2 animate-spin" />
+                          ) : (
+                            <Upload className="h-2 w-2" />
+                          )}
+                        </Button>
+                        {track.cover_art_url && (
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => deleteCoverArt(track.id, 'track')}
+                            className="bg-red-600 hover:bg-red-700 text-white border-red-500 text-xs px-1 py-0.5 h-5"
+                            title="Delete cover art"
+                          >
+                            <Trash2 className="h-2 w-2" />
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -5115,14 +5368,70 @@ export default function MyLibrary() {
                           
                           {/* Status Badges */}
                           <div className="flex flex-wrap gap-2 mt-2">
-                            <Badge className={`text-xs ${getStatusColor(track.status || 'draft')}`}>
-                              {getStatusIcon(track.status || 'draft')}
-                              {track.status || 'draft'}
-                            </Badge>
-                            <Badge className={`text-xs ${getProductionStatusColor(track.production_status || 'production')}`}>
-                              {getProductionStatusIcon(track.production_status || 'production')}
-                              {track.production_status || 'production'}
-                            </Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getStatusColor(track.status || 'draft')}`}>
+                                  {getStatusIcon(track.status || 'draft')}
+                                  {track.status || 'draft'}
+                                </Badge>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'production')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'draft')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Draft
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'distribute')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Distribute
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'error')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Error
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'published')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Published
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'other')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Other
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getProductionStatusColor(track.production_status || 'production')}`}>
+                                  {getProductionStatusIcon(track.production_status || 'production')}
+                                  {track.production_status || 'production'}
+                                </Badge>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'marketing')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Marketing
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'organization')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Organization
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'production')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'quality_control')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Quality Control
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateTrackProductionStatus(track.id, 'ready_for_distribution')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
+                                  Ready for Distribution
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                           
                           {/* Metadata */}
@@ -5165,6 +5474,36 @@ export default function MyLibrary() {
                           
                           {/* Action Buttons */}
                           <div className="flex gap-1">
+                            {/* Audio Upload/Replace */}
+                            <input
+                              type="file"
+                              id={`track-audio-${track.id}`}
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  replaceTrackAudio(track.id, file);
+                                }
+                              }}
+                            />
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => document.getElementById(`track-audio-${track.id}`)?.click()}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                              title="Upload new audio file"
+                              disabled={replacingTrackId === track.id}
+                            >
+                              {replacingTrackId === track.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Replacing...
+                                </>
+                              ) : (
+                                <Upload className="h-4 w-4" />
+                              )}
+                            </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="outline" size="sm" className="text-xs h-6 px-2">
@@ -5351,6 +5690,44 @@ export default function MyLibrary() {
                           </div>
                         </div>
                       </div>
+                      
+                      {/* Session Link */}
+                      {track.session_id && track.session_name && (
+                        <div className="mt-2 ml-4">
+                          <div 
+                            className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
+                            onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
+                          >
+                            <LinkIcon className="h-3 w-3 text-blue-400" />
+                            <span className="text-sm font-medium text-blue-300">
+                              Session: {track.session_name}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Track Details */}
+                      <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
+                        <Calendar className="h-4 w-4" />
+                        {track.release_date ? (
+                          <>Released: {new Date(track.release_date).toLocaleDateString()}</>
+                        ) : (
+                          <>No release date</>
+                        )}
+                        {track.duration && (
+                          <>
+                            <span className="ml-4">Duration: {track.duration}</span>
+                          </>
+                        )}
+                      </div>
+                      
+                      {/* Description */}
+                      {track.description && (
+                        <div className="mt-3">
+                          <h3 className="font-medium mb-1">Description</h3>
+                          <div className="text-sm text-gray-500 font-semibold">{track.description}</div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -5696,29 +6073,30 @@ export default function MyLibrary() {
                             {/* Phase Status Dropdown */}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className={`capitalize flex items-center gap-2 ${getProductionStatusColor(single.production_status || 'production')}`}
-                                >
+                                <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getProductionStatusColor(single.production_status || 'production')}`}>
                                   {getProductionStatusIcon(single.production_status || 'production')}
                                   {single.production_status || 'production'}
-                                </Button>
+                                </Badge>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent>
                                 <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'marketing')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
                                   Marketing
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'organization')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
                                   Organization
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'production')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
                                   Production
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'quality_control')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
                                   Quality Control
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => updateSingleProductionStatus(single.id, 'ready_for_distribution')}>
+                                  <CheckCircle2 className="h-3 w-3 mr-2" />
                                   Ready for Distribution
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
@@ -5751,35 +6129,37 @@ export default function MyLibrary() {
 
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className={`capitalize flex items-center gap-2 ${getStatusColor(single.status || 'draft')}`}
-                                >
+                                <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getStatusColor(single.status || 'draft')}`}>
                                   {getStatusIcon(single.status || 'draft')}
                                   {single.status || 'draft'}
-                                </Button>
+                                </Badge>
                               </DropdownMenuTrigger>
-                                                                                     <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'production')}>
-                            Production
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'draft')}>
-                            Draft
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'distribute')}>
-                            Distribute
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'error')}>
-                            Error
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'published')}>
-                            Published
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'other')}>
-                            Other
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
+                              <DropdownMenuContent>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'production')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Production
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'draft')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Draft
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'distribute')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Distribute
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'error')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Error
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'published')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Published
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => updateSingleStatus(single.id, 'other')}>
+                                  <Circle className="h-3 w-3 mr-2" />
+                                  Other
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
                             </DropdownMenu>
                             <Link href="/platform-status">
                               <Button variant="outline" size="sm">
@@ -5810,6 +6190,15 @@ export default function MyLibrary() {
                                 </Button>
                               )
                             )}
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => handleMoveSingle(single.id, single.title)}
+                              className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                            >
+                              <Package className="h-4 w-4 mr-2" />
+                              Move Single
+                            </Button>
                             <Button variant="destructive" size="sm" onClick={() => deleteSingle(single.id)}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
                           </div>
                         </div>
@@ -8551,6 +8940,96 @@ export default function MyLibrary() {
               </DialogClose>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Single Dialog */}
+      <Dialog open={showMoveSingleDialog} onOpenChange={setShowMoveSingleDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move Single</DialogTitle>
+            <DialogDescription>
+              Move "{moveSingleTitle}" to tracks or to an album.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Destination</Label>
+              
+              {/* Move to Tracks Option */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="move-to-tracks"
+                  name="destination"
+                  checked={moveToTracks}
+                  onChange={() => {
+                    setMoveToTracks(true);
+                    setSelectedTargetAlbum('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="move-to-tracks" className="text-sm">
+                  Move to Tracks
+                </Label>
+              </div>
+
+              {/* Move to Album Option */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="move-to-album"
+                  name="destination"
+                  checked={!moveToTracks}
+                  onChange={() => {
+                    setMoveToTracks(false);
+                    setSelectedTargetAlbum('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="move-to-album" className="text-sm">
+                  Move to Album
+                </Label>
+              </div>
+            </div>
+
+            {/* Album Selection */}
+            {!moveToTracks && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select Album</Label>
+                <Select value={selectedTargetAlbum} onValueChange={setSelectedTargetAlbum}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose an album..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableAlbums.map((album) => (
+                      <SelectItem key={album.id} value={album.id}>
+                        {album.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {moveSingleError && (
+              <div className="text-red-500 text-sm">{moveSingleError}</div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button 
+              onClick={executeMoveSingle}
+              disabled={movingSingle || (!moveToTracks && !selectedTargetAlbum)}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              {movingSingle ? 'Moving...' : 'Move Single'}
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

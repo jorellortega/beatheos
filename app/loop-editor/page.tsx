@@ -275,7 +275,7 @@ export default function LoopEditorPage() {
   
   // Save to Library state
   const [showSaveToLibraryDialog, setShowSaveToLibraryDialog] = useState(false)
-  const [saveToLibraryType, setSaveToLibraryType] = useState<'single' | 'track' | 'album' | 'album_track' | 'audio_library'>('single')
+  const [saveToLibraryType, setSaveToLibraryType] = useState<'single' | 'track' | 'album' | 'album_track' | 'audio_library'>('audio_library')
   const [saveToLibraryName, setSaveToLibraryName] = useState('')
   const [saveToLibraryAlbumName, setSaveToLibraryAlbumName] = useState('')
   const [saveToLibraryDescription, setSaveToLibraryDescription] = useState('')
@@ -379,6 +379,17 @@ export default function LoopEditorPage() {
     }
   }, [searchParams, user?.id])
 
+  // State to track if auto-loading should be disabled
+  const [disableAutoLoad, setDisableAutoLoad] = useState(false)
+  
+  // Check if auto-loading was disabled in this session
+  useEffect(() => {
+    const autoLoadDisabled = sessionStorage.getItem('loop-editor-disable-auto-load')
+    if (autoLoadDisabled === 'true') {
+      setDisableAutoLoad(true)
+    }
+  }, [])
+
 
 
   
@@ -443,8 +454,8 @@ export default function LoopEditorPage() {
         loadProject()
       }, 100) // Small delay to ensure state is set
       
-      // Try to auto-load the most recent session for this audio file
-      if (user?.id) {
+      // Try to auto-load the most recent session for this audio file (only if auto-load is enabled)
+      if (user?.id && !disableAutoLoad) {
         setTimeout(async () => {
           try {
             const response = await fetch(`/api/loop-editor-sessions/load?audio_file_name=${encodeURIComponent(file.name)}&user_id=${user.id}`)
@@ -4310,18 +4321,18 @@ export default function LoopEditorPage() {
         audioRef.current.src = newUrl
         audioRef.current.load()
         
-        // Update waveform
-        await updateWaveformFromBuffer(newBuffer)
+        // Update only the affected segment of the waveform, preserving the rest
+        await updateWaveformSegment(newBuffer, segment.start, segment.end)
       }
 
       clearWaveSelection()
       toast({
         title: "Fade In Applied!",
-        description: `Applied fade in to selected ${segment.duration.toFixed(2)}s segment`,
+        description: `Applied fade in to selected ${segment.duration.toFixed(2)}s segment. Only the affected area was updated.`,
         variant: "default",
       })
       
-      console.log('🔍 Fade in complete - only selected area affected')
+      console.log('🔍 Fade in complete - only affected segment updated, preserving rest of waveform')
 
     } catch (error) {
       console.error('Fade in segment error:', error)
@@ -4399,18 +4410,18 @@ export default function LoopEditorPage() {
         audioRef.current.src = newUrl
         audioRef.current.load()
         
-        // Update waveform
-        await updateWaveformFromBuffer(newBuffer)
+        // Update only the affected segment of the waveform, preserving the rest
+        await updateWaveformSegment(newBuffer, segment.start, segment.end)
       }
 
       clearWaveSelection()
       toast({
         title: "Fade Out Applied!",
-        description: `Applied fade out to selected ${segment.duration.toFixed(2)}s segment`,
+        description: `Applied fade out to selected ${segment.duration.toFixed(2)}s segment. Only the affected area was updated.`,
         variant: "default",
       })
       
-      console.log('🔍 Fade out complete - only selected area affected')
+      console.log('🔍 Fade out complete - only affected segment updated, preserving rest of waveform')
 
     } catch (error) {
       console.error('Fade out segment error:', error)
@@ -4481,33 +4492,108 @@ export default function LoopEditorPage() {
     
     setDuration(duration)
     
-    // Generate new waveform data
+    // Generate new waveform data with improved amplitude detection
     const numPoints = Math.max(2000, Math.floor(duration * 50))
     const samplesPerPoint = Math.floor(channelData.length / numPoints)
     const newWaveform: WaveformPoint[] = []
+    
+    // Find the maximum amplitude in the entire buffer for normalization
+    let maxAmplitude = 0
+    for (let i = 0; i < channelData.length; i++) {
+      maxAmplitude = Math.max(maxAmplitude, Math.abs(channelData[i]))
+    }
+    
+    // Use a minimum threshold to avoid division by zero and ensure visibility
+    const amplitudeThreshold = Math.max(maxAmplitude, 0.001)
     
     for (let i = 0; i < numPoints; i++) {
       const start = i * samplesPerPoint
       const end = Math.min(start + samplesPerPoint, channelData.length)
       
       let rms = 0
+      let peak = 0
       let sampleCount = 0
       
       for (let j = start; j < end; j++) {
         const sample = Math.abs(channelData[j])
         rms += sample * sample
+        peak = Math.max(peak, sample)
         sampleCount++
       }
       
       rms = Math.sqrt(rms / sampleCount)
       
+      // Use a combination of RMS and peak for better visual representation
+      const amplitude = (rms * 0.7 + peak * 0.3) / amplitudeThreshold
+      
       newWaveform.push({
         x: (i / numPoints) * duration,
-        y: rms
+        y: Math.min(amplitude, 1) // Clamp to 1 to prevent overflow
       })
     }
     
     setWaveformData(newWaveform)
+    
+    console.log('🔍 Waveform updated from buffer - duration:', duration.toFixed(2), 's, max amplitude:', maxAmplitude.toFixed(4), 'points:', newWaveform.length)
+  }
+
+  // Update only a specific segment of the waveform without regenerating the entire thing
+  const updateWaveformSegment = async (buffer: AudioBuffer, segmentStart: number, segmentEnd: number) => {
+    const channelData = buffer.getChannelData(0)
+    const sampleRate = buffer.sampleRate
+    const duration = buffer.duration
+    
+    // Calculate which waveform points fall within the segment
+    const numPoints = Math.max(2000, Math.floor(duration * 50))
+    const samplesPerPoint = Math.floor(channelData.length / numPoints)
+    
+    // Find the maximum amplitude in the entire buffer for normalization
+    let maxAmplitude = 0
+    for (let i = 0; i < channelData.length; i++) {
+      maxAmplitude = Math.max(maxAmplitude, Math.abs(channelData[i]))
+    }
+    const amplitudeThreshold = Math.max(maxAmplitude, 0.001)
+    
+    // Calculate the start and end indices for the segment in the waveform array
+    const segmentStartIndex = Math.floor((segmentStart / duration) * numPoints)
+    const segmentEndIndex = Math.ceil((segmentEnd / duration) * numPoints)
+    
+    console.log('🔍 Updating waveform segment - start:', segmentStart.toFixed(2), 'end:', segmentEnd.toFixed(2), 'indices:', segmentStartIndex, 'to', segmentEndIndex)
+    
+    // Update only the waveform points within the segment
+    setWaveformData(prevWaveform => {
+      const updatedWaveform = [...prevWaveform]
+      
+      for (let i = segmentStartIndex; i <= segmentEndIndex && i < numPoints; i++) {
+        const start = i * samplesPerPoint
+        const end = Math.min(start + samplesPerPoint, channelData.length)
+        
+        let rms = 0
+        let peak = 0
+        let sampleCount = 0
+        
+        for (let j = start; j < end; j++) {
+          const sample = Math.abs(channelData[j])
+          rms += sample * sample
+          peak = Math.max(peak, sample)
+          sampleCount++
+        }
+        
+        rms = Math.sqrt(rms / sampleCount)
+        const amplitude = (rms * 0.7 + peak * 0.3) / amplitudeThreshold
+        
+        if (updatedWaveform[i]) {
+          updatedWaveform[i] = {
+            ...updatedWaveform[i],
+            y: Math.min(amplitude, 1)
+          }
+        }
+      }
+      
+      return updatedWaveform
+    })
+    
+    console.log('🔍 Waveform segment updated - only modified points from', segmentStartIndex, 'to', segmentEndIndex)
   }
 
   // Loop selected segment to fill specified bars
@@ -5139,10 +5225,10 @@ export default function LoopEditorPage() {
           if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
             // Replace existing single
             const { error: updateError } = await supabase
-              .from('singles')
+              .from('audio_library_items')
               .update({
-                title: saveToLibraryName,
-                audio_url: audioUrl,
+                name: saveToLibraryName,
+                file_url: audioUrl,
                 description: saveToLibraryDescription || null,
                 updated_at: new Date().toISOString()
               })
@@ -5158,15 +5244,19 @@ export default function LoopEditorPage() {
           } else {
             // Create new single
             const { error: insertError } = await supabase
-              .from('singles')
+              .from('audio_library_items')
               .insert([{
-                title: saveToLibraryName,
-                artist: (user as any)?.user_metadata?.full_name || 'Unknown Artist',
-                audio_url: audioUrl,
+                user_id: (await supabase.auth.getUser()).data.user?.id,
+                name: saveToLibraryName,
+                type: 'single',
                 description: saveToLibraryDescription || null,
-                release_date: new Date().toISOString().split('T')[0],
-                status: 'draft',
-                production_status: 'production'
+                file_url: audioUrl,
+                file_size: audioFile.size,
+                bpm: bpm,
+                genre: saveToLibraryGenre || null,
+                subgenre: saveToLibrarySubgenre || null,
+                tags: saveToLibraryTags,
+                is_ready: true
               }])
             
             if (insertError) throw insertError
@@ -5274,10 +5364,10 @@ export default function LoopEditorPage() {
           if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
             // Replace existing track
             const { error: updateError } = await supabase
-              .from('tracks')
+              .from('audio_library_items')
               .update({
-                title: saveToLibraryName,
-                audio_url: audioUrl,
+                name: saveToLibraryName,
+                file_url: audioUrl,
                 description: saveToLibraryDescription || null,
                 bpm: bpm,
                 genre: saveToLibraryGenre || null,
@@ -5296,18 +5386,19 @@ export default function LoopEditorPage() {
           } else {
             // Create new track
             const { error: insertError } = await supabase
-              .from('tracks')
+              .from('audio_library_items')
               .insert([{
-                title: saveToLibraryName,
-                artist: (user as any)?.user_metadata?.full_name || 'Unknown Artist',
-                audio_url: audioUrl,
+                user_id: (await supabase.auth.getUser()).data.user?.id,
+                name: saveToLibraryName,
+                type: 'track',
                 description: saveToLibraryDescription || null,
+                file_url: audioUrl,
+                file_size: audioFile.size,
                 bpm: bpm,
                 genre: saveToLibraryGenre || null,
                 subgenre: saveToLibrarySubgenre || null,
-                release_date: new Date().toISOString().split('T')[0],
-                status: 'draft',
-                production_status: 'production'
+                tags: saveToLibraryTags,
+                is_ready: true
               }])
             
             if (insertError) throw insertError
@@ -5323,8 +5414,9 @@ export default function LoopEditorPage() {
         case 'audio_library':
           // Save to audio library
           const { error: insertError } = await supabase
-            .from('audio_library')
+            .from('audio_library_items')
             .insert([{
+              user_id: (await supabase.auth.getUser()).data.user?.id,
               name: saveToLibraryName,
               type: 'loop',
               description: saveToLibraryDescription || null,
@@ -5774,29 +5866,104 @@ export default function LoopEditorPage() {
               size="sm"
               variant="outline"
               onClick={() => {
+                // Disable auto-loading for future loads
+                setDisableAutoLoad(true)
+                sessionStorage.setItem('loop-editor-disable-auto-load', 'true')
+                
+                // Reset all state to defaults
+                setBpm(120)
+                setGridDivision(4)
+                setPlaybackRate(1)
+                setVolume(1)
                 setZoom(1)
                 setVerticalZoom(1)
+                setWaveformOffset(0)
+                setScrollOffset(0)
+                setViewWidth(0)
+                setSnapToGrid(true)
+                setShowGrid(true)
+                setShowWaveform(true)
+                setShowDetailedGrid(false)
+                setMarkedBars([])
+                setMarkedSubBars([])
                 setPlayheadPosition(0)
                 setCurrentTime(0)
-                setMarkers([])
-                setRegions([])
+                setIsPlaying(false)
                 setSelectionStart(null)
                 setSelectionEnd(null)
+                setWaveSelectionStart(null)
+                setWaveSelectionEnd(null)
+                setMarkers([])
+                setRegions([])
+                setDuplicateWave(null)
+                setIsDuplicateMain(false)
+                setPlayBothMode(false)
+                setEditHistory([])
+                setHistoryIndex(-1)
+                setProjectData(null)
+                setCurrentSessionId(null)
+                setIsHalfTime(false)
+                setHalfTimeRatio(0.5)
                 setIsSelecting(false)
                 setEditingMarker(null)
                 setSelectedCategory('all')
                 setCustomCategories([])
+                
+                // Reset audio to beginning
                 if (audioRef.current) {
                   audioRef.current.currentTime = 0
                 }
-                // Force reload waveform
+                
+                // Force reload waveform without auto-loading session
                 if (audioFile) {
                   loadAudioFile(audioFile)
                 }
+                
+                toast({
+                  title: "Reset Complete",
+                  description: "All settings reset and auto-loading disabled",
+                  variant: "default",
+                })
               }}
               className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
             >
                   <span className="text-xs">Reset All</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={disableAutoLoad ? "destructive" : "default"}
+              onClick={() => {
+                const newState = !disableAutoLoad
+                setDisableAutoLoad(newState)
+                if (newState) {
+                  sessionStorage.setItem('loop-editor-disable-auto-load', 'true')
+                  toast({
+                    title: "Auto-Load Disabled",
+                    description: "Sessions will no longer auto-load on page refresh",
+                    variant: "default",
+                  })
+                } else {
+                  sessionStorage.removeItem('loop-editor-disable-auto-load')
+                  toast({
+                    title: "Auto-Load Enabled",
+                    description: "Sessions will auto-load on page refresh",
+                    variant: "default",
+                  })
+                }
+              }}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+              title={disableAutoLoad ? "Enable auto-loading" : "Disable auto-loading"}
+            >
+                  <span className="text-xs">{disableAutoLoad ? "Auto-Load Off" : "Auto-Load On"}</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={showGrid ? "default" : "outline"}
+              onClick={() => setShowGrid(!showGrid)}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+              title={showGrid ? "Hide grid" : "Show grid"}
+            >
+                  <span className="text-xs">{showGrid ? "Grid On" : "Grid Off"}</span>
             </Button>
               </div>
             </div>

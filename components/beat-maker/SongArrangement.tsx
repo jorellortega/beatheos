@@ -247,7 +247,7 @@ export function SongArrangement({
   const [isSavingToLibrary, setIsSavingToLibrary] = useState(false)
   const [librarySaveError, setLibrarySaveError] = useState<string | null>(null)
   const [showSaveToLibraryDialog, setShowSaveToLibraryDialog] = useState(false)
-  const [saveToLibraryType, setSaveToLibraryType] = useState<'album' | 'single' | 'audio-library'>('audio-library')
+  const [saveToLibraryType, setSaveToLibraryType] = useState<'album' | 'single' | 'track' | 'audio-library'>('audio-library')
   const [existingItems, setExistingItems] = useState<{id: string, title: string, name?: string, cover_art_url?: string, artist?: string, description?: string}[]>([])
   const [selectedItemId, setSelectedItemId] = useState<string>('')
   const [createNew, setCreateNew] = useState(false)
@@ -3732,7 +3732,7 @@ export function SongArrangement({
 
 
   // Load existing items for the selected type
-  const loadExistingItems = async (userId: string, type?: 'album' | 'single' | 'audio-library') => {
+  const loadExistingItems = async (userId: string, type?: 'album' | 'single' | 'track' | 'audio-library') => {
     try {
       const fetchType = type || saveToLibraryType
       console.log('[DEBUG] loadExistingItems called with type:', fetchType)
@@ -3777,6 +3777,25 @@ export function SongArrangement({
           }))
         } else if (error) {
           console.error('[LIBRARY] Error fetching singles:', error)
+        }
+      } else if (fetchType === 'track') {
+        console.log('[DEBUG] Fetching tracks for user:', userId)
+        const { data, error } = await supabase
+          .from('tracks')
+          .select('id, title, artist, cover_art_url')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+        
+        if (!error && data) {
+          console.log('[LIBRARY] Fetched tracks:', data)
+          items = data.map(item => ({ 
+            id: item.id, 
+            title: item.title,
+            artist: item.artist,
+            cover_art_url: item.cover_art_url
+          }))
+        } else if (error) {
+          console.error('[LIBRARY] Error fetching tracks:', error)
         }
       } else if (fetchType === 'audio-library') {
         console.log('[DEBUG] Fetching audio library items for user:', userId)
@@ -3873,7 +3892,7 @@ export function SongArrangement({
     }
   }
 
-  const handleTypeChange = async (type: 'album' | 'single' | 'audio-library') => {
+  const handleTypeChange = async (type: 'album' | 'single' | 'track' | 'audio-library') => {
     console.log('[DEBUG] handleTypeChange called with type:', type)
     setSaveToLibraryType(type)
     setNewTrackTitle('') // Reset track title when type changes
@@ -4118,6 +4137,53 @@ export function SongArrangement({
           }
           savedItem = singleData
         }
+      } else if (saveToLibraryType === 'track') {
+        if (createNew) {
+          // Create new track
+          const { data: trackData, error: trackError } = await supabase
+            .from('tracks')
+            .insert({
+              user_id: user.id,
+              title: newItemTitle,
+              artist: user.email?.split('@')[0] || 'Unknown Artist',
+              release_date: new Date().toISOString().split('T')[0],
+              description: newItemDescription,
+              duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+              audio_url: urlData.publicUrl,
+              cover_art_url: null, // Set to null to avoid console error
+              session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+              bpm: bpm,
+              genre: genre,
+              subgenre: subgenre
+            })
+            .select()
+            .single()
+
+          if (trackError) {
+            throw new Error(`Track creation failed: ${trackError.message}`)
+          }
+          savedItem = trackData
+        } else {
+          // Update existing track with new audio file
+          const { data: trackData, error: trackError } = await supabase
+            .from('tracks')
+            .update({
+              audio_url: urlData.publicUrl,
+              duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+              description: newItemDescription || `Beat arrangement with ${patternCount} patterns, ${maxEndBar} bars at ${bpm} BPM`,
+              bpm: bpm,
+              genre: genre,
+              subgenre: subgenre
+            })
+            .eq('id', selectedItemId)
+            .select()
+            .single()
+
+          if (trackError) {
+            throw new Error(`Track update failed: ${trackError.message}`)
+          }
+          savedItem = trackData
+        }
       } else if (saveToLibraryType === 'audio-library') {
         // Create record in audio_library_items table
         const { data: libraryData, error: libraryError } = await supabase
@@ -4152,7 +4218,7 @@ export function SongArrangement({
 
       showNotification(
         'Saved to Library', 
-        `Beat arrangement saved successfully to ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : 'audio library'}!\n\nFile: ${filename}\nDuration: ${durationMinutes}m ${durationSeconds}s\nPatterns: ${patternCount}\nBPM: ${bpm}\n\n💡 Tip: If you experience sync issues, try using "Export (Live)" instead for perfect timing.`, 
+        `Beat arrangement saved successfully to ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : saveToLibraryType === 'track' ? 'track' : 'audio library'}!\n\nFile: ${filename}\nDuration: ${durationMinutes}m ${durationSeconds}s\nPatterns: ${patternCount}\nBPM: ${bpm}\n\n💡 Tip: If you experience sync issues, try using "Export (Live)" instead for perfect timing.`, 
         'success'
       )
 
@@ -4278,6 +4344,9 @@ export function SongArrangement({
                 const { data: urlData } = supabase.storage
                   .from('beats')
                   .getPublicUrl(filePath)
+
+                // Detect genre from track names
+                const { genre, subgenre } = detectGenreFromTrackName(tracks[0]?.name || 'beat')
 
                 // Save based on the selected library type (same logic as saveArrangementToLibrary)
                 let savedItem: any = null
@@ -4422,6 +4491,53 @@ export function SongArrangement({
                     }
                     savedItem = singleData
                   }
+                } else if (saveToLibraryType === 'track') {
+                  if (createNew) {
+                    // Create new track
+                    const { data: trackData, error: trackError } = await supabase
+                      .from('tracks')
+                      .insert({
+                        user_id: user.id,
+                        title: newItemTitle,
+                        artist: user.email?.split('@')[0] || 'Unknown Artist',
+                        release_date: new Date().toISOString().split('T')[0],
+                        description: newItemDescription,
+                        duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+                        audio_url: urlData.publicUrl,
+                        cover_art_url: null, // Set to null to avoid console error
+                        session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        bpm: bpm,
+                        genre: '', // Could be enhanced to detect genre
+                        subgenre: '' // Could be enhanced to detect subgenre
+                      })
+                      .select()
+                      .single()
+
+                    if (trackError) {
+                      throw new Error(`Track creation failed: ${trackError.message}`)
+                    }
+                    savedItem = trackData
+                  } else {
+                    // Update existing track with new audio file
+                    const { data: trackData, error: trackError } = await supabase
+                      .from('tracks')
+                      .update({
+                        audio_url: urlData.publicUrl,
+                        duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
+                        description: newItemDescription || `Live export with ${patternCount} patterns, ${maxEndBar} bars at ${bpm} BPM`,
+                        bpm: bpm,
+                        genre: '', // Could be enhanced to detect genre
+                        subgenre: '' // Could be enhanced to detect subgenre
+                      })
+                      .eq('id', selectedItemId)
+                      .select()
+                      .single()
+
+                    if (trackError) {
+                      throw new Error(`Track update failed: ${trackError.message}`)
+                    }
+                    savedItem = trackData
+                  }
                 } else if (saveToLibraryType === 'audio-library') {
                   // Create record in audio_library_items table
                   const insertData = {
@@ -4463,7 +4579,7 @@ export function SongArrangement({
 
                 showNotification(
                   'Live Export Saved to Library', 
-                  `Live export saved successfully to your ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : 'audio library'}!\n\nFile: ${filename}\nDuration: ${durationMinutes}m ${durationSeconds}s\nPatterns: ${patternCount}\nBPM: ${bpm}\n\n🎵 Perfect timing preserved with live recording!`, 
+                  `Live export saved successfully to your ${saveToLibraryType === 'album' ? 'album' : saveToLibraryType === 'single' ? 'single' : saveToLibraryType === 'track' ? 'track' : 'audio library'}!\n\nFile: ${filename}\nDuration: ${durationMinutes}m ${durationSeconds}s\nPatterns: ${patternCount}\nBPM: ${bpm}\n\n🎵 Perfect timing preserved with live recording!`, 
                   'success'
                 )
 
@@ -7174,7 +7290,7 @@ export function SongArrangement({
             {/* Type Selection */}
             <div className="space-y-3">
               <Label className="text-white">Save to:</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Button
                   variant={saveToLibraryType === 'album' ? 'default' : 'outline'}
                   onClick={() => handleTypeChange('album')}
@@ -7188,6 +7304,13 @@ export function SongArrangement({
                   className={`text-sm ${saveToLibraryType === 'single' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-700'}`}
                 >
                   Singles
+                </Button>
+                <Button
+                  variant={saveToLibraryType === 'track' ? 'default' : 'outline'}
+                  onClick={() => handleTypeChange('track')}
+                  className={`text-sm ${saveToLibraryType === 'track' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-800 hover:bg-gray-700'}`}
+                >
+                  Tracks
                 </Button>
                 <Button
                   variant={saveToLibraryType === 'audio-library' ? 'default' : 'outline'}

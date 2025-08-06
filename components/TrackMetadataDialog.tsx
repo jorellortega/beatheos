@@ -39,7 +39,7 @@ interface TrackMetadataDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   trackId: string
-  trackType: 'single' | 'album_track'
+  trackType: 'single' | 'album_track' | 'track'
   initialMetadata?: TrackMetadata
   onSave: (metadata: TrackMetadata) => Promise<void>
 }
