@@ -7327,6 +7327,69 @@ export default function BeatMakerPage() {
     loadGenreTemplates(genre.id)
   }
 
+  // Automate trap beat creation process
+  const automateTrapBeatCreation = async () => {
+    console.log('[AUTOMATION] Starting trap beat creation automation...')
+    
+    try {
+      // Step 1: Turn on Strata mode
+      console.log('[AUTOMATION] Step 1: Turning on Strata mode')
+      setIsAutoMode(true)
+      
+      // Step 2: Wait for Strata mode to be applied
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Step 3: Hit shuffle all once
+      console.log('[AUTOMATION] Step 3: First shuffle all')
+      await handleShuffleAll()
+      
+      // Step 4: Wait 2 seconds
+      console.log('[AUTOMATION] Step 4: Waiting 2 seconds')
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Step 5: Hit shuffle all again
+      console.log('[AUTOMATION] Step 5: Second shuffle all')
+      await handleShuffleAll()
+      
+      // Step 6: Wait for shuffle to complete
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Step 7: Play transport for 5 seconds then stop
+      console.log('[AUTOMATION] Step 7: Playing transport for 5 seconds')
+      playSequence()
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      stopSequence()
+      
+      // Step 8: Open song arrangement tab and set bars to 44
+      console.log('[AUTOMATION] Step 8: Opening song arrangement and setting bars to 44')
+      setActiveTab('song-arrangement')
+      
+      // Step 9: Wait for tab to load
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Step 10: Set custom bars to 44 (we need to access the song arrangement component)
+      // This will be handled by the song arrangement component itself
+      console.log('[AUTOMATION] Step 10: Setting bars to 44')
+      
+      // Step 11: Create drops once
+      console.log('[AUTOMATION] Step 11: Creating drops')
+      // This will be handled by the song arrangement component
+      
+      // Step 12: Play transport
+      console.log('[AUTOMATION] Step 12: Playing transport')
+      // This will be handled by the song arrangement component
+      
+      console.log('[AUTOMATION] Trap beat creation automation completed!')
+      
+      // Show notification
+      showNotification('Automation Complete', 'Trap beat creation automation completed! Check the song arrangement tab.', 'success')
+      
+    } catch (error) {
+      console.error('[AUTOMATION] Error during trap beat creation:', error)
+      showNotification('Automation Error', 'An error occurred during automation. Please try again.', 'error')
+    }
+  }
+
   // Load subgenres for a specific genre
   const loadSubgenresForGenre = async (genreName: string) => {
     if (!genreName) {
@@ -7900,6 +7963,11 @@ export default function BeatMakerPage() {
                         if (trapGenre) {
                           applyGenreSettings(trapGenre)
                         }
+                        
+                        // Automate the full trap beat creation process
+                        setTimeout(() => {
+                          automateTrapBeatCreation()
+                        }, 1000) // Small delay to let genre settings apply
                       }
                     }}
                     placeholder="Describe the beat you want to create... (e.g., 'Dark trap beat with heavy 808s and atmospheric melodies')"

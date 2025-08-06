@@ -4182,6 +4182,18 @@ export default function LoopEditorPage() {
   return (
     <div 
       className="min-h-screen bg-[#141414] text-white"
+      style={{ 
+        margin: '0 !important', 
+        padding: '16px !important', 
+        width: '100vw !important', 
+        maxWidth: '100vw !important', 
+        overflowX: 'hidden', 
+        position: 'relative', 
+        left: '0 !important', 
+        transform: 'translateX(0) !important',
+        marginLeft: '-300px !important',
+        paddingLeft: '316px !important'
+      }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -4510,12 +4522,12 @@ export default function LoopEditorPage() {
       </div>
       
       {/* Main Content */}
-      <div className="flex h-[calc(100vh-120px)]">
+      <div className="flex h-[calc(100vh-120px)]" style={{ justifyContent: 'flex-start !important', width: '100% !important', maxWidth: '100% !important', margin: '0 !important', padding: '0 !important', position: 'relative', left: '0 !important', transform: 'translateX(0) !important' }}>
         {/* Left Side - Transport, Waveform, and Toolbar */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col" style={{ marginLeft: '0 !important', paddingLeft: '0 !important', width: '100% !important', position: 'relative', left: '0 !important' }}>
           {/* Transport Controls - Above Waveform */}
           <div className="bg-[#0f0f0f] border-b border-gray-600 p-3 sm:p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8" style={{ justifyContent: 'flex-start !important' }}>
             {/* Left Section - Transport Info */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
                 <div className="flex items-center gap-2 sm:gap-4">
@@ -5038,7 +5050,7 @@ export default function LoopEditorPage() {
 
         {/* Second Bottom Control Bar - File Management & Advanced */}
         <div className="bg-[#0f0f0f] border-t border-gray-600 p-3 sm:p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-8">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8" style={{ justifyContent: 'flex-start !important' }}>
             {/* Left Section - Export Controls */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-8">
               <div className="flex items-center gap-2 sm:gap-4">
