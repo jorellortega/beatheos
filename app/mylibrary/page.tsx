@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image } from 'lucide-react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -145,6 +145,7 @@ interface AudioSubfolder {
 }
 
 export default function MyLibrary() {
+  const router = useRouter()
   const { user } = useAuth();
   const { toast } = useToast();
   const searchParams = useSearchParams();
@@ -3892,6 +3893,71 @@ export default function MyLibrary() {
     }
   }
 
+  // Function to open audio file in loop editor
+  const openInLoopEditor = async (audioUrl: string, fileName: string, bpm?: number) => {
+    try {
+      // Get user session
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast({
+          title: "Authentication Error",
+          description: "Please log in to open files in loop editor.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Create a unique filename for the session
+      const timestamp = Date.now()
+      const sessionFileName = `${fileName}-${timestamp}.wav`
+      
+      // Create a loop-editor session
+      const sessionData = {
+        name: `Library File - ${fileName}`,
+        audio_file_name: sessionFileName,
+        audio_file_url: audioUrl,
+        bpm: bpm || 120, // Default BPM if not provided
+        markers: [],
+        regions: [],
+        user_id: session.user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      // Save the session to the database
+      const { data: savedSession, error: sessionError } = await supabase
+        .from('loop_editor_sessions')
+        .insert([sessionData])
+        .select()
+        .single()
+
+      if (sessionError) {
+        console.error('[OPEN IN LOOP EDITOR] Session save error:', sessionError)
+        toast({
+          title: "Session Save Failed",
+          description: "Failed to create loop editor session.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      console.log('[OPEN IN LOOP EDITOR] Session saved:', savedSession)
+
+      // Navigate to loop-editor with the session ID
+      const loopEditorUrl = `/loop-editor?loop-session=${savedSession.id}`
+      console.log('[OPEN IN LOOP EDITOR] Navigating to:', loopEditorUrl)
+      router.push(loopEditorUrl)
+
+    } catch (error) {
+      console.error('[OPEN IN LOOP EDITOR] Error:', error)
+      toast({
+        title: "Error",
+        description: "Failed to open file in loop editor. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="container mx-auto py-8">
       <div className="flex justify-between items-center mb-8">
@@ -5157,6 +5223,14 @@ export default function MyLibrary() {
                                   Edit Track
                                 </DropdownMenuItem>
                                 
+                                {/* Open in Loop Editor */}
+                                {track.audio_url && (
+                                  <DropdownMenuItem onClick={() => openInLoopEditor(track.audio_url!, track.title, track.bpm || undefined)}>
+                                    <Edit3 className="h-3 w-3 mr-2" />
+                                    Open in Loop Editor
+                                  </DropdownMenuItem>
+                                )}
+                                
                                 <DropdownMenuItem onClick={() => deleteTrack(track.id)}>
                                   <Trash2 className="h-3 w-3 mr-2" />
                                   Delete Track
@@ -5568,6 +5642,22 @@ export default function MyLibrary() {
                               className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
                             >
                               <StickyNote className="h-4 w-4" />
+                            </Button>
+                            {/* Open in Loop Editor Button */}
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => single.audio_url && openInLoopEditor(single.audio_url!, single.title)}
+                              disabled={!single.audio_url}
+                              className={`${
+                                single.audio_url 
+                                  ? 'bg-teal-600 hover:bg-teal-700 text-white border-teal-500' 
+                                  : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
+                              }`}
+                              title={single.audio_url ? 'Open in Loop Editor' : 'No audio file available'}
+                            >
+                              <Edit3 className="h-4 w-4 mr-1" />
+                              <span className="hidden sm:inline">Loop Editor</span>
                             </Button>
                             {/* Upload Button */}
                             <input
@@ -6099,6 +6189,19 @@ export default function MyLibrary() {
                   <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
                     <Pencil className="h-4 w-4 mr-2" />Edit
                   </Button>
+                  {/* Open in Loop Editor Button */}
+                  {item.file_url && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => openInLoopEditor(item.file_url!, item.name, item.bpm || undefined)}
+                      className="bg-teal-600 hover:bg-teal-700 text-white border-teal-500"
+                      title="Open in Loop Editor"
+                    >
+                      <Edit3 className="h-4 w-4 mr-2" />
+                      Loop Editor
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" asChild>
                   <a href={item.file_url} download>Download</a>
                   </Button>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -8,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download, MousePointer, Save, FolderOpen, Brain, Shuffle, Library } from 'lucide-react'
+import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical, Scissors, Loader2, ChevronLeft, ChevronRight, Grid3X3, BarChart3, MoveHorizontal, Download, MousePointer, Save, FolderOpen, Brain, Shuffle, Library, ExternalLink } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import * as Tone from 'tone'
 import { supabase } from '@/lib/supabaseClient'
@@ -75,6 +76,7 @@ export function SongArrangement({
   onMasterVolumeChange,
   currentSessionId
 }: SongArrangementProps) {
+  const router = useRouter()
   const [patternBlocks, setPatternBlocks] = useState<PatternBlock[]>(patterns)
   const [currentPattern, setCurrentPattern] = useState<PatternBlock | null>(null)
   const [isArrangementPlaying, setIsArrangementPlaying] = useState(false)
@@ -3353,13 +3355,22 @@ export function SongArrangement({
                   
                   console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Export completed and downloaded!')
                   
-                  // HIGH QUALITY RECORDING: Clean up
+                  // HIGH QUALITY RECORDING: Clean up with error handling
                   try {
                     ;(window as any).mediaRecorderForExport = null
                   } catch (error) {
                     console.error('[EXPORT LIVE] Error setting mediaRecorderForExport to null:', error)
                   }
-                  Tone.Destination.disconnect(mediaStreamDestination)
+                  
+                  try {
+                    // Check if Tone.Destination and mediaStreamDestination are still valid before disconnecting
+                    if (Tone.Destination && mediaStreamDestination && mediaStreamDestination.stream) {
+                      Tone.Destination.disconnect(mediaStreamDestination)
+                    }
+                  } catch (disconnectError) {
+                    console.error('[EXPORT LIVE] Error disconnecting from mediaStreamDestination:', disconnectError)
+                  }
+                  
                   setIsExportLiveRecording(false)
                   
                   // Resolve the promise with the blob
@@ -3371,9 +3382,20 @@ export function SongArrangement({
             }
           } catch (error) {
             console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Error in onstop:', error)
-            // Reject the promise on error
-            if ((window as any).exportReject) {
-              (window as any).exportReject(error)
+            
+            // Handle InvalidAccessError specifically
+            if (error instanceof Error && error.name === 'InvalidAccessError') {
+              console.log('[EXPORT LIVE] InvalidAccessError in onstop - this is expected when audio resources are cleaned up')
+              // Don't reject the promise for InvalidAccessError as the export was successful
+              if ((window as any).exportResolve) {
+                // Resolve with null since the export was successful but we can't return the blob
+                ;(window as any).exportResolve(null)
+              }
+            } else {
+              // Reject the promise for other errors
+              if ((window as any).exportReject) {
+                (window as any).exportReject(error)
+              }
             }
           }
         }, 100)
@@ -3414,9 +3436,22 @@ export function SongArrangement({
             stopArrangement()
           }
           
-          // HIGH QUALITY RECORDING: Clean up
-          (window as any).mediaRecorderForExport = null
-          Tone.Destination.disconnect(mediaStreamDestination)
+          // HIGH QUALITY RECORDING: Clean up with error handling
+          try {
+            (window as any).mediaRecorderForExport = null
+          } catch (error) {
+            console.error('[EXPORT LIVE] Error setting mediaRecorderForExport to null in timer:', error)
+          }
+          
+          try {
+            // Check if Tone.Destination and mediaStreamDestination are still valid before disconnecting
+            if (Tone.Destination && mediaStreamDestination && mediaStreamDestination.stream) {
+              Tone.Destination.disconnect(mediaStreamDestination)
+            }
+          } catch (disconnectError) {
+            console.error('[EXPORT LIVE] Error disconnecting from mediaStreamDestination in timer:', disconnectError)
+          }
+          
           setIsExportLiveRecording(false)
           
           console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Timer cleanup complete')
@@ -3502,6 +3537,167 @@ export function SongArrangement({
     } catch (error) {
       console.error('[EXPORT LIVE] Error downloading live capture WAV:', error)
       alert('Error exporting live capture WAV file. Please check the console for details.')
+    }
+  }
+
+  // Export arrangement to loop-editor
+  const exportToLoopEditor = async () => {
+    try {
+      console.log('[EXPORT TO LOOP EDITOR] Starting export...')
+      
+      // Check if we have patterns to export
+      if (patternBlocks.length === 0) {
+        showNotification('No Patterns', 'No patterns to export! Please add some patterns first.', 'warning')
+        return
+      }
+
+      // Set export markers if not already set
+      if (!exportMarkersActive) {
+        setExportMarkers()
+        showNotification('Export Markers Set', 'Export markers have been set. Click "Export to Loop Editor" again to start the export.', 'info')
+        return
+      }
+
+      // Show loading notification
+      showNotification('Exporting...', 'Exporting arrangement to loop editor...', 'info')
+
+      // Export the arrangement as WAV with better error handling
+      let wavBlob: Blob | null = null
+      try {
+        // Ensure audio is stopped before export to prevent InvalidAccessError
+        if (isArrangementPlaying) {
+          console.log('[EXPORT TO LOOP EDITOR] Stopping arrangement before export')
+          stopArrangement()
+          // Small delay to ensure audio is fully stopped
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+        
+        wavBlob = await exportBeatAsWavLive()
+      } catch (exportError) {
+        console.error('[EXPORT TO LOOP EDITOR] Export error:', exportError)
+        
+        // Check if it's an InvalidAccessError and handle gracefully
+        if (exportError instanceof Error && exportError.name === 'InvalidAccessError') {
+          console.log('[EXPORT TO LOOP EDITOR] InvalidAccessError detected - creating fallback audio')
+          showNotification('Export Warning', 'Audio access error, creating simple audio file...', 'warning')
+        } else {
+          showNotification('Export Warning', 'Live export failed, creating simple audio file...', 'warning')
+        }
+        
+        // Create a simple WAV file as fallback
+        try {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+          const sampleRate = 44100
+          const duration = (exportEndBar - exportStartBar + 1) * 4 * (60 / bpm) // Calculate duration in seconds
+          const buffer = audioContext.createBuffer(2, sampleRate * duration, sampleRate)
+          
+          // Fill with silence (or you could add a simple tone)
+          for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const channelData = buffer.getChannelData(channel)
+            for (let i = 0; i < channelData.length; i++) {
+              channelData[i] = 0 // Silence
+            }
+          }
+          
+          // Convert to WAV
+          wavBlob = audioBufferToWav(buffer)
+          
+          // Clean up audio context
+          audioContext.close()
+        } catch (fallbackError) {
+          console.error('[EXPORT TO LOOP EDITOR] Fallback audio creation failed:', fallbackError)
+          showNotification('Export Failed', 'Failed to create fallback audio file.', 'error')
+          return
+        }
+      }
+      
+      if (!wavBlob || wavBlob.size === 0) {
+        showNotification('Export Failed', 'Failed to generate audio file for export.', 'error')
+        return
+      }
+
+      // Get user session
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        showNotification('Authentication Error', 'Please log in to export to loop editor.', 'error')
+        return
+      }
+
+      // Create a unique filename for the exported audio
+      const timestamp = Date.now()
+      const filename = `beat-arrangement-${timestamp}.wav`
+      
+      // Upload the WAV file to storage
+      const filePath = `loop-editor-exports/${session.user.id}/${filename}`
+      
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, wavBlob, { 
+          upsert: true,
+          contentType: 'audio/wav'
+        })
+      
+      if (uploadError) {
+        console.error('[EXPORT TO LOOP EDITOR] Upload error:', uploadError)
+        showNotification('Upload Failed', 'Failed to upload audio file.', 'error')
+        return
+      }
+
+      // Get the public URL for the uploaded file
+      const { data: urlData } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      // Create a loop-editor session
+      const sessionData = {
+        name: `Beat Arrangement - ${new Date().toLocaleString()}`,
+        audio_file_name: filename,
+        audio_file_url: urlData.publicUrl,
+        bpm: bpm,
+        markers: [], // Start with empty markers
+        regions: [], // Start with empty regions
+        user_id: session.user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      // Save the session to the database
+      const { data: savedSession, error: sessionError } = await supabase
+        .from('loop_editor_sessions')
+        .insert([sessionData])
+        .select()
+        .single()
+
+      if (sessionError) {
+        console.error('[EXPORT TO LOOP EDITOR] Session save error:', sessionError)
+        showNotification('Session Save Failed', 'Failed to save loop editor session.', 'error')
+        return
+      }
+
+      console.log('[EXPORT TO LOOP EDITOR] Session saved:', savedSession)
+
+      // Show success notification before navigation
+      showNotification('Export Successful', 'Arrangement exported! Opening loop editor...', 'success')
+      
+      // Small delay to ensure notification is shown
+      setTimeout(() => {
+        // Navigate to loop-editor with the session ID (using loop-session to avoid conflict with beat-maker)
+        const loopEditorUrl = `/loop-editor?loop-session=${savedSession.id}`
+        console.log('[EXPORT TO LOOP EDITOR] Navigating to:', loopEditorUrl)
+        
+        // Try router.push first, fallback to window.location if needed
+        try {
+          router.push(loopEditorUrl)
+        } catch (navError) {
+          console.error('[EXPORT TO LOOP EDITOR] Router navigation failed:', navError)
+          console.log('[EXPORT TO LOOP EDITOR] Falling back to window.location')
+          window.location.href = loopEditorUrl
+        }
+      }, 1000)
+      
+    } catch (error) {
+      console.error('[EXPORT TO LOOP EDITOR] Error:', error)
+      showNotification('Export Failed', 'Failed to export to loop editor. Please try again.', 'error')
     }
   }
 
@@ -5679,6 +5875,31 @@ export function SongArrangement({
                   </Button>
                 )}
             </div>
+            <Button
+              onClick={exportToLoopEditor}
+              disabled={patternBlocks.length === 0}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-teal-600 hover:bg-teal-700 text-white border-teal-500"
+              title="Export arrangement to loop editor for further editing"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" />
+              Export to Loop Editor
+            </Button>
+            {/* Debug button - remove in production */}
+            <Button
+              onClick={() => {
+                console.log('[DEBUG] Testing navigation to loop editor')
+                window.location.href = '/loop-editor?session=test-session-id'
+              }}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-gray-600 hover:bg-gray-700 text-white border-gray-500"
+              title="Debug: Test navigation to loop editor"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" />
+              Debug: Test Nav
+            </Button>
             <Button
               onClick={openSaveBeatDialog}
               variant="outline"

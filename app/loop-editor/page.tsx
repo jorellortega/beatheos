@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -43,7 +44,11 @@ import {
   FolderOpen,
   Library,
   Search,
-  Sparkles
+  Sparkles,
+  Plus,
+  Disc3,
+  FileAudio,
+  Album
 } from 'lucide-react'
 
 interface WaveformPoint {
@@ -133,6 +138,7 @@ interface AudioSubfolder {
 }
 
 export default function LoopEditorPage() {
+  const searchParams = useSearchParams()
   // Core state
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [audioUrl, setAudioUrl] = useState<string>('')
@@ -255,6 +261,32 @@ export default function LoopEditorPage() {
   const [sessions, setSessions] = useState<any[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  
+  // Save to Library state
+  const [showSaveToLibraryDialog, setShowSaveToLibraryDialog] = useState(false)
+  const [saveToLibraryType, setSaveToLibraryType] = useState<'single' | 'track' | 'album' | 'album_track' | 'audio_library'>('single')
+  const [saveToLibraryName, setSaveToLibraryName] = useState('')
+  const [saveToLibraryAlbumName, setSaveToLibraryAlbumName] = useState('')
+  const [saveToLibraryDescription, setSaveToLibraryDescription] = useState('')
+  const [saveToLibraryGenre, setSaveToLibraryGenre] = useState('')
+  const [saveToLibrarySubgenre, setSaveToLibrarySubgenre] = useState('')
+  const [saveToLibraryTags, setSaveToLibraryTags] = useState<string[]>([])
+  const [saveToLibraryPackId, setSaveToLibraryPackId] = useState<string | null>(null)
+  const [saveToLibrarySubfolder, setSaveToLibrarySubfolder] = useState<string | null>(null)
+  const [saveToLibraryReplaceId, setSaveToLibraryReplaceId] = useState<string | null>(null)
+  const [saveToLibraryReplaceType, setSaveToLibraryReplaceType] = useState<'single' | 'track' | 'album_track'>('single')
+  const [showCreatePack, setShowCreatePack] = useState(false)
+  const [newPackName, setNewPackName] = useState('')
+  const [newPackDescription, setNewPackDescription] = useState('')
+  const [newPackColor, setNewPackColor] = useState('#3B82F6')
+  const [availablePacks, setAvailablePacks] = useState<AudioPack[]>([])
+  const [availableSingles, setAvailableSingles] = useState<any[]>([])
+  const [availableTracks, setAvailableTracks] = useState<any[]>([])
+  const [availableAlbums, setAvailableAlbums] = useState<any[]>([])
+  const [availableAlbumTracks, setAvailableAlbumTracks] = useState<any[]>([])
+  const [selectedAlbumForTrack, setSelectedAlbumForTrack] = useState<string | null>(null)
+  const [loadingSaveToLibrary, setLoadingSaveToLibrary] = useState(false)
+  
   const { user } = useAuth()
   const { toast } = useToast()
   
@@ -295,6 +327,24 @@ export default function LoopEditorPage() {
       setGridLines(mainLines)
     }
   }, [bpm, gridDivision, effectiveDuration, stepDuration, showDetailedGrid])
+
+  // Handle session parameter from URL (only when explicitly requested)
+  useEffect(() => {
+    const sessionId = searchParams?.get('loop-session')
+    console.log('[LOOP EDITOR] URL parameters check:', { sessionId, userId: user?.id, searchParams: searchParams?.toString() })
+    
+    // Auto-load session if there's a session ID and user is authenticated
+    if (sessionId && user?.id) {
+      console.log('[LOOP EDITOR] Session ID found in URL, auto-loading session:', sessionId)
+      // Add a small delay to ensure component is fully mounted
+      setTimeout(() => {
+        loadSession(sessionId)
+      }, 100)
+    } else if (!sessionId) {
+      console.log('[LOOP EDITOR] No session ID in URL parameters')
+    }
+  }, [searchParams, user?.id])
+
 
 
   
@@ -1931,11 +1981,17 @@ export default function LoopEditorPage() {
   }
 
   const loadSession = async (sessionId: string) => {
-    if (!user?.id) return
+    if (!user?.id) {
+      console.log('[LOOP EDITOR] Cannot load session - no user ID')
+      return
+    }
 
     try {
+      console.log('[LOOP EDITOR] Loading session:', sessionId, 'for user:', user.id)
       const response = await fetch(`/api/loop-editor-sessions/load?id=${sessionId}&user_id=${user.id}`)
       const result = await response.json()
+
+      console.log('[LOOP EDITOR] Session load result:', result)
 
       if (result.success && result.session) {
         const session = result.session
@@ -1959,9 +2015,13 @@ export default function LoopEditorPage() {
               }
               
               const audioBlob = await audioResponse.blob()
+              console.log('🔍 Audio blob size:', audioBlob.size, 'type:', audioBlob.type)
+              
               const audioFileFromSession = new File([audioBlob], session.audio_file_name, {
                 type: audioBlob.type || 'audio/wav'
               })
+              
+              console.log('🔍 Created audio file:', audioFileFromSession.name, 'size:', audioFileFromSession.size)
               
               // Load the audio file
               await loadAudioFile(audioFileFromSession)
@@ -1992,34 +2052,36 @@ export default function LoopEditorPage() {
           }
         }
         
-        // Load all session data
+        // Load essential session data (only what we provide from beat-maker export)
         setBpm(session.bpm || 120)
-        setGridDivision(session.grid_division || 4)
-        setPlaybackRate(session.playback_rate || 1)
-        setVolume(session.volume || 1)
-        setZoom(session.zoom || 1)
-        setVerticalZoom(session.vertical_zoom || 1)
-        setWaveformOffset(session.waveform_offset || 0)
-        setScrollOffset(session.scroll_offset || 0)
-        setViewWidth(session.display_width || 0)
-        setSnapToGrid(session.snap_to_grid !== false)
-        setShowGrid(session.show_grid !== false)
-        setShowWaveform(session.show_waveform !== false)
-        setShowDetailedGrid(session.show_detailed_grid || false)
-        setMarkedBars(session.marked_bars || [])
-        setMarkedSubBars(session.marked_sub_bars || [])
-        setPlayheadPosition(session.playhead_position || 0)
-        setCurrentTime(session.current_playback_time || 0)
-        setIsPlaying(session.is_playing || false)
-        setSelectionStart(session.selection_start || null)
-        setSelectionEnd(session.selection_end || null)
-        setWaveSelectionStart(session.wave_selection_start || null)
-        setWaveSelectionEnd(session.wave_selection_end || null)
         setMarkers(session.markers || [])
         setRegions(session.regions || [])
-        setDuplicateWave(session.duplicate_wave || null)
-        setIsDuplicateMain(session.is_duplicate_main || false)
-        setPlayBothMode(session.play_both_mode || false)
+        
+        // Set default values for other required fields
+        setGridDivision(16) // Default to 1/16 grid like beat-maker
+        setPlaybackRate(1)
+        setVolume(1)
+        setZoom(1)
+        setVerticalZoom(1)
+        setWaveformOffset(0)
+        setScrollOffset(0)
+        setViewWidth(0)
+        setSnapToGrid(true)
+        setShowGrid(true)
+        setShowWaveform(true)
+        setShowDetailedGrid(false)
+        setMarkedBars([])
+        setMarkedSubBars([])
+        setPlayheadPosition(0)
+        setCurrentTime(0)
+        setIsPlaying(false)
+        setSelectionStart(null)
+        setSelectionEnd(null)
+        setWaveSelectionStart(null)
+        setWaveSelectionEnd(null)
+        setDuplicateWave(null)
+        setIsDuplicateMain(false)
+        setPlayBothMode(false)
         setEditHistory(session.edit_history || [])
         setHistoryIndex(session.history_index || -1)
         setProjectData(session.project_data || null)
@@ -4603,6 +4665,412 @@ export default function LoopEditorPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [playheadPosition, editingMarker, editingMarkerId, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, addMarkerToSelection, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, stopEditingMarker, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
   
+  // Save to Library Functions
+  const openSaveToLibraryDialog = async () => {
+    if (!audioFile) {
+      toast({
+        title: "No Audio File",
+        description: "Please load an audio file first before saving to library.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    setSaveToLibraryName(audioFile.name.replace(/\.[^/.]+$/, "")) // Remove file extension
+    setSaveToLibraryAlbumName('')
+    setSaveToLibraryDescription('')
+    setSaveToLibraryGenre('')
+    setSaveToLibrarySubgenre('')
+    setSaveToLibraryTags([])
+    setSaveToLibraryPackId(null)
+    setSaveToLibrarySubfolder(null)
+    setSaveToLibraryReplaceId(null)
+    setSaveToLibraryReplaceType('single')
+    
+    // Fetch available data for dropdowns
+    try {
+      // Fetch audio packs
+      const { data: packs } = await supabase
+        .from('audio_packs')
+        .select('*')
+        .order('name')
+      setAvailablePacks(packs || [])
+      
+      // Fetch singles
+      const { data: singles } = await supabase
+        .from('singles')
+        .select('id, title')
+        .order('title')
+      setAvailableSingles(singles || [])
+      
+      // Fetch tracks
+      const { data: tracks } = await supabase
+        .from('tracks')
+        .select('id, title')
+        .order('title')
+      setAvailableTracks(tracks || [])
+      
+      // Fetch albums
+      const { data: albums } = await supabase
+        .from('albums')
+        .select('id, title')
+        .order('title')
+      setAvailableAlbums(albums || [])
+      
+    } catch (error) {
+      console.error('Error fetching library data:', error)
+    }
+    
+    setShowSaveToLibraryDialog(true)
+  }
+  
+  const saveToLibrary = async () => {
+    if (!audioFile || !saveToLibraryName.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide a name for the file.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    // Check for album name when creating new album
+    if (saveToLibraryType === 'album' && (!saveToLibraryReplaceId || saveToLibraryReplaceId === 'new') && !saveToLibraryAlbumName.trim()) {
+      toast({
+        title: "Missing Album Name",
+        description: "Please provide a name for your album.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    setLoadingSaveToLibrary(true)
+    
+    try {
+      // First, upload the audio file to storage
+      const timestamp = Date.now()
+      const fileName = `${saveToLibraryName}-${timestamp}.wav`
+      const filePath = `library/${user?.id}/${fileName}`
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, audioFile)
+      
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`)
+      }
+      
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+      
+      const audioUrl = urlData.publicUrl
+      
+      // Save based on type
+      switch (saveToLibraryType) {
+        case 'single':
+          if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
+            // Replace existing single
+            const { error: updateError } = await supabase
+              .from('singles')
+              .update({
+                title: saveToLibraryName,
+                audio_url: audioUrl,
+                description: saveToLibraryDescription || null,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', saveToLibraryReplaceId)
+            
+            if (updateError) throw updateError
+            
+            toast({
+              title: "Single Updated",
+              description: `"${saveToLibraryName}" has been updated in your library.`,
+              variant: "default",
+            })
+          } else {
+            // Create new single
+            const { error: insertError } = await supabase
+              .from('singles')
+              .insert([{
+                title: saveToLibraryName,
+                artist: (user as any)?.user_metadata?.full_name || 'Unknown Artist',
+                audio_url: audioUrl,
+                description: saveToLibraryDescription || null,
+                release_date: new Date().toISOString().split('T')[0],
+                status: 'draft',
+                production_status: 'production'
+              }])
+            
+            if (insertError) throw insertError
+            
+            toast({
+              title: "Single Created",
+              description: `"${saveToLibraryName}" has been saved to your library.`,
+              variant: "default",
+            })
+          }
+          break
+          
+        case 'album':
+          if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
+            // Check if we're replacing a specific track
+            if (selectedAlbumForTrack && selectedAlbumForTrack !== 'album_only') {
+              // Replace specific track in album
+              const { error: trackError } = await supabase
+                .from('album_tracks')
+                .update({
+                  title: saveToLibraryName,
+                  audio_url: audioUrl,
+                  duration: duration.toFixed(2),
+                  bpm: bpm,
+                  genre: saveToLibraryGenre || null,
+                  subgenre: saveToLibrarySubgenre || null,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', selectedAlbumForTrack)
+              
+              if (trackError) throw trackError
+              
+              toast({
+                title: "Track Updated",
+                description: `Track has been updated in the album.`,
+                variant: "default",
+              })
+            } else {
+              // Replace existing album metadata only
+              const { error: updateError } = await supabase
+                .from('albums')
+                .update({
+                  title: saveToLibraryName,
+                  description: saveToLibraryDescription || null,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', saveToLibraryReplaceId)
+              
+              if (updateError) throw updateError
+              
+              toast({
+                title: "Album Updated",
+                description: `"${saveToLibraryName}" has been updated in your library.`,
+                variant: "default",
+              })
+            }
+          } else {
+            // Create new album
+            const { data: newAlbum, error: insertError } = await supabase
+              .from('albums')
+              .insert([{
+                title: saveToLibraryAlbumName || saveToLibraryName,
+                artist: (user as any)?.user_metadata?.full_name || 'Unknown Artist',
+                description: saveToLibraryDescription || null,
+                release_date: new Date().toISOString().split('T')[0],
+                status: 'draft',
+                production_status: 'production'
+              }])
+              .select()
+              .single()
+            
+            if (insertError) throw insertError
+            
+            // Now add the audio file as a track to this album
+            if (newAlbum) {
+              const { error: trackError } = await supabase
+                .from('album_tracks')
+                .insert([{
+                  album_id: newAlbum.id,
+                  title: saveToLibraryName,
+                  audio_url: audioUrl,
+                  duration: duration.toFixed(2),
+                  bpm: bpm,
+                  genre: saveToLibraryGenre || null,
+                  subgenre: saveToLibrarySubgenre || null,
+                  track_number: 1,
+                  status: 'draft'
+                }])
+              
+              if (trackError) {
+                console.error('Error adding track to album:', trackError)
+                // Don't throw here, album was created successfully
+              }
+            }
+            
+            toast({
+              title: "Album Created",
+              description: `"${saveToLibraryName}" album has been created with your audio file as the first track.`,
+              variant: "default",
+            })
+          }
+          break
+          
+        case 'track':
+          if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
+            // Replace existing track
+            const { error: updateError } = await supabase
+              .from('tracks')
+              .update({
+                title: saveToLibraryName,
+                audio_url: audioUrl,
+                description: saveToLibraryDescription || null,
+                bpm: bpm,
+                genre: saveToLibraryGenre || null,
+                subgenre: saveToLibrarySubgenre || null,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', saveToLibraryReplaceId)
+            
+            if (updateError) throw updateError
+            
+            toast({
+              title: "Track Updated",
+              description: `"${saveToLibraryName}" has been updated in your library.`,
+              variant: "default",
+            })
+          } else {
+            // Create new track
+            const { error: insertError } = await supabase
+              .from('tracks')
+              .insert([{
+                title: saveToLibraryName,
+                artist: (user as any)?.user_metadata?.full_name || 'Unknown Artist',
+                audio_url: audioUrl,
+                description: saveToLibraryDescription || null,
+                bpm: bpm,
+                genre: saveToLibraryGenre || null,
+                subgenre: saveToLibrarySubgenre || null,
+                release_date: new Date().toISOString().split('T')[0],
+                status: 'draft',
+                production_status: 'production'
+              }])
+            
+            if (insertError) throw insertError
+            
+            toast({
+              title: "Track Created",
+              description: `"${saveToLibraryName}" has been saved to your library.`,
+              variant: "default",
+            })
+          }
+          break
+          
+        case 'audio_library':
+          // Save to audio library
+          const { error: insertError } = await supabase
+            .from('audio_library')
+            .insert([{
+              name: saveToLibraryName,
+              type: 'loop',
+              description: saveToLibraryDescription || null,
+              file_url: audioUrl,
+              file_size: audioFile.size,
+              pack_id: saveToLibraryPackId && saveToLibraryPackId !== 'none' ? saveToLibraryPackId : null,
+              subfolder: saveToLibrarySubfolder || null,
+              bpm: bpm,
+              genre: saveToLibraryGenre || null,
+              subgenre: saveToLibrarySubgenre || null,
+              tags: saveToLibraryTags,
+              is_ready: true
+            }])
+          
+          if (insertError) throw insertError
+          
+          toast({
+            title: "Audio Library Item Created",
+            description: `"${saveToLibraryName}" has been saved to your audio library.`,
+            variant: "default",
+          })
+          break
+          
+        default:
+          throw new Error(`Unsupported save type: ${saveToLibraryType}`)
+      }
+      
+      setShowSaveToLibraryDialog(false)
+      
+    } catch (error) {
+      console.error('Error saving to library:', error)
+      toast({
+        title: "Save Failed",
+        description: error instanceof Error ? error.message : "Failed to save to library.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoadingSaveToLibrary(false)
+    }
+  }
+  
+  const addTag = (tag: string) => {
+    if (tag.trim() && !saveToLibraryTags.includes(tag.trim())) {
+      setSaveToLibraryTags([...saveToLibraryTags, tag.trim()])
+    }
+  }
+  
+  const removeTag = (tagToRemove: string) => {
+    setSaveToLibraryTags(saveToLibraryTags.filter(tag => tag !== tagToRemove))
+  }
+  
+  const fetchAlbumTracks = async (albumId: string) => {
+    try {
+      const { data: tracks } = await supabase
+        .from('album_tracks')
+        .select('id, title, track_number')
+        .eq('album_id', albumId)
+        .order('track_number')
+      setAvailableAlbumTracks(tracks || [])
+    } catch (error) {
+      console.error('Error fetching album tracks:', error)
+      setAvailableAlbumTracks([])
+    }
+  }
+  
+  const createNewPack = async () => {
+    if (!newPackName.trim()) {
+      toast({
+        title: "Missing Pack Name",
+        description: "Please provide a name for your new pack.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    try {
+      const { data: newPack, error } = await supabase
+        .from('audio_packs')
+        .insert([{
+          name: newPackName,
+          description: newPackDescription || null,
+          color: newPackColor,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single()
+      
+      if (error) throw error
+      
+      // Add the new pack to the available packs list
+      setAvailablePacks([...availablePacks, newPack])
+      setSaveToLibraryPackId(newPack.id)
+      setShowCreatePack(false)
+      setNewPackName('')
+      setNewPackDescription('')
+      
+      toast({
+        title: "Pack Created",
+        description: `"${newPackName}" pack has been created and selected.`,
+        variant: "default",
+      })
+    } catch (error) {
+      console.error('Error creating pack:', error)
+      toast({
+        title: "Pack Creation Failed",
+        description: error instanceof Error ? error.message : "Failed to create pack.",
+        variant: "destructive",
+      })
+    }
+  }
+  
   return (
     <div 
       className="min-h-screen bg-[#141414] text-white"
@@ -5525,6 +5993,16 @@ export default function LoopEditorPage() {
                     <Download className="w-4 h-4" />
                     <span className="ml-1 text-xs">MP3</span>
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={openSaveToLibraryDialog}
+                    disabled={!audioFile}
+                    className="bg-teal-700 text-teal-300 hover:bg-teal-600 border-teal-500 flex-shrink-0"
+                  >
+                    <Library className="w-4 h-4" />
+                    <span className="ml-1 text-xs">Save to Library</span>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -6428,6 +6906,401 @@ export default function LoopEditorPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      
+      {/* Save to Library Dialog */}
+      <Dialog open={showSaveToLibraryDialog} onOpenChange={setShowSaveToLibraryDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Library className="w-5 h-5" />
+              Save to Library
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Save Type Selection */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Save as:</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Button
+                  variant={saveToLibraryType === 'single' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSaveToLibraryType('single')}
+                  className="justify-start"
+                >
+                  <FileAudio className="w-4 h-4 mr-2" />
+                  Single
+                </Button>
+                <Button
+                  variant={saveToLibraryType === 'track' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSaveToLibraryType('track')}
+                  className="justify-start"
+                >
+                  <Music className="w-4 h-4 mr-2" />
+                  Track
+                </Button>
+                <Button
+                  variant={saveToLibraryType === 'album' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSaveToLibraryType('album')}
+                  className="justify-start"
+                >
+                  <Album className="w-4 h-4 mr-2" />
+                  Album
+                </Button>
+                <Button
+                  variant={saveToLibraryType === 'audio_library' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSaveToLibraryType('audio_library')}
+                  className="justify-start"
+                >
+                  <Library className="w-4 h-4 mr-2" />
+                  Audio Library
+                </Button>
+              </div>
+            </div>
+            
+            {/* Basic Information */}
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="save-name" className="text-sm font-medium">Name *</Label>
+                <Input
+                  id="save-name"
+                  value={saveToLibraryName}
+                  onChange={(e) => setSaveToLibraryName(e.target.value)}
+                  placeholder="Enter a name for your file"
+                  className="mt-1"
+                />
+              </div>
+              
+              {saveToLibraryType === 'album' && (!saveToLibraryReplaceId || saveToLibraryReplaceId === 'new') && (
+                <div>
+                  <Label htmlFor="save-album-name" className="text-sm font-medium">Album Name *</Label>
+                  <Input
+                    id="save-album-name"
+                    value={saveToLibraryAlbumName}
+                    onChange={(e) => setSaveToLibraryAlbumName(e.target.value)}
+                    placeholder="Enter a name for your album"
+                    className="mt-1"
+                  />
+                </div>
+              )}
+              
+              <div>
+                <Label htmlFor="save-description" className="text-sm font-medium">Description</Label>
+                <Input
+                  id="save-description"
+                  value={saveToLibraryDescription}
+                  onChange={(e) => setSaveToLibraryDescription(e.target.value)}
+                  placeholder="Optional description"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            
+            {/* Genre and Tags (for tracks and audio library) */}
+            {(saveToLibraryType === 'track' || saveToLibraryType === 'audio_library') && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="save-genre" className="text-sm font-medium">Genre</Label>
+                    <Input
+                      id="save-genre"
+                      value={saveToLibraryGenre}
+                      onChange={(e) => setSaveToLibraryGenre(e.target.value)}
+                      placeholder="e.g., Hip Hop, Trap"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="save-subgenre" className="text-sm font-medium">Subgenre</Label>
+                    <Input
+                      id="save-subgenre"
+                      value={saveToLibrarySubgenre}
+                      onChange={(e) => setSaveToLibrarySubgenre(e.target.value)}
+                      placeholder="e.g., Drill, Boom Bap"
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                
+                {saveToLibraryType === 'audio_library' && (
+                  <div>
+                    <Label className="text-sm font-medium">Tags</Label>
+                    <div className="mt-1 space-y-2">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Add a tag and press Enter"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const input = e.target as HTMLInputElement
+                              addTag(input.value)
+                              input.value = ''
+                            }
+                          }}
+                        />
+                      </div>
+                      {saveToLibraryTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {saveToLibraryTags.map((tag, index) => (
+                            <Badge
+                              key={index}
+                              variant="secondary"
+                              className="bg-blue-100 text-blue-800 hover:bg-blue-200"
+                            >
+                              {tag}
+                              <button
+                                onClick={() => removeTag(tag)}
+                                className="ml-1 text-blue-600 hover:text-blue-800"
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Audio Library Specific Options */}
+            {saveToLibraryType === 'audio_library' && (
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="save-pack" className="text-sm font-medium">Audio Pack</Label>
+                  <Select value={saveToLibraryPackId || ''} onValueChange={setSaveToLibraryPackId}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select a pack (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Pack</SelectItem>
+                      <SelectItem value="create_new">Create New Pack</SelectItem>
+                      {availablePacks.map((pack) => (
+                        <SelectItem key={pack.id} value={pack.id}>
+                          {pack.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {/* Create New Pack Form */}
+                {saveToLibraryPackId === 'create_new' && (
+                  <div className="space-y-3 p-4 border border-gray-600 rounded-lg bg-gray-900/50">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Create New Pack</Label>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setShowCreatePack(false)
+                          setSaveToLibraryPackId(null)
+                          setNewPackName('')
+                          setNewPackDescription('')
+                        }}
+                        className="text-gray-400 hover:text-white"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="new-pack-name" className="text-xs text-gray-400">Pack Name *</Label>
+                      <Input
+                        id="new-pack-name"
+                        value={newPackName}
+                        onChange={(e) => setNewPackName(e.target.value)}
+                        placeholder="Enter pack name"
+                        className="mt-1"
+                      />
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="new-pack-description" className="text-xs text-gray-400">Description</Label>
+                      <Input
+                        id="new-pack-description"
+                        value={newPackDescription}
+                        onChange={(e) => setNewPackDescription(e.target.value)}
+                        placeholder="Optional description"
+                        className="mt-1"
+                      />
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="new-pack-color" className="text-xs text-gray-400">Color</Label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <input
+                          type="color"
+                          value={newPackColor}
+                          onChange={(e) => setNewPackColor(e.target.value)}
+                          className="w-10 h-8 rounded border border-gray-600 cursor-pointer"
+                        />
+                        <Input
+                          id="new-pack-color"
+                          value={newPackColor}
+                          onChange={(e) => setNewPackColor(e.target.value)}
+                          placeholder="#3B82F6"
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                    
+                    <Button
+                      onClick={createNewPack}
+                      disabled={!newPackName.trim()}
+                      size="sm"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Create Pack
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Replace Options */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Replace Existing Item (Optional)</Label>
+              <div className="space-y-2">
+                {saveToLibraryType === 'single' && (
+                  <div>
+                    <Label htmlFor="replace-single" className="text-xs text-gray-400">Replace Single:</Label>
+                    <Select value={saveToLibraryReplaceId || ''} onValueChange={setSaveToLibraryReplaceId}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select a single to replace (optional)" />
+                      </SelectTrigger>
+                                          <SelectContent>
+                      <SelectItem value="new">Create New Single</SelectItem>
+                      {availableSingles.map((single) => (
+                        <SelectItem key={single.id} value={single.id}>
+                          {single.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
+                                {saveToLibraryType === 'track' && (
+                  <div>
+                    <Label htmlFor="replace-track" className="text-xs text-gray-400">Replace Track:</Label>
+                    <Select value={saveToLibraryReplaceId || ''} onValueChange={setSaveToLibraryReplaceId}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select a track to replace (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="new">Create New Track</SelectItem>
+                        {availableTracks.map((track) => (
+                          <SelectItem key={track.id} value={track.id}>
+                            {track.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
+                {saveToLibraryType === 'album' && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="replace-album" className="text-xs text-gray-400">Replace Album:</Label>
+                      <Select 
+                        value={saveToLibraryReplaceId || ''} 
+                        onValueChange={(value) => {
+                          setSaveToLibraryReplaceId(value)
+                          setSelectedAlbumForTrack(null)
+                          if (value && value !== 'new') {
+                            fetchAlbumTracks(value)
+                          } else {
+                            setAvailableAlbumTracks([])
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select an album to replace (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="new">Create New Album</SelectItem>
+                          {availableAlbums.map((album) => (
+                            <SelectItem key={album.id} value={album.id}>
+                              {album.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new' && availableAlbumTracks.length > 0 && (
+                      <div>
+                        <Label htmlFor="replace-track" className="text-xs text-gray-400">Replace Track (Optional):</Label>
+                        <Select value={selectedAlbumForTrack || ''} onValueChange={setSelectedAlbumForTrack}>
+                          <SelectTrigger className="mt-1">
+                            <SelectValue placeholder="Select a track to replace (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="album_only">Update Album Only</SelectItem>
+                            {availableAlbumTracks.map((track) => (
+                              <SelectItem key={track.id} value={track.id}>
+                                Track {track.track_number}: {track.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* File Information */}
+            <div className="bg-gray-900/50 p-3 rounded-lg">
+              <h4 className="text-sm font-medium mb-2">File Information</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
+                <div>Name: {audioFile?.name}</div>
+                <div>Size: {audioFile ? `${(audioFile.size / 1024 / 1024).toFixed(2)} MB` : 'N/A'}</div>
+                <div>Duration: {duration.toFixed(2)}s</div>
+                <div>BPM: {bpm}</div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-2 pt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveToLibraryDialog(false)}
+              disabled={loadingSaveToLibrary}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveToLibrary}
+              disabled={
+                loadingSaveToLibrary || 
+                !saveToLibraryName.trim() || 
+                (saveToLibraryType === 'album' && (!saveToLibraryReplaceId || saveToLibraryReplaceId === 'new') && !saveToLibraryAlbumName.trim())
+              }
+              className="bg-teal-600 hover:bg-teal-700 text-white"
+            >
+              {loadingSaveToLibrary ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save to Library
+                </>
+              )}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
