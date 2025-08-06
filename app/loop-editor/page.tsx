@@ -246,6 +246,15 @@ export default function LoopEditorPage() {
   const [selectedPack, setSelectedPack] = useState<string | null>(null)
   const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set())
   const [projectData, setProjectData] = useState<any>(null)
+  
+  // Session management state
+  const [showSessionDialog, setShowSessionDialog] = useState(false)
+  const [sessionDialogMode, setSessionDialogMode] = useState<'save' | 'load'>('save')
+  const [sessionName, setSessionName] = useState('')
+  const [sessionDescription, setSessionDescription] = useState('')
+  const [sessions, setSessions] = useState<any[]>([])
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const { user } = useAuth()
   const { toast } = useToast()
   
@@ -349,6 +358,68 @@ export default function LoopEditorPage() {
       setTimeout(() => {
         loadProject()
       }, 100) // Small delay to ensure state is set
+      
+      // Try to auto-load the most recent session for this audio file
+      if (user?.id) {
+        setTimeout(async () => {
+          try {
+            const response = await fetch(`/api/loop-editor-sessions/load?audio_file_name=${encodeURIComponent(file.name)}&user_id=${user.id}`)
+            const result = await response.json()
+            
+            if (result.success && result.session) {
+              console.log('🔍 AUTO-LOADING SESSION:', result.session.name)
+              
+              // Load session data
+              const session = result.session
+              setBpm(session.bpm || 120)
+              setGridDivision(session.grid_division || 4)
+              setPlaybackRate(session.playback_rate || 1)
+              setVolume(session.volume || 1)
+              setZoom(session.zoom || 1)
+              setVerticalZoom(session.vertical_zoom || 1)
+              setWaveformOffset(session.waveform_offset || 0)
+              setScrollOffset(session.scroll_offset || 0)
+              setViewWidth(session.display_width || 0)
+              setSnapToGrid(session.snap_to_grid !== false)
+              setShowGrid(session.show_grid !== false)
+              setShowWaveform(session.show_waveform !== false)
+              setShowDetailedGrid(session.show_detailed_grid || false)
+              setMarkedBars(session.marked_bars || [])
+              setMarkedSubBars(session.marked_sub_bars || [])
+              setPlayheadPosition(session.playhead_position || 0)
+              setCurrentTime(session.current_playback_time || 0)
+              setIsPlaying(session.is_playing || false)
+              setSelectionStart(session.selection_start || null)
+              setSelectionEnd(session.selection_end || null)
+              setWaveSelectionStart(session.wave_selection_start || null)
+              setWaveSelectionEnd(session.wave_selection_end || null)
+              setMarkers(session.markers || [])
+              setRegions(session.regions || [])
+              setDuplicateWave(session.duplicate_wave || null)
+              setIsDuplicateMain(session.is_duplicate_main || false)
+              setPlayBothMode(session.play_both_mode || false)
+              setEditHistory(session.edit_history || [])
+              setHistoryIndex(session.history_index || -1)
+              setProjectData(session.project_data || null)
+              setCurrentSessionId(session.id)
+              
+              // Load effects settings
+              if (session.effects_settings) {
+                setIsHalfTime(session.effects_settings.isHalfTime || false)
+                setHalfTimeRatio(session.effects_settings.halfTimeRatio || 0.5)
+              }
+              
+              toast({
+                title: "Session Auto-Loaded",
+                description: `"${session.name}" loaded automatically`,
+                variant: "default",
+              })
+            }
+          } catch (error) {
+            console.error('Error auto-loading session:', error)
+          }
+        }, 200) // Slightly longer delay to ensure audio is fully loaded
+      }
       
     } catch (error) {
       console.error('Error loading audio file:', error)
@@ -1679,7 +1750,360 @@ export default function LoopEditorPage() {
     return step * stepDuration
   }
   
-  // Save/Load project functions
+  // Session management functions
+  const generateAudioFileHash = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer()
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  }
+
+  const saveSession = async () => {
+    if (!user?.id || !audioFile) {
+      toast({
+        title: "Cannot Save Session",
+        description: "Please log in and load an audio file first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!sessionName.trim()) {
+      toast({
+        title: "Session Name Required",
+        description: "Please enter a name for this session",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const audioFileHash = await generateAudioFileHash(audioFile)
+      
+      // Upload audio file to Supabase Storage
+      const fileName = `sessions/${user.id}/${Date.now()}_${audioFile.name}`
+      console.log('🔍 UPLOADING AUDIO FILE:', fileName, 'size:', audioFile.size)
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(fileName, audioFile, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (uploadError) {
+        console.error('Error uploading audio file:', uploadError)
+        toast({
+          title: "Upload Failed",
+          description: "Failed to upload audio file. Please try again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      console.log('🔍 UPLOAD SUCCESS:', uploadData)
+
+      // Get the public URL for the uploaded file
+      const { data: { publicUrl } } = supabase.storage
+        .from('beats')
+        .getPublicUrl(fileName)
+      
+      console.log('🔍 PUBLIC URL:', publicUrl)
+      
+      const sessionData = {
+        user_id: user.id,
+        name: sessionName.trim(),
+        description: sessionDescription.trim(),
+        audio_file_name: audioFile.name,
+        audio_file_hash: audioFileHash,
+        audio_file_url: publicUrl, // Add the audio file URL
+        bpm,
+        grid_division: gridDivision,
+        playback_rate: playbackRate,
+        volume,
+        zoom,
+        vertical_zoom: verticalZoom,
+        waveform_offset: waveformOffset,
+        scroll_offset: scrollOffset,
+        display_width: viewWidth,
+        snap_to_grid: snapToGrid,
+        show_grid: showGrid,
+        show_waveform: showWaveform,
+        show_detailed_grid: showDetailedGrid,
+        marked_bars: markedBars,
+        marked_sub_bars: markedSubBars,
+        playhead_position: playheadPosition,
+        current_playback_time: currentTime,
+        is_playing: isPlaying,
+        selection_start: selectionStart,
+        selection_end: selectionEnd,
+        wave_selection_start: waveSelectionStart,
+        wave_selection_end: waveSelectionEnd,
+        markers,
+        regions,
+        duplicate_wave: duplicateWave,
+        is_duplicate_main: isDuplicateMain,
+        play_both_mode: playBothMode,
+        effects_settings: {
+          isHalfTime,
+          halfTimeRatio
+        },
+        processing_chain: null,
+        midi_settings: null,
+        midi_mapping: null,
+        tracks: null,
+        track_sequence: null,
+        edit_history: editHistory,
+        history_index: historyIndex,
+        max_history: MAX_HISTORY,
+        project_data: projectData,
+        auto_save_enabled: true,
+        last_auto_save: new Date().toISOString(),
+        is_draft: false,
+        version: '1.0',
+        parent_session_id: currentSessionId
+      }
+
+      console.log('🔍 SENDING SESSION DATA:', { ...sessionData, audio_file_url: sessionData.audio_file_url ? 'URL_PRESENT' : 'NO_URL' })
+      
+      const response = await fetch('/api/loop-editor-sessions/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(sessionData),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setCurrentSessionId(result.session.id)
+        setSessionName('')
+        setSessionDescription('')
+        setShowSessionDialog(false)
+        
+        toast({
+          title: "Session Saved!",
+          description: `"${sessionData.name}" saved successfully with audio file`,
+          variant: "default",
+        })
+        
+        // Refresh sessions list
+        loadSessionsList()
+      } else {
+        throw new Error(result.error || 'Failed to save session')
+      }
+    } catch (error) {
+      console.error('Error saving session:', error)
+      toast({
+        title: "Save Failed",
+        description: "Failed to save session. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const loadSessionsList = async () => {
+    if (!user?.id) {
+      console.log('🔍 NO USER ID - cannot load sessions')
+      return
+    }
+
+    console.log('🔍 LOADING SESSIONS LIST - user:', user.id)
+    setLoadingSessions(true)
+    try {
+      const response = await fetch(`/api/loop-editor-sessions/load?user_id=${user.id}`)
+      const result = await response.json()
+
+      console.log('🔍 SESSIONS LIST RESULT:', result)
+
+      if (result.success) {
+        setSessions(result.sessions || [])
+        console.log('🔍 SESSIONS LOADED:', result.sessions?.length || 0, 'sessions')
+      } else {
+        console.error('🔍 Failed to load sessions:', result.error)
+      }
+    } catch (error) {
+      console.error('🔍 Error loading sessions:', error)
+    } finally {
+      setLoadingSessions(false)
+    }
+  }
+
+  const loadSession = async (sessionId: string) => {
+    if (!user?.id) return
+
+    try {
+      const response = await fetch(`/api/loop-editor-sessions/load?id=${sessionId}&user_id=${user.id}`)
+      const result = await response.json()
+
+      if (result.success && result.session) {
+        const session = result.session
+        
+        console.log('🔍 LOADING SESSION:', session.name, 'audio_file_name:', session.audio_file_name)
+        
+        // Check if we need to load the audio file first
+        if (!audioFile || session.audio_file_name !== audioFile?.name) {
+          console.log('🔍 SESSION AUDIO FILE DIFFERENT - session:', session.audio_file_name, 'current:', audioFile?.name)
+          console.log('🔍 SESSION DATA:', session)
+          
+          // If session has audio_file_url, load the audio file automatically
+          if (session.audio_file_url) {
+            console.log('🔍 LOADING AUDIO FROM SESSION URL:', session.audio_file_url)
+            
+            try {
+              // Fetch the audio file from the URL
+              const audioResponse = await fetch(session.audio_file_url)
+              if (!audioResponse.ok) {
+                throw new Error(`Failed to fetch audio file: ${audioResponse.status} ${audioResponse.statusText}`)
+              }
+              
+              const audioBlob = await audioResponse.blob()
+              const audioFileFromSession = new File([audioBlob], session.audio_file_name, {
+                type: audioBlob.type || 'audio/wav'
+              })
+              
+              // Load the audio file
+              await loadAudioFile(audioFileFromSession)
+              
+              toast({
+                title: "Audio File Loaded",
+                description: `Loaded "${session.audio_file_name}" from session`,
+                variant: "default",
+              })
+            } catch (audioError) {
+              console.error('Error loading audio from session:', audioError)
+              toast({
+                title: "Audio File Required",
+                description: `This session was created with "${session.audio_file_name}". Please load that audio file first, then try loading the session again.`,
+                variant: "destructive",
+              })
+              return
+            }
+          } else {
+            console.log('🔍 NO AUDIO FILE URL IN SESSION - this session was saved before audio file storage was implemented')
+            // Show a message that we need the audio file
+            toast({
+              title: "Audio File Required",
+              description: `This session was created with "${session.audio_file_name}". Please load that audio file first, then try loading the session again.`,
+              variant: "destructive",
+            })
+            return
+          }
+        }
+        
+        // Load all session data
+        setBpm(session.bpm || 120)
+        setGridDivision(session.grid_division || 4)
+        setPlaybackRate(session.playback_rate || 1)
+        setVolume(session.volume || 1)
+        setZoom(session.zoom || 1)
+        setVerticalZoom(session.vertical_zoom || 1)
+        setWaveformOffset(session.waveform_offset || 0)
+        setScrollOffset(session.scroll_offset || 0)
+        setViewWidth(session.display_width || 0)
+        setSnapToGrid(session.snap_to_grid !== false)
+        setShowGrid(session.show_grid !== false)
+        setShowWaveform(session.show_waveform !== false)
+        setShowDetailedGrid(session.show_detailed_grid || false)
+        setMarkedBars(session.marked_bars || [])
+        setMarkedSubBars(session.marked_sub_bars || [])
+        setPlayheadPosition(session.playhead_position || 0)
+        setCurrentTime(session.current_playback_time || 0)
+        setIsPlaying(session.is_playing || false)
+        setSelectionStart(session.selection_start || null)
+        setSelectionEnd(session.selection_end || null)
+        setWaveSelectionStart(session.wave_selection_start || null)
+        setWaveSelectionEnd(session.wave_selection_end || null)
+        setMarkers(session.markers || [])
+        setRegions(session.regions || [])
+        setDuplicateWave(session.duplicate_wave || null)
+        setIsDuplicateMain(session.is_duplicate_main || false)
+        setPlayBothMode(session.play_both_mode || false)
+        setEditHistory(session.edit_history || [])
+        setHistoryIndex(session.history_index || -1)
+        setProjectData(session.project_data || null)
+        
+        // Load effects settings
+        if (session.effects_settings) {
+          setIsHalfTime(session.effects_settings.isHalfTime || false)
+          setHalfTimeRatio(session.effects_settings.halfTimeRatio || 0.5)
+        }
+        
+        setCurrentSessionId(session.id)
+        
+        toast({
+          title: "Session Loaded!",
+          description: `"${session.name}" loaded successfully`,
+          variant: "default",
+        })
+      } else {
+        throw new Error(result.error || 'Failed to load session')
+      }
+    } catch (error) {
+      console.error('Error loading session:', error)
+      toast({
+        title: "Load Failed",
+        description: "Failed to load session. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const deleteSession = async (sessionId: string) => {
+    if (!user?.id) return
+
+    try {
+      const response = await fetch(`/api/loop-editor-sessions/delete?id=${sessionId}&user_id=${user.id}`, {
+        method: 'DELETE',
+      })
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: "Session Deleted",
+          description: "Session deleted successfully",
+          variant: "default",
+        })
+        
+        // Refresh sessions list
+        loadSessionsList()
+        
+        // Clear current session if it was deleted
+        if (currentSessionId === sessionId) {
+          setCurrentSessionId(null)
+        }
+      } else {
+        throw new Error(result.error || 'Failed to delete session')
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error)
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete session. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const openSessionDialog = (mode: 'save' | 'load') => {
+    console.log('🔍 OPENING SESSION DIALOG - mode:', mode, 'user:', user?.id, 'audioFile:', audioFile?.name)
+    setSessionDialogMode(mode)
+    setShowSessionDialog(true)
+    
+    if (mode === 'save') {
+      // Auto-generate session name based on audio file
+      const baseName = audioFile?.name?.replace(/\.[^/.]+$/, '') || 'Untitled Session'
+      setSessionName(`${baseName} - ${new Date().toLocaleString()}`)
+      setSessionDescription('')
+    } else {
+      // Load sessions list for load mode
+      console.log('🔍 LOADING SESSIONS LIST...')
+      loadSessionsList()
+    }
+  }
+
+  // Save/Load project functions (localStorage fallback)
   const saveProject = () => {
     const projectState = {
       waveformOffset,
@@ -4436,18 +4860,43 @@ export default function LoopEditorPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={saveProject}
+                  onClick={() => openSessionDialog('save')}
+                  disabled={!audioFile || !user?.id}
                   className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  title="Save Session"
                 >
                   <Save className="w-4 h-4" />
+                  <span className="ml-1 text-xs">Save</span>
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={loadProject}
+                  onClick={() => {
+                    console.log('🔍 LOAD BUTTON CLICKED - user:', !!user?.id)
+                    if (!user?.id) {
+                      toast({
+                        title: "Not Logged In",
+                        description: "Please log in to load sessions",
+                        variant: "destructive",
+                      })
+                      return
+                    }
+                    openSessionDialog('load')
+                  }}
                   className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  title="Load Session"
                 >
                   <FolderOpen className="w-4 h-4" />
+                  <span className="ml-1 text-xs">Load</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={saveProject}
+                  className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+                  title="Save to Local Storage"
+                >
+                  <span className="text-xs">Local</span>
                 </Button>
               </div>
             </div>
@@ -5837,6 +6286,150 @@ export default function LoopEditorPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Session Management Dialog */}
+      <Dialog open={showSessionDialog} onOpenChange={setShowSessionDialog}>
+        <DialogContent className="bg-[#141414] border-gray-700 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-white">
+              {sessionDialogMode === 'save' ? 'Save Session' : 'Load Session'}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {sessionDialogMode === 'save' ? (
+            // Save Session Form
+            <div className="space-y-4">
+              <div>
+                <Label className="text-white">Session Name</Label>
+                <Input
+                  value={sessionName}
+                  onChange={(e) => setSessionName(e.target.value)}
+                  placeholder="Enter session name..."
+                  className="bg-[#1a1a1a] border-gray-600 text-white"
+                />
+              </div>
+              
+              <div>
+                <Label className="text-white">Description (Optional)</Label>
+                <Input
+                  value={sessionDescription}
+                  onChange={(e) => setSessionDescription(e.target.value)}
+                  placeholder="Enter session description..."
+                  className="bg-[#1a1a1a] border-gray-600 text-white"
+                />
+              </div>
+              
+              <div className="text-sm text-gray-400">
+                <p>Audio File: {audioFile?.name}</p>
+                <p>BPM: {bpm}</p>
+                <p>Markers: {markers.length}</p>
+                <p>Regions: {regions.length}</p>
+                {currentSessionId && <p>Updating existing session</p>}
+              </div>
+              
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSessionDialog(false)}
+                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={saveSession}
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Session
+                </Button>
+              </div>
+            </div>
+          ) : (
+            // Load Session List
+            <div className="space-y-4">
+              {loadingSessions ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                  <span className="ml-2 text-gray-400">Loading sessions...</span>
+                </div>
+              ) : sessions.length > 0 ? (
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                        session.audio_file_name === audioFile?.name
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-gray-600 bg-[#1a1a1a] hover:bg-gray-700'
+                      }`}
+                      onClick={() => {
+                        loadSession(session.id)
+                        setShowSessionDialog(false)
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-medium text-white">{session.name}</h4>
+                          {session.description && (
+                            <p className="text-sm text-gray-400 mt-1">{session.description}</p>
+                          )}
+                          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+                            <span>Audio: {session.audio_file_name}</span>
+                            <span>BPM: {session.bpm}</span>
+                            <span>Updated: {new Date(session.updated_at).toLocaleDateString()}</span>
+                            {session.audio_file_url && <span className="text-green-400">• Audio included</span>}
+                            {session.is_draft && <span className="text-yellow-400">Draft</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              loadSession(session.id)
+                              setShowSessionDialog(false)
+                            }}
+                            className="bg-green-600 hover:bg-green-700 text-white border-green-600"
+                          >
+                            Load
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteSession(session.id)
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-400">
+                  <p>No sessions found</p>
+                  <p className="text-sm mt-1">Save a session first to see it here</p>
+                </div>
+              )}
+              
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSessionDialog(false)}
+                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 
