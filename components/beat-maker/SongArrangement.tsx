@@ -2462,6 +2462,362 @@ export function SongArrangement({
     isShufflingRef.current = false
   }
 
+  // Arrange Song function - does exactly what createDropArrangement does (just the drops part)
+  const arrangeSong = () => {
+    console.log('[ARRANGE SONG] Creating drops arrangement')
+    
+    // Set shuffling flag to prevent auto-initialization
+    isShufflingRef.current = true
+    
+    // Check if we have selected patterns
+    const hasSelectedPatterns = selectedBlocks.length > 0
+    
+    if (hasSelectedPatterns) {
+      console.log(`[ARRANGE SONG] Applying drops to ${selectedBlocks.length} selected patterns`)
+      
+      // Get the selected patterns
+      const selectedPatterns = patternBlocks.filter(block => selectedBlocks.includes(block.id))
+      const nonSelectedPatterns = patternBlocks.filter(block => !selectedBlocks.includes(block.id))
+      
+      // Create drop variations for selected patterns only
+      const dropPatternBlocks: PatternBlock[] = []
+      
+      selectedPatterns.forEach((pattern) => {
+        // Create drop variations based on pattern position
+        const dropType = Math.floor(Math.random() * 4) // 0-3: full, first half, second half, or split
+        
+        if (dropType === 0) {
+          // Keep full pattern (no change)
+          dropPatternBlocks.push(pattern)
+        } else if (dropType === 1) {
+          // Split into first half only (build up)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-first-${Math.random()}`,
+              name: `${pattern.name} Build`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 2) {
+          // Split into second half only (drop)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-second-${Math.random()}`,
+              name: `${pattern.name} Drop`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 3) {
+          // Split into both halves (breakdown)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-breakdown-first-${Math.random()}`,
+              name: `${pattern.name} Breakdown A`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          }
+          
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${pattern.trackId}-breakdown-second-${Math.random()}`,
+              name: `${pattern.name} Breakdown B`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          }
+        }
+      })
+      
+      // Add special drop at bar 8 for selected patterns (not too often - 30% chance)
+      const shouldAddBar8Drop = Math.random() < 0.3 // 30% chance
+      if (shouldAddBar8Drop) {
+        console.log('[ARRANGE SONG] Adding special bar 8 drop to selected patterns')
+        
+        // Find selected patterns that extend past bar 8 and cut them off
+        const patternsWithBar8Drop = dropPatternBlocks.map(pattern => {
+          if (pattern.endBar >= 8 && pattern.startBar < 8) {
+            // This pattern extends into bar 8, cut it off at bar 7
+            const cutPattern: PatternBlock = {
+              ...pattern,
+              id: `${pattern.id}-bar8-cut`,
+              name: `${pattern.name} (Cut at Bar 8)`,
+              endBar: 7,
+              duration: 7 - pattern.startBar + 1
+            }
+            console.log(`[ARRANGE SONG] Cut selected pattern "${pattern.name}" at bar 8, new end: bar 7`)
+            return cutPattern
+          }
+          return pattern
+        })
+        
+        // Combine non-selected patterns with drop patterns (including bar 8 cuts)
+        const finalPatterns = [...nonSelectedPatterns, ...patternsWithBar8Drop]
+        
+        // Replace patterns and clear selection
+        setPatternBlocks(finalPatterns)
+        setSelectedBlocks([])
+        
+        // Update total bars to accommodate all patterns
+        const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+        setTotalBars(Math.max(totalBars, maxEndBar))
+        
+        // Notify parent component
+        onPatternsChange?.(finalPatterns)
+        
+        console.log(`[ARRANGE SONG] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
+        isShufflingRef.current = false
+        return
+      }
+      
+      // Combine non-selected patterns with drop patterns
+      const finalPatterns = [...nonSelectedPatterns, ...dropPatternBlocks]
+      
+      // Replace patterns and clear selection
+      setPatternBlocks(finalPatterns)
+      setSelectedBlocks([])
+      
+      // Update total bars to accommodate all patterns
+      const maxEndBar = Math.max(...finalPatterns.map(block => block.endBar))
+      setTotalBars(Math.max(totalBars, maxEndBar))
+      
+      // Notify parent component
+      onPatternsChange?.(finalPatterns)
+      
+      console.log(`[ARRANGE SONG] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations`)
+      isShufflingRef.current = false
+      return
+    }
+    
+    // Original behavior: Create drops for all patterns (when no selection)
+    console.log('[ARRANGE SONG] Creating drops for all patterns (no selection)')
+    
+    // First, load the base patterns within totalBars limit
+    const basePatternBlocks: PatternBlock[] = []
+    
+    tracks.forEach((track, trackIndex) => {
+      // Calculate how many patterns can fit within totalBars
+      const maxPatterns = Math.floor(totalBars / selectedDuration)
+      const patternsToCreate = Math.min(11, maxPatterns)
+      
+      // Create patterns for each track, starting from bar 1
+      for (let i = 0; i < patternsToCreate; i++) {
+        const startBar = 1 + (i * selectedDuration)
+        const endBar = startBar + selectedDuration - 1
+        
+        // Skip if this pattern would extend beyond totalBars
+        if (endBar > totalBars) {
+          break
+        }
+        
+        const patternBlock: PatternBlock = {
+          id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
+          name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
+          tracks: [track],
+          sequencerData: { [track.id]: sequencerData[track.id] || [] },
+          bpm: bpm,
+          steps: steps,
+          duration: selectedDuration,
+          startBar: startBar,
+          endBar: endBar,
+          color: track.color,
+          trackId: track.id
+        }
+        
+        basePatternBlocks.push(patternBlock)
+      }
+      
+      // If there's remaining space, create a partial pattern to fill it
+      const lastPatternEnd = basePatternBlocks
+        .filter(block => block.trackId === track.id)
+        .reduce((max, block) => Math.max(max, block.endBar), 0)
+      
+      const remainingBars = totalBars - lastPatternEnd
+      if (remainingBars >= 1) {
+        const partialPatternBlock: PatternBlock = {
+          id: `pattern-${Date.now()}-${track.id}-partial-${Math.random()}`,
+          name: `${getTrackDisplayName(track.name)} Pattern (Partial)`,
+          tracks: [track],
+          sequencerData: { [track.id]: sequencerData[track.id] || [] },
+          bpm: bpm,
+          steps: steps,
+          duration: remainingBars,
+          startBar: lastPatternEnd + 1,
+          endBar: totalBars,
+          color: track.color,
+          trackId: track.id
+        }
+        
+        basePatternBlocks.push(partialPatternBlock)
+      }
+    })
+    
+    // Now create drop variations by splitting some patterns
+    const dropPatternBlocks: PatternBlock[] = []
+    
+    tracks.forEach((track, trackIndex) => {
+      const trackPatterns = basePatternBlocks.filter(p => p.trackId === track.id)
+      
+      trackPatterns.forEach((pattern, patternIndex) => {
+        // Create drop variations based on pattern position
+        const dropType = Math.floor(Math.random() * 4) // 0-3: full, first half, second half, or split
+        
+        if (dropType === 0) {
+          // Keep full pattern (no change)
+          dropPatternBlocks.push(pattern)
+        } else if (dropType === 1) {
+          // Split into first half only (build up)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-first-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Build ${patternIndex + 1}`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 2) {
+          // Split into second half only (drop)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-second-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Drop ${patternIndex + 1}`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          } else {
+            dropPatternBlocks.push(pattern)
+          }
+        } else if (dropType === 3) {
+          // Split into both halves (breakdown)
+          const halfDuration = Math.floor(pattern.duration / 2)
+          const remainingDuration = pattern.duration - halfDuration
+          
+          if (halfDuration >= 1) {
+            const firstHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-breakdown-first-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Breakdown ${patternIndex + 1} A`,
+              duration: halfDuration,
+              endBar: pattern.startBar + halfDuration - 1
+            }
+            dropPatternBlocks.push(firstHalf)
+          }
+          
+          if (remainingDuration >= 1) {
+            const secondHalf: PatternBlock = {
+              ...pattern,
+              id: `pattern-${Date.now()}-${track.id}-${patternIndex}-breakdown-second-${Math.random()}`,
+              name: `${getTrackDisplayName(track.name)} Breakdown ${patternIndex + 1} B`,
+              startBar: pattern.startBar + halfDuration,
+              duration: remainingDuration,
+              endBar: pattern.endBar
+            }
+            dropPatternBlocks.push(secondHalf)
+          }
+        }
+      })
+    })
+    
+    // Add special drop at bar 8 (not too often - 30% chance)
+    const shouldAddBar8Drop = Math.random() < 0.3 // 30% chance
+    if (shouldAddBar8Drop) {
+      console.log('[ARRANGE SONG] Adding special drop at bar 8')
+      
+      // Find patterns that extend past bar 8 and cut them off
+      const patternsWithBar8Drop = dropPatternBlocks.map(pattern => {
+        if (pattern.endBar >= 8 && pattern.startBar < 8) {
+          // This pattern extends into bar 8, cut it off at bar 7
+          const cutPattern: PatternBlock = {
+            ...pattern,
+            id: `${pattern.id}-bar8-cut`,
+            name: `${pattern.name} (Cut at Bar 8)`,
+            endBar: 7,
+            duration: 7 - pattern.startBar + 1
+          }
+          console.log(`[ARRANGE SONG] Cut pattern "${pattern.name}" at bar 8, new end: bar 7`)
+          return cutPattern
+        }
+        return pattern
+      })
+      
+      // Also randomly cut off some tracks completely at bar 8 for more dramatic effect
+      tracks.forEach((track) => {
+        const trackPatterns = patternsWithBar8Drop.filter(p => p.trackId === track.id)
+        const shouldCutTrack = Math.random() < 0.4 // 40% chance per track
+        
+        if (shouldCutTrack && trackPatterns.length > 0) {
+          console.log(`[ARRANGE SONG] Cutting off entire ${getTrackDisplayName(track.name)} track at bar 8`)
+          
+          // Remove all patterns for this track that start at or after bar 8
+          const filteredPatterns = patternsWithBar8Drop.filter(pattern => 
+            !(pattern.trackId === track.id && pattern.startBar >= 8)
+          )
+          
+          // Cut patterns that extend into bar 8
+          const updatedPatterns = filteredPatterns.map(pattern => {
+            if (pattern.trackId === track.id && pattern.endBar >= 8 && pattern.startBar < 8) {
+              return {
+                ...pattern,
+                id: `${pattern.id}-bar8-cut`,
+                name: `${pattern.name} (Cut at Bar 8)`,
+                endBar: 7,
+                duration: 7 - pattern.startBar + 1
+              }
+            }
+            return pattern
+          })
+          
+          dropPatternBlocks.length = 0
+          dropPatternBlocks.push(...updatedPatterns)
+        }
+      })
+    }
+    
+    // Replace all existing patterns with the drop arrangement
+    setPatternBlocks(dropPatternBlocks)
+    
+    // Don't update totalBars - respect the current setting
+    // Notify parent component
+    onPatternsChange?.(dropPatternBlocks)
+    
+    console.log(`[ARRANGE SONG] Created ${dropPatternBlocks.length} drop patterns across ${tracks.length} tracks within ${totalBars} bars${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
+    
+    // Clear shuffling flag
+    isShufflingRef.current = false
+  }
+
   // Shuffle patterns for a specific track with A/B toggle
   const shuffleTrackPatterns = (trackId: number) => {
     // Get or initialize the track's shuffle mode
@@ -4348,6 +4704,24 @@ export function SongArrangement({
                 // Detect genre from track names
                 const { genre, subgenre } = detectGenreFromTrackName(tracks[0]?.name || 'beat')
 
+                // Fetch session name if linking to session
+                let sessionName = null
+                if (linkToSession && currentSessionId) {
+                  try {
+                    const { data: sessionData, error: sessionError } = await supabase
+                      .from('beat_sessions')
+                      .select('name')
+                      .eq('id', currentSessionId)
+                      .single()
+                    
+                    if (!sessionError && sessionData) {
+                      sessionName = sessionData.name
+                    }
+                  } catch (error) {
+                    console.error('Error fetching session name:', error)
+                  }
+                }
+
                 // Save based on the selected library type (same logic as saveArrangementToLibrary)
                 let savedItem: any = null
 
@@ -4382,6 +4756,7 @@ export function SongArrangement({
                         audio_url: urlData.publicUrl,
                         isrc: '', // Optional ISRC code
                         session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        session_name: sessionName, // Store session name for UI display
                         track_order: 1, // First track in new album
                         created_at: new Date().toISOString()
                       })
@@ -4438,6 +4813,7 @@ export function SongArrangement({
                         audio_url: urlData.publicUrl,
                         isrc: '', // Optional ISRC code
                         session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        session_name: sessionName, // Store session name for UI display
                         track_order: selectedTrackPosition, // Use user-selected track position
                         created_at: new Date().toISOString()
                       })
@@ -4464,7 +4840,8 @@ export function SongArrangement({
                         duration: `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`,
                         audio_url: urlData.publicUrl,
                         cover_art_url: null, // Set to null to avoid console error
-                        session_id: linkToSession && currentSessionId ? currentSessionId : null // Link to current session if enabled
+                        session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        session_name: sessionName // Store session name for UI display
                       })
                       .select()
                       .single()
@@ -4506,6 +4883,7 @@ export function SongArrangement({
                         audio_url: urlData.publicUrl,
                         cover_art_url: null, // Set to null to avoid console error
                         session_id: linkToSession && currentSessionId ? currentSessionId : null, // Link to current session if enabled
+                        session_name: sessionName, // Store session name for UI display
                         bpm: bpm,
                         genre: '', // Could be enhanced to detect genre
                         subgenre: '' // Could be enhanced to detect subgenre
@@ -5903,6 +6281,16 @@ export function SongArrangement({
             >
               <Plus className="w-4 h-4 mr-1" />
               Load 11 Patterns
+            </Button>
+            <Button
+              onClick={arrangeSong}
+              variant="outline"
+              size="sm"
+              className="text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+              title="Arrange song with drops (prevents patterns from getting shorter)"
+            >
+              <Music className="w-4 h-4 mr-1" />
+              Arrange Song
             </Button>
             <Button
               onClick={() => {

@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon, Edit3, X, CheckCircle2 } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -5997,9 +5997,14 @@ export default function BeatMakerPage() {
   const [sessionTags, setSessionTags] = useState('')
   const [sessionStatus, setSessionStatus] = useState('draft')
   const [sessionStatusFilter, setSessionStatusFilter] = useState('all')
-  const [sessionLinks, setSessionLinks] = useState<{[sessionId: string]: {albums: any[], singles: any[]}}>({})
+  const [sessionLinks, setSessionLinks] = useState<{[sessionId: string]: {albums: any[], singles: any[], tracks: any[]}}>({})
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  
+  // Session edit state
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingSessionName, setEditingSessionName] = useState('')
+  const [savingSessionName, setSavingSessionName] = useState(false)
 
   // Genre management state
   const [genres, setGenres] = useState<any[]>([])
@@ -6571,14 +6576,14 @@ export default function BeatMakerPage() {
     }
   }
 
-  // Load linked albums and singles for sessions
+  // Load linked albums, singles, and tracks for sessions
   const loadSessionLinks = async (sessions: any[]) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
       const sessionIds = sessions.map(session => session.id)
-      const newSessionLinks: {[sessionId: string]: {albums: any[], singles: any[]}} = {}
+      const newSessionLinks: {[sessionId: string]: {albums: any[], singles: any[], tracks: any[]}} = {}
 
       // Load linked albums
       const { data: albumTracks } = await supabase
@@ -6594,6 +6599,13 @@ export default function BeatMakerPage() {
         .in('session_id', sessionIds)
         .not('session_id', 'is', null)
 
+      // Load linked tracks
+      const { data: tracks } = await supabase
+        .from('tracks')
+        .select('id, title, artist, session_id')
+        .in('session_id', sessionIds)
+        .not('session_id', 'is', null)
+
       // Organize the data by session ID
       sessionIds.forEach(sessionId => {
         const linkedAlbums = albumTracks
@@ -6604,9 +6616,13 @@ export default function BeatMakerPage() {
         const linkedSingles = singles
           ?.filter(single => single.session_id === sessionId) || []
 
+        const linkedTracks = tracks
+          ?.filter(track => track.session_id === sessionId) || []
+
         newSessionLinks[sessionId] = {
           albums: linkedAlbums,
-          singles: linkedSingles
+          singles: linkedSingles,
+          tracks: linkedTracks
         }
       })
 
@@ -6624,6 +6640,11 @@ export default function BeatMakerPage() {
   // Navigate to singles page
   const navigateToSingle = (singleId: string) => {
     router.push(`/mysingles`)
+  }
+
+  // Navigate to tracks page
+  const navigateToTrack = (trackId: string) => {
+    router.push(`/mylibrary?tab=tracks`)
   }
 
   // Update session status
@@ -6663,6 +6684,69 @@ export default function BeatMakerPage() {
         variant: "destructive"
       })
     }
+  }
+
+  // Start editing session name
+  const handleStartEditSession = (session: any) => {
+    setEditingSessionId(session.id)
+    setEditingSessionName(session.name)
+  }
+
+  // Save session name
+  const handleSaveSessionName = async () => {
+    if (!editingSessionId || !editingSessionName.trim()) return
+    
+    setSavingSessionName(true)
+    try {
+      const { error } = await supabase
+        .from('beat_sessions')
+        .update({ name: editingSessionName.trim() })
+        .eq('id', editingSessionId)
+
+      if (error) {
+        console.error('Error updating session name:', error)
+        toast({
+          title: "Error",
+          description: "Failed to update session name",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Update the local state
+      setSavedSessions(prev => prev.map(session => 
+        session.id === editingSessionId 
+          ? { ...session, name: editingSessionName.trim() }
+          : session
+      ))
+
+      // Update current session name if it's the one being edited
+      if (currentSessionId === editingSessionId) {
+        setCurrentSessionName(editingSessionName.trim())
+      }
+
+      toast({
+        title: "Success",
+        description: "Session name updated"
+      })
+    } catch (error) {
+      console.error('Error updating session name:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update session name",
+        variant: "destructive"
+      })
+    } finally {
+      setSavingSessionName(false)
+      setEditingSessionId(null)
+      setEditingSessionName('')
+    }
+  }
+
+  // Cancel editing session name
+  const handleCancelEditSession = () => {
+    setEditingSessionId(null)
+    setEditingSessionName('')
   }
 
   // Load a specific session
@@ -10125,7 +10209,60 @@ export default function BeatMakerPage() {
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
-                              <h3 className="text-white font-semibold text-lg">{session.name}</h3>
+                              {editingSessionId === session.id ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={editingSessionName}
+                                    onChange={(e) => setEditingSessionName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleSaveSessionName()
+                                      } else if (e.key === 'Escape') {
+                                        handleCancelEditSession()
+                                      }
+                                    }}
+                                    className="bg-gray-800 text-white border border-gray-600 rounded px-2 py-1 text-lg font-semibold focus:outline-none focus:border-blue-500"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={handleSaveSessionName}
+                                    disabled={savingSessionName}
+                                    className="h-6 w-6 text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                                    title="Save"
+                                  >
+                                    {savingSessionName ? (
+                                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-400"></div>
+                                    ) : (
+                                      <CheckCircle2 className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={handleCancelEditSession}
+                                    className="h-6 w-6 text-gray-400 hover:text-gray-300 hover:bg-gray-900/20"
+                                    title="Cancel"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-white font-semibold text-lg">{session.name}</h3>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleStartEditSession(session)}
+                                    className="h-5 w-5 text-gray-400 hover:text-gray-300 hover:bg-gray-900/20"
+                                    title="Edit session name"
+                                  >
+                                    <Edit3 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )}
                               {currentSessionId === session.id && (
                                 <Badge variant="outline" className="text-green-500 border-green-500 text-xs">
                                   Current
@@ -10165,6 +10302,20 @@ export default function BeatMakerPage() {
                                       <LinkIcon className="w-3 h-3 mr-1" />
                                       Single: {sessionLinks[session.id].singles[0].title}
                                       {sessionLinks[session.id].singles.length > 1 && ` (+${sessionLinks[session.id].singles.length - 1} more)`}
+                                    </Badge>
+                                  </div>
+                                )}
+                                {sessionLinks[session.id].tracks.length > 0 && (
+                                  <div className="flex items-center gap-2">
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-blue-400 border-blue-500 text-xs cursor-pointer hover:bg-blue-500 hover:text-white transition-colors"
+                                      onClick={() => router.push(`/mylibrary?tab=tracks`)}
+                                      title="Click to view track"
+                                    >
+                                      <LinkIcon className="w-3 h-3 mr-1" />
+                                      Track: {sessionLinks[session.id].tracks[0].title}
+                                      {sessionLinks[session.id].tracks.length > 1 && ` (+${sessionLinks[session.id].tracks.length - 1} more)`}
                                     </Badge>
                                   </div>
                                 )}

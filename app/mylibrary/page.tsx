@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3 } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -54,6 +54,7 @@ interface Single {
   session_name?: string | null
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  replaced_at?: string | null
 }
 
 interface Track {
@@ -75,6 +76,7 @@ interface Track {
   notes?: string
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  replaced_at?: string | null
   
   // Commercial & Legal
   isrc?: string
@@ -198,6 +200,40 @@ interface AudioSubfolder {
   description?: string
   color: string
   position: number
+  created_at: string
+  updated_at: string
+}
+
+interface ChecklistItem {
+  id: string
+  title: string
+  completed: boolean
+  notes?: string
+  completed_at?: string
+  assigned_to?: string
+}
+
+interface ProductionScheduleItem {
+  id: string
+  user_id: string
+  title: string
+  description?: string
+  type: 'collaboration' | 'song_production' | 'beat_production' | 'mixing' | 'mastering' | 'recording' | 'other'
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold'
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  scheduled_date: string
+  due_date: string
+  assigned_to?: string
+  collaborators?: string[]
+  project_id?: string
+  project_type?: 'album' | 'single' | 'track' | 'other'
+  notes?: string
+  budget?: number
+  currency?: string
+  location?: string
+  equipment_needed?: string[]
+  checklist?: ChecklistItem[]
+  linkedProject?: { id: string; title: string; artist: string } | null
   created_at: string
   updated_at: string
 }
@@ -1586,6 +1622,16 @@ export default function MyLibrary() {
     }
   }
 
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'urgent': return 'bg-red-600 hover:bg-red-700 text-white'
+      case 'high': return 'bg-orange-600 hover:bg-orange-700 text-white'
+      case 'medium': return 'bg-yellow-600 hover:bg-yellow-700 text-white'
+      case 'low': return 'bg-green-600 hover:bg-green-700 text-white'
+      default: return 'bg-gray-600 hover:bg-gray-700 text-white'
+    }
+  }
+
   const getAudioFileLabel = (audioUrl: string) => {
     if (!audioUrl) return null;
     const extension = audioUrl.split('.').pop()?.toLowerCase();
@@ -1895,6 +1941,9 @@ export default function MyLibrary() {
           return;
         }
         
+    // Production Schedule
+    loadProductionSchedule();
+        
         // Get file counts for each pack using the safe approach
         const packsWithCounts = await Promise.all(
           (data || []).map(async (pack) => {
@@ -2173,6 +2222,492 @@ export default function MyLibrary() {
   const [searchFilter, setSearchFilter] = useState<'all' | 'name' | 'type' | 'genre' | 'tags'>('all');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchFilter, setGlobalSearchFilter] = useState<'all' | 'albums' | 'singles' | 'tracks' | 'audio'>('all');
+
+  // Production Schedule state
+  const [productionScheduleItems, setProductionScheduleItems] = useState<ProductionScheduleItem[]>([]);
+  const [loadingProductionSchedule, setLoadingProductionSchedule] = useState(false);
+  const [productionScheduleError, setProductionScheduleError] = useState<string | null>(null);
+  const [productionScheduleFilter, setProductionScheduleFilter] = useState<'all' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold'>('all');
+  const [showCreateScheduleItemDialog, setShowCreateScheduleItemDialog] = useState(false);
+  const [newScheduleItem, setNewScheduleItem] = useState({
+    title: '',
+    description: '',
+    type: 'collaboration' as const,
+    priority: 'medium' as const,
+    scheduled_date: '',
+    due_date: '',
+    assigned_to: '',
+    collaborators: [] as string[],
+    project_id: '',
+    project_type: 'other' as const,
+    notes: '',
+    budget: '',
+    currency: 'USD',
+    location: '',
+    equipment_needed: [] as string[],
+    checklist: [] as ChecklistItem[]
+  });
+  const [scheduleItemCreating, setScheduleItemCreating] = useState(false);
+  const [scheduleItemCreateError, setScheduleItemCreateError] = useState<string | null>(null);
+  
+  // Edit schedule item state
+  const [showEditScheduleItemDialog, setShowEditScheduleItemDialog] = useState(false);
+  const [editingScheduleItem, setEditingScheduleItem] = useState<ProductionScheduleItem | null>(null);
+  const [editScheduleItemForm, setEditScheduleItemForm] = useState({
+    title: '',
+    description: '',
+    type: 'collaboration' as 'collaboration' | 'song_production' | 'beat_production' | 'mixing' | 'mastering' | 'recording' | 'other',
+    status: 'scheduled' as 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold',
+    priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent',
+    scheduled_date: '',
+    due_date: '',
+    assigned_to: '',
+    collaborators: [] as string[],
+    project_id: '',
+    project_type: 'other' as 'album' | 'single' | 'track' | 'other',
+    notes: '',
+    budget: '',
+    currency: 'USD',
+    location: '',
+    equipment_needed: [] as string[],
+    checklist: [] as ChecklistItem[]
+  });
+  const [scheduleItemUpdating, setScheduleItemUpdating] = useState(false);
+  const [scheduleItemUpdateError, setScheduleItemUpdateError] = useState<string | null>(null);
+
+  // Link project state
+  const [showLinkProjectDialog, setShowLinkProjectDialog] = useState(false);
+  const [linkingScheduleItem, setLinkingScheduleItem] = useState<ProductionScheduleItem | null>(null);
+  const [linkProjectType, setLinkProjectType] = useState<'album' | 'single' | 'track'>('album');
+  const [linkProjectSearchQuery, setLinkProjectSearchQuery] = useState('');
+  const [linkProjectSearchResults, setLinkProjectSearchResults] = useState<{albums: Album[], singles: Single[], tracks: Track[]}>({
+    albums: [],
+    singles: [],
+    tracks: []
+  });
+  const [linkProjectLoading, setLinkProjectLoading] = useState(false);
+  const [linkProjectError, setLinkProjectError] = useState<string | null>(null);
+
+  // Load production schedule items
+  const loadProductionSchedule = async () => {
+    if (!user?.id) return;
+    
+    setLoadingProductionSchedule(true);
+    setProductionScheduleError(null);
+    
+    try {
+      const { data, error } = await supabase
+        .from('production_schedule')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('scheduled_date', { ascending: true });
+      
+      if (error) throw error;
+      
+      // Fetch linked project details for items that have project_id
+      const itemsWithProjectDetails = await Promise.all(
+        (data || []).map(async (item) => {
+          if (item.project_id && item.project_type) {
+            try {
+              let projectData = null;
+              
+              if (item.project_type === 'album') {
+                const { data: album } = await supabase
+                  .from('albums')
+                  .select('id, title, artist')
+                  .eq('id', item.project_id)
+                  .single();
+                projectData = album;
+              } else if (item.project_type === 'single') {
+                const { data: single } = await supabase
+                  .from('singles')
+                  .select('id, title, artist')
+                  .eq('id', item.project_id)
+                  .single();
+                projectData = single;
+              } else if (item.project_type === 'track') {
+                const { data: track } = await supabase
+                  .from('tracks')
+                  .select('id, title, artist')
+                  .eq('id', item.project_id)
+                  .single();
+                projectData = track;
+              }
+              
+              return {
+                ...item,
+                linkedProject: projectData
+              };
+            } catch (error) {
+              console.error('Error fetching project details:', error);
+              return item;
+            }
+          }
+          return item;
+        })
+      );
+      
+      setProductionScheduleItems(itemsWithProjectDetails);
+    } catch (error: any) {
+      setProductionScheduleError(error.message);
+      console.error('Error loading production schedule:', error);
+    } finally {
+      setLoadingProductionSchedule(false);
+    }
+  };
+
+  // Create new production schedule item
+  const createScheduleItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id) return;
+    
+    setScheduleItemCreating(true);
+    setScheduleItemCreateError(null);
+    
+    try {
+      const { data, error } = await supabase
+        .from('production_schedule')
+        .insert({
+          user_id: user.id,
+          title: newScheduleItem.title,
+          description: newScheduleItem.description || null,
+          type: newScheduleItem.type,
+          priority: newScheduleItem.priority,
+          scheduled_date: newScheduleItem.scheduled_date,
+          due_date: newScheduleItem.due_date,
+          assigned_to: newScheduleItem.assigned_to || null,
+          collaborators: newScheduleItem.collaborators.length > 0 ? newScheduleItem.collaborators : null,
+          project_id: newScheduleItem.project_id || null,
+          project_type: newScheduleItem.project_type,
+          notes: newScheduleItem.notes || null,
+          budget: newScheduleItem.budget ? parseFloat(newScheduleItem.budget) : null,
+          currency: newScheduleItem.currency,
+          location: newScheduleItem.location || null,
+          equipment_needed: newScheduleItem.equipment_needed.length > 0 ? newScheduleItem.equipment_needed : null,
+          checklist: newScheduleItem.checklist
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Add to local state
+      setProductionScheduleItems([...productionScheduleItems, data]);
+      
+      // Reset form
+      setNewScheduleItem({
+        title: '',
+        description: '',
+        type: 'collaboration',
+        priority: 'medium',
+        scheduled_date: '',
+        due_date: '',
+        assigned_to: '',
+        collaborators: [],
+        project_id: '',
+        project_type: 'other',
+        notes: '',
+        budget: '',
+        currency: 'USD',
+        location: '',
+        equipment_needed: [],
+        checklist: []
+      });
+      
+      setShowCreateScheduleItemDialog(false);
+      
+      toast({
+        title: "Success",
+        description: "Production schedule item created successfully!",
+      });
+    } catch (error: any) {
+      setScheduleItemCreateError(error.message);
+      console.error('Error creating schedule item:', error);
+    } finally {
+      setScheduleItemCreating(false);
+    }
+  };
+
+  // Open edit schedule item dialog
+  const openEditScheduleItemDialog = (item: ProductionScheduleItem) => {
+    setEditingScheduleItem(item);
+    setEditScheduleItemForm({
+      title: item.title,
+      description: item.description || '',
+      type: item.type,
+      status: item.status,
+      priority: item.priority,
+      scheduled_date: item.scheduled_date,
+      due_date: item.due_date,
+      assigned_to: item.assigned_to || '',
+      collaborators: item.collaborators || [],
+      project_id: item.project_id || '',
+      project_type: item.project_type || 'other',
+      notes: item.notes || '',
+      budget: item.budget ? item.budget.toString() : '',
+      currency: item.currency || 'USD',
+      location: item.location || '',
+      equipment_needed: item.equipment_needed || [],
+      checklist: item.checklist || []
+    });
+    setShowEditScheduleItemDialog(true);
+  };
+
+  // Update schedule item
+  const updateScheduleItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id || !editingScheduleItem) return;
+    
+    setScheduleItemUpdating(true);
+    setScheduleItemUpdateError(null);
+    
+    try {
+      const { data, error } = await supabase
+        .from('production_schedule')
+        .update({
+          title: editScheduleItemForm.title,
+          description: editScheduleItemForm.description || null,
+          type: editScheduleItemForm.type,
+          status: editScheduleItemForm.status,
+          priority: editScheduleItemForm.priority,
+          scheduled_date: editScheduleItemForm.scheduled_date,
+          due_date: editScheduleItemForm.due_date,
+          assigned_to: editScheduleItemForm.assigned_to || null,
+          collaborators: editScheduleItemForm.collaborators.length > 0 ? editScheduleItemForm.collaborators : null,
+          project_id: editScheduleItemForm.project_id || null,
+          project_type: editScheduleItemForm.project_type,
+          notes: editScheduleItemForm.notes || null,
+          budget: editScheduleItemForm.budget ? parseFloat(editScheduleItemForm.budget) : null,
+          currency: editScheduleItemForm.currency,
+          location: editScheduleItemForm.location || null,
+          equipment_needed: editScheduleItemForm.equipment_needed.length > 0 ? editScheduleItemForm.equipment_needed : null,
+          checklist: editScheduleItemForm.checklist,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingScheduleItem.id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Update local state
+      setProductionScheduleItems(productionScheduleItems.map(item => 
+        item.id === editingScheduleItem.id ? data : item
+      ));
+      
+      setShowEditScheduleItemDialog(false);
+      setEditingScheduleItem(null);
+      
+      toast({
+        title: "Success",
+        description: "Production schedule item updated successfully!",
+      });
+    } catch (error: any) {
+      setScheduleItemUpdateError(error.message);
+      console.error('Error updating schedule item:', error);
+    } finally {
+      setScheduleItemUpdating(false);
+    }
+  };
+
+  // Update schedule item status
+  const updateScheduleItemStatus = async (itemId: string, newStatus: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold') => {
+    try {
+      const { error } = await supabase
+        .from('production_schedule')
+        .update({ 
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', itemId);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setProductionScheduleItems(productionScheduleItems.map(item => 
+        item.id === itemId ? { ...item, status: newStatus } : item
+      ));
+      
+      toast({
+        title: "Status Updated",
+        description: `Status changed to ${newStatus.replace('_', ' ')}`,
+      });
+    } catch (error: any) {
+      console.error('Error updating status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Delete schedule item
+  const deleteScheduleItem = async (itemId: string) => {
+    if (!confirm('Are you sure you want to delete this schedule item?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('production_schedule')
+        .delete()
+        .eq('id', itemId);
+      
+      if (error) throw error;
+      
+      // Remove from local state
+      setProductionScheduleItems(productionScheduleItems.filter(item => item.id !== itemId));
+      
+      toast({
+        title: "Success",
+        description: "Production schedule item deleted successfully!",
+      });
+    } catch (error: any) {
+      console.error('Error deleting schedule item:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete schedule item",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Link project functions
+  const openLinkProjectDialog = (item: ProductionScheduleItem) => {
+    setLinkingScheduleItem(item);
+    setLinkProjectType('album');
+    setLinkProjectSearchQuery('');
+    setLinkProjectSearchResults({ albums: [], singles: [], tracks: [] });
+    setShowLinkProjectDialog(true);
+    
+    // Automatically load all projects when dialog opens
+    setTimeout(() => {
+      searchProjects('', 'all');
+    }, 100);
+  };
+
+  const searchProjects = async (query: string, type: 'album' | 'single' | 'track' | 'all') => {
+    if (!user?.id) {
+      setLinkProjectSearchResults({ albums: [], singles: [], tracks: [] });
+      return;
+    }
+
+    setLinkProjectLoading(true);
+    setLinkProjectError(null);
+
+    try {
+      let results: { albums: any[], singles: any[], tracks: any[] } = { albums: [], singles: [], tracks: [] };
+
+      if (type === 'album' || type === 'all') {
+        const { data: albums } = await supabase
+          .from('albums')
+          .select('id, title, artist, release_date')
+          .eq('user_id', user.id)
+          .ilike('title', query ? `%${query}%` : '%')
+          .limit(20);
+        results.albums = albums || [];
+      }
+
+      if (type === 'single' || type === 'all') {
+        const { data: singles } = await supabase
+          .from('singles')
+          .select('id, title, artist, release_date, session_id, session_name')
+          .eq('user_id', user.id)
+          .ilike('title', query ? `%${query}%` : '%')
+          .limit(20);
+        results.singles = singles || [];
+        console.log('Singles with sessions:', singles);
+      }
+
+      if (type === 'track' || type === 'all') {
+        const { data: tracks } = await supabase
+          .from('tracks')
+          .select('id, title, artist, release_date, session_id, session_name')
+          .eq('user_id', user.id)
+          .ilike('title', query ? `%${query}%` : '%')
+          .limit(20);
+        results.tracks = tracks || [];
+        console.log('Tracks with sessions:', tracks);
+      }
+
+      setLinkProjectSearchResults(results);
+    } catch (error: any) {
+      setLinkProjectError(error.message);
+      console.error('Error searching projects:', error);
+    } finally {
+      setLinkProjectLoading(false);
+    }
+  };
+
+  const linkProjectToSchedule = async (projectId: string, projectType: 'album' | 'single' | 'track') => {
+    if (!linkingScheduleItem) return;
+
+    try {
+      const { error } = await supabase
+        .from('production_schedule')
+        .update({
+          project_id: projectId,
+          project_type: projectType
+        })
+        .eq('id', linkingScheduleItem.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setProductionScheduleItems(prev => prev.map(item => 
+        item.id === linkingScheduleItem.id 
+          ? { ...item, project_id: projectId, project_type: projectType }
+          : item
+      ));
+
+      setShowLinkProjectDialog(false);
+      setLinkingScheduleItem(null);
+
+      toast({
+        title: "Success",
+        description: `Project linked to schedule item successfully!`,
+      });
+    } catch (error: any) {
+      console.error('Error linking project:', error);
+      toast({
+        title: "Error",
+        description: "Failed to link project",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const unlinkProjectFromSchedule = async (itemId: string) => {
+    try {
+      const { error } = await supabase
+        .from('production_schedule')
+        .update({
+          project_id: null,
+          project_type: null
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      // Update local state
+      setProductionScheduleItems(prev => prev.map(item => 
+        item.id === itemId 
+          ? { ...item, project_id: undefined, project_type: undefined }
+          : item
+      ));
+
+      toast({
+        title: "Success",
+        description: "Project unlinked from schedule item successfully!",
+      });
+    } catch (error: any) {
+      console.error('Error unlinking project:', error);
+      toast({
+        title: "Error",
+        description: "Failed to unlink project",
+        variant: "destructive"
+      });
+    }
+  };
 
   // Audio upload logic for Audio Library tab
   async function uploadAudioLibraryFile(file: File): Promise<string | null> {
@@ -4917,6 +5452,7 @@ export default function MyLibrary() {
           <TabsTrigger value="profiles">Music Profiles</TabsTrigger>
           <TabsTrigger value="audio">Audio Library</TabsTrigger>
           <TabsTrigger value="top">Top Releases</TabsTrigger>
+          <TabsTrigger value="production-schedule">Production Schedule</TabsTrigger>
         </TabsList>
         {/* Albums Tab */}
         <TabsContent value="albums" className="space-y-4">
@@ -5363,7 +5899,15 @@ export default function MyLibrary() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-semibold text-white truncate">{track.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-semibold text-white truncate">{track.title}</h3>
+                            {track.replaced_at && (
+                              <Badge variant="outline" className="text-orange-400 border-orange-500 text-xs">
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Replaced {new Date(track.replaced_at).toLocaleDateString()}
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-gray-400 text-sm">{track.artist}</p>
                           
                           {/* Status Badges */}
@@ -5441,8 +5985,22 @@ export default function MyLibrary() {
                             {track.genre && <div>Genre: {track.genre}</div>}
                             {track.subgenre && <div>Subgenre: {track.subgenre}</div>}
                             {track.duration && <div>Duration: {track.duration}</div>}
-                            {track.session_name && <div>Session: {track.session_name}</div>}
                           </div>
+                          
+                          {/* Session Link */}
+                          {track.session_id && track.session_name && (
+                            <div className="mt-2 ml-4">
+                              <div 
+                                className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
+                                onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
+                              >
+                                <LinkIcon className="h-3 w-3 text-blue-400" />
+                                <span className="text-sm font-medium text-blue-300">
+                                  Session: {track.session_name}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           
                           {/* Description */}
                           {track.description && (
@@ -5691,20 +6249,7 @@ export default function MyLibrary() {
                         </div>
                       </div>
                       
-                      {/* Session Link */}
-                      {track.session_id && track.session_name && (
-                        <div className="mt-2 ml-4">
-                          <div 
-                            className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
-                            onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
-                          >
-                            <LinkIcon className="h-3 w-3 text-blue-400" />
-                            <span className="text-sm font-medium text-blue-300">
-                              Session: {track.session_name}
-                            </span>
-                          </div>
-                        </div>
-                      )}
+
                       
                       {/* Track Details */}
                       <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
@@ -5930,7 +6475,15 @@ export default function MyLibrary() {
                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
                           <div>
                             <div className="flex items-center gap-2 text-center sm:text-left">
-                              <h2 className="text-lg sm:text-xl font-semibold">{single.title}</h2>
+                              <div className="flex items-center gap-2">
+                          <h2 className="text-lg sm:text-xl font-semibold">{single.title}</h2>
+                          {single.replaced_at && (
+                            <Badge variant="outline" className="text-orange-400 border-orange-500 text-xs">
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                              Replaced {new Date(single.replaced_at).toLocaleDateString()}
+                            </Badge>
+                          )}
+                        </div>
                               {recentlyReplacedSingles.has(single.id) && (
                                 <Badge variant="secondary" className="bg-green-600 text-white text-xs px-2 py-1 animate-pulse">
                                   File Replaced
@@ -6161,12 +6714,7 @@ export default function MyLibrary() {
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
-                            <Link href="/platform-status">
-                              <Button variant="outline" size="sm">
-                                <Globe className="h-4 w-4 mr-2" />
-                                Platform Status
-                              </Button>
-                            </Link>
+
                             {single.audio_url && (
                               single.status === 'published' ? (
                                 <Button 
@@ -7592,6 +8140,302 @@ export default function MyLibrary() {
           <div className="grid gap-4">
             <div className="text-center py-8 text-gray-500">Top releases analytics coming soon...</div>
           </div>
+        </TabsContent>
+        
+        {/* Production Schedule Tab */}
+        <TabsContent value="production-schedule" className="space-y-4">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-white">Production Schedule</h2>
+            <Button 
+              onClick={() => setShowCreateScheduleItemDialog(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Schedule Item
+            </Button>
+          </div>
+          
+          {/* Production Schedule Filter Tabs */}
+          <div className="mb-6">
+            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+              <button
+                onClick={() => setProductionScheduleFilter('all')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  productionScheduleFilter === 'all' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setProductionScheduleFilter('scheduled')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  productionScheduleFilter === 'scheduled' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Scheduled
+              </button>
+              <button
+                onClick={() => setProductionScheduleFilter('in_progress')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  productionScheduleFilter === 'in_progress' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                In Progress
+              </button>
+              <button
+                onClick={() => setProductionScheduleFilter('completed')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  productionScheduleFilter === 'completed' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Completed
+              </button>
+              <button
+                onClick={() => setProductionScheduleFilter('cancelled')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  productionScheduleFilter === 'cancelled' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                Cancelled
+              </button>
+              <button
+                onClick={() => setProductionScheduleFilter('on_hold')}
+                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  productionScheduleFilter === 'on_hold' 
+                    ? 'bg-blue-600 text-white shadow-sm' 
+                    : 'text-gray-300 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                On Hold
+              </button>
+            </div>
+          </div>
+          
+          {loadingProductionSchedule ? (
+            <div className="text-center py-8 text-gray-500">Loading production schedule...</div>
+          ) : productionScheduleError ? (
+            <div className="text-red-500">{productionScheduleError}</div>
+          ) : productionScheduleItems.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Music className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+              <h3 className="text-lg font-medium text-gray-300 mb-2">No Production Schedule Items</h3>
+              <p className="text-gray-500 mb-4">Start scheduling your music production tasks, collaborations, and recording sessions.</p>
+              <Button 
+                onClick={() => setShowCreateScheduleItemDialog(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Your First Schedule Item
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {productionScheduleItems
+                .filter(item => productionScheduleFilter === 'all' || item.status === productionScheduleFilter)
+                .map(item => (
+                  <Card key={item.id} className="p-4 sm:p-6 border-l-4 border-blue-500">
+                    <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-white">{item.title}</h3>
+                          <div className="flex gap-2">
+                            <Badge className={`text-xs ${getPriorityColor(item.priority)}`}>
+                              {item.priority}
+                            </Badge>
+                            <Badge className={`text-xs ${getStatusColor(item.status)}`}>
+                              {item.status.replace('_', ' ')}
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        {item.description && (
+                          <p className="text-gray-400 text-sm mb-3">{item.description}</p>
+                        )}
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">Type:</span>
+                            <span className="text-white ml-2 capitalize">{item.type.replace('_', ' ')}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Scheduled:</span>
+                            <span className="text-white ml-2">{new Date(item.scheduled_date).toLocaleDateString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Due:</span>
+                            <span className="text-white ml-2">{new Date(item.due_date).toLocaleDateString()}</span>
+                          </div>
+                          {item.assigned_to && (
+                            <div>
+                              <span className="text-gray-500">Assigned to:</span>
+                              <span className="text-white ml-2">{item.assigned_to}</span>
+                            </div>
+                          )}
+                          {item.location && (
+                            <div>
+                              <span className="text-gray-500">Location:</span>
+                              <span className="text-white ml-2">{item.location}</span>
+                            </div>
+                          )}
+                          {item.budget && (
+                            <div>
+                              <span className="text-gray-500">Budget:</span>
+                              <span className="text-white ml-2">{item.currency} {item.budget}</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {item.collaborators && item.collaborators.length > 0 && (
+                          <div className="mt-3">
+                            <span className="text-gray-500 text-sm">Collaborators:</span>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.collaborators.map((collaborator, index) => (
+                                <Badge key={index} variant="secondary" className="text-xs">
+                                  {collaborator}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {item.notes && (
+                          <div className="mt-3">
+                            <span className="text-gray-500 text-sm">Notes:</span>
+                            <p className="text-gray-300 text-sm mt-1">{item.notes}</p>
+                          </div>
+                        )}
+                        
+                        {/* Linked Project Information */}
+                        {item.project_id && item.project_type && (
+                          <div className="mt-3">
+                            <span className="text-gray-500 text-sm">Linked Project:</span>
+                            <div className="mt-1">
+                              <div 
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs cursor-pointer hover:bg-purple-500/30 transition-colors"
+                                onClick={() => {
+                                  if (item.project_type === 'album') {
+                                    router.push(`/mylibrary?tab=albums`);
+                                  } else if (item.project_type === 'single') {
+                                    router.push(`/mylibrary?tab=singles`);
+                                  } else if (item.project_type === 'track') {
+                                    router.push(`/mylibrary?tab=tracks`);
+                                  }
+                                }}
+                                title="Click to view project"
+                              >
+                                <LinkIcon className="h-3 w-3 text-purple-400" />
+                                <span className="text-purple-300 capitalize">
+                                  {item.project_type}: {item.linkedProject?.title || item.project_id}
+                                </span>
+                                {item.linkedProject?.artist && (
+                                  <span className="text-purple-200 ml-1">
+                                    by {item.linkedProject.artist}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {item.checklist && item.checklist.length > 0 && (
+                          <div className="mt-4">
+                            <span className="text-gray-500 text-sm font-medium">Checklist:</span>
+                            <div className="mt-2 space-y-2">
+                              {item.checklist.map((checkItem, index) => (
+                                <div key={checkItem.id || index} className="flex items-start gap-2 p-2 bg-zinc-800 rounded-md">
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                                      checkItem.completed 
+                                        ? 'bg-green-600 border-green-600' 
+                                        : 'border-gray-400'
+                                    }`}>
+                                      {checkItem.completed && (
+                                        <CheckCircle2 className="w-3 h-3 text-white" />
+                                      )}
+                                    </div>
+                                    <span className={`text-sm ${checkItem.completed ? 'line-through text-gray-500' : 'text-white'}`}>
+                                      {checkItem.title}
+                                    </span>
+                                  </div>
+                                  {checkItem.assigned_to && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {checkItem.assigned_to}
+                                    </Badge>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="mt-2 text-xs text-gray-500">
+                              {item.checklist.filter(item => item.completed).length} of {item.checklist.length} completed
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-xs"
+                          onClick={() => openEditScheduleItemDialog(item)}
+                        >
+                          <Edit3 className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
+                        
+                        {/* Link Project Button */}
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                          onClick={() => openLinkProjectDialog(item)}
+                        >
+                          <LinkIcon className="h-3 w-3 mr-1" />
+                          {item.project_id ? 'Change Link' : 'Link Project'}
+                        </Button>
+                        
+                        {/* Status Update Dropdown */}
+                        <Select 
+                          value={item.status} 
+                          onValueChange={(value: any) => updateScheduleItemStatus(item.id, value)}
+                        >
+                          <SelectTrigger className="text-xs h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="scheduled">Scheduled</SelectItem>
+                            <SelectItem value="in_progress">In Progress</SelectItem>
+                            <SelectItem value="completed">Completed</SelectItem>
+                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                            <SelectItem value="on_hold">On Hold</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-xs text-red-500 hover:text-red-700"
+                          onClick={() => deleteScheduleItem(item.id)}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
       
@@ -9028,6 +9872,566 @@ export default function MyLibrary() {
             </Button>
             <DialogClose asChild>
               <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Production Schedule Item Dialog */}
+      <Dialog open={showCreateScheduleItemDialog} onOpenChange={setShowCreateScheduleItemDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Production Schedule Item</DialogTitle>
+            <DialogDescription>
+              Schedule a new production task, collaboration, or recording session.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <form onSubmit={createScheduleItem} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="title" className="text-sm font-medium">Title *</Label>
+                <Input
+                  id="title"
+                  value={newScheduleItem.title}
+                  onChange={(e) => setNewScheduleItem({...newScheduleItem, title: e.target.value})}
+                  placeholder="e.g., Studio Recording Session"
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="type" className="text-sm font-medium">Type *</Label>
+                <Select value={newScheduleItem.type} onValueChange={(value: any) => setNewScheduleItem({...newScheduleItem, type: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="collaboration">Collaboration</SelectItem>
+                    <SelectItem value="song_production">Song Production</SelectItem>
+                    <SelectItem value="beat_production">Beat Production</SelectItem>
+                    <SelectItem value="mixing">Mixing</SelectItem>
+                    <SelectItem value="mastering">Mastering</SelectItem>
+                    <SelectItem value="recording">Recording</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="priority" className="text-sm font-medium">Priority *</Label>
+                <Select value={newScheduleItem.priority} onValueChange={(value: any) => setNewScheduleItem({...newScheduleItem, priority: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="assigned_to" className="text-sm font-medium">Assigned To</Label>
+                <Input
+                  id="assigned_to"
+                  value={newScheduleItem.assigned_to}
+                  onChange={(e) => setNewScheduleItem({...newScheduleItem, assigned_to: e.target.value})}
+                  placeholder="e.g., John Producer"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="scheduled_date" className="text-sm font-medium">Scheduled Date *</Label>
+                <Input
+                  id="scheduled_date"
+                  type="date"
+                  value={newScheduleItem.scheduled_date}
+                  onChange={(e) => setNewScheduleItem({...newScheduleItem, scheduled_date: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="due_date" className="text-sm font-medium">Due Date *</Label>
+                <Input
+                  id="due_date"
+                  type="date"
+                  value={newScheduleItem.due_date}
+                  onChange={(e) => setNewScheduleItem({...newScheduleItem, due_date: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="location" className="text-sm font-medium">Location</Label>
+                <Input
+                  id="location"
+                  value={newScheduleItem.location}
+                  onChange={(e) => setNewScheduleItem({...newScheduleItem, location: e.target.value})}
+                  placeholder="e.g., Studio A, Home Studio"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="budget" className="text-sm font-medium">Budget</Label>
+                <Input
+                  id="budget"
+                  type="number"
+                  value={newScheduleItem.budget}
+                  onChange={(e) => setNewScheduleItem({...newScheduleItem, budget: e.target.value})}
+                  placeholder="0.00"
+                  step="0.01"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="currency" className="text-sm font-medium">Currency</Label>
+                <Select value={newScheduleItem.currency} onValueChange={(value) => setNewScheduleItem({...newScheduleItem, currency: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                    <SelectItem value="CAD">CAD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="description" className="text-sm font-medium">Description</Label>
+              <Textarea
+                id="description"
+                value={newScheduleItem.description}
+                onChange={(e) => setNewScheduleItem({...newScheduleItem, description: e.target.value})}
+                placeholder="Describe the production task or session..."
+                rows={3}
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="notes" className="text-sm font-medium">Notes</Label>
+              <Textarea
+                id="notes"
+                value={newScheduleItem.notes}
+                onChange={(e) => setNewScheduleItem({...newScheduleItem, notes: e.target.value})}
+                placeholder="Additional notes or requirements..."
+                rows={2}
+              />
+            </div>
+            
+            {scheduleItemCreateError && (
+              <div className="text-red-500 text-sm">{scheduleItemCreateError}</div>
+            )}
+            
+            <DialogFooter>
+              <Button 
+                type="submit" 
+                disabled={scheduleItemCreating}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {scheduleItemCreating ? 'Creating...' : 'Create Schedule Item'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Production Schedule Item Dialog */}
+      <Dialog open={showEditScheduleItemDialog} onOpenChange={setShowEditScheduleItemDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Production Schedule Item</DialogTitle>
+            <DialogDescription>
+              Update the production schedule item details.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <form onSubmit={updateScheduleItem} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="edit-title" className="text-sm font-medium">Title *</Label>
+                <Input
+                  id="edit-title"
+                  value={editScheduleItemForm.title}
+                  onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, title: e.target.value})}
+                  placeholder="e.g., Studio Recording Session"
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-type" className="text-sm font-medium">Type *</Label>
+                <Select value={editScheduleItemForm.type} onValueChange={(value: any) => setEditScheduleItemForm({...editScheduleItemForm, type: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="collaboration">Collaboration</SelectItem>
+                    <SelectItem value="song_production">Song Production</SelectItem>
+                    <SelectItem value="beat_production">Beat Production</SelectItem>
+                    <SelectItem value="mixing">Mixing</SelectItem>
+                    <SelectItem value="mastering">Mastering</SelectItem>
+                    <SelectItem value="recording">Recording</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-status" className="text-sm font-medium">Status *</Label>
+                <Select value={editScheduleItemForm.status} onValueChange={(value: any) => setEditScheduleItemForm({...editScheduleItemForm, status: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    <SelectItem value="on_hold">On Hold</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-priority" className="text-sm font-medium">Priority *</Label>
+                <Select value={editScheduleItemForm.priority} onValueChange={(value: any) => setEditScheduleItemForm({...editScheduleItemForm, priority: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-assigned_to" className="text-sm font-medium">Assigned To</Label>
+                <Input
+                  id="edit-assigned_to"
+                  value={editScheduleItemForm.assigned_to}
+                  onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, assigned_to: e.target.value})}
+                  placeholder="e.g., John Producer"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-scheduled_date" className="text-sm font-medium">Scheduled Date *</Label>
+                <Input
+                  id="edit-scheduled_date"
+                  type="date"
+                  value={editScheduleItemForm.scheduled_date}
+                  onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, scheduled_date: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-due_date" className="text-sm font-medium">Due Date *</Label>
+                <Input
+                  id="edit-due_date"
+                  type="date"
+                  value={editScheduleItemForm.due_date}
+                  onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, due_date: e.target.value})}
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-location" className="text-sm font-medium">Location</Label>
+                <Input
+                  id="edit-location"
+                  value={editScheduleItemForm.location}
+                  onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, location: e.target.value})}
+                  placeholder="e.g., Studio A, Home Studio"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-budget" className="text-sm font-medium">Budget</Label>
+                <Input
+                  id="edit-budget"
+                  type="number"
+                  value={editScheduleItemForm.budget}
+                  onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, budget: e.target.value})}
+                  placeholder="0.00"
+                  step="0.01"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="edit-currency" className="text-sm font-medium">Currency</Label>
+                <Select value={editScheduleItemForm.currency} onValueChange={(value) => setEditScheduleItemForm({...editScheduleItemForm, currency: value})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="GBP">GBP</SelectItem>
+                    <SelectItem value="CAD">CAD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="edit-description" className="text-sm font-medium">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editScheduleItemForm.description}
+                onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, description: e.target.value})}
+                placeholder="Describe the production task or session..."
+                rows={3}
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="edit-notes" className="text-sm font-medium">Notes</Label>
+              <Textarea
+                id="edit-notes"
+                value={editScheduleItemForm.notes}
+                onChange={(e) => setEditScheduleItemForm({...editScheduleItemForm, notes: e.target.value})}
+                placeholder="Additional notes or requirements..."
+                rows={2}
+              />
+            </div>
+            
+            {scheduleItemUpdateError && (
+              <div className="text-red-500 text-sm">{scheduleItemUpdateError}</div>
+            )}
+            
+            <DialogFooter>
+              <Button 
+                type="submit" 
+                disabled={scheduleItemUpdating}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {scheduleItemUpdating ? 'Updating...' : 'Update Schedule Item'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link Project Dialog */}
+      <Dialog open={showLinkProjectDialog} onOpenChange={setShowLinkProjectDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Link Project to Schedule Item</DialogTitle>
+            <DialogDescription>
+              Search and link an existing album, single, or track to this production schedule item.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {linkingScheduleItem && (
+            <div className="space-y-4">
+              {/* Project Type Selection */}
+              <div>
+                <Label className="text-sm font-medium">Project Type</Label>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    variant={linkProjectType === 'album' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLinkProjectType('album')}
+                    className="text-xs"
+                  >
+                    Albums
+                  </Button>
+                  <Button
+                    variant={linkProjectType === 'single' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLinkProjectType('single')}
+                    className="text-xs"
+                  >
+                    Singles
+                  </Button>
+                  <Button
+                    variant={linkProjectType === 'track' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLinkProjectType('track')}
+                    className="text-xs"
+                  >
+                    Tracks
+                  </Button>
+                </div>
+              </div>
+
+              {/* Search Input */}
+              <div>
+                <Label htmlFor="project-search" className="text-sm font-medium">Search Projects</Label>
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    id="project-search"
+                    placeholder={`Search ${linkProjectType}s...`}
+                    value={linkProjectSearchQuery}
+                    onChange={(e) => {
+                      setLinkProjectSearchQuery(e.target.value);
+                      if (e.target.value.trim()) {
+                        searchProjects(e.target.value, linkProjectType);
+                      } else {
+                        setLinkProjectSearchResults({ albums: [], singles: [], tracks: [] });
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={() => searchProjects(linkProjectSearchQuery, linkProjectType)}
+                    disabled={linkProjectLoading || !linkProjectSearchQuery.trim()}
+                    size="sm"
+                  >
+                    {linkProjectLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Search Results */}
+              <div className="max-h-60 overflow-y-auto">
+                {linkProjectError && (
+                  <div className="text-red-500 text-sm p-2">{linkProjectError}</div>
+                )}
+                
+                {linkProjectLoading ? (
+                  <div className="text-center py-4 text-gray-500">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                    Searching...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Albums */}
+                    {linkProjectType === 'album' && linkProjectSearchResults.albums.map((album: any) => (
+                      <div
+                        key={album.id}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-800 cursor-pointer"
+                        onClick={() => linkProjectToSchedule(album.id, 'album')}
+                      >
+                        <div>
+                          <div className="font-medium text-white">{album.title}</div>
+                          <div className="text-sm text-gray-400">{album.artist}</div>
+                          <div className="text-xs text-gray-500">{album.release_date}</div>
+                        </div>
+                        <Button size="sm" variant="outline">
+                          <LinkIcon className="h-3 w-3 mr-1" />
+                          Link
+                        </Button>
+                      </div>
+                    ))}
+
+                    {/* Singles */}
+                    {linkProjectType === 'single' && linkProjectSearchResults.singles.map((single: any) => (
+                      <div
+                        key={single.id}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-800 cursor-pointer"
+                        onClick={() => linkProjectToSchedule(single.id, 'single')}
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium text-white">{single.title}</div>
+                          <div className="text-sm text-gray-400">{single.artist}</div>
+                          <div className="text-xs text-gray-500">{single.release_date}</div>
+                          <div className="text-xs text-gray-400">Debug: session_id={single.session_id}, session_name={single.session_name}</div>
+                          {single.session_id && single.session_name && (
+                            <div className="mt-1">
+                              <div className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 border border-blue-500/30 rounded text-xs">
+                                <LinkIcon className="h-3 w-3 text-blue-400" />
+                                <span className="text-blue-300">Session: {single.session_name}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <Button size="sm" variant="outline">
+                          <LinkIcon className="h-3 w-3 mr-1" />
+                          Link
+                        </Button>
+                      </div>
+                    ))}
+
+                    {/* Tracks */}
+                    {linkProjectType === 'track' && linkProjectSearchResults.tracks.map((track: any) => (
+                      <div
+                        key={track.id}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-800 cursor-pointer"
+                        onClick={() => linkProjectToSchedule(track.id, 'track')}
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium text-white">{track.title}</div>
+                          <div className="text-sm text-gray-400">{track.artist}</div>
+                          <div className="text-xs text-gray-500">{track.release_date}</div>
+                          <div className="text-xs text-gray-400">Debug: session_id={track.session_id}, session_name={track.session_name}</div>
+                          {track.session_id && track.session_name && (
+                            <div className="mt-1">
+                              <div className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 border border-blue-500/30 rounded text-xs">
+                                <LinkIcon className="h-3 w-3 text-blue-400" />
+                                <span className="text-blue-300">Session: {track.session_name}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <Button size="sm" variant="outline">
+                          <LinkIcon className="h-3 w-3 mr-1" />
+                          Link
+                        </Button>
+                      </div>
+                    ))}
+
+                                                             {!linkProjectLoading && linkProjectSearchQuery.trim() && 
+                     (linkProjectSearchResults[linkProjectType as keyof typeof linkProjectSearchResults] || []).length === 0 && (
+                      <div className="text-center py-4 text-gray-500">
+                        No {linkProjectType}s found matching "{linkProjectSearchQuery}"
+                      </div>
+                    )}
+                    
+                    {!linkProjectLoading && !linkProjectSearchQuery.trim() && 
+                     (linkProjectSearchResults[linkProjectType as keyof typeof linkProjectSearchResults] || []).length === 0 && (
+                      <div className="text-center py-4 text-gray-500">
+                        No {linkProjectType}s found in your library
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Current Link Display */}
+              {linkingScheduleItem.project_id && (
+                <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                  <div className="text-sm font-medium text-blue-300 mb-1">Currently Linked:</div>
+                  <div className="text-sm text-white">
+                    {linkingScheduleItem.project_type?.charAt(0).toUpperCase() + linkingScheduleItem.project_type?.slice(1)} ID: {linkingScheduleItem.project_id}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 text-red-500 hover:text-red-700 border-red-500"
+                    onClick={() => unlinkProjectFromSchedule(linkingScheduleItem.id)}
+                  >
+                    <Unlink className="h-3 w-3 mr-1" />
+                    Unlink Project
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Close</Button>
             </DialogClose>
           </DialogFooter>
         </DialogContent>

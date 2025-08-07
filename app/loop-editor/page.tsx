@@ -380,7 +380,7 @@ export default function LoopEditorPage() {
   }, [searchParams, user?.id])
 
   // State to track if auto-loading should be disabled
-  const [disableAutoLoad, setDisableAutoLoad] = useState(false)
+  const [disableAutoLoad, setDisableAutoLoad] = useState(true)
   
   // Check if auto-loading was disabled in this session
   useEffect(() => {
@@ -5225,12 +5225,16 @@ export default function LoopEditorPage() {
           if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
             // Replace existing single
             const { error: updateError } = await supabase
-              .from('audio_library_items')
+              .from('singles')
               .update({
-                name: saveToLibraryName,
-                file_url: audioUrl,
+                title: saveToLibraryName,
+                audio_url: audioUrl,
                 description: saveToLibraryDescription || null,
-                updated_at: new Date().toISOString()
+                bpm: bpm,
+                genre: saveToLibraryGenre || null,
+                subgenre: saveToLibrarySubgenre || null,
+                updated_at: new Date().toISOString(),
+                replaced_at: new Date().toISOString()
               })
               .eq('id', saveToLibraryReplaceId)
             
@@ -5244,19 +5248,19 @@ export default function LoopEditorPage() {
           } else {
             // Create new single
             const { error: insertError } = await supabase
-              .from('audio_library_items')
+              .from('singles')
               .insert([{
                 user_id: (await supabase.auth.getUser()).data.user?.id,
-                name: saveToLibraryName,
-                type: 'single',
+                title: saveToLibraryName,
+                artist: (await supabase.auth.getUser()).data.user?.email?.split('@')[0] || 'Unknown Artist',
                 description: saveToLibraryDescription || null,
-                file_url: audioUrl,
-                file_size: audioFile.size,
+                audio_url: audioUrl,
                 bpm: bpm,
                 genre: saveToLibraryGenre || null,
                 subgenre: saveToLibrarySubgenre || null,
-                tags: saveToLibraryTags,
-                is_ready: true
+                release_date: new Date().toISOString().split('T')[0],
+                status: 'draft',
+                production_status: 'production'
               }])
             
             if (insertError) throw insertError
@@ -5283,7 +5287,8 @@ export default function LoopEditorPage() {
                   bpm: bpm,
                   genre: saveToLibraryGenre || null,
                   subgenre: saveToLibrarySubgenre || null,
-                  updated_at: new Date().toISOString()
+                  updated_at: new Date().toISOString(),
+                  replaced_at: new Date().toISOString()
                 })
                 .eq('id', selectedAlbumForTrack)
               
@@ -5364,15 +5369,16 @@ export default function LoopEditorPage() {
           if (saveToLibraryReplaceId && saveToLibraryReplaceId !== 'new') {
             // Replace existing track
             const { error: updateError } = await supabase
-              .from('audio_library_items')
+              .from('tracks')
               .update({
-                name: saveToLibraryName,
-                file_url: audioUrl,
+                title: saveToLibraryName,
+                audio_url: audioUrl,
                 description: saveToLibraryDescription || null,
                 bpm: bpm,
                 genre: saveToLibraryGenre || null,
                 subgenre: saveToLibrarySubgenre || null,
-                updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString(),
+                replaced_at: new Date().toISOString()
               })
               .eq('id', saveToLibraryReplaceId)
             
@@ -5386,19 +5392,19 @@ export default function LoopEditorPage() {
           } else {
             // Create new track
             const { error: insertError } = await supabase
-              .from('audio_library_items')
+              .from('tracks')
               .insert([{
                 user_id: (await supabase.auth.getUser()).data.user?.id,
-                name: saveToLibraryName,
-                type: 'track',
+                title: saveToLibraryName,
+                artist: (await supabase.auth.getUser()).data.user?.email?.split('@')[0] || 'Unknown Artist',
                 description: saveToLibraryDescription || null,
-                file_url: audioUrl,
-                file_size: audioFile.size,
+                audio_url: audioUrl,
                 bpm: bpm,
                 genre: saveToLibraryGenre || null,
                 subgenre: saveToLibrarySubgenre || null,
-                tags: saveToLibraryTags,
-                is_ready: true
+                release_date: new Date().toISOString().split('T')[0],
+                status: 'draft',
+                production_status: 'production'
               }])
             
             if (insertError) throw insertError

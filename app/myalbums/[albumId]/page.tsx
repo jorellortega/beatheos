@@ -1255,9 +1255,7 @@ export default function AlbumDetailsPage() {
             <h1 className="text-4xl font-bold mb-2">{album.title}</h1>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={openEditAlbumDialog}><FileText className="h-4 w-4 mr-2" />Edit</Button>
-              <Link href="/platform-status">
-                <Button variant="outline" size="sm"><Globe className="h-4 w-4 mr-2" />Platform Status</Button>
-              </Link>
+
               <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
             </div>
           </div>
