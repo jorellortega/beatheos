@@ -176,6 +176,7 @@ export default function LoopEditorPage() {
   const [snapToGrid, setSnapToGrid] = useState(true)
   const [showGrid, setShowGrid] = useState(true) // Always show grid
   const [showWaveform, setShowWaveform] = useState(true)
+  const [showBarMarkers, setShowBarMarkers] = useState(true) // Show bar marker lines
   const [markedBars, setMarkedBars] = useState<number[]>([])
   const [markedSubBars, setMarkedSubBars] = useState<number[]>([])
   
@@ -506,6 +507,7 @@ export default function LoopEditorPage() {
               setSnapToGrid(session.snap_to_grid !== false)
               setShowGrid(session.show_grid !== false)
               setShowWaveform(session.show_waveform !== false)
+              setShowBarMarkers(session.show_bar_markers !== false)
               setShowDetailedGrid(session.show_detailed_grid || false)
               setMarkedBars(session.marked_bars || [])
               setMarkedSubBars(session.marked_sub_bars || [])
@@ -650,7 +652,7 @@ export default function LoopEditorPage() {
     }
     
     // Draw bar marker lines (green vertical lines for marked bars)
-    if (markedBars.length > 0) {
+    if (showBarMarkers && markedBars.length > 0) {
       ctx.strokeStyle = '#22c55e' // Green color for bar markers
       ctx.lineWidth = 3 // Make bar lines thicker
       ctx.setLineDash([])
@@ -1097,6 +1099,70 @@ export default function LoopEditorPage() {
             ctx.font = '10px monospace'
             ctx.fillText(`(${allPositions.length} positions)`, markerX, 170)
           }
+          
+          // Draw MIDI conversion button (small rectangle with "MIDI" text)
+          const buttonWidth = 40
+          const buttonHeight = 16
+          const buttonX = markerX - buttonWidth / 2
+          const buttonY = 180
+          
+          // Button background
+          ctx.fillStyle = '#3b82f6'
+          ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight)
+          
+          // Button border
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 1
+          ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight)
+          
+          // Button text
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 10px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('MIDI', markerX, buttonY + 12)
+          
+          // Draw DELETE button (small rectangle with "DEL" text)
+          const deleteButtonWidth = 40
+          const deleteButtonHeight = 16
+          const deleteButtonX = markerX - deleteButtonWidth / 2
+          const deleteButtonY = 200
+          
+          // Delete button background (red)
+          ctx.fillStyle = '#ef4444'
+          ctx.fillRect(deleteButtonX, deleteButtonY, deleteButtonWidth, deleteButtonHeight)
+          
+          // Delete button border
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 1
+          ctx.strokeRect(deleteButtonX, deleteButtonY, deleteButtonWidth, deleteButtonHeight)
+          
+          // Delete button text
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 10px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText('DEL', markerX, deleteButtonY + 12)
+          
+          // Draw NAME button (small rectangle with marker name)
+          const nameButtonWidth = Math.max(60, marker.name.length * 8) // Dynamic width based on name length
+          const nameButtonHeight = 16
+          const nameButtonX = markerX - nameButtonWidth / 2
+          const nameButtonY = 220
+          
+          // Name button background (green)
+          ctx.fillStyle = '#10b981'
+          ctx.fillRect(nameButtonX, nameButtonY, nameButtonWidth, nameButtonHeight)
+          
+          // Name button border
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 1
+          ctx.strokeRect(nameButtonX, nameButtonY, nameButtonWidth, nameButtonHeight)
+          
+          // Name button text (truncate if too long)
+          ctx.fillStyle = '#ffffff'
+          ctx.font = 'bold 10px monospace'
+          ctx.textAlign = 'center'
+          const displayName = marker.name.length > 8 ? marker.name.substring(0, 7) + '...' : marker.name
+          ctx.fillText(displayName, markerX, nameButtonY + 12)
         }
       })
     })
@@ -1167,7 +1233,7 @@ export default function LoopEditorPage() {
     
     // No need to restore since we're not using ctx.save()
     
-  }, [waveformData, duration, totalDuration, showGrid, showWaveform, gridLines, 
+  }, [waveformData, duration, totalDuration, showGrid, showWaveform, showBarMarkers, gridLines, 
       selectionStart, selectionEnd, waveSelectionStart, waveSelectionEnd, playheadPosition, currentTime, isPlaying, markers, regions, zoom, verticalZoom, waveformOffset, volume])
   
   // Remove this effect that was causing constant redraws
@@ -1235,7 +1301,69 @@ export default function LoopEditorPage() {
     const clickDistanceFromPlayhead = Math.abs(x - playheadX)
     const isClickingOnPlayhead = clickDistanceFromPlayhead <= 10
     
-    console.log('🔍 MOUSE CLICK - x:', x, 'time:', time, 'activeTool:', activeTool, 'displayDuration:', displayDuration, 'zoom:', zoom, 'waveformOffset:', waveformOffset, 'playheadX:', playheadX, 'distance:', clickDistanceFromPlayhead, 'onPlayhead:', isClickingOnPlayhead)
+    // Check if clicking on marker buttons (PRIORITY 1 - check before other interactions)
+    const y = e.clientY - rect.top
+    let clickedMarkerId: string | null = null
+    let clickedButtonType: 'midi' | 'delete' | 'name' | null = null
+    
+    markers.forEach(marker => {
+      const allPositions = marker.positions || [marker.time]
+      const mainPosition = allPositions[0] // Only check main position for buttons
+      const markerX = (mainPosition / displayDuration) * effectiveWidth + waveformOffset
+      
+      // MIDI button coordinates (from the drawing code)
+      const buttonWidth = 40
+      const buttonHeight = 16
+      const buttonX = markerX - buttonWidth / 2
+      const buttonY = 180
+      
+      // Check if click is within the MIDI button bounds
+      if (x >= buttonX && x <= buttonX + buttonWidth && y >= buttonY && y <= buttonY + buttonHeight) {
+        clickedMarkerId = marker.id
+        clickedButtonType = 'midi'
+        console.log('🔍 MIDI BUTTON CLICKED - marker:', marker.name, 'id:', marker.id)
+      }
+      
+      // DELETE button coordinates (from the drawing code)
+      const deleteButtonWidth = 40
+      const deleteButtonHeight = 16
+      const deleteButtonX = markerX - deleteButtonWidth / 2
+      const deleteButtonY = 200
+      
+      // Check if click is within the DELETE button bounds
+      if (x >= deleteButtonX && x <= deleteButtonX + deleteButtonWidth && y >= deleteButtonY && y <= deleteButtonY + deleteButtonHeight) {
+        clickedMarkerId = marker.id
+        clickedButtonType = 'delete'
+        console.log('🔍 DELETE BUTTON CLICKED - marker:', marker.name, 'id:', marker.id)
+      }
+      
+      // NAME button coordinates (from the drawing code)
+      const nameButtonWidth = Math.max(60, marker.name.length * 8)
+      const nameButtonHeight = 16
+      const nameButtonX = markerX - nameButtonWidth / 2
+      const nameButtonY = 220
+      
+      // Check if click is within the NAME button bounds
+      if (x >= nameButtonX && x <= nameButtonX + nameButtonWidth && y >= nameButtonY && y <= nameButtonY + nameButtonHeight) {
+        clickedMarkerId = marker.id
+        clickedButtonType = 'name'
+        console.log('🔍 NAME BUTTON CLICKED - marker:', marker.name, 'id:', marker.id)
+      }
+    })
+    
+    console.log('🔍 MOUSE CLICK - x:', x, 'y:', y, 'time:', time, 'activeTool:', activeTool, 'displayDuration:', displayDuration, 'zoom:', zoom, 'waveformOffset:', waveformOffset, 'playheadX:', playheadX, 'distance:', clickDistanceFromPlayhead, 'onPlayhead:', isClickingOnPlayhead, 'clickedMarkerId:', clickedMarkerId, 'buttonType:', clickedButtonType)
+    
+    // Handle marker button clicks (HIGHEST PRIORITY)
+    if (clickedMarkerId && clickedButtonType) {
+      if (clickedButtonType === 'midi') {
+        convertSingleMarkerToMidi(clickedMarkerId)
+      } else if (clickedButtonType === 'delete') {
+        deleteSingleMarker(clickedMarkerId)
+      } else if (clickedButtonType === 'name') {
+        showMarkerDetails(clickedMarkerId)
+      }
+      return // Don't proceed with other interactions
+    }
     
     // Check if clicking on selection resize handles (PRIORITY 1 - check before playhead)
     if (waveSelectionStart !== null && waveSelectionEnd !== null) {
@@ -2060,6 +2188,7 @@ export default function LoopEditorPage() {
         snap_to_grid: snapToGrid,
         show_grid: showGrid,
         show_waveform: showWaveform,
+        show_bar_markers: showBarMarkers,
         show_detailed_grid: showDetailedGrid,
         marked_bars: markedBars,
         marked_sub_bars: markedSubBars,
@@ -2360,6 +2489,7 @@ export default function LoopEditorPage() {
       duplicateWave,
       isDuplicateMain,
       playBothMode,
+      showBarMarkers,
       showDetailedGrid,
       audioFileName: audioFile?.name,
       savedAt: new Date().toISOString()
@@ -2394,6 +2524,7 @@ export default function LoopEditorPage() {
           setDuplicateWave(projectState.duplicateWave || null)
           setIsDuplicateMain(projectState.isDuplicateMain || false)
           setPlayBothMode(projectState.playBothMode || false)
+          setShowBarMarkers(projectState.showBarMarkers !== false)
           setShowDetailedGrid(projectState.showDetailedGrid || false)
           setProjectData(projectState)
           
@@ -2417,7 +2548,7 @@ export default function LoopEditorPage() {
       
       return () => clearTimeout(timeoutId)
     }
-  }, [waveformOffset, markers, regions, duplicateWave, isDuplicateMain, playBothMode, showDetailedGrid, audioFile])
+  }, [waveformOffset, markers, regions, duplicateWave, isDuplicateMain, playBothMode, showBarMarkers, showDetailedGrid, audioFile])
   
   // Generate unique colors for markers
   const generateMarkerColor = (markerId: string) => {
@@ -2436,6 +2567,185 @@ export default function LoopEditorPage() {
     
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`
   }
+
+  // Show marker details (for name button click)
+  const showMarkerDetails = useCallback((markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (!marker) {
+      toast({
+        title: "Marker Not Found",
+        description: "The selected marker could not be found",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Show marker details in a toast
+    const positions = marker.positions || [marker.time]
+    const positionText = positions.length > 1 ? `${positions.length} positions` : `${positions[0].toFixed(2)}s`
+    
+    toast({
+      title: `Marker: ${marker.name}`,
+      description: `Category: ${marker.category} | Time: ${positionText} | BPM: ${bpm}`,
+      variant: "default",
+    })
+  }, [markers, bpm])
+
+  // Delete a single marker
+  const deleteSingleMarker = useCallback((markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (!marker) {
+      toast({
+        title: "Marker Not Found",
+        description: "The selected marker could not be found",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Remove the marker from the markers array
+    setMarkers(prev => prev.filter(m => m.id !== markerId))
+    
+    // Also remove from selected markers if it was selected
+    setSelectedMarkers(prev => {
+      const newSet = new Set(prev)
+      newSet.delete(markerId)
+      return newSet
+    })
+    
+    // Also remove from MIDI selection if it was selected
+    setSelectedMarkersForMidi(prev => {
+      const newSet = new Set(prev)
+      newSet.delete(markerId)
+      return newSet
+    })
+
+    toast({
+      title: "Marker Deleted",
+      description: `Deleted "${marker.name}"`,
+      variant: "default",
+    })
+  }, [markers])
+
+  // Convert a single marker to MIDI data
+  const convertSingleMarkerToMidi = useCallback((markerId: string) => {
+    const marker = markers.find(m => m.id === markerId)
+    if (!marker) {
+      toast({
+        title: "Marker Not Found",
+        description: "The selected marker could not be found",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Calculate time division and steps - use the SAME calculations as the loop editor
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (midiGridDivision / 4)
+    const totalDuration = effectiveDuration
+    
+    // Use the current midiSteps value (which should already be set to detected bars)
+    const actualSteps = midiSteps
+    
+    console.log('🔍 SINGLE MARKER MIDI CONVERSION - Marker:', marker.name, 'BPM:', bpm, 'Grid Division:', midiGridDivision, 'Step Duration:', stepDuration.toFixed(3), 'Total Duration:', totalDuration.toFixed(2), 'Using Steps:', actualSteps)
+    
+    // Create a single track for this marker
+    const trackId = 1
+    const trackName = marker.category || 'General'
+    const notes: Array<{
+      id: string
+      note: string
+      startStep: number
+      duration: number
+      velocity: number
+    }> = []
+
+    // Get all positions for this marker
+    const allPositions = marker.positions || [marker.time]
+    
+    allPositions.forEach((position, posIndex) => {
+      // Convert time position to step using the EXACT same logic as loop editor
+      const startStep = Math.floor(position / stepDuration)
+      
+      // Ensure step is within bounds of the actual steps
+      const clampedStep = Math.max(0, Math.min(startStep, actualSteps - 1))
+      
+      console.log(`🔍 SINGLE MARKER TIMING - Marker: ${marker.name}, Position: ${position.toFixed(3)}s, Step: ${startStep}, Clamped: ${clampedStep}, StepDuration: ${stepDuration.toFixed(3)}s`)
+      
+      // Calculate duration based on grid division (1 step for 1/16, 2 steps for 1/8, etc.)
+      const duration = Math.max(1, Math.floor(4 / midiGridDivision))
+      
+      // Use marker's energy level or default velocity
+      const velocity = marker.energyLevel ? Math.max(0.3, Math.min(1.0, marker.energyLevel / 100)) : 0.8
+      
+      // Map marker to a musical note (C4 = middle C)
+      const baseNote = 60 // C4
+      const noteOffset = posIndex % 12 // Use position index to create different notes
+      const note = baseNote + noteOffset
+      const noteName = getNoteName(note)
+      
+      notes.push({
+        id: `${marker.id}-${posIndex}`,
+        note: noteName,
+        startStep: clampedStep,
+        duration,
+        velocity
+      })
+    })
+
+    const tracks = [{
+      id: trackId,
+      name: trackName,
+      notes
+    }]
+
+    // Create sequencer data for this track
+    const sequencerData: { [trackId: number]: boolean[] } = {}
+    const trackSequencerData = new Array(actualSteps).fill(false)
+    notes.forEach(note => {
+      if (note.startStep < actualSteps) {
+        trackSequencerData[note.startStep] = true
+      }
+    })
+    sequencerData[trackId] = trackSequencerData
+
+    // Capture settings for comparison
+    const beforeSettings = {
+      steps: midiSteps,
+      bars: Math.ceil(midiSteps / 16),
+      gridDivision: midiGridDivision,
+      bpm: bpm
+    }
+    
+    const afterSettings = {
+      steps: actualSteps,
+      bars: Math.ceil(actualSteps / 16),
+      gridDivision: midiGridDivision,
+      bpm: bpm
+    }
+    
+    console.log('🔍 SINGLE MARKER SETTINGS COMPARISON - Before:', beforeSettings, 'After:', afterSettings)
+    
+    // Store the before/after comparison
+    setConversionSettings({
+      before: beforeSettings,
+      after: afterSettings
+    })
+    
+    setMidiData({
+      tracks,
+      sequencerData,
+      steps: actualSteps
+    })
+    setMidiSteps(actualSteps)
+    setShowMidiWindow(true)
+
+    toast({
+      title: "Single Marker MIDI Created",
+      description: `Converted "${marker.name}" to MIDI with ${notes.length} notes`,
+      variant: "default",
+    })
+  }, [markers, bpm, effectiveDuration, midiGridDivision, midiSteps])
 
   // Convert markers to MIDI data
   const convertMarkersToMidi = useCallback(() => {
@@ -6329,6 +6639,15 @@ export default function LoopEditorPage() {
               title={showGrid ? "Hide grid" : "Show grid"}
             >
                   <span className="text-xs">{showGrid ? "Grid On" : "Grid Off"}</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={showBarMarkers ? "default" : "outline"}
+              onClick={() => setShowBarMarkers(!showBarMarkers)}
+              className="bg-gray-700 text-gray-300 hover:bg-gray-600 border-gray-500 flex-shrink-0"
+              title={showBarMarkers ? "Hide bar markers" : "Show bar markers"}
+            >
+                  <span className="text-xs">{showBarMarkers ? "Bars On" : "Bars Off"}</span>
             </Button>
               </div>
             </div>

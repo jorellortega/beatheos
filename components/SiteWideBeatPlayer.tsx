@@ -50,6 +50,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { QuickAddToPlaylistButton } from "@/components/QuickAddToPlaylistButton"
+import { shuffleArray } from "@/utils/shuffle"
 
 interface Beat {
   id: string
@@ -375,7 +376,7 @@ export function SiteWideBeatPlayer() {
         }
 
         // Shuffle all high-rated beats
-        const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+        const shuffled = shuffleArray(beatsWithProducers);
         console.log('[DEBUG] Shuffled beats count:', shuffled.length);
         
         // Pick a random starting beat
@@ -510,7 +511,7 @@ export function SiteWideBeatPlayer() {
           setShuffleLoading(false);
           return;
         }
-        const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+        const shuffled = shuffleArray(beatsWithProducers);
         setShuffledBeats(shuffled);
         setCurrentBeatIndex(0);
         setCurrentBeat({
@@ -589,7 +590,7 @@ export function SiteWideBeatPlayer() {
         setShuffleLoading(false);
         return;
       }
-      const shuffled = [...beatsWithProducers].sort(() => Math.random() - 0.5);
+      const shuffled = shuffleArray(beatsWithProducers);
       setShuffledBeats(shuffled);
       setCurrentBeatIndex(0);
       setCurrentBeat({
@@ -625,12 +626,12 @@ export function SiteWideBeatPlayer() {
         });
         setIsPlaying(true);
         
-        // Only reshuffle when we've played through all beats
-        if (nextIndex === 0) {
-          console.log('[DEBUG] Reached end of shuffled beats, reshuffling...');
-          const reshuffled = [...shuffledBeats].sort(() => Math.random() - 0.5);
+                  // Only reshuffle when we've played through all beats
+          if (nextIndex === 0) {
+            console.log('[DEBUG] Reached end of shuffled beats, reshuffling...');
+            const reshuffled = shuffleArray(shuffledBeats);
         setShuffledBeats(reshuffled);
-        }
+          }
       }
     } else if (allBeats.length > 0) {
       const nextIndex = (currentBeatIndex + 1) % allBeats.length;
@@ -1096,10 +1097,10 @@ export function SiteWideBeatPlayer() {
       }
       // Shuffle beats
       const mappedBeats = beats.map(mapBeatForPlayer);
-      const shuffled = [...mappedBeats].sort(() => Math.random() - 0.5);
+      const shuffled = shuffleArray(mappedBeats);
       setShuffledBeats(shuffled);
       setCurrentBeatIndex(0);
-      setCurrentBeat(shuffled[0]);
+      setCurrentBeat(shuffled[0] as Beat);
       setIsShuffle(true);
       setPlayerMode('full');
       setIsPlaying(true);
@@ -1787,10 +1788,10 @@ export function SiteWideBeatPlayer() {
                   }
                   // Shuffle
                   const allMappedBeats = beatsData.map(mapBeatForPlayer);
-                  const shuffled = [...allMappedBeats].sort(() => Math.random() - 0.5);
+                  const shuffled = shuffleArray(allMappedBeats);
                   setShuffledBeats(shuffled);
                   setCurrentBeatIndex(0);
-                  setCurrentBeat(shuffled[0]);
+                  setCurrentBeat(shuffled[0] as Beat);
                   setIsShuffle(true);
                   setPlayerMode('full');
                   setIsPlaying(true);

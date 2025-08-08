@@ -45,6 +45,7 @@ import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { useUndoRedo, BeatMakerState } from '@/hooks/useUndoRedo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { calculatePitchShift, validatePitchShift, applyPitchShiftWithEnhancement } from '@/lib/utils'
+import { shuffleArray } from '@/utils/shuffle'
 import { toast } from '@/hooks/use-toast'
 import { NotificationModal } from '@/components/ui/notification-modal'
 
@@ -4115,7 +4116,7 @@ export default function BeatMakerPage() {
         // Shuffle each group and apply limitation
         const result: { [audioType: string]: any[] } = {}
         Object.keys(filesByType).forEach(audioType => {
-          const shuffledFiles = filesByType[audioType].sort(() => Math.random() - 0.5)
+          const shuffledFiles = shuffleArray(filesByType[audioType])
           
           if (isShuffleLimitEnabled) {
             result[audioType] = shuffledFiles.slice(0, 10)
@@ -4192,7 +4193,7 @@ export default function BeatMakerPage() {
       
       Object.keys(filesByType).forEach(audioType => {
         const files = filesByType[audioType]
-        const shuffledFiles = files.sort(() => Math.random() - 0.5)
+        const shuffledFiles = shuffleArray(files)
         
         if (isShuffleLimitEnabled) {
           result[audioType] = shuffledFiles.slice(0, 10)
@@ -4374,7 +4375,7 @@ export default function BeatMakerPage() {
         }
         
         // Shuffle the entire array and apply limitation based on toggle
-        const shuffledFiles = allFiles.sort(() => Math.random() - 0.5)
+        const shuffledFiles = shuffleArray(allFiles)
         
         if (isShuffleLimitEnabled) {
           // Apply 10 file limitation when enabled
@@ -4696,7 +4697,7 @@ export default function BeatMakerPage() {
         const usedNames = new Set<string>()
         
         // Shuffle the options
-        const shuffledOptions = [...heliosTrackOptions].sort(() => Math.random() - 0.5)
+        const shuffledOptions = shuffleArray(heliosTrackOptions)
         
         // Select 4-5 tracks randomly
         const numTracks = Math.random() > 0.5 ? 4 : 5
@@ -4734,7 +4735,8 @@ export default function BeatMakerPage() {
           } else {
             // Drum tracks: get shuffled pattern
             const patternLibrary = getPatternLibraryForTrackType(track.name)
-            const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+            const shuffledPatterns = shuffleArray(patternLibrary)
+            const randomPattern = shuffledPatterns[0]
             
             let newPattern: boolean[]
             if (steps === 16) {
@@ -5204,17 +5206,20 @@ export default function BeatMakerPage() {
           if (error || !patterns || patterns.length === 0) {
             // Fallback to built-in patterns
             console.log(`No saved patterns found for ${patternType}, using built-in patterns`)
-          const patternLibrary = getPatternLibraryForTrackType(track.name)
-            selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+            const patternLibrary = getPatternLibraryForTrackType(track.name)
+            const shuffledPatterns = shuffleArray(patternLibrary)
+            selectedPattern = shuffledPatterns[0]
           } else {
             // Use database pattern
-            const randomPattern = patterns[Math.floor(Math.random() * patterns.length)]
+            const shuffledPatterns = shuffleArray(patterns)
+            const randomPattern = shuffledPatterns[0]
             const sequencerData = randomPattern.sequencer_data || randomPattern.sequencerData
             
             if (!sequencerData) {
               // Fallback to built-in patterns
               const patternLibrary = getPatternLibraryForTrackType(track.name)
-              selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+              const shuffledPatterns = shuffleArray(patternLibrary)
+              selectedPattern = shuffledPatterns[0]
             } else {
               // Extract the pattern for this specific track
               const trackPattern = sequencerData[track.id]
@@ -5222,7 +5227,8 @@ export default function BeatMakerPage() {
               if (!trackPattern) {
                 // Fallback to built-in patterns
                 const patternLibrary = getPatternLibraryForTrackType(track.name)
-                selectedPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+                const shuffledPatterns = shuffleArray(patternLibrary)
+                selectedPattern = shuffledPatterns[0]
               } else {
                 // Use database pattern
                 selectedPattern = trackPattern
@@ -5525,7 +5531,8 @@ export default function BeatMakerPage() {
         // Fallback to built-in patterns
         console.log('Falling back to built-in patterns')
         const patternLibrary = getPatternLibraryForTrackType(track.name)
-        const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+        const shuffledPatterns = shuffleArray(patternLibrary)
+        const randomPattern = shuffledPatterns[0]
         
         let newPattern: boolean[]
         if (steps === 16) {
@@ -5551,7 +5558,8 @@ export default function BeatMakerPage() {
         console.log(`No saved patterns found for ${patternType}, using built-in patterns`)
         // Fallback to built-in patterns
         const patternLibrary = getPatternLibraryForTrackType(track.name)
-        const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+        const shuffledPatterns = shuffleArray(patternLibrary)
+        const randomPattern = shuffledPatterns[0]
         
         let newPattern: boolean[]
         if (steps === 16) {
@@ -5574,7 +5582,8 @@ export default function BeatMakerPage() {
       }
 
       // Select a random pattern from the database
-      const randomPattern = patterns[Math.floor(Math.random() * patterns.length)]
+      const shuffledPatterns = shuffleArray(patterns)
+      const randomPattern = shuffledPatterns[0]
       console.log(`[SHUFFLE PATTERN] Selected pattern:`, { 
         id: randomPattern.id, 
         name: randomPattern.name, 
@@ -5638,7 +5647,8 @@ export default function BeatMakerPage() {
       console.error('Error shuffling track pattern:', error)
       // Fallback to built-in patterns
       const patternLibrary = getPatternLibraryForTrackType(track.name)
-      const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+      const shuffledPatterns = shuffleArray(patternLibrary)
+      const randomPattern = shuffledPatterns[0]
       
       let newPattern: boolean[]
       if (steps === 16) {
@@ -5749,7 +5759,8 @@ export default function BeatMakerPage() {
             // Fallback to built-in patterns
             console.log(`No saved patterns found for ${patternType}, using built-in patterns`)
             const patternLibrary = getPatternLibraryForTrackType(track.name)
-            const randomPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+            const shuffledPatterns = shuffleArray(patternLibrary)
+            const randomPattern = shuffledPatterns[0]
             
             if (steps === 16) {
               newPattern = randomPattern
@@ -5764,13 +5775,15 @@ export default function BeatMakerPage() {
             }
           } else {
             // Use database pattern
-            const randomPattern = patterns[Math.floor(Math.random() * patterns.length)]
+            const shuffledPatterns = shuffleArray(patterns)
+            const randomPattern = shuffledPatterns[0]
             const sequencerData = randomPattern.sequencer_data || randomPattern.sequencerData
             
             if (!sequencerData) {
               // Fallback to built-in patterns
               const patternLibrary = getPatternLibraryForTrackType(track.name)
-              const fallbackPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+              const shuffledPatterns = shuffleArray(patternLibrary)
+              const fallbackPattern = shuffledPatterns[0]
               
               if (steps === 16) {
                 newPattern = fallbackPattern
@@ -5790,7 +5803,8 @@ export default function BeatMakerPage() {
               if (!trackPattern) {
                 // Fallback to built-in patterns
                 const patternLibrary = getPatternLibraryForTrackType(track.name)
-                const fallbackPattern = patternLibrary[Math.floor(Math.random() * patternLibrary.length)]
+                const shuffledPatterns = shuffleArray(patternLibrary)
+                const fallbackPattern = shuffledPatterns[0]
                 
                 if (steps === 16) {
                   newPattern = fallbackPattern

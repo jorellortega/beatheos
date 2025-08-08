@@ -5587,24 +5587,24 @@ export default function MyLibrary() {
       )}
 
       <Tabs defaultValue={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 w-full">
-          <TabsTrigger value="albums" className="text-xs sm:text-sm">Albums</TabsTrigger>
-          <TabsTrigger value="tracks" className="text-xs sm:text-sm">Tracks</TabsTrigger>
-          <TabsTrigger value="platforms" className="text-xs sm:text-sm">Platforms</TabsTrigger>
-          <TabsTrigger value="singles" className="text-xs sm:text-sm">Singles</TabsTrigger>
-          <TabsTrigger value="profiles" className="text-xs sm:text-sm">Profiles</TabsTrigger>
-          <TabsTrigger value="audio" className="text-xs sm:text-sm">Audio</TabsTrigger>
-          <TabsTrigger value="top" className="text-xs sm:text-sm">Top</TabsTrigger>
-          <TabsTrigger value="production-schedule" className="text-xs sm:text-sm">Schedule</TabsTrigger>
+        <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 w-full overflow-x-auto">
+          <TabsTrigger value="albums" className="text-xs sm:text-sm whitespace-nowrap">Albums</TabsTrigger>
+          <TabsTrigger value="tracks" className="text-xs sm:text-sm whitespace-nowrap">Tracks</TabsTrigger>
+          <TabsTrigger value="platforms" className="text-xs sm:text-sm whitespace-nowrap">Platforms</TabsTrigger>
+          <TabsTrigger value="singles" className="text-xs sm:text-sm whitespace-nowrap">Singles</TabsTrigger>
+          <TabsTrigger value="profiles" className="text-xs sm:text-sm whitespace-nowrap">Profiles</TabsTrigger>
+          <TabsTrigger value="audio" className="text-xs sm:text-sm whitespace-nowrap">Audio</TabsTrigger>
+          <TabsTrigger value="top" className="text-xs sm:text-sm whitespace-nowrap">Top</TabsTrigger>
+          <TabsTrigger value="production-schedule" className="text-xs sm:text-sm whitespace-nowrap">Schedule</TabsTrigger>
         </TabsList>
         {/* Albums Tab */}
         <TabsContent value="albums" className="space-y-4">
           {/* Album Phase Tabs */}
           <div className="mb-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+            <div className="flex flex-wrap gap-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700 overflow-x-auto">
               <button
                 onClick={() => setAlbumPhaseTab('all')}
-                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   albumPhaseTab === 'all' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5614,7 +5614,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('marketing')}
-                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   albumPhaseTab === 'marketing' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5624,7 +5624,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('organization')}
-                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   albumPhaseTab === 'organization' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5634,7 +5634,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('production')}
-                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   albumPhaseTab === 'production' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5644,7 +5644,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('quality_control')}
-                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   albumPhaseTab === 'quality_control' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5654,7 +5654,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('ready_for_distribution')}
-                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   albumPhaseTab === 'ready_for_distribution' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5899,10 +5899,10 @@ export default function MyLibrary() {
           
           {/* Track Phase Tabs */}
           <div className="mb-6">
-            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+            <div className="flex flex-wrap gap-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700 overflow-x-auto">
               <button
                 onClick={() => setTrackPhaseTab('all')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   trackPhaseTab === 'all' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5912,7 +5912,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setTrackPhaseTab('marketing')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   trackPhaseTab === 'marketing' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5922,7 +5922,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setTrackPhaseTab('organization')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   trackPhaseTab === 'organization' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5932,7 +5932,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setTrackPhaseTab('production')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   trackPhaseTab === 'production' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5942,7 +5942,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setTrackPhaseTab('quality_control')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   trackPhaseTab === 'quality_control' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5952,7 +5952,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setTrackPhaseTab('ready_for_distribution')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   trackPhaseTab === 'ready_for_distribution' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6174,7 +6174,7 @@ export default function MyLibrary() {
                           )}
                           
                           {/* Action Buttons */}
-                          <div className="flex gap-1">
+                          <div className="flex flex-wrap gap-1 overflow-x-auto">
                             {/* Audio Upload/Replace */}
                             <input
                               type="file"
@@ -6460,10 +6460,10 @@ export default function MyLibrary() {
           
           {/* Single Phase Tabs */}
           <div className="mb-6">
-            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+            <div className="flex flex-wrap gap-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700 overflow-x-auto">
               <button
                 onClick={() => setSinglePhaseTab('all')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   singlePhaseTab === 'all' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6473,7 +6473,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setSinglePhaseTab('marketing')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   singlePhaseTab === 'marketing' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6483,7 +6483,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setSinglePhaseTab('organization')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   singlePhaseTab === 'organization' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6493,7 +6493,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setSinglePhaseTab('production')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   singlePhaseTab === 'production' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6503,7 +6503,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setSinglePhaseTab('quality_control')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   singlePhaseTab === 'quality_control' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6513,7 +6513,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setSinglePhaseTab('ready_for_distribution')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                   singlePhaseTab === 'ready_for_distribution' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -6644,7 +6644,7 @@ export default function MyLibrary() {
                               {single.audio_url && getAudioFileLabel(single.audio_url)}
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap gap-2 overflow-x-auto">
                             {/* Play Button */}
                             <Button 
                               variant="outline" 
@@ -6931,7 +6931,7 @@ export default function MyLibrary() {
                         <h4 className="text-sm font-medium text-gray-400 mb-2">MP3 Conversions:</h4>
                         <div className="space-y-2">
                           {mp3Conversions.map((mp3Track) => (
-                            <div key={mp3Track.id} className={`flex items-center gap-4 bg-gray-800 rounded px-3 py-2 ml-6 border-l-4 ${getStatusBorderColor(mp3Track.status || 'draft')}`}>
+                            <div key={mp3Track.id} className={`flex items-center gap-2 sm:gap-4 bg-gray-800 rounded px-3 py-2 ml-6 border-l-4 ${getStatusBorderColor(mp3Track.status || 'draft')} overflow-x-auto`}>
                               <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
                                 <div className="w-2 h-2 bg-white rounded-full"></div>
                               </div>
@@ -10653,7 +10653,7 @@ export default function MyLibrary() {
                 <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
                   <div className="text-sm font-medium text-blue-300 mb-1">Currently Linked:</div>
                   <div className="text-sm text-white">
-                    {linkingScheduleItem.project_type?.charAt(0).toUpperCase() + linkingScheduleItem.project_type?.slice(1)} ID: {linkingScheduleItem.project_id}
+                    {linkingScheduleItem.project_type ? linkingScheduleItem.project_type.charAt(0).toUpperCase() + linkingScheduleItem.project_type.slice(1) : 'Project'} ID: {linkingScheduleItem.project_id}
                   </div>
                   <Button
                     size="sm"
