@@ -305,6 +305,34 @@ export default function LoopEditorPage() {
   const [markerNameDialogTitle, setMarkerNameDialogTitle] = useState('')
   const [markerNameDialogDefault, setMarkerNameDialogDefault] = useState('')
   
+  // MIDI window state
+  const [showMidiWindow, setShowMidiWindow] = useState(false)
+  const [midiData, setMidiData] = useState<{
+    tracks: Array<{
+      id: number
+      name: string
+      notes: Array<{
+        id: string
+        note: string
+        startStep: number
+        duration: number
+        velocity: number
+      }>
+    }>
+    sequencerData: { [trackId: number]: boolean[] }
+    steps: number
+  } | null>(null)
+  const [midiSteps, setMidiSteps] = useState(32) // Default to 2 bars at 16 steps per bar
+  const [midiGridDivision, setMidiGridDivision] = useState(16) // 1/16 notes
+  const [selectedMidiTrack, setSelectedMidiTrack] = useState<number | null>(null)
+  const [selectedMarkersForMidi, setSelectedMarkersForMidi] = useState<Set<string>>(new Set())
+  const [midiConversionMode, setMidiConversionMode] = useState<'all' | 'selected'>('all')
+  const [midiViewMode, setMidiViewMode] = useState<'compact' | 'full'>('compact')
+  const [conversionSettings, setConversionSettings] = useState<{
+    before: { steps: number; bars: number; gridDivision: number; bpm: number }
+    after: { steps: number; bars: number; gridDivision: number; bpm: number }
+  } | null>(null)
+  
   // Marker data dialog state
   const [showMarkerDataDialog, setShowMarkerDataDialog] = useState(false)
   const [editingMarkerData, setEditingMarkerData] = useState<Marker | null>(null)
@@ -2408,6 +2436,327 @@ export default function LoopEditorPage() {
     
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`
   }
+
+  // Convert markers to MIDI data
+  const convertMarkersToMidi = useCallback(() => {
+    // Capture settings BEFORE conversion
+    const beforeSettings = {
+      steps: midiSteps,
+      bars: Math.ceil(midiSteps / 16),
+      gridDivision: midiGridDivision,
+      bpm: bpm
+    }
+    
+    // Filter markers based on selection mode
+    let markersToConvert = markers
+    if (midiConversionMode === 'selected') {
+      if (selectedMarkersForMidi.size === 0) {
+        toast({
+          title: "No Markers Selected",
+          description: "Please select at least one marker to convert to MIDI",
+          variant: "destructive",
+        })
+        return
+      }
+      markersToConvert = markers.filter(marker => selectedMarkersForMidi.has(marker.id))
+    } else {
+      if (!markers.length) {
+        toast({
+          title: "No Markers",
+          description: "Please add some markers first to convert to MIDI",
+          variant: "destructive",
+        })
+        return
+      }
+    }
+
+    // Calculate time division and steps - use the SAME calculations as the loop editor
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (midiGridDivision / 4)
+    const totalDuration = effectiveDuration
+    
+    // Use the current midiSteps value (which should already be set to detected bars)
+    const actualSteps = midiSteps
+    
+    console.log('🔍 MIDI CONVERSION - BPM:', bpm, 'Grid Division:', midiGridDivision, 'Step Duration:', stepDuration.toFixed(3), 'Total Duration:', totalDuration.toFixed(2), 'Using Steps:', actualSteps)
+    
+    // Group markers by category to create tracks
+    const categoryGroups = markersToConvert.reduce((groups, marker) => {
+      const category = marker.category || 'General'
+      if (!groups[category]) {
+        groups[category] = []
+      }
+      groups[category].push(marker)
+      return groups
+    }, {} as { [category: string]: Marker[] })
+
+    const tracks: Array<{
+      id: number
+      name: string
+      notes: Array<{
+        id: string
+        note: string
+        startStep: number
+        duration: number
+        velocity: number
+      }>
+    }> = []
+
+    const sequencerData: { [trackId: number]: boolean[] } = {}
+
+    Object.entries(categoryGroups).forEach(([category, categoryMarkers], index) => {
+      const trackId = index + 1
+      const trackName = category
+      const notes: Array<{
+        id: string
+        note: string
+        startStep: number
+        duration: number
+        velocity: number
+      }> = []
+
+      // Convert each marker to a note
+      categoryMarkers.forEach((marker, markerIndex) => {
+        // Get all positions for this marker
+        const allPositions = marker.positions || [marker.time]
+        
+        allPositions.forEach((position, posIndex) => {
+          // Convert time position to step using the EXACT same logic as loop editor
+          // Use the same stepDuration calculation that the loop editor uses
+          const startStep = Math.floor(position / stepDuration)
+          
+          // Ensure step is within bounds of the actual steps
+          const clampedStep = Math.max(0, Math.min(startStep, actualSteps - 1))
+          
+          console.log(`🔍 MARKER TIMING - Marker: ${marker.name}, Position: ${position.toFixed(3)}s, Step: ${startStep}, Clamped: ${clampedStep}, StepDuration: ${stepDuration.toFixed(3)}s`)
+          
+          // Calculate duration based on grid division (1 step for 1/16, 2 steps for 1/8, etc.)
+          const duration = Math.max(1, Math.floor(4 / midiGridDivision))
+          
+          // Use marker's energy level or default velocity
+          const velocity = marker.energyLevel ? Math.max(0.3, Math.min(1.0, marker.energyLevel / 100)) : 0.8
+          
+          // Map marker to a musical note (C4 = middle C)
+          const baseNote = 60 // C4
+          const noteOffset = markerIndex % 12 // Use marker index to create different notes
+          const note = baseNote + noteOffset
+          const noteName = getNoteName(note)
+          
+          notes.push({
+            id: `${marker.id}-${posIndex}`,
+            note: noteName,
+            startStep: clampedStep,
+            duration,
+            velocity
+          })
+        })
+      })
+
+      tracks.push({
+        id: trackId,
+        name: trackName,
+        notes
+      })
+
+      // Create sequencer data for this track
+      const trackSequencerData = new Array(actualSteps).fill(false)
+      notes.forEach(note => {
+        if (note.startStep < actualSteps) {
+          trackSequencerData[note.startStep] = true
+        }
+      })
+      sequencerData[trackId] = trackSequencerData
+    })
+
+    // Capture settings AFTER conversion (should be the same as before if detection worked correctly)
+    const afterSettings = {
+      steps: actualSteps,
+      bars: Math.ceil(actualSteps / 16),
+      gridDivision: midiGridDivision,
+      bpm: bpm
+    }
+    
+    console.log('🔍 SETTINGS COMPARISON - Before:', beforeSettings, 'After:', afterSettings)
+    
+    // Store the before/after comparison
+    setConversionSettings({
+      before: beforeSettings,
+      after: afterSettings
+    })
+    
+    setMidiData({
+      tracks,
+      sequencerData,
+      steps: actualSteps
+    })
+    setMidiSteps(actualSteps)
+    setShowMidiWindow(true)
+
+    toast({
+      title: "MIDI Data Created",
+      description: `Converted ${markers.length} markers to ${tracks.length} MIDI tracks`,
+      variant: "default",
+    })
+  }, [markers, bpm, effectiveDuration, midiGridDivision])
+
+  // Helper function to get note name from MIDI note number
+  const getNoteName = (noteNumber: number): string => {
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    const octave = Math.floor(noteNumber / 12) - 1
+    const noteName = noteNames[noteNumber % 12]
+    return `${noteName}${octave}`
+  }
+
+  // Export MIDI data to beat-maker
+  const exportToBeatMaker = () => {
+    if (!midiData) return
+
+    // Create enhanced MIDI data with tempo and grid information
+    const enhancedMidiData = {
+      ...midiData,
+      bpm: bpm,
+      gridDivision: midiGridDivision,
+      audioDuration: effectiveDuration,
+      estimatedBars: Math.ceil((effectiveDuration / (60 / bpm)) / 4),
+      stepDuration: (60 / bpm) / (midiGridDivision / 4),
+      exportTimestamp: new Date().toISOString()
+    }
+
+    // Create a URL with the enhanced MIDI data as parameters
+    const midiParams = encodeURIComponent(JSON.stringify(enhancedMidiData))
+    const beatMakerUrl = `/beat-maker?midi-data=${midiParams}`
+    
+    // Open in new tab
+    window.open(beatMakerUrl, '_blank')
+    
+    toast({
+      title: "Exported to Beat Maker",
+      description: `MIDI data exported with ${bpm} BPM, ${midiGridDivision}/4 grid`,
+      variant: "default",
+    })
+  }
+
+  // Toggle MIDI step
+  const toggleMidiStep = (trackId: number, stepIndex: number) => {
+    if (!midiData) return
+
+    setMidiData(prev => {
+      if (!prev) return prev
+
+      const newSequencerData = { ...prev.sequencerData }
+      if (!newSequencerData[trackId]) {
+        newSequencerData[trackId] = new Array(prev.steps).fill(false)
+      }
+      
+      newSequencerData[trackId][stepIndex] = !newSequencerData[trackId][stepIndex]
+      
+      return {
+        ...prev,
+        sequencerData: newSequencerData
+      }
+    })
+  }
+
+  // Get track color for MIDI tracks
+  const getMidiTrackColor = (trackId: number): string => {
+    const colors = [
+      '#ef4444', // red
+      '#3b82f6', // blue
+      '#10b981', // green
+      '#f59e0b', // amber
+      '#8b5cf6', // violet
+      '#ec4899', // pink
+      '#06b6d4', // cyan
+      '#84cc16', // lime
+    ]
+    return colors[(trackId - 1) % colors.length]
+  }
+
+  // Toggle marker selection for MIDI conversion
+  const toggleMarkerSelection = (markerId: string) => {
+    setSelectedMarkersForMidi(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(markerId)) {
+        newSet.delete(markerId)
+      } else {
+        newSet.add(markerId)
+      }
+      return newSet
+    })
+  }
+
+  // Select all markers for MIDI conversion
+  const selectAllMarkers = () => {
+    setSelectedMarkersForMidi(new Set(markers.map(marker => marker.id)))
+  }
+
+  // Clear marker selection for MIDI conversion
+  const clearMarkerSelection = () => {
+    setSelectedMarkersForMidi(new Set())
+  }
+
+  // Clear MIDI data
+  const clearMidiData = () => {
+    setMidiData(null)
+    setSelectedMarkersForMidi(new Set())
+    setMidiConversionMode('all')
+    setConversionSettings(null)
+    toast({
+      title: "MIDI Data Cleared",
+      description: "All MIDI data has been cleared",
+      variant: "default",
+    })
+  }
+
+  // Debug timing comparison between markers and MIDI
+  const debugMarkerTiming = () => {
+    if (!markers.length) return
+    
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (midiGridDivision / 4)
+    
+    console.log('🔍 TIMING DEBUG - BPM:', bpm, 'Grid Division:', midiGridDivision, 'Step Duration:', stepDuration.toFixed(3))
+    
+    markers.forEach((marker, index) => {
+      const allPositions = marker.positions || [marker.time]
+      allPositions.forEach((position, posIndex) => {
+        const step = Math.floor(position / stepDuration)
+        const bar = Math.floor(step / 16) + 1
+        const beatInBar = (step % 16) + 1
+        
+        console.log(`🔍 MARKER ${index + 1}: "${marker.name}" at ${position.toFixed(3)}s = Step ${step} (Bar ${bar}, Beat ${beatInBar})`)
+      })
+    })
+  }
+
+  // Auto-calculate appropriate MIDI steps based on audio duration and detected bars
+  const calculateOptimalMidiSteps = () => {
+    if (!effectiveDuration || !bpm) return 32
+    
+    // Use the same bar detection logic as the loop editor
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (midiGridDivision / 4)
+    
+    // Calculate actual bars from audio duration (same as loop editor)
+    const actualBars = Math.ceil(effectiveDuration / (secondsPerBeat * 4)) // 4 beats per bar
+    const stepsForActualBars = actualBars * 16 // 16 steps per bar
+    
+    // Use the detected bars, but limit to reasonable range
+    const optimalSteps = Math.max(16, Math.min(128, stepsForActualBars))
+    
+    console.log('🔍 BAR DETECTION - Duration:', effectiveDuration.toFixed(2), 'BPM:', bpm, 'Detected Bars:', actualBars, 'Steps:', optimalSteps)
+    
+    return optimalSteps
+  }
+
+  // Auto-set MIDI steps based on detected bars when audio loads (only once)
+  useEffect(() => {
+    if (effectiveDuration > 0 && bpm > 0 && midiSteps === 32) { // Only auto-set if still at default
+      const detectedSteps = calculateOptimalMidiSteps()
+      setMidiSteps(detectedSteps)
+      console.log('🔍 AUTO-SET MIDI STEPS - Detected:', detectedSteps, 'steps based on audio duration')
+    }
+  }, [effectiveDuration, bpm]) // Removed midiGridDivision and midiSteps from dependencies
 
   // Category helper functions
   const getCategoryColor = (category: string) => {
@@ -5177,7 +5526,7 @@ export default function LoopEditorPage() {
   }
   
   const saveToLibrary = async () => {
-    if (!audioFile || !saveToLibraryName.trim()) {
+    if (!audioRef.current || !saveToLibraryName.trim()) {
       toast({
         title: "Missing Information",
         description: "Please provide a name for the file.",
@@ -5199,14 +5548,24 @@ export default function LoopEditorPage() {
     setLoadingSaveToLibrary(true)
     
     try {
-      // First, upload the audio file to storage
+      // Get the current edited audio buffer (with fade out) like the export functions do
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const buffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // Export the current edited audio buffer (with fade out) as a WAV file
+      const editedAudioBlob = audioBufferToWav(buffer)
+      const editedAudioFile = new File([editedAudioBlob], `${saveToLibraryName}.wav`, { type: 'audio/wav' })
+      
+      // Upload the edited audio file to storage
       const timestamp = Date.now()
       const fileName = `${saveToLibraryName}-${timestamp}.wav`
       const filePath = `library/${user?.id}/${fileName}`
       
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('beats')
-        .upload(filePath, audioFile)
+        .upload(filePath, editedAudioFile)
       
       if (uploadError) {
         throw new Error(`Upload failed: ${uploadError.message}`)
@@ -5427,7 +5786,7 @@ export default function LoopEditorPage() {
               type: 'loop',
               description: saveToLibraryDescription || null,
               file_url: audioUrl,
-              file_size: audioFile.size,
+              file_size: editedAudioFile.size,
               pack_id: saveToLibraryPackId && saveToLibraryPackId !== 'none' ? saveToLibraryPackId : null,
               subfolder: saveToLibrarySubfolder || null,
               bpm: bpm,
@@ -7342,7 +7701,7 @@ export default function LoopEditorPage() {
                   value={sessionDescription}
                   onChange={(e) => setSessionDescription(e.target.value)}
                   placeholder="Enter session description..."
-                  className="bg-[#1a1a1a] border-gray-600 text-white"
+                  className="bg-[#1a1a14] border-gray-600 text-white"
                 />
               </div>
               
@@ -8104,6 +8463,313 @@ export default function LoopEditorPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* MIDI Window */}
+      <div className="flex flex-col items-center justify-center mt-4">
+        <Button
+          onClick={() => setShowMidiWindow(!showMidiWindow)}
+          className="bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          {showMidiWindow ? 'Hide MIDI Window' : 'Show MIDI Window'}
+        </Button>
+        
+        {showMidiWindow && (
+          <div className="mt-4 p-4 border border-gray-700 rounded-lg bg-[#1a1a1a] text-white max-w-6xl mx-auto">
+            <h2 className="text-lg font-semibold mb-2">MIDI Window</h2>
+            
+            {/* Current Settings Display */}
+            <div className="mb-4 p-3 border border-gray-600 rounded bg-[#141414]">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400">Current BPM:</span>
+                  <span className="ml-2 font-mono text-white">{bpm}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Grid Division:</span>
+                  <span className="ml-2 font-mono text-white">1/{midiGridDivision}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Audio Duration:</span>
+                  <span className="ml-2 font-mono text-white">{effectiveDuration.toFixed(2)}s</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Detected Bars:</span>
+                  <span className="ml-2 font-mono text-white">{Math.ceil((effectiveDuration / (60 / bpm)) / 4)}</span>
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-gray-400">
+                MIDI will use {calculateOptimalMidiSteps()} steps ({Math.ceil(calculateOptimalMidiSteps() / 16)} bars) for conversion
+              </div>
+            </div>
+            
+            {/* Conversion Mode Selection */}
+            <div className="flex items-center mb-4">
+              <Label className="mr-2">Conversion Mode:</Label>
+              <Select
+                value={midiConversionMode}
+                onValueChange={(value: 'all' | 'selected') => setMidiConversionMode(value)}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Markers</SelectItem>
+                  <SelectItem value="selected">Selected Markers</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Marker Selection (when in selected mode) */}
+            {midiConversionMode === 'selected' && (
+              <div className="mb-4 p-3 border border-gray-600 rounded bg-[#141414]">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-medium">Select Markers:</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={selectAllMarkers}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      onClick={clearMarkerSelection}
+                      size="sm"
+                      className="bg-gray-600 hover:bg-gray-700 text-white"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="max-h-32 overflow-y-auto">
+                  {markers.map((marker) => (
+                    <div
+                      key={marker.id}
+                      className={`flex items-center p-2 rounded cursor-pointer mb-1 ${
+                        selectedMarkersForMidi.has(marker.id)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                      }`}
+                      onClick={() => toggleMarkerSelection(marker.id)}
+                    >
+                      <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: marker.color || generateMarkerColor(marker.id) }}></div>
+                      <span className="text-sm">{marker.name}</span>
+                      <span className="text-xs ml-2 opacity-70">({marker.category})</span>
+                      <span className="text-xs ml-auto opacity-70">{marker.time.toFixed(2)}s</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  Selected: {selectedMarkersForMidi.size} of {markers.length} markers
+                </div>
+              </div>
+            )}
+            
+            <div className="flex items-center mb-2 gap-2">
+              <Button
+                onClick={convertMarkersToMidi}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                Convert {midiConversionMode === 'selected' ? 'Selected' : 'All'} Markers to MIDI
+              </Button>
+              <Button
+                onClick={debugMarkerTiming}
+                className="bg-gray-600 hover:bg-gray-700 text-white text-xs"
+                title="Debug marker timing in console"
+              >
+                Debug Timing
+              </Button>
+              {midiData && (
+                <>
+                  <Button
+                    onClick={exportToBeatMaker}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Export to Beat Maker
+                  </Button>
+                  <Button
+                    onClick={clearMidiData}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    title="Clear all MIDI data and start fresh"
+                  >
+                    Clear MIDI
+                  </Button>
+                </>
+              )}
+            </div>
+            
+            <div className="flex items-center mb-2 flex-wrap gap-2">
+              <div className="flex items-center">
+                <Label htmlFor="midi-steps" className="mr-2 text-sm">
+                  Steps:
+                </Label>
+                <Input
+                  id="midi-steps"
+                  type="number"
+                  value={midiSteps}
+                  onChange={(e) => setMidiSteps(parseInt(e.target.value))}
+                  className="w-16 bg-[#141414] border-gray-600 text-white text-sm"
+                />
+                
+                <Button
+                  onClick={() => setMidiSteps(calculateOptimalMidiSteps())}
+                  size="sm"
+                  className="ml-2 bg-purple-600 hover:bg-purple-700 text-white text-xs"
+                  title="Auto-calculate optimal steps based on audio duration"
+                >
+                  Auto
+                </Button>
+                <Button
+                  onClick={() => setMidiSteps(calculateOptimalMidiSteps())}
+                  size="sm"
+                  variant="outline"
+                  className="ml-1 text-xs"
+                  title="Reset to detected bars from audio"
+                >
+                  Reset to Detected
+                </Button>
+              </div>
+              
+              <div className="flex items-center">
+                <Label htmlFor="midi-bars" className="mr-2 text-sm">
+                  Bars:
+                </Label>
+                <Input
+                  id="midi-bars"
+                  type="number"
+                  value={Math.ceil(midiSteps / 16)}
+                  onChange={(e) => setMidiSteps(parseInt(e.target.value) * 16)}
+                  className="w-12 bg-[#141414] border-gray-600 text-white text-sm"
+                />
+                <span className="ml-1 text-xs text-gray-400">({midiSteps} steps)</span>
+              </div>
+              
+              <div className="flex items-center">
+                <Label htmlFor="midi-grid-division" className="mr-2 text-sm">
+                  Grid:
+                </Label>
+                <Select
+                  value={midiGridDivision.toString()}
+                  onValueChange={(value) => setMidiGridDivision(parseInt(value))}
+                >
+                  <SelectTrigger className="w-16 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1/1</SelectItem>
+                    <SelectItem value="2">1/2</SelectItem>
+                    <SelectItem value="4">1/4</SelectItem>
+                    <SelectItem value="8">1/8</SelectItem>
+                    <SelectItem value="16">1/16</SelectItem>
+                    <SelectItem value="32">1/32</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="flex items-center">
+                <Label className="mr-2 text-sm">View:</Label>
+                <Select
+                  value={midiViewMode}
+                  onValueChange={(value: 'compact' | 'full') => setMidiViewMode(value)}
+                >
+                  <SelectTrigger className="w-20 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="compact">Compact</SelectItem>
+                    <SelectItem value="full">Full</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="text-xs text-gray-400">
+                Optimal: {calculateOptimalMidiSteps()} steps ({Math.ceil(calculateOptimalMidiSteps() / 16)} bars)
+              </div>
+            </div>
+            
+            {/* Before/After Conversion Comparison */}
+            {conversionSettings && (
+              <div className="mb-4 p-3 border border-gray-600 rounded bg-[#141414]">
+                <div className="text-sm font-medium mb-2 text-gray-300">Conversion Settings:</div>
+                <div className="grid grid-cols-2 gap-4 text-xs">
+                  <div>
+                    <div className="text-gray-400 mb-1">Before Conversion:</div>
+                    <div className="space-y-1">
+                      <div><span className="text-gray-500">Steps:</span> <span className="font-mono text-white">{conversionSettings.before.steps}</span></div>
+                      <div><span className="text-gray-500">Bars:</span> <span className="font-mono text-white">{conversionSettings.before.bars}</span></div>
+                      <div><span className="text-gray-500">Grid:</span> <span className="font-mono text-white">1/{conversionSettings.before.gridDivision}</span></div>
+                      <div><span className="text-gray-500">BPM:</span> <span className="font-mono text-white">{conversionSettings.before.bpm}</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400 mb-1">After Conversion:</div>
+                    <div className="space-y-1">
+                      <div><span className="text-gray-500">Steps:</span> <span className="font-mono text-white">{conversionSettings.after.steps}</span></div>
+                      <div><span className="text-gray-500">Bars:</span> <span className="font-mono text-white">{conversionSettings.after.bars}</span></div>
+                      <div><span className="text-gray-500">Grid:</span> <span className="font-mono text-white">1/{conversionSettings.after.gridDivision}</span></div>
+                      <div><span className="text-gray-500">BPM:</span> <span className="font-mono text-white">{conversionSettings.after.bpm}</span></div>
+                    </div>
+                  </div>
+                </div>
+                {conversionSettings.before.steps !== conversionSettings.after.steps && (
+                  <div className="mt-2 text-xs text-yellow-400">
+                    ⚠️ Steps adjusted from {conversionSettings.before.steps} to {conversionSettings.after.steps} based on detected bars
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {midiData && (
+              <div className={`overflow-x-auto ${midiViewMode === 'compact' ? 'max-w-3xl' : 'max-w-4xl'}`}>
+                <div className="inline-block min-w-full">
+                  <table className="table-auto">
+                    <thead>
+                      <tr>
+                        <th className="px-3 py-2 text-left text-sm">Track</th>
+                        {Array.from({ length: midiSteps }).map((_, index) => (
+                          <th key={index} className={`py-1 text-center text-xs ${midiViewMode === 'compact' ? 'px-0.5' : 'px-1'}`}>
+                            {(index + 1) % 4 === 1 ? index + 1 : ''}
+                          </th>
+                        ))}
+                      </tr>
+                      <tr>
+                        <th className="px-3 py-1 text-left text-xs text-gray-400">Bar</th>
+                        {Array.from({ length: midiSteps }).map((_, index) => (
+                          <th key={index} className={`py-1 text-center text-xs text-gray-400 ${midiViewMode === 'compact' ? 'px-0.5' : 'px-1'}`}>
+                            {index % 16 === 0 ? Math.floor(index / 16) + 1 : ''}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {midiData?.tracks.map((track) => (
+                        <tr key={track.id}>
+                          <td className="px-3 py-2 text-sm font-medium">{track.name}</td>
+                          {Array.from({ length: midiSteps }).map((_, index) => (
+                            <td
+                              key={index}
+                              className={`py-1 text-center cursor-pointer border border-gray-800 ${
+                                midiViewMode === 'compact' ? 'px-0.5' : 'px-1'
+                              } ${
+                                midiData?.sequencerData[track.id]?.[index]
+                                  ? 'bg-blue-600'
+                                  : 'bg-gray-700'
+                              }`}
+                              onClick={() => toggleMidiStep(track.id, index)}
+                            >
+                              {midiData?.sequencerData[track.id]?.[index] ? '●' : ''}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 } 

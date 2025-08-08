@@ -455,6 +455,15 @@ export default function MyLibrary() {
   const [savingAudio, setSavingAudio] = useState(false);
   const [audioEditError, setAudioEditError] = useState<string | null>(null);
   
+  // Move track state
+  const [showMoveTrackDialog, setShowMoveTrackDialog] = useState(false)
+  const [moveTrackId, setMoveTrackId] = useState<string | null>(null)
+  const [moveTrackTitle, setMoveTrackTitle] = useState('')
+  const [moveTrackType, setMoveTrackType] = useState<'single' | 'album_track'>('single')
+  const [selectedTargetAlbumForTrack, setSelectedTargetAlbumForTrack] = useState('')
+  const [movingTrack, setMovingTrack] = useState(false)
+  const [moveTrackError, setMoveTrackError] = useState<string | null>(null)
+  
   // Bulk genre edit modal
   const [showBulkGenreModal, setShowBulkGenreModal] = useState(false);
   const [bulkGenrePack, setBulkGenrePack] = useState<AudioPack | null>(null);
@@ -4590,6 +4599,37 @@ export default function MyLibrary() {
     }
   }
 
+  // Move track function
+  const handleMoveTrack = async (trackId: string, trackTitle: string) => {
+    setMoveTrackId(trackId)
+    setMoveTrackTitle(trackTitle)
+    setMoveTrackType('single')
+    setSelectedTargetAlbumForTrack('')
+    setMoveTrackError(null)
+    
+    try {
+      // Fetch available albums
+      const { data: albums, error } = await supabase
+        .from('albums')
+        .select('id, title')
+        .order('title')
+
+      if (error) {
+        throw error
+      }
+
+      setAvailableAlbums(albums || [])
+      setShowMoveTrackDialog(true)
+    } catch (error) {
+      console.error('Error fetching albums:', error)
+      toast({
+        title: "Error",
+        description: "Failed to load available albums",
+        variant: "destructive",
+      })
+    }
+  }
+
   // Execute move single
   const executeMoveSingle = async () => {
     if (!moveSingleId) return
@@ -4688,24 +4728,124 @@ export default function MyLibrary() {
     }
   }
 
+  // Execute move track
+  const executeMoveTrack = async () => {
+    if (!moveTrackId || !user?.id) return
+
+    setMovingTrack(true)
+    setMoveTrackError(null)
+
+    try {
+      // Get the track data
+      const trackToMove = tracks.find(track => track.id === moveTrackId)
+      if (!trackToMove) {
+        throw new Error('Track not found')
+      }
+
+      if (moveTrackType === 'single') {
+        // Move to singles table
+        const { error: singleError } = await supabase
+          .from('singles')
+          .insert([{
+            title: trackToMove.title,
+            artist: trackToMove.artist,
+            release_date: trackToMove.release_date,
+            audio_url: trackToMove.audio_url,
+            cover_art_url: trackToMove.cover_art_url,
+            duration: trackToMove.duration,
+            description: trackToMove.description,
+            session_id: trackToMove.session_id,
+            status: 'draft',
+            user_id: user.id
+          }])
+
+        if (singleError) {
+          throw singleError
+        }
+
+        toast({
+          title: "Success",
+          description: `Track "${trackToMove.title}" moved to singles successfully!`,
+        })
+      } else if (selectedTargetAlbumForTrack) {
+        // Move to album as a track
+        const { error: albumError } = await supabase
+          .from('album_tracks')
+          .insert([{
+            album_id: selectedTargetAlbumForTrack,
+            title: trackToMove.title,
+            audio_url: trackToMove.audio_url,
+            cover_art_url: trackToMove.cover_art_url,
+            duration: trackToMove.duration,
+            description: trackToMove.description,
+            session_id: trackToMove.session_id,
+            status: 'draft',
+            user_id: user.id
+          }])
+
+        if (albumError) {
+          throw albumError
+        }
+
+        toast({
+          title: "Success",
+          description: `Track "${trackToMove.title}" moved to album successfully!`,
+        })
+      } else {
+        throw new Error('Please select a destination')
+      }
+
+      // Delete the track from tracks table
+      const { error: deleteError } = await supabase
+        .from('tracks')
+        .delete()
+        .eq('id', moveTrackId)
+
+      if (deleteError) {
+        throw deleteError
+      }
+
+      // Remove track from local state
+      setTracks(prev => prev.filter(track => track.id !== moveTrackId))
+      
+      // Close dialog and reset state
+      setShowMoveTrackDialog(false)
+      setMoveTrackId(null)
+      setMoveTrackTitle('')
+      setSelectedTargetAlbumForTrack('')
+      setMoveTrackType('single')
+
+    } catch (error) {
+      console.error('Error moving track:', error)
+      setMoveTrackError(error instanceof Error ? error.message : 'Failed to move track')
+      toast({
+        title: "Error",
+        description: "Failed to move track",
+        variant: "destructive",
+      })
+    } finally {
+      setMovingTrack(false)
+    }
+  }
+
   return (
-    <div className="container mx-auto py-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">My Library</h1>
-        <div className="flex items-center gap-4">
+    <div className="container mx-auto py-4 sm:py-8 px-4 sm:px-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold">My Library</h1>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
           {/* Global Search */}
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search all content..."
                 value={globalSearchQuery}
                 onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                className="pl-10 w-64 bg-zinc-900 border-zinc-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+                className="pl-10 w-full sm:w-64 bg-zinc-900 border-zinc-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
               />
             </div>
             <Select value={globalSearchFilter} onValueChange={(value: 'all' | 'albums' | 'singles' | 'audio') => setGlobalSearchFilter(value)}>
-              <SelectTrigger className="w-32 bg-zinc-900 border-zinc-700 text-white focus:border-blue-500 focus:ring-blue-500">
+              <SelectTrigger className="w-full sm:w-32 bg-zinc-900 border-zinc-700 text-white focus:border-blue-500 focus:ring-blue-500">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -4719,20 +4859,23 @@ export default function MyLibrary() {
           
           {/* Action Buttons */}
           {selectedTab === 'albums' && albumPhaseTab === 'all' && (
-            <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAlbumModal(true)}>
+            <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowAlbumModal(true)}>
               <Plus className="h-4 w-4" />
-              Add New Album
+              <span className="hidden sm:inline">Add New Album</span>
+              <span className="sm:hidden">Add Album</span>
             </Button>
           )}
           {selectedTab === 'audio' && (
-            <div className="flex gap-2">
-              <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-6 py-2 rounded" onClick={() => setShowAudioModal(true)}>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowAudioModal(true)}>
                 <Plus className="h-4 w-4" />
-                Add Audio
+                <span className="hidden sm:inline">Add Audio</span>
+                <span className="sm:hidden">Add Audio</span>
               </Button>
-              <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2 rounded" onClick={() => setShowPackModal(true)}>
+              <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowPackModal(true)}>
                 <Plus className="h-4 w-4" />
-                Create Pack
+                <span className="hidden sm:inline">Create Pack</span>
+                <span className="sm:hidden">Create Pack</span>
               </Button>
             </div>
           )}
@@ -5444,24 +5587,24 @@ export default function MyLibrary() {
       )}
 
       <Tabs defaultValue={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="albums">Albums</TabsTrigger>
-          <TabsTrigger value="tracks">Tracks</TabsTrigger>
-          <TabsTrigger value="platforms">Platforms</TabsTrigger>
-          <TabsTrigger value="singles">Singles</TabsTrigger>
-          <TabsTrigger value="profiles">Music Profiles</TabsTrigger>
-          <TabsTrigger value="audio">Audio Library</TabsTrigger>
-          <TabsTrigger value="top">Top Releases</TabsTrigger>
-          <TabsTrigger value="production-schedule">Production Schedule</TabsTrigger>
+        <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 w-full">
+          <TabsTrigger value="albums" className="text-xs sm:text-sm">Albums</TabsTrigger>
+          <TabsTrigger value="tracks" className="text-xs sm:text-sm">Tracks</TabsTrigger>
+          <TabsTrigger value="platforms" className="text-xs sm:text-sm">Platforms</TabsTrigger>
+          <TabsTrigger value="singles" className="text-xs sm:text-sm">Singles</TabsTrigger>
+          <TabsTrigger value="profiles" className="text-xs sm:text-sm">Profiles</TabsTrigger>
+          <TabsTrigger value="audio" className="text-xs sm:text-sm">Audio</TabsTrigger>
+          <TabsTrigger value="top" className="text-xs sm:text-sm">Top</TabsTrigger>
+          <TabsTrigger value="production-schedule" className="text-xs sm:text-sm">Schedule</TabsTrigger>
         </TabsList>
         {/* Albums Tab */}
         <TabsContent value="albums" className="space-y-4">
           {/* Album Phase Tabs */}
           <div className="mb-6">
-            <div className="flex space-x-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1 bg-zinc-900 p-1 rounded-lg border border-zinc-700">
               <button
                 onClick={() => setAlbumPhaseTab('all')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   albumPhaseTab === 'all' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5471,7 +5614,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('marketing')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   albumPhaseTab === 'marketing' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5481,7 +5624,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('organization')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   albumPhaseTab === 'organization' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5491,7 +5634,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('production')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   albumPhaseTab === 'production' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5501,7 +5644,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('quality_control')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   albumPhaseTab === 'quality_control' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5511,7 +5654,7 @@ export default function MyLibrary() {
               </button>
               <button
                 onClick={() => setAlbumPhaseTab('ready_for_distribution')}
-                className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`px-2 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors ${
                   albumPhaseTab === 'ready_for_distribution' 
                     ? 'bg-blue-600 text-white shadow-sm' 
                     : 'text-gray-300 hover:text-white hover:bg-zinc-800'
@@ -5613,14 +5756,14 @@ export default function MyLibrary() {
                   </div>
                 )}
                 <div className="flex-1">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <Link href={`/myalbums/${album.id}`} className="hover:underline">
-                        <h2 className="text-2xl font-semibold">{album.title}</h2>
-                      </Link>
-                      <p className="text-gray-500">{album.artist}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
+                                      <div className="flex justify-between items-start">
+                      <div>
+                        <Link href={`/myalbums/${album.id}`} className="hover:underline">
+                          <h2 className="text-2xl font-semibold">{album.title}</h2>
+                        </Link>
+                        <p className="text-gray-500">{album.artist}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-1 sm:gap-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getStatusColor(album.status || 'draft')}`}>
@@ -6120,6 +6263,12 @@ export default function MyLibrary() {
                                   Edit Track
                                 </DropdownMenuItem>
                                 
+                                {/* Move Track */}
+                                <DropdownMenuItem onClick={() => handleMoveTrack(track.id, track.title)}>
+                                  <Package className="h-3 w-3 mr-2" />
+                                  Move Track
+                                </DropdownMenuItem>
+                                
                                 {/* Open in Loop Editor */}
                                 {track.audio_url && (
                                   <DropdownMenuItem onClick={() => openInLoopEditor(track.audio_url!, track.title, track.bpm || undefined)}>
@@ -6155,7 +6304,7 @@ export default function MyLibrary() {
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                className="text-xs h-6 px-2 bg-green-600 hover:bg-green-700 text-white border-green-500"
+                                className="text-xs h-6 px-2 bg-black hover:bg-green-600 text-white border-gray-600 hover:border-green-500"
                                 disabled={replacingTrackId === track.id}
                               >
                                 {replacingTrackId === track.id ? (
@@ -6186,7 +6335,7 @@ export default function MyLibrary() {
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                                className="text-xs h-6 px-2 bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
                                 disabled={replacingCoverId === track.id}
                               >
                                 {replacingCoverId === track.id ? (
@@ -6203,7 +6352,7 @@ export default function MyLibrary() {
                                 variant="outline" 
                                 size="sm" 
                                 onClick={() => downloadTrack(track.id, track.audio_url!, track.title)}
-                                className="text-xs h-6 px-2 bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                                className="text-xs h-6 px-2 bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500"
                               >
                                 <Download className="h-3 w-3" />
                               </Button>
@@ -6215,7 +6364,7 @@ export default function MyLibrary() {
                                 variant="outline" 
                                 size="sm" 
                                 onClick={() => showCompressionOptions(track.id, track.audio_url!, 'track')}
-                                className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                                className="text-xs h-6 px-2 bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
                                 disabled={convertingTrack === track.id}
                               >
                                 {convertingTrack === track.id ? (
@@ -6231,7 +6380,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => openMetadataDialog(track.id, 'track')}
-                              className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                              className="text-xs h-6 px-2 bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
                             >
                               <FileTextIcon className="h-3 w-3" />
                             </Button>
@@ -6241,7 +6390,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => openNotesDialog(track.id, 'track', track.title)}
-                              className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                              className="text-xs h-6 px-2 bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
                             >
                               <StickyNote className="h-3 w-3" />
                             </Button>
@@ -6294,14 +6443,14 @@ export default function MyLibrary() {
             <div className="flex gap-2">
               <Button 
                 onClick={openCreateSingleDialog}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className="bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Create Single
               </Button>
               <Button 
                 onClick={openBeatUploadDialog}
-                className="bg-green-600 hover:bg-green-700 text-white"
+                className="bg-black hover:bg-green-600 text-white border-gray-600 hover:border-green-500"
               >
                 <Upload className="h-4 w-4 mr-2" />
                 Upload Beat
@@ -6512,7 +6661,7 @@ export default function MyLibrary() {
                               disabled={!single.audio_url}
                               className={`${
                                 single.audio_url 
-                                  ? 'bg-green-600 hover:bg-green-700 text-white border-green-500' 
+                                  ? 'bg-black hover:bg-green-600 text-white border-gray-600 hover:border-green-500' 
                                   : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
                               }`}
                               title={single.audio_url ? 'Play audio' : 'No audio file available'}
@@ -6535,7 +6684,7 @@ export default function MyLibrary() {
                                 variant="outline" 
                                 size="sm" 
                                 onClick={() => downloadSingle(single.id, single.audio_url!, single.title)}
-                                className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                                className="bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500"
                                 title="Download audio file"
                               >
                                 <Download className="h-4 w-4" />
@@ -6546,13 +6695,13 @@ export default function MyLibrary() {
                               <span className="hidden sm:inline">Edit</span>
                             </Button>
                             <Link href={`/mysingles/${single.id}`}>
-                              <Button variant="default" size="sm">
+                              <Button variant="outline" size="sm" className="bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500">
                                 <span className="hidden sm:inline">View Single</span>
                                 <span className="sm:hidden">View</span>
                               </Button>
                             </Link>
                             <Link href={`/release-platforms/${single.id}`}>
-                              <Button variant="outline" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500">
+                              <Button variant="outline" size="sm" className="bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500">
                                 <Globe className="h-4 w-4 sm:mr-2" />
                                 <span className="hidden sm:inline">Platforms</span>
                               </Button>
@@ -6561,7 +6710,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => openMetadataDialog(single.id, 'single')}
-                              className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                              className="bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
                             >
                               <FileTextIcon className="h-4 w-4" />
                             </Button>
@@ -6569,7 +6718,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => openNotesDialog(single.id, 'single', single.title)}
-                              className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                              className="bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
                             >
                               <StickyNote className="h-4 w-4" />
                             </Button>
@@ -6581,7 +6730,7 @@ export default function MyLibrary() {
                               disabled={!single.audio_url}
                               className={`${
                                 single.audio_url 
-                                  ? 'bg-teal-600 hover:bg-teal-700 text-white border-teal-500' 
+                                  ? 'bg-black hover:bg-teal-600 text-white border-gray-600 hover:border-teal-500' 
                                   : 'bg-gray-600 text-gray-400 border-gray-500 cursor-not-allowed'
                               }`}
                               title={single.audio_url ? 'Open in Loop Editor' : 'No audio file available'}
@@ -6610,7 +6759,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => document.getElementById(`upload-single-${single.id}`)?.click()}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                              className="bg-black hover:bg-indigo-600 text-white border-gray-600 hover:border-indigo-500"
                               title="Upload new audio file"
                               disabled={replacingSingleId === single.id}
                             >
@@ -6658,7 +6807,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => openNotesDialog(single.id, 'single', single.title)}
-                              className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                              className="bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
                             >
                               <StickyNote className="h-4 w-4" />
                             </Button>
@@ -6668,6 +6817,7 @@ export default function MyLibrary() {
                                 size="sm" 
                                 disabled={convertingSingle === single.id}
                                 onClick={() => showCompressionOptions(single.id, single.audio_url!, 'single')}
+                                className="bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
                               >
                                 {convertingSingle === single.id ? (
                                   <>
@@ -6731,7 +6881,7 @@ export default function MyLibrary() {
                                   variant="outline" 
                                   size="sm" 
                                   onClick={() => publishSingleToMarketplace(single)}
-                                  className="bg-green-600 hover:bg-green-700 text-white border-green-500"
+                                  className="bg-black hover:bg-green-600 text-white border-gray-600 hover:border-green-500"
                                 >
                                   <Upload className="h-4 w-4 mr-2" />
                                   Publish to Beatheos
@@ -6742,7 +6892,7 @@ export default function MyLibrary() {
                               variant="outline" 
                               size="sm" 
                               onClick={() => handleMoveSingle(single.id, single.title)}
-                              className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                              className="bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
                             >
                               <Package className="h-4 w-4 mr-2" />
                               Move Single
@@ -6842,7 +6992,7 @@ export default function MyLibrary() {
                                   variant="outline" 
                                   size="sm" 
                                   onClick={() => downloadSingle(mp3Track.id, mp3Track.audio_url!, mp3Track.title)}
-                                  className="text-xs h-6 px-2 bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                                  className="text-xs h-6 px-2 bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500"
                                 >
                                   <Download className="h-3 w-3" />
                                 </Button>
@@ -6851,7 +7001,7 @@ export default function MyLibrary() {
                                 variant="outline" 
                                 size="sm" 
                                 onClick={() => openMetadataDialog(mp3Track.id, 'single')}
-                                className="text-xs h-6 px-2 bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                                className="text-xs h-6 px-2 bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
                               >
                                 <FileTextIcon className="h-3 w-3" />
                               </Button>
@@ -6859,7 +7009,7 @@ export default function MyLibrary() {
                                 variant="outline" 
                                 size="sm" 
                                 onClick={() => openNotesDialog(mp3Track.id, 'single', mp3Track.title)}
-                                className="text-xs h-6 px-2 bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                                className="text-xs h-6 px-2 bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
                               >
                                 <StickyNote className="h-3 w-3" />
                               </Button>
@@ -9869,6 +10019,96 @@ export default function MyLibrary() {
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               {movingSingle ? 'Moving...' : 'Move Single'}
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Track Dialog */}
+      <Dialog open={showMoveTrackDialog} onOpenChange={setShowMoveTrackDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move Track</DialogTitle>
+            <DialogDescription>
+              Move "{moveTrackTitle}" to singles or to an album.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Destination</Label>
+              
+              {/* Move to Singles Option */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="move-track-to-singles"
+                  name="track-destination"
+                  checked={moveTrackType === 'single'}
+                  onChange={() => {
+                    setMoveTrackType('single');
+                    setSelectedTargetAlbumForTrack('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="move-track-to-singles" className="text-sm">
+                  Move to Singles
+                </Label>
+              </div>
+
+              {/* Move to Album Option */}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="move-track-to-album"
+                  name="track-destination"
+                  checked={moveTrackType === 'album_track'}
+                  onChange={() => {
+                    setMoveTrackType('album_track');
+                    setSelectedTargetAlbumForTrack('');
+                  }}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="move-track-to-album" className="text-sm">
+                  Move to Album
+                </Label>
+              </div>
+            </div>
+
+            {/* Album Selection */}
+            {moveTrackType === 'album_track' && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select Album</Label>
+                <Select value={selectedTargetAlbumForTrack} onValueChange={setSelectedTargetAlbumForTrack}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose an album..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableAlbums.map((album) => (
+                      <SelectItem key={album.id} value={album.id}>
+                        {album.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {moveTrackError && (
+              <div className="text-red-500 text-sm">{moveTrackError}</div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button 
+              onClick={executeMoveTrack}
+              disabled={movingTrack || (moveTrackType === 'album_track' && !selectedTargetAlbumForTrack)}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              {movingTrack ? 'Moving...' : 'Move Track'}
             </Button>
             <DialogClose asChild>
               <Button type="button" variant="outline">Cancel</Button>
