@@ -699,7 +699,10 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                             <h3 className="text-white font-medium">{pack.name}</h3>
                             <p className="text-gray-400 text-sm">{pack.description}</p>
                             <p className="text-gray-500 text-xs">
-                              {audioItems.filter(item => item.pack_id === pack.id).length} items
+                              {audioItems.filter(item => 
+                                item.pack_id === pack.id &&
+                                item.name.toLowerCase().includes(searchTerm.toLowerCase())
+                              ).length} items
                             </p>
                           </div>
                         </div>
@@ -732,7 +735,11 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                     <div className="flex-1">
                                       <h4 className="text-white text-sm font-medium">📁 {subfolder.name}</h4>
                                       <p className="text-gray-500 text-xs">
-                                        {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length} files
+                                        {audioItems.filter(item => 
+                                          item.pack_id === pack.id && 
+                                          item.subfolder === subfolder.name &&
+                                          item.name.toLowerCase().includes(searchTerm.toLowerCase())
+                                        ).length} files
                                       </p>
                                     </div>
                                   </div>
@@ -740,7 +747,11 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                   {expandedSubfolders.has(subfolder.id) && (
                                     <div className="px-3 pb-3 space-y-2">
                                       {audioItems
-                                        .filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name)
+                                        .filter(item => 
+                                          item.pack_id === pack.id && 
+                                          item.subfolder === subfolder.name &&
+                                          item.name.toLowerCase().includes(searchTerm.toLowerCase())
+                                        )
                                         .map(item => (
                                           <div 
                                             key={item.id} 
@@ -824,7 +835,11 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                              </Button>
                                           </div>
                                         ))}
-                                      {audioItems.filter(item => item.pack_id === pack.id && item.subfolder === subfolder.name).length === 0 && (
+                                      {audioItems.filter(item => 
+                                        item.pack_id === pack.id && 
+                                        item.subfolder === subfolder.name &&
+                                        item.name.toLowerCase().includes(searchTerm.toLowerCase())
+                                      ).length === 0 && (
                                         <p className="text-center text-gray-400 py-2 text-sm ml-4">No files in this folder.</p>
                                       )}
                                     </div>
@@ -841,7 +856,11 @@ export function SampleLibrary({ isOpen, onClose, onSelectAudio, preferMp3 = fals
                                Pack Root
                              </h4>
                              {audioItems
-                               .filter(item => item.pack_id === pack.id && !item.subfolder)
+                               .filter(item => 
+                                 item.pack_id === pack.id && 
+                                 !item.subfolder &&
+                                 item.name.toLowerCase().includes(searchTerm.toLowerCase())
+                               )
                                .map(item => (
                                  <div 
                                    key={item.id} 

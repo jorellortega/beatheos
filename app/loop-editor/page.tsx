@@ -334,6 +334,28 @@ export default function LoopEditorPage() {
     after: { steps: number; bars: number; gridDivision: number; bpm: number }
   } | null>(null)
   
+  // Pattern saving/loading state
+  const [savedPatterns, setSavedPatterns] = useState<{id: string, name: string, sequencerData: any, bpm: number, steps: number, category?: string, description?: string, tags?: string[], genre_id?: string, subgenre?: string, pattern_type?: string, created_at: string}[]>([])
+  const [showSavePatternDialog, setShowSavePatternDialog] = useState(false)
+  const [showLoadPatternDialog, setShowLoadPatternDialog] = useState(false)
+  const [patternName, setPatternName] = useState('')
+  const [patternDescription, setPatternDescription] = useState('')
+  const [patternCategory, setPatternCategory] = useState('')
+  const [patternTags, setPatternTags] = useState('')
+  const [selectedGenreId, setSelectedGenreId] = useState('none')
+  const [selectedSubgenre, setSelectedSubgenre] = useState('none')
+  const [patternBpm, setPatternBpm] = useState('')
+  const [patternAudioType, setPatternAudioType] = useState('')
+  const [patternKey, setPatternKey] = useState('')
+  const [patternType, setPatternType] = useState('auto')
+  
+  // Genre and subgenre state for pattern saving
+  const [genres, setGenres] = useState<any[]>([])
+  const [subgenres, setSubgenres] = useState<string[]>([])
+  
+  // Track which marker was converted to MIDI
+  const [currentMidiMarker, setCurrentMidiMarker] = useState<Marker | null>(null)
+  
   // Marker data dialog state
   const [showMarkerDataDialog, setShowMarkerDataDialog] = useState(false)
   const [editingMarkerData, setEditingMarkerData] = useState<Marker | null>(null)
@@ -1099,71 +1121,72 @@ export default function LoopEditorPage() {
             ctx.font = '10px monospace'
             ctx.fillText(`(${allPositions.length} positions)`, markerX, 170)
           }
-          
-          // Draw MIDI conversion button (small rectangle with "MIDI" text)
-          const buttonWidth = 40
-          const buttonHeight = 16
-          const buttonX = markerX - buttonWidth / 2
-          const buttonY = 180
-          
-          // Button background
-          ctx.fillStyle = '#3b82f6'
-          ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight)
-          
-          // Button border
-          ctx.strokeStyle = '#ffffff'
-          ctx.lineWidth = 1
-          ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight)
-          
-          // Button text
-          ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 10px monospace'
-          ctx.textAlign = 'center'
-          ctx.fillText('MIDI', markerX, buttonY + 12)
-          
-          // Draw DELETE button (small rectangle with "DEL" text)
-          const deleteButtonWidth = 40
-          const deleteButtonHeight = 16
-          const deleteButtonX = markerX - deleteButtonWidth / 2
-          const deleteButtonY = 200
-          
-          // Delete button background (red)
-          ctx.fillStyle = '#ef4444'
-          ctx.fillRect(deleteButtonX, deleteButtonY, deleteButtonWidth, deleteButtonHeight)
-          
-          // Delete button border
-          ctx.strokeStyle = '#ffffff'
-          ctx.lineWidth = 1
-          ctx.strokeRect(deleteButtonX, deleteButtonY, deleteButtonWidth, deleteButtonHeight)
-          
-          // Delete button text
-          ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 10px monospace'
-          ctx.textAlign = 'center'
-          ctx.fillText('DEL', markerX, deleteButtonY + 12)
-          
-          // Draw NAME button (small rectangle with marker name)
-          const nameButtonWidth = Math.max(60, marker.name.length * 8) // Dynamic width based on name length
-          const nameButtonHeight = 16
-          const nameButtonX = markerX - nameButtonWidth / 2
-          const nameButtonY = 220
-          
-          // Name button background (green)
-          ctx.fillStyle = '#10b981'
-          ctx.fillRect(nameButtonX, nameButtonY, nameButtonWidth, nameButtonHeight)
-          
-          // Name button border
-          ctx.strokeStyle = '#ffffff'
-          ctx.lineWidth = 1
-          ctx.strokeRect(nameButtonX, nameButtonY, nameButtonWidth, nameButtonHeight)
-          
-          // Name button text (truncate if too long)
-          ctx.fillStyle = '#ffffff'
-          ctx.font = 'bold 10px monospace'
-          ctx.textAlign = 'center'
-          const displayName = marker.name.length > 8 ? marker.name.substring(0, 7) + '...' : marker.name
-          ctx.fillText(displayName, markerX, nameButtonY + 12)
         }
+        
+        // Draw buttons for ALL positions (not just the main one)
+        // Draw "Convert to MIDI" button (small rectangle with "Convert" text)
+        const buttonWidth = 60
+        const buttonHeight = 16
+        const buttonX = markerX - buttonWidth / 2
+        const buttonY = 180
+        
+        // Button background
+        ctx.fillStyle = '#3b82f6'
+        ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight)
+        
+        // Button border
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 1
+        ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight)
+        
+        // Button text
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 10px monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText('Convert', markerX, buttonY + 12)
+        
+        // Draw DELETE button (small rectangle with "DEL" text)
+        const deleteButtonWidth = 40
+        const deleteButtonHeight = 16
+        const deleteButtonX = markerX - deleteButtonWidth / 2
+        const deleteButtonY = 200
+        
+        // Delete button background (red)
+        ctx.fillStyle = '#ef4444'
+        ctx.fillRect(deleteButtonX, deleteButtonY, deleteButtonWidth, deleteButtonHeight)
+        
+        // Delete button border
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 1
+        ctx.strokeRect(deleteButtonX, deleteButtonY, deleteButtonWidth, deleteButtonHeight)
+        
+        // Delete button text
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 10px monospace'
+        ctx.textAlign = 'center'
+        ctx.fillText('DEL', markerX, deleteButtonY + 12)
+        
+        // Draw NAME button (small rectangle with marker name)
+        const nameButtonWidth = Math.max(60, marker.name.length * 8) // Dynamic width based on name length
+        const nameButtonHeight = 16
+        const nameButtonX = markerX - nameButtonWidth / 2
+        const nameButtonY = 220
+        
+        // Name button background (green)
+        ctx.fillStyle = '#10b981'
+        ctx.fillRect(nameButtonX, nameButtonY, nameButtonWidth, nameButtonHeight)
+        
+        // Name button border
+        ctx.strokeStyle = '#ffffff'
+        ctx.lineWidth = 1
+        ctx.strokeRect(nameButtonX, nameButtonY, nameButtonWidth, nameButtonHeight)
+        
+        // Name button text (truncate if too long)
+        ctx.fillStyle = '#ffffff'
+        ctx.font = 'bold 10px monospace'
+        ctx.textAlign = 'center'
+        const displayName = marker.name.length > 8 ? marker.name.substring(0, 7) + '...' : marker.name
+        ctx.fillText(displayName, markerX, nameButtonY + 12)
       })
     })
     
@@ -1311,17 +1334,17 @@ export default function LoopEditorPage() {
       const mainPosition = allPositions[0] // Only check main position for buttons
       const markerX = (mainPosition / displayDuration) * effectiveWidth + waveformOffset
       
-      // MIDI button coordinates (from the drawing code)
-      const buttonWidth = 40
+      // Convert button coordinates (from the drawing code)
+      const buttonWidth = 60
       const buttonHeight = 16
       const buttonX = markerX - buttonWidth / 2
       const buttonY = 180
       
-      // Check if click is within the MIDI button bounds
+      // Check if click is within the Convert button bounds
       if (x >= buttonX && x <= buttonX + buttonWidth && y >= buttonY && y <= buttonY + buttonHeight) {
         clickedMarkerId = marker.id
         clickedButtonType = 'midi'
-        console.log('🔍 MIDI BUTTON CLICKED - marker:', marker.name, 'id:', marker.id)
+        console.log('🔍 CONVERT BUTTON CLICKED - marker:', marker.name, 'id:', marker.id)
       }
       
       // DELETE button coordinates (from the drawing code)
@@ -2550,6 +2573,38 @@ export default function LoopEditorPage() {
     }
   }, [waveformOffset, markers, regions, duplicateWave, isDuplicateMain, playBothMode, showBarMarkers, showDetailedGrid, audioFile])
   
+  // Fit waveform to window
+  const fitToWindow = useCallback(() => {
+    if (!audioFile || duration === 0) {
+      toast({
+        title: "No Audio",
+        description: "Please load an audio file first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Reset zoom and offset to fit the entire waveform
+    setZoom(1.0)
+    setVerticalZoom(1.0)
+    setWaveformOffset(0)
+    setScrollOffset(0)
+    
+    // Reset playhead to beginning if it's beyond the duration
+    if (playheadPosition > duration) {
+      setPlayheadPosition(0)
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0
+      }
+    }
+
+    toast({
+      title: "Fit to Window",
+      description: "Waveform reset to fit screen",
+      variant: "default",
+    })
+  }, [audioFile, duration, playheadPosition])
+
   // Generate unique colors for markers
   const generateMarkerColor = (markerId: string) => {
     // Create a hash from the marker ID to generate consistent colors
@@ -2738,6 +2793,7 @@ export default function LoopEditorPage() {
       steps: actualSteps
     })
     setMidiSteps(actualSteps)
+    setCurrentMidiMarker(marker) // Track which marker was converted
     setShowMidiWindow(true)
 
     toast({
@@ -3702,6 +3758,33 @@ export default function LoopEditorPage() {
       saveStateForHistory('delete', `Remove marker: ${marker.name}`)
     }
     setMarkers(prev => prev.filter(marker => marker.id !== markerId))
+  }
+
+  const deleteAllMarkers = () => {
+    if (markers.length === 0) {
+      toast({
+        title: "No Markers",
+        description: "There are no markers to delete",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Save state for undo
+    saveStateForHistory('delete', `Delete all ${markers.length} markers`)
+    
+    // Clear all markers
+    setMarkers([])
+    
+    // Clear selections
+    setSelectedMarkers(new Set())
+    setSelectedMarkersForMidi(new Set())
+    
+    toast({
+      title: "All Markers Deleted",
+      description: `Deleted ${markers.length} markers`,
+      variant: "default",
+    })
   }
 
   const removePositionFromMarker = (markerId: string, position: number) => {
@@ -6204,6 +6287,262 @@ export default function LoopEditorPage() {
     }
   }
   
+  // Pattern saving and loading functions
+  const handleSavePattern = async (name: string, description?: string, category?: string, tags?: string[], genreId?: string, subgenre?: string, patternBpm?: string, audioType?: string, key?: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast({
+          title: "Not Logged In",
+          description: "Please log in to save patterns",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Convert markers to sequencer data format
+      const sequencerData: { [trackId: number]: boolean[] } = {}
+      
+      // Create a "General" track for all markers
+      const generalTrackId = 1
+      const steps = Math.ceil(duration / stepDuration)
+      const generalPattern = new Array(steps).fill(false)
+      
+      markers.forEach(marker => {
+        const positions = marker.positions || [marker.time]
+        positions.forEach(position => {
+          const step = Math.floor(position / stepDuration)
+          if (step >= 0 && step < steps) {
+            generalPattern[step] = true
+          }
+        })
+      })
+      
+      sequencerData[generalTrackId] = generalPattern
+
+      // Determine pattern type based on manual selection, audio type, category, or marker data
+      let finalPatternType = 'general' // default to general instead of loop_editor
+      
+      // First check if user manually selected a pattern type
+      if (patternType && patternType.trim() !== '' && patternType !== 'auto') {
+        finalPatternType = patternType.trim()
+      } else {
+        // Auto-detect based on audio type field
+        if (audioType) {
+          const audioTypeLower = audioType.toLowerCase()
+          if (audioTypeLower.includes('808')) {
+            finalPatternType = '808'
+          } else if (audioTypeLower.includes('kick')) {
+            finalPatternType = 'kick'
+          } else if (audioTypeLower.includes('hihat') || audioTypeLower.includes('hi-hat')) {
+            finalPatternType = 'hihat loop'
+          } else if (audioTypeLower.includes('snare')) {
+            finalPatternType = 'snare'
+          } else if (audioTypeLower.includes('bass')) {
+            finalPatternType = 'bass loop'
+          } else if (audioTypeLower.includes('melody')) {
+            finalPatternType = 'melody loop'
+          } else if (audioTypeLower.includes('percussion') || audioTypeLower.includes('perc')) {
+            finalPatternType = 'percussion'
+          } else {
+            finalPatternType = audioTypeLower
+          }
+        } else {
+          // If no audio type, try to determine from marker categories
+          const markerCategories = [...new Set(markers.map(m => m.category.toLowerCase()))]
+          if (markerCategories.length > 0) {
+            const category = markerCategories[0] // Use first category
+            if (category.includes('808')) {
+              finalPatternType = '808'
+            } else if (category.includes('kick')) {
+              finalPatternType = 'kick'
+            } else if (category.includes('hihat') || category.includes('hi-hat')) {
+              finalPatternType = 'hihat loop'
+            } else if (category.includes('snare')) {
+              finalPatternType = 'snare'
+            } else if (category.includes('bass')) {
+              finalPatternType = 'bass loop'
+            } else if (category.includes('melody')) {
+              finalPatternType = 'melody loop'
+            } else if (category.includes('percussion') || category.includes('perc')) {
+              finalPatternType = 'percussion'
+            } else if (category.includes('drum')) {
+              finalPatternType = 'drum'
+            } else {
+              finalPatternType = category
+            }
+          }
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('saved_patterns')
+        .insert([{
+          user_id: user.id,
+          name,
+          description,
+          tracks: [], // Save empty array instead of null to satisfy NOT NULL constraint
+          sequencer_data: sequencerData,
+          bpm: patternBpm ? parseInt(patternBpm) : bpm,
+          steps,
+          tags,
+          category,
+          genre_id: genreId || null,
+          subgenre: subgenre || null,
+          pattern_type: finalPatternType,
+          audio_type: audioType || null,
+          key_signature: key || null
+        }])
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error saving pattern:', error)
+        toast({
+          title: "Save Failed",
+          description: "Failed to save pattern",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Pattern Saved",
+        description: `"${name}" saved successfully!`,
+        variant: "default",
+      })
+      
+      // Refresh patterns list
+      await loadSavedPatterns()
+    } catch (error) {
+      console.error('Error saving pattern:', error)
+      toast({
+        title: "Save Failed",
+        description: "Failed to save pattern",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const loadSavedPatterns = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: patterns, error } = await supabase
+        .from('saved_patterns')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (!error && patterns) {
+        const convertedPatterns = patterns.map(pattern => ({
+          id: pattern.id,
+          name: pattern.name,
+          sequencerData: pattern.sequencer_data || pattern.sequencerData || {},
+          bpm: pattern.bpm,
+          steps: pattern.steps,
+          category: pattern.category,
+          description: pattern.description,
+          tags: pattern.tags,
+          genre_id: pattern.genre_id,
+          subgenre: pattern.subgenre,
+          pattern_type: pattern.pattern_type,
+          created_at: pattern.created_at
+        }))
+        setSavedPatterns(convertedPatterns)
+      }
+    } catch (error) {
+      console.error('Error loading saved patterns:', error)
+    }
+  }
+
+  const handleLoadPattern = async (patternId: string) => {
+    try {
+      const pattern = savedPatterns.find(p => p.id === patternId)
+      if (!pattern) {
+        toast({
+          title: "Pattern Not Found",
+          description: "The selected pattern could not be found",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Convert sequencer data back to markers
+      const newMarkers: Marker[] = []
+      const sequencerData = pattern.sequencerData
+      
+      Object.entries(sequencerData).forEach(([trackId, pattern]) => {
+        if (Array.isArray(pattern)) {
+          pattern.forEach((isActive, stepIndex) => {
+            if (isActive) {
+              const time = stepIndex * stepDuration
+              const marker: Marker = {
+                id: `loaded-${Date.now()}-${stepIndex}`,
+                time,
+                name: `Marker ${newMarkers.length + 1}`,
+                category: 'General',
+                color: generateMarkerColor(`loaded-${stepIndex}`)
+              }
+              newMarkers.push(marker)
+            }
+          })
+        }
+      })
+
+      // Update BPM if different
+      if (pattern.bpm !== bpm) {
+        setBpm(pattern.bpm)
+      }
+
+      // Replace current markers with loaded ones
+      setMarkers(newMarkers)
+      setSelectedMarkers(new Set())
+      setSelectedMarkersForMidi(new Set())
+
+      toast({
+        title: "Pattern Loaded",
+        description: `"${pattern.name}" loaded successfully!`,
+        variant: "default",
+      })
+    } catch (error) {
+      console.error('Error loading pattern:', error)
+      toast({
+        title: "Load Failed",
+        description: "Failed to load pattern",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Load patterns on component mount
+  useEffect(() => {
+    if (user) {
+      loadSavedPatterns()
+    }
+  }, [user])
+  
+  // Load genres and subgenres
+  useEffect(() => {
+    const loadGenres = async () => {
+      try {
+        const { data: genresData, error } = await supabase
+          .from('genres')
+          .select('*')
+          .order('name')
+        
+        if (!error && genresData) {
+          setGenres(genresData)
+        }
+      } catch (error) {
+        console.error('Error loading genres:', error)
+      }
+    }
+    
+    loadGenres()
+  }, [])
+  
   return (
     <div 
       className="min-h-screen bg-[#141414] text-white"
@@ -6648,6 +6987,15 @@ export default function LoopEditorPage() {
               title={showBarMarkers ? "Hide bar markers" : "Show bar markers"}
             >
                   <span className="text-xs">{showBarMarkers ? "Bars On" : "Bars Off"}</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="default"
+              onClick={fitToWindow}
+              className="bg-blue-600 text-white hover:bg-blue-500 border-blue-500 flex-shrink-0"
+              title="Fit waveform to window"
+            >
+                  <span className="text-xs">Fit</span>
             </Button>
               </div>
             </div>
@@ -7579,6 +7927,25 @@ export default function LoopEditorPage() {
               >
                 ✨ Magic Shuffle
               </Button>
+              
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowSavePatternDialog(true)}
+                disabled={markers.length === 0}
+                className="bg-green-600 text-white hover:bg-green-700 border-green-500"
+              >
+                💾 Save Pattern
+              </Button>
+              
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowLoadPatternDialog(true)}
+                className="bg-blue-600 text-white hover:bg-blue-700 border-blue-500"
+              >
+                📂 Load Pattern
+              </Button>
             </div>
 
             {/* Waveform Selection Actions */}
@@ -7867,6 +8234,15 @@ export default function LoopEditorPage() {
                             title="Edit marker metadata"
                           >
                             Data
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => convertSingleMarkerToMidi(marker.id)}
+                            className="h-6 px-3 text-xs bg-green-600 hover:bg-green-700 text-white border-green-500 min-w-[60px]"
+                            title="Convert this marker to MIDI"
+                          >
+                            {marker.name ? 'Convert' : 'MIDI'}
                           </Button>
                           <span 
                             className="text-base text-white cursor-pointer hover:text-blue-300 font-medium min-w-0 flex-1 truncate"
@@ -8858,6 +9234,14 @@ export default function LoopEditorPage() {
                     >
                       Clear
                     </Button>
+                    <Button
+                      onClick={deleteAllMarkers}
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      title="Delete all markers"
+                    >
+                      Delete All
+                    </Button>
                   </div>
                 </div>
                 <div className="max-h-32 overflow-y-auto">
@@ -8906,6 +9290,15 @@ export default function LoopEditorPage() {
                   >
                     Export to Beat Maker
                   </Button>
+                  {currentMidiMarker && (
+                    <Button
+                      onClick={() => setShowSavePatternDialog(true)}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      title={`Save pattern for "${currentMidiMarker.name}"`}
+                    >
+                      💾 Save Pattern
+                    </Button>
+                  )}
                   <Button
                     onClick={clearMidiData}
                     className="bg-red-600 hover:bg-red-700 text-white"
@@ -9040,6 +9433,9 @@ export default function LoopEditorPage() {
             
             {midiData && (
               <div className={`overflow-x-auto ${midiViewMode === 'compact' ? 'max-w-3xl' : 'max-w-4xl'}`}>
+                <div className="text-xs text-gray-400 mb-2 text-center">
+                  💡 Click on any step to toggle it on/off
+                </div>
                 <div className="inline-block min-w-full">
                   <table className="table-auto">
                     <thead>
@@ -9067,14 +9463,15 @@ export default function LoopEditorPage() {
                           {Array.from({ length: midiSteps }).map((_, index) => (
                             <td
                               key={index}
-                              className={`py-1 text-center cursor-pointer border border-gray-800 ${
+                              className={`py-1 text-center cursor-pointer border border-gray-800 hover:bg-gray-600 transition-colors ${
                                 midiViewMode === 'compact' ? 'px-0.5' : 'px-1'
                               } ${
                                 midiData?.sequencerData[track.id]?.[index]
-                                  ? 'bg-blue-600'
+                                  ? 'bg-blue-600 hover:bg-blue-500'
                                   : 'bg-gray-700'
                               }`}
                               onClick={() => toggleMidiStep(track.id, index)}
+                              title={`Click to toggle step ${index + 1}`}
                             >
                               {midiData?.sequencerData[track.id]?.[index] ? '●' : ''}
                             </td>
@@ -9089,6 +9486,335 @@ export default function LoopEditorPage() {
           </div>
         )}
       </div>
+      
+      {/* Save Pattern Dialog */}
+      <Dialog open={showSavePatternDialog} onOpenChange={setShowSavePatternDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-white flex items-center gap-2">
+              <Save className="w-5 h-5 text-green-400" />
+              Save Pattern
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="pattern-name" className="text-sm text-gray-300">
+                  Name *
+                </Label>
+                <Input
+                  id="pattern-name"
+                  value={patternName}
+                  onChange={(e) => setPatternName(e.target.value)}
+                  placeholder="Pattern name"
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="pattern-bpm" className="text-sm text-gray-300">
+                  BPM
+                </Label>
+                <Input
+                  id="pattern-bpm"
+                  type="number"
+                  value={patternBpm}
+                  onChange={(e) => setPatternBpm(e.target.value)}
+                  placeholder={bpm.toString()}
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="pattern-audio-type" className="text-sm text-gray-300">
+                  Audio Type
+                </Label>
+                <Input
+                  id="pattern-audio-type"
+                  value={patternAudioType}
+                  onChange={(e) => setPatternAudioType(e.target.value)}
+                  placeholder="e.g., Drum, Bass, Melody..."
+                  className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="pattern-type" className="text-sm text-gray-300">
+                  Pattern Type
+                </Label>
+                <Select value={patternType} onValueChange={setPatternType}>
+                  <SelectTrigger className="bg-[#141414] border-gray-600 text-white focus:border-green-500 focus:ring-green-500">
+                    <SelectValue placeholder="Auto-detect" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto-detect</SelectItem>
+                    <SelectItem value="808">808</SelectItem>
+                    <SelectItem value="kick">Kick</SelectItem>
+                    <SelectItem value="snare">Snare</SelectItem>
+                    <SelectItem value="hihat loop">Hihat Loop</SelectItem>
+                    <SelectItem value="bass loop">Bass Loop</SelectItem>
+                    <SelectItem value="melody loop">Melody Loop</SelectItem>
+                    <SelectItem value="percussion">Percussion</SelectItem>
+                    <SelectItem value="drum">Drum</SelectItem>
+                    <SelectItem value="clap">Clap</SelectItem>
+                    <SelectItem value="crash">Crash</SelectItem>
+                    <SelectItem value="ride">Ride</SelectItem>
+                    <SelectItem value="tom">Tom</SelectItem>
+                    <SelectItem value="lead">Lead</SelectItem>
+                    <SelectItem value="pad">Pad</SelectItem>
+                    <SelectItem value="arp">Arp</SelectItem>
+                    <SelectItem value="chord">Chord</SelectItem>
+                    <SelectItem value="fx">FX</SelectItem>
+                    <SelectItem value="vocal">Vocal</SelectItem>
+                    <SelectItem value="general">General</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="pattern-key" className="text-sm text-gray-300">
+                  Key
+                </Label>
+                <Select value={patternKey} onValueChange={setPatternKey}>
+                  <SelectTrigger className="bg-[#141414] border-gray-600 text-white focus:border-green-500 focus:ring-green-500">
+                    <SelectValue placeholder="Select key" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="C">C</SelectItem>
+                    <SelectItem value="C#">C#</SelectItem>
+                    <SelectItem value="D">D</SelectItem>
+                    <SelectItem value="D#">D#</SelectItem>
+                    <SelectItem value="E">E</SelectItem>
+                    <SelectItem value="F">F</SelectItem>
+                    <SelectItem value="F#">F#</SelectItem>
+                    <SelectItem value="G">G</SelectItem>
+                    <SelectItem value="G#">G#</SelectItem>
+                    <SelectItem value="A">A</SelectItem>
+                    <SelectItem value="A#">A#</SelectItem>
+                    <SelectItem value="B">B</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="pattern-subgenre" className="text-sm text-gray-300">
+                  Subgenre
+                </Label>
+                <Select value={selectedSubgenre} onValueChange={setSelectedSubgenre}>
+                  <SelectTrigger className="bg-[#141414] border-gray-600 text-white focus:border-green-500 focus:ring-green-500">
+                    <SelectValue placeholder="Select subgenre" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select subgenre</SelectItem>
+                    {subgenres.map((subgenre) => (
+                      <SelectItem key={subgenre} value={subgenre}>
+                        {subgenre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="pattern-genre" className="text-sm text-gray-300">
+                  Genre
+                </Label>
+                <Select value={selectedGenreId} onValueChange={setSelectedGenreId}>
+                  <SelectTrigger className="bg-[#141414] border-gray-600 text-white focus:border-green-500 focus:ring-green-500">
+                    <SelectValue placeholder="Select genre" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select genre</SelectItem>
+                    {genres.map((genre) => (
+                      <SelectItem key={genre.id} value={genre.id}>
+                        {genre.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label htmlFor="pattern-subgenre" className="text-sm text-gray-300">
+                  Subgenre
+                </Label>
+                <Select value={selectedSubgenre} onValueChange={setSelectedSubgenre}>
+                  <SelectTrigger className="bg-[#141414] border-gray-600 text-white focus:border-green-500 focus:ring-green-500">
+                    <SelectValue placeholder="Select subgenre" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select subgenre</SelectItem>
+                    {subgenres.map((subgenre) => (
+                      <SelectItem key={subgenre} value={subgenre}>
+                        {subgenre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="pattern-description" className="text-sm text-gray-300">
+                Description
+              </Label>
+              <Input
+                id="pattern-description"
+                value={patternDescription}
+                onChange={(e) => setPatternDescription(e.target.value)}
+                placeholder="Pattern description"
+                className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="pattern-category" className="text-sm text-gray-300">
+                Category
+              </Label>
+              <Input
+                id="pattern-category"
+                value={patternCategory}
+                onChange={(e) => setPatternCategory(e.target.value)}
+                placeholder="Pattern category"
+                className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="pattern-tags" className="text-sm text-gray-300">
+                Tags (comma-separated)
+              </Label>
+              <Input
+                id="pattern-tags"
+                value={patternTags}
+                onChange={(e) => setPatternTags(e.target.value)}
+                placeholder="tag1, tag2, tag3"
+                className="bg-[#141414] border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500"
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+            <Button
+              variant="outline"
+              onClick={() => setShowSavePatternDialog(false)}
+              className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!patternName.trim()) {
+                  toast({
+                    title: "Missing Name",
+                    description: "Please enter a pattern name",
+                    variant: "destructive",
+                  })
+                  return
+                }
+                
+                const tags = patternTags.trim() ? patternTags.split(',').map(tag => tag.trim()) : []
+                const patternBpmValue = patternBpm.trim() || bpm.toString()
+                handleSavePattern(
+                  patternName.trim(), 
+                  patternDescription.trim(), 
+                  patternCategory.trim(), 
+                  tags, 
+                  selectedGenreId === 'none' ? '' : selectedGenreId, 
+                  selectedSubgenre === 'none' ? '' : selectedSubgenre
+                )
+                setShowSavePatternDialog(false)
+                setPatternName('')
+                setPatternDescription('')
+                setPatternCategory('')
+                setPatternTags('')
+                setPatternBpm('')
+                setPatternAudioType('')
+                setPatternKey('')
+                setPatternType('auto')
+                setSelectedGenreId('none')
+                setSelectedSubgenre('none')
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              Save Pattern
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Load Pattern Dialog */}
+      <Dialog open={showLoadPatternDialog} onOpenChange={setShowLoadPatternDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-white flex items-center gap-2">
+              <FolderOpen className="w-5 h-5 text-blue-400" />
+              Load Pattern
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {savedPatterns.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-gray-400 mb-2">No saved patterns found</div>
+                <div className="text-sm text-gray-500">Save some patterns first to see them here</div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {savedPatterns.map((pattern) => (
+                  <div
+                    key={pattern.id}
+                    className="flex items-center justify-between p-3 border border-gray-600 rounded hover:bg-gray-800 cursor-pointer"
+                    onClick={() => {
+                      handleLoadPattern(pattern.id)
+                      setShowLoadPatternDialog(false)
+                    }}
+                  >
+                    <div className="flex-1">
+                      <div className="font-medium text-white">{pattern.name}</div>
+                      {pattern.description && (
+                        <div className="text-sm text-gray-400">{pattern.description}</div>
+                      )}
+                      <div className="text-xs text-gray-500 mt-1">
+                        {pattern.category && <span className="mr-2">Category: {pattern.category}</span>}
+                        <span>BPM: {pattern.bpm}</span>
+                        <span className="mx-2">•</span>
+                        <span>Steps: {pattern.steps}</span>
+                        <span className="mx-2">•</span>
+                        <span>Created: {new Date(pattern.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                    >
+                      Load
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <div className="flex justify-end pt-4 border-t border-gray-700">
+            <Button
+              variant="outline"
+              onClick={() => setShowLoadPatternDialog(false)}
+              className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white"
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 
