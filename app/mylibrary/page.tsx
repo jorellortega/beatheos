@@ -910,17 +910,8 @@ export default function MyLibrary() {
         .insert([{
           album_id: selectedAlbumForTrack.id,
           title: newAlbumTrack.title,
-          artist: newAlbumTrack.artist,
-          description: newAlbumTrack.description,
-          release_date: newAlbumTrack.release_date,
-          cover_art_url: newAlbumTrack.cover_art_url,
           audio_url: newAlbumTrack.audio_url,
           duration: newAlbumTrack.duration,
-          bpm: newAlbumTrack.bpm ? parseInt(newAlbumTrack.bpm) : null,
-          key: newAlbumTrack.key,
-          genre: newAlbumTrack.genre,
-          subgenre: newAlbumTrack.subgenre,
-          tags: newAlbumTrack.tags ? newAlbumTrack.tags.split(',').map(tag => tag.trim()) : [],
           status: 'draft',
           track_order: nextTrackOrder
         }])
@@ -4670,6 +4661,18 @@ export default function MyLibrary() {
         })
       } else if (selectedTargetAlbum) {
         // Move to album as a track
+        // Get the next track order for this album
+        const { data: existingTracks } = await supabase
+          .from('album_tracks')
+          .select('track_order')
+          .eq('album_id', selectedTargetAlbum)
+          .order('track_order', { ascending: false })
+          .limit(1);
+
+        const nextTrackOrder = existingTracks && existingTracks.length > 0 
+          ? (existingTracks[0].track_order || 0) + 1 
+          : 1;
+
         const { error: albumError } = await supabase
           .from('album_tracks')
           .insert([{
@@ -4677,10 +4680,9 @@ export default function MyLibrary() {
             title: singleToMove.title,
             audio_url: singleToMove.audio_url,
             duration: singleToMove.duration,
-            description: singleToMove.description,
             session_id: singleToMove.session_id,
             status: 'draft',
-            user_id: (await supabase.auth.getUser()).data.user?.id
+            track_order: nextTrackOrder
           }])
 
         if (albumError) {
@@ -4769,18 +4771,28 @@ export default function MyLibrary() {
         })
       } else if (selectedTargetAlbumForTrack) {
         // Move to album as a track
+        // Get the next track order for this album
+        const { data: existingTracks } = await supabase
+          .from('album_tracks')
+          .select('track_order')
+          .eq('album_id', selectedTargetAlbumForTrack)
+          .order('track_order', { ascending: false })
+          .limit(1);
+
+        const nextTrackOrder = existingTracks && existingTracks.length > 0 
+          ? (existingTracks[0].track_order || 0) + 1 
+          : 1;
+
         const { error: albumError } = await supabase
           .from('album_tracks')
           .insert([{
             album_id: selectedTargetAlbumForTrack,
             title: trackToMove.title,
             audio_url: trackToMove.audio_url,
-            cover_art_url: trackToMove.cover_art_url,
             duration: trackToMove.duration,
-            description: trackToMove.description,
             session_id: trackToMove.session_id,
             status: 'draft',
-            user_id: user.id
+            track_order: nextTrackOrder
           }])
 
         if (albumError) {
