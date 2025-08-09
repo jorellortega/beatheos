@@ -4117,6 +4117,13 @@ export function SongArrangement({
     setSelectedItemId('') // Reset selected item
     setSelectedAlbumDetails(null) // Reset selected album details
     setIsExportLiveMode(false) // Default to save arrangement mode
+    
+    // Autofill title from session name if available
+    if (sessionName && sessionName.trim()) {
+      setNewItemTitle(sessionName)
+    } else {
+      setNewItemTitle('') // Reset if no session name
+    }
   }
 
 

@@ -20,6 +20,7 @@ interface AuthContextType {
   isLoading: boolean
   error: Error | null
   hydrated: boolean
+  getAccessToken: () => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -293,6 +294,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
   }
 
+  const getAccessToken = async (): Promise<string | null> => {
+    console.log('[AuthContext] getAccessToken called')
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession()
+      console.log('[AuthContext] getAccessToken session:', session ? 'Found' : 'None', error ? `Error: ${error.message}` : '')
+      return session?.access_token || null
+    } catch (error) {
+      console.error('[AuthContext] getAccessToken error:', error)
+      return null
+    }
+  }
+
   const contextValue = useMemo(() => ({
     user,
     login,
@@ -300,7 +313,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     isLoading,
     error,
-    hydrated
+    hydrated,
+    getAccessToken
   }), [user, isLoading, error, hydrated]);
 
   // Show loading state only during initial hydration

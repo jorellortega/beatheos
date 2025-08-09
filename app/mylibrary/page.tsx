@@ -4857,6 +4857,17 @@ export default function MyLibrary() {
             </Select>
           </div>
           
+          {/* Navigate to Artist List Button */}
+          <Button 
+            onClick={() => {
+              window.location.href = '/artistlist'
+            }}
+            className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Artist Management
+          </Button>
+          
           {/* Action Buttons */}
           {selectedTab === 'albums' && albumPhaseTab === 'all' && (
             <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowAlbumModal(true)}>
@@ -5587,16 +5598,46 @@ export default function MyLibrary() {
       )}
 
       <Tabs defaultValue={selectedTab} onValueChange={setSelectedTab} className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 w-full overflow-x-auto">
-          <TabsTrigger value="albums" className="text-xs sm:text-sm whitespace-nowrap">Albums</TabsTrigger>
-          <TabsTrigger value="tracks" className="text-xs sm:text-sm whitespace-nowrap">Tracks</TabsTrigger>
-          <TabsTrigger value="platforms" className="text-xs sm:text-sm whitespace-nowrap">Platforms</TabsTrigger>
-          <TabsTrigger value="singles" className="text-xs sm:text-sm whitespace-nowrap">Singles</TabsTrigger>
-          <TabsTrigger value="profiles" className="text-xs sm:text-sm whitespace-nowrap">Profiles</TabsTrigger>
-          <TabsTrigger value="audio" className="text-xs sm:text-sm whitespace-nowrap">Audio</TabsTrigger>
-          <TabsTrigger value="top" className="text-xs sm:text-sm whitespace-nowrap">Top</TabsTrigger>
-          <TabsTrigger value="production-schedule" className="text-xs sm:text-sm whitespace-nowrap">Schedule</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto">
+          <TabsList className="flex w-max min-w-full h-auto p-1">
+            <TabsTrigger value="albums" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">
+              Albums
+              {!loadingAlbums && (
+                <span className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {getFilteredAlbumsForSearch().length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="tracks" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">
+              Tracks
+              {!loadingTracks && (
+                <span className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {getFilteredTracksForSearch().length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="platforms" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">Platforms</TabsTrigger>
+            <TabsTrigger value="singles" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">
+              Singles
+              {!loadingSingles && (
+                <span className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {getFilteredSinglesForSearch().length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="profiles" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">Profiles</TabsTrigger>
+            <TabsTrigger value="audio" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">
+              Audio
+              {!loadingAudio && (
+                <span className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {getFilteredAudioItemsForSearch().length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="top" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">Top</TabsTrigger>
+            <TabsTrigger value="production-schedule" className="text-xs sm:text-sm whitespace-nowrap px-3 py-2 flex-shrink-0">Schedule</TabsTrigger>
+          </TabsList>
+        </div>
         {/* Albums Tab */}
         <TabsContent value="albums" className="space-y-4">
           {/* Album Phase Tabs */}
@@ -5763,110 +5804,126 @@ export default function MyLibrary() {
                         </Link>
                         <p className="text-gray-500">{album.artist}</p>
                       </div>
-                      <div className="flex flex-wrap gap-1 sm:gap-2">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getStatusColor(album.status || 'draft')}`}>
-                            {getStatusIcon(album.status || 'draft')}
-                            {album.status || 'draft'}
-                          </Badge>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'production')}>
-                            <Circle className="h-3 w-3 mr-2" />
-                            Production
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'draft')}>
-                            <Circle className="h-3 w-3 mr-2" />
-                            Draft
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'distribute')}>
-                            <Circle className="h-3 w-3 mr-2" />
-                            Distribute
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'error')}>
-                            <Circle className="h-3 w-3 mr-2" />
-                            Error
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'published')}>
-                            <Circle className="h-3 w-3 mr-2" />
-                            Published
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'other')}>
-                            <Circle className="h-3 w-3 mr-2" />
-                            Other
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      {/* Phase Status Dropdown */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getProductionStatusColor(album.production_status || 'production')}`}>
-                            {getProductionStatusIcon(album.production_status || 'production')}
-                            {album.production_status || 'production'}
-                          </Badge>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'marketing')}>
-                            <CheckCircle2 className="h-3 w-3 mr-2" />
-                            Marketing
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'organization')}>
-                            <CheckCircle2 className="h-3 w-3 mr-2" />
-                            Organization
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'production')}>
-                            <CheckCircle2 className="h-3 w-3 mr-2" />
-                            Production
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'quality_control')}>
-                            <CheckCircle2 className="h-3 w-3 mr-2" />
-                            Quality Control
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'ready_for_distribution')}>
-                            <CheckCircle2 className="h-3 w-3 mr-2" />
-                            Ready for Distribution
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button variant="outline" size="sm" onClick={() => setEditAlbumId(album.id)}>
-                        <FileText className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Edit</span>
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDeleteAlbum(album.id)}>
-                        <Trash2 className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Delete</span>
-                      </Button>
-                      <Link href={`/myalbums/${album.id}`}>
-                        <Button variant="default" size="sm">
-                          <span className="hidden sm:inline">View Album</span>
-                          <span className="sm:hidden">View</span>
-                        </Button>
-                      </Link>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => downloadAlbum(album.id, album.title)}
-                        className="bg-green-600 hover:bg-green-700 text-white border-green-500"
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Link href={`/release-platforms/${album.id}`}>
-                        <Button variant="outline" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500">
-                          <Globe className="h-4 w-4 sm:mr-2" />
-                          <span className="hidden sm:inline">Platforms</span>
-                        </Button>
-                      </Link>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => openCreateAlbumTrackDialog(album)}
-                        className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
-                      >
-                        <Plus className="h-4 w-4 sm:mr-2" />
-                        <span className="hidden sm:inline">Add Track</span>
-                      </Button>
-                    </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-2">
+                        {/* Status badges row */}
+                        <div className="flex flex-wrap gap-1 sm:gap-2">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getStatusColor(album.status || 'draft')}`}>
+                                {getStatusIcon(album.status || 'draft')}
+                                {album.status || 'draft'}
+                              </Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'production')}>
+                                <Circle className="h-3 w-3 mr-2" />
+                                Production
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'draft')}>
+                                <Circle className="h-3 w-3 mr-2" />
+                                Draft
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'distribute')}>
+                                <Circle className="h-3 w-3 mr-2" />
+                                Distribute
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'error')}>
+                                <Circle className="h-3 w-3 mr-2" />
+                                Error
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'published')}>
+                                <Circle className="h-3 w-3 mr-2" />
+                                Published
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumStatus(album.id, 'other')}>
+                                <Circle className="h-3 w-3 mr-2" />
+                                Other
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          {/* Phase Status Dropdown */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getProductionStatusColor(album.production_status || 'production')}`}>
+                                {getProductionStatusIcon(album.production_status || 'production')}
+                                {album.production_status || 'production'}
+                              </Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'marketing')}>
+                                <CheckCircle2 className="h-3 w-3 mr-2" />
+                                Marketing
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'organization')}>
+                                <CheckCircle2 className="h-3 w-3 mr-2" />
+                                Organization
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'production')}>
+                                <CheckCircle2 className="h-3 w-3 mr-2" />
+                                Production
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'quality_control')}>
+                                <CheckCircle2 className="h-3 w-3 mr-2" />
+                                Quality Control
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'ready_for_distribution')}>
+                                <CheckCircle2 className="h-3 w-3 mr-2" />
+                                Ready for Distribution
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        
+                        {/* Action buttons - split into rows on mobile */}
+                        <div className="flex flex-wrap gap-1 sm:gap-2">
+                          {/* Primary actions */}
+                          <Link href={`/myalbums/${album.id}`}>
+                            <Button variant="default" size="sm" className="text-xs px-2 py-1 h-8">
+                              <span className="hidden sm:inline">View Album</span>
+                              <span className="sm:hidden">View</span>
+                            </Button>
+                          </Link>
+                          <Button variant="outline" size="sm" onClick={() => setEditAlbumId(album.id)} className="text-xs px-2 py-1 h-8">
+                            <FileText className="h-3 w-3 sm:mr-1" />
+                            <span className="hidden sm:inline">Edit</span>
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => openCreateAlbumTrackDialog(album)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500 text-xs px-2 py-1 h-8"
+                          >
+                            <Plus className="h-3 w-3 sm:mr-1" />
+                            <span className="hidden sm:inline">Add Track</span>
+                            <span className="sm:hidden">Add</span>
+                          </Button>
+                        </div>
+                        
+                        {/* Secondary actions */}
+                        <div className="flex flex-wrap gap-1 sm:gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => downloadAlbum(album.id, album.title)}
+                            className="bg-green-600 hover:bg-green-700 text-white border-green-500 text-xs px-2 py-1 h-8"
+                            title="Download Album"
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
+                          <Link href={`/release-platforms/${album.id}`}>
+                            <Button variant="outline" size="sm" className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500 text-xs px-2 py-1 h-8">
+                              <Globe className="h-3 w-3 sm:mr-1" />
+                              <span className="hidden sm:inline">Platforms</span>
+                              <span className="sm:hidden">Plat</span>
+                            </Button>
+                          </Link>
+                          <Button variant="destructive" size="sm" onClick={() => handleDeleteAlbum(album.id)} className="text-xs px-2 py-1 h-8">
+                            <Trash2 className="h-3 w-3 sm:mr-1" />
+                            <span className="hidden sm:inline">Delete</span>
+                            <span className="sm:hidden">Del</span>
+                          </Button>
+                        </div>
+                      </div>
                   </div>
                   <div className="mt-4">
                     <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
@@ -6174,8 +6231,8 @@ export default function MyLibrary() {
                           )}
                           
                           {/* Action Buttons */}
-                          <div className="flex flex-wrap gap-1 overflow-x-auto">
-                            {/* Audio Upload/Replace */}
+                          <div className="flex flex-col gap-2 sm:gap-1 max-w-full">
+                            {/* Hidden inputs */}
                             <input
                               type="file"
                               id={`track-audio-${track.id}`}
@@ -6188,29 +6245,15 @@ export default function MyLibrary() {
                                 }
                               }}
                             />
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => document.getElementById(`track-audio-${track.id}`)?.click()}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
-                              title="Upload new audio file"
-                              disabled={replacingTrackId === track.id}
-                            >
-                              {replacingTrackId === track.id ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Replacing...
-                                </>
-                              ) : (
-                                <Upload className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm" className="text-xs h-6 px-2">
-                                  <MoreHorizontal className="h-3 w-3" />
-                                </Button>
-                              </DropdownMenuTrigger>
+
+                            {/* Row 1: Main Actions */}
+                            <div className="flex flex-wrap gap-1">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="outline" size="sm" className="text-xs h-6 px-2">
+                                    <MoreHorizontal className="h-3 w-3" />
+                                  </Button>
+                                </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuLabel>Track Actions</DropdownMenuLabel>
                                 
@@ -6282,118 +6325,128 @@ export default function MyLibrary() {
                                   Delete Track
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
-                            </DropdownMenu>
-                            
-                            {/* Audio Upload/Replace */}
-                            <input
-                              type="file"
-                              id={`track-audio-${track.id}`}
-                              accept="audio/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  replaceTrackAudio(track.id, file);
-                                }
-                              }}
-                            />
-                            <label
-                              htmlFor={`track-audio-${track.id}`}
-                              className="cursor-pointer"
-                            >
+                              </DropdownMenu>
+                              
+                              {/* Download */}
+                              {track.audio_url && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => downloadTrack(track.id, track.audio_url!, track.title)}
+                                  className="text-xs h-6 px-2 bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500"
+                                  title="Download Track"
+                                >
+                                  <Download className="h-3 w-3" />
+                                </Button>
+                              )}
+                              
+                              {/* Metadata */}
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                className="text-xs h-6 px-2 bg-black hover:bg-green-600 text-white border-gray-600 hover:border-green-500"
-                                disabled={replacingTrackId === track.id}
-                              >
-                                {replacingTrackId === track.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Upload className="h-3 w-3" />
-                                )}
-                              </Button>
-                            </label>
-                            
-                            {/* Cover Art Upload/Replace */}
-                            <input
-                              type="file"
-                              id={`track-cover-${track.id}`}
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  replaceCoverArt(track.id, file, 'track');
-                                }
-                              }}
-                            />
-                            <label
-                              htmlFor={`track-cover-${track.id}`}
-                              className="cursor-pointer"
-                            >
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
+                                onClick={() => openMetadataDialog(track.id, 'track')}
                                 className="text-xs h-6 px-2 bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
-                                disabled={replacingCoverId === track.id}
+                                title="Edit Metadata"
                               >
-                                {replacingCoverId === track.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Image className="h-3 w-3" />
-                                )}
+                                <FileTextIcon className="h-3 w-3" />
                               </Button>
-                            </label>
-                            
-                            {/* Download */}
-                            {track.audio_url && (
+                              
+                              {/* Notes */}
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                onClick={() => downloadTrack(track.id, track.audio_url!, track.title)}
-                                className="text-xs h-6 px-2 bg-black hover:bg-blue-600 text-white border-gray-600 hover:border-blue-500"
-                              >
-                                <Download className="h-3 w-3" />
-                              </Button>
-                            )}
-                            
-                            {/* Convert to MP3 */}
-                            {track.audio_url && !track.audio_url.endsWith('.mp3') && (
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => showCompressionOptions(track.id, track.audio_url!, 'track')}
+                                onClick={() => openNotesDialog(track.id, 'track', track.title)}
                                 className="text-xs h-6 px-2 bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
-                                disabled={convertingTrack === track.id}
+                                title="Add Notes"
                               >
-                                {convertingTrack === track.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <FileAudio className="h-3 w-3" />
-                                )}
+                                <StickyNote className="h-3 w-3" />
                               </Button>
-                            )}
+                            </div>
                             
-                            {/* Metadata */}
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => openMetadataDialog(track.id, 'track')}
-                              className="text-xs h-6 px-2 bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
-                            >
-                              <FileTextIcon className="h-3 w-3" />
-                            </Button>
-                            
-                            {/* Notes */}
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => openNotesDialog(track.id, 'track', track.title)}
-                              className="text-xs h-6 px-2 bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
-                            >
-                              <StickyNote className="h-3 w-3" />
-                            </Button>
+                            {/* Row 2: Upload & Convert Actions */}
+                            <div className="flex flex-wrap gap-1">
+                              {/* Audio Upload/Replace */}
+                              <input
+                                type="file"
+                                id={`track-audio-2-${track.id}`}
+                                accept="audio/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    replaceTrackAudio(track.id, file);
+                                  }
+                                }}
+                              />
+                              <label
+                                htmlFor={`track-audio-2-${track.id}`}
+                                className="cursor-pointer"
+                              >
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="text-xs h-6 px-2 bg-black hover:bg-green-600 text-white border-gray-600 hover:border-green-500"
+                                  disabled={replacingTrackId === track.id}
+                                  title="Upload Audio"
+                                >
+                                  {replacingTrackId === track.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Upload className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </label>
+                              
+                              {/* Cover Art Upload/Replace */}
+                              <input
+                                type="file"
+                                id={`track-cover-${track.id}`}
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    replaceCoverArt(track.id, file, 'track');
+                                  }
+                                }}
+                              />
+                              <label
+                                htmlFor={`track-cover-${track.id}`}
+                                className="cursor-pointer"
+                              >
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="text-xs h-6 px-2 bg-black hover:bg-purple-600 text-white border-gray-600 hover:border-purple-500"
+                                  disabled={replacingCoverId === track.id}
+                                  title="Upload Cover Art"
+                                >
+                                  {replacingCoverId === track.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Image className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </label>
+                              
+                              {/* Convert to MP3 */}
+                              {track.audio_url && !track.audio_url.endsWith('.mp3') && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => showCompressionOptions(track.id, track.audio_url!, 'track')}
+                                  className="text-xs h-6 px-2 bg-black hover:bg-orange-600 text-white border-gray-600 hover:border-orange-500"
+                                  disabled={convertingTrack === track.id}
+                                  title="Convert to MP3"
+                                >
+                                  {convertingTrack === track.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <FileAudio className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
