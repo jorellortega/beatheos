@@ -664,7 +664,13 @@ export function SongArrangement({
 
   // Sync patterns when they change from parent component
   useEffect(() => {
-    setPatternBlocks(patterns)
+    // Use a small delay to ensure this runs after auto-initialization logic
+    const timer = setTimeout(() => {
+      console.log('[PATTERN SYNC] Syncing patterns from parent:', patterns.length, 'patterns')
+      setPatternBlocks(patterns)
+    }, 100)
+    
+    return () => clearTimeout(timer)
   }, [patterns])
 
   // Auto-initialize patterns ONLY when component mounts and there are truly NO patterns at all
@@ -689,10 +695,18 @@ export function SongArrangement({
       return
     }
     
+    // Don't auto-initialize if we have a current session (session is being loaded)
+    // This prevents overwriting patterns that are being loaded from a saved session
+    if (currentSessionId) {
+      console.log('[AUTO INIT] Session exists - skipping auto-initialization to preserve loaded patterns')
+      return
+    }
+    
     // Only auto-initialize if:
     // 1. We haven't auto-initialized before
     // 2. We have tracks
     // 3. There are absolutely no patterns anywhere
+    // 4. No current session (not loading a saved session)
     if (!hasAutoInitializedRef.current && tracks.length > 0 && patternBlocks.length === 0 && patterns.length === 0) {
       console.log('[AUTO INIT] First time initialization - auto-initializing patterns for song arrangement')
       hasAutoInitializedRef.current = true
@@ -702,7 +716,7 @@ export function SongArrangement({
     } else if (hasAutoInitializedRef.current) {
       console.log('[AUTO INIT] Already auto-initialized before - not re-triggering')
     }
-  }, [tracks, patternBlocks.length, patterns.length])
+  }, [tracks, patternBlocks.length, patterns.length, currentSessionId])
 
   // Debug: Monitor isArrangementPlaying state changes
   useEffect(() => {
@@ -1242,8 +1256,28 @@ export function SongArrangement({
         // Remove existing patterns for this track
         const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== arrangement.trackId)
         
-        // Add the loaded patterns
-        const newPatternBlocks = [...otherTrackPatterns, ...arrangement.patternBlocks]
+        // Cut patterns that extend beyond totalBars
+        const cutPatterns = arrangement.patternBlocks.map((pattern: any) => {
+          if (pattern.startBar > totalBars) {
+            // Pattern starts beyond the limit - skip it
+            return null
+          } else if (pattern.endBar > totalBars) {
+            // Pattern extends beyond the limit - cut it
+            return {
+              ...pattern,
+              id: `${pattern.id}-cut-at-${totalBars}`,
+              name: `${pattern.name} (Cut at Bar ${totalBars})`,
+              endBar: totalBars,
+              duration: totalBars - pattern.startBar + 1
+            }
+          } else {
+            // Pattern is within the limit - keep as is
+            return pattern
+          }
+        }).filter((pattern: any) => pattern !== null)
+        
+        // Add the loaded patterns (after cutting to fit)
+        const newPatternBlocks = [...otherTrackPatterns, ...cutPatterns]
         
         setPatternBlocks(newPatternBlocks)
         // Don't update totalBars - respect the current setting
@@ -1252,7 +1286,7 @@ export function SongArrangement({
         // Update parent component
         onPatternsChange?.(newPatternBlocks)
         
-        console.log(`[LOAD ARRANGEMENT] Arrangement "${arrangement.name}" loaded successfully!`)
+        console.log(`[LOAD ARRANGEMENT] Arrangement "${arrangement.name}" loaded successfully! (${cutPatterns.length} patterns, cut to fit ${totalBars} bars)`)
         setShowLoadDialog(false)
       } else {
         const error = await response.json()
