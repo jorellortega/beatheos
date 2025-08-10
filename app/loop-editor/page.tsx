@@ -4997,6 +4997,8 @@ export default function LoopEditorPage() {
     }
   }
 
+
+
   // Fade In Selected Segment
   const fadeInSelectedSegment = async () => {
     const segment = getSelectedSegment()
@@ -5170,6 +5172,94 @@ export default function LoopEditorPage() {
       toast({
         title: "Fade Out Failed",
         description: "Error applying fade out to selected segment",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Fade Out End of Audio (4 seconds)
+  const fadeOutEndOfAudio = async () => {
+    if (!audioRef.current) {
+      toast({
+        title: "No Audio",
+        description: "Please load an audio file first",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const response = await fetch(audioRef.current.src)
+      const arrayBuffer = await response.arrayBuffer()
+      const originalBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+      const fadeDuration = 4 // 4 seconds fade out
+      const audioDuration = originalBuffer.duration
+      
+      if (audioDuration <= fadeDuration) {
+        toast({
+          title: "Audio Too Short",
+          description: "Audio must be longer than 4 seconds to apply fade out",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Save state before fading
+      saveStateForHistory('fade', `Fade out end of audio (${fadeDuration}s)`)
+
+      // Create new buffer
+      const newBuffer = audioContext.createBuffer(
+        originalBuffer.numberOfChannels,
+        originalBuffer.length,
+        originalBuffer.sampleRate
+      )
+
+      // Copy original data and apply fade out to last 4 seconds
+      for (let channel = 0; channel < originalBuffer.numberOfChannels; channel++) {
+        const originalData = originalBuffer.getChannelData(channel)
+        const newData = newBuffer.getChannelData(channel)
+        
+        // Copy all data except the last 4 seconds
+        const fadeStartSample = Math.floor((audioDuration - fadeDuration) * originalBuffer.sampleRate)
+        for (let i = 0; i < fadeStartSample; i++) {
+          newData[i] = originalData[i]
+        }
+        
+        // Apply fade out to last 4 seconds
+        const fadeLength = Math.floor(fadeDuration * originalBuffer.sampleRate)
+        for (let i = 0; i < fadeLength; i++) {
+          const fadeMultiplier = 1 - (i / fadeLength) // Linear fade from 1 to 0
+          newData[fadeStartSample + i] = originalData[fadeStartSample + i] * fadeMultiplier
+        }
+      }
+
+      // Update audio
+      const newBlob = audioBufferToWav(newBuffer)
+      const newUrl = URL.createObjectURL(newBlob)
+      
+      if (audioRef.current) {
+        audioRef.current.src = newUrl
+        audioRef.current.load()
+        
+        // Update the entire waveform since we modified the end
+        await updateWaveformFromBuffer(newBuffer)
+      }
+
+      toast({
+        title: "End Fade Out Applied!",
+        description: `Applied 4-second fade out to end of audio`,
+        variant: "default",
+      })
+      
+      console.log('🔍 End fade out complete - applied 4s fade to end of audio')
+
+    } catch (error) {
+      console.error('End fade out error:', error)
+      toast({
+        title: "End Fade Out Failed",
+        description: "Error applying fade out to end of audio",
         variant: "destructive",
       })
     }
@@ -7948,6 +8038,19 @@ export default function LoopEditorPage() {
               </Button>
             </div>
 
+            {/* Always Available Audio Actions */}
+            <div className="flex items-center gap-2 mt-2 p-2 bg-gray-800 rounded">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={fadeOutEndOfAudio}
+                disabled={!audioRef.current}
+                className="bg-gray-600 text-white hover:bg-gray-700 border-gray-500"
+              >
+                🔊 Fade Out End
+              </Button>
+            </div>
+
             {/* Waveform Selection Actions */}
             {getSelectedSegment() && (
               <div className="flex items-center gap-2 mt-2 p-2 bg-black rounded">
@@ -7982,7 +8085,7 @@ export default function LoopEditorPage() {
                   size="sm"
                   variant="outline"
                   onClick={shuffleSelectedSegment}
-                  className="bg-purple-600 text-white hover:bg-purple-700 border-purple-500"
+                  className="bg-gray-600 text-white hover:bg-gray-700 border-gray-500"
                 >
                   🔀 Shuffle
                 </Button>
@@ -8022,8 +8125,7 @@ export default function LoopEditorPage() {
                 >
                   📉 Fade Out
                 </Button>
-                
- 
+
                 <Button
                   size="sm"
                   variant="outline"
