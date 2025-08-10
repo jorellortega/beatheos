@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon, Edit3, X, CheckCircle2 } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon, Edit3, X, CheckCircle2, Copy } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -6763,6 +6763,110 @@ export default function BeatMakerPage() {
     setEditingSessionName('')
   }
 
+  // Duplicate a session
+  const handleDuplicateSession = async (sessionId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('beat_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single()
+
+      if (error) {
+        console.error('Error loading session for duplication:', error)
+        toast({
+          title: "Error",
+          description: "Failed to load session for duplication",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Generate a new name with "Copy" suffix
+      let newName = `${data.name} Copy`
+      let copyNumber = 1
+      
+      // Check if name already exists and increment copy number
+      while (true) {
+        const { data: existingSession } = await supabase
+          .from('beat_sessions')
+          .select('id')
+          .eq('name', newName)
+          .eq('user_id', data.user_id)
+          .single()
+        
+        if (!existingSession) break
+        copyNumber++
+        newName = `${data.name} Copy ${copyNumber}`
+      }
+
+      // Create new session data with copied content
+      const newSessionData = {
+        user_id: data.user_id,
+        name: newName,
+        description: data.description,
+        category: data.category,
+        tags: data.tags,
+        status: 'draft', // Always start as draft
+        bpm: data.bpm,
+        transport_key: data.transport_key,
+        steps: data.steps,
+        tracks: data.tracks,
+        sequencer_data: data.sequencer_data,
+        mixer_data: data.mixer_data,
+        effects_data: data.effects_data,
+        piano_roll_data: data.piano_roll_data,
+        sample_library_data: data.sample_library_data,
+        song_arrangement_data: data.song_arrangement_data,
+        playback_state: {
+          isPlaying: false,
+          currentStep: 0,
+          lastPlayedAt: new Date().toISOString()
+        },
+        ui_state: data.ui_state,
+        genre: data.genre,
+        key: data.key,
+        is_public: false,
+        is_template: false,
+        allow_collaboration: false
+      }
+
+      // Save the duplicated session
+      const { data: newSession, error: saveError } = await supabase
+        .from('beat_sessions')
+        .insert(newSessionData)
+        .select()
+        .single()
+
+      if (saveError) {
+        console.error('Error saving duplicated session:', saveError)
+        toast({
+          title: "Error",
+          description: "Failed to save duplicated session",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Refresh the sessions list
+      await loadSavedSessions()
+      
+      toast({
+        title: "Success",
+        description: `Session "${newName}" created successfully!`,
+        variant: "default"
+      })
+
+    } catch (error) {
+      console.error('Error duplicating session:', error)
+      toast({
+        title: "Error",
+        description: "Failed to duplicate session",
+        variant: "destructive"
+      })
+    }
+  }
+
   // Load a specific session
   const handleLoadSession = async (sessionId: string) => {
     setIsLoading(true)
@@ -10354,6 +10458,16 @@ export default function BeatMakerPage() {
                                 <span>{session.tracks?.length || 0} Tracks</span>
                               </div>
                               <div className="flex items-center gap-1">
+                                {/* Duplicate button to the left of status */}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleDuplicateSession(session.id)}
+                                  className="h-5 w-5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                                  title="Duplicate session"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Badge 
@@ -10556,6 +10670,16 @@ export default function BeatMakerPage() {
                             <span>BPM: {session.bpm}</span>
                             <span>Steps: {session.steps}</span>
                             {session.category && <span>Category: {session.category}</span>}
+                            {/* Duplicate button to the left of status label */}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleDuplicateSession(session.id)}
+                              className="h-5 w-5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                              title="Duplicate session"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
                             <span className={`${
                               session.status === 'draft' ? 'text-gray-400' :
                               session.status === 'in_progress' ? 'text-blue-400' :

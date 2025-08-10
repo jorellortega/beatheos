@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabaseClient'
 import { useToast } from '@/hooks/use-toast'
+import { sanitizeFilename } from '@/lib/utils'
 import { 
   Play, 
   Pause, 
@@ -176,7 +177,7 @@ export default function LoopEditorPage() {
   const [snapToGrid, setSnapToGrid] = useState(true)
   const [showGrid, setShowGrid] = useState(true) // Always show grid
   const [showWaveform, setShowWaveform] = useState(true)
-  const [showBarMarkers, setShowBarMarkers] = useState(true) // Show bar marker lines
+  const [showBarMarkers, setShowBarMarkers] = useState(false) // Show bar marker lines
   const [markedBars, setMarkedBars] = useState<number[]>([])
   const [markedSubBars, setMarkedSubBars] = useState<number[]>([])
   
@@ -2163,7 +2164,7 @@ export default function LoopEditorPage() {
       const audioFileHash = await generateAudioFileHash(audioFile)
       
       // Upload audio file to Supabase Storage
-      const fileName = `sessions/${user.id}/${Date.now()}_${audioFile.name}`
+      const fileName = `sessions/${user.id}/${Date.now()}_${sanitizeFilename(audioFile.name)}`
       console.log('🔍 UPLOADING AUDIO FILE:', fileName, 'size:', audioFile.size)
       
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -5949,6 +5950,8 @@ export default function LoopEditorPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [playheadPosition, editingMarker, editingMarkerId, showCategoryInput, newCategoryName, markers, selectedCategory, zoom, verticalZoom, togglePlayback, addMarker, addMarkerToSelection, jumpToMarker, saveMarkerEdit, cancelMarkerEdit, stopEditingMarker, startEditMode, quickNameMarker, changeMarkerColor, showCustomMarkerNameDialog, handleMarkerNameConfirm, handleMarkerNameCancel, openMarkerDataDialog, handleMarkerDataSave, handleMarkerDataCancel, addTagToMarker, removeTagFromMarker, addCustomCategory, setShowCategoryInput, setNewCategoryName, setZoom, setVerticalZoom])
   
+
+
   // Save to Library Functions
   const openSaveToLibraryDialog = async () => {
     if (!audioFile) {
@@ -5960,7 +5963,9 @@ export default function LoopEditorPage() {
       return
     }
     
-    setSaveToLibraryName(audioFile.name.replace(/\.[^/.]+$/, "")) // Remove file extension
+    // Sanitize the filename to remove problematic characters
+    const sanitizedName = sanitizeFilename(audioFile.name.replace(/\.[^/.]+$/, ""))
+    setSaveToLibraryName(sanitizedName)
     setSaveToLibraryAlbumName('')
     setSaveToLibraryDescription('')
     setSaveToLibraryGenre('')
@@ -6043,7 +6048,9 @@ export default function LoopEditorPage() {
       
       // Upload the edited audio file to storage
       const timestamp = Date.now()
-      const fileName = `${saveToLibraryName}-${timestamp}.wav`
+      // Sanitize the filename again to ensure it's safe for storage
+      const sanitizedFileName = sanitizeFilename(saveToLibraryName)
+      const fileName = `${sanitizedFileName}-${timestamp}.wav`
       const filePath = `library/${user?.id}/${fileName}`
       
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -8675,7 +8682,7 @@ export default function LoopEditorPage() {
                 <Input
                   id="save-name"
                   value={saveToLibraryName}
-                  onChange={(e) => setSaveToLibraryName(e.target.value)}
+                  onChange={(e) => setSaveToLibraryName(sanitizeFilename(e.target.value))}
                   placeholder="Enter a name for your file"
                   className="mt-1"
                 />

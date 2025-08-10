@@ -160,6 +160,14 @@ export function getOptimalPitchSettings(pitchAmount: number) {
   }
 }
 
+// Sanitize filename for safe storage and URL usage
+export function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/[^a-zA-Z0-9\s\-_\.]/g, '') // Remove special characters except spaces, hyphens, underscores, and dots
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .trim()
+}
+
 // Create different types of pitch shifters for better quality
 export function createPitchShifter(type: 'phase-vocoder' | 'playback-rate' | 'granular' | 'auto', pitchAmount: number) {
   const absPitch = Math.abs(pitchAmount)

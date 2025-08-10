@@ -1558,6 +1558,16 @@ export default function MyLibrary() {
       switch (status) {
         case 'draft':
           return <Circle className="h-3 w-3" />
+        case 'production':
+          return <Music className="h-3 w-3" />
+        case 'distribute':
+          return <ExternalLink className="h-3 w-3" />
+        case 'error':
+          return <XCircle className="h-3 w-3" />
+        case 'published':
+          return <CheckCircle2 className="h-3 w-3" />
+        case 'other':
+          return <Circle className="h-3 w-3" />
         case 'active':
           return <CheckCircle2 className="h-3 w-3" />
         case 'paused':
@@ -1575,6 +1585,16 @@ export default function MyLibrary() {
       switch (status) {
         case 'draft':
           return 'border-l-yellow-500'
+        case 'production':
+          return 'border-l-yellow-500'
+        case 'distribute':
+          return 'border-l-blue-500'
+        case 'error':
+          return 'border-l-red-500'
+        case 'published':
+          return 'border-l-green-500'
+        case 'other':
+          return 'border-l-purple-500'
         case 'active':
           return 'border-l-green-500'
         case 'paused':

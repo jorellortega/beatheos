@@ -253,11 +253,23 @@ export default function MySingles() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'production':
+        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+      case 'draft':
+        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+      case 'distribute':
+        return 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+      case 'error':
+        return 'bg-red-500/10 text-red-400 border-red-500/20'
+      case 'published':
+        return 'bg-green-500/10 text-green-400 border-green-500/20'
+      case 'other':
+        return 'bg-purple-500/10 text-purple-400 border-purple-500/20'
       case 'active': return 'bg-green-100 text-green-800 border-green-200'
       case 'paused': return 'bg-yellow-100 text-yellow-800 border-yellow-200'
       case 'scheduled': return 'bg-blue-100 text-blue-800 border-blue-200'
       case 'archived': return 'bg-gray-100 text-gray-800 border-gray-200'
-      default: return 'bg-gray-100 text-gray-800 border-gray-200'
+      default: return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
     }
   }
 
