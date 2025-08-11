@@ -185,7 +185,8 @@ export function SongArrangement({
   
   // A-B toggle state for shuffle modes
   const [shuffleMode, setShuffleMode] = useState<'A' | 'B'>('A') // A = pattern drops, B = saved arrangements
-  const [trackShuffleModes, setTrackShuffleModes] = useState<{[trackId: number]: 'A' | 'B'}>({}) // Individual track shuffle modes
+  // Individual track mode states - each track can have A (drops) and B (saved arrangements) active independently
+  const [trackShuffleModes, setTrackShuffleModes] = useState<{[trackId: number]: { A: boolean, B: boolean }}>({})
   
   // Selection box state for click-and-drag selection
   const [isSelectionBoxActive, setIsSelectionBoxActive] = useState(false)
@@ -2854,20 +2855,9 @@ export function SongArrangement({
 
   // Shuffle patterns for a specific track with A/B toggle
   const shuffleTrackPatterns = (trackId: number) => {
-    // Get or initialize the track's shuffle mode
-    const currentTrackMode = trackShuffleModes[trackId] || 'A'
-    
-    if (currentTrackMode === 'A') {
-      // Mode A: Create drop arrangement for this track
-      console.log(`[TRACK SHUFFLE A] Creating drop arrangement for track ${trackId}`)
-      createTrackDropArrangement(trackId)
-      setTrackShuffleModes(prev => ({ ...prev, [trackId]: 'B' })) // Switch to mode B for next click
-    } else {
-      // Mode B: Shuffle saved arrangements for this track
-      console.log(`[TRACK SHUFFLE B] Shuffling saved arrangements for track ${trackId}`)
-      shuffleTrackSavedArrangements(trackId)
-      setTrackShuffleModes(prev => ({ ...prev, [trackId]: 'A' })) // Switch to mode A for next click
-    }
+    // Execute A mode (drops) immediately for this track
+    console.log(`[TRACK ${trackId}] Executing A mode (drops)`)
+    createTrackDropArrangement(trackId)
   }
 
   // Create drop arrangement for a specific track (EXACT copy of original logic)
@@ -3012,7 +3002,7 @@ export function SongArrangement({
         onPatternsChange?.(finalPatterns)
         
         console.log(`[TRACK DROP ARRANGEMENT] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`)
-        showNotification('Track Drop Arrangement', `Applied drops to ${selectedPatterns.length} selected patterns for ${getTrackDisplayName(track.name)}${shouldAddBar8Drop ? ' (including bar 8 drop)' : ''}`, 'success')
+        // Removed annoying notification
         return
       }
       
@@ -3031,7 +3021,7 @@ export function SongArrangement({
       onPatternsChange?.(finalPatterns)
       
       console.log(`[TRACK DROP ARRANGEMENT] Applied drops to ${selectedPatterns.length} selected patterns, created ${dropPatternBlocks.length} drop variations`)
-      showNotification('Track Drop Arrangement', `Applied drops to ${selectedPatterns.length} selected patterns for ${getTrackDisplayName(track.name)}`, 'success')
+              // Removed annoying notification
       return
     }
     
@@ -3226,7 +3216,7 @@ export function SongArrangement({
         onPatternsChange?.(finalPatterns)
         
         console.log(`[TRACK DROP ARRANGEMENT] Created ${updatedPatterns.length} drop patterns for ${getTrackDisplayName(track.name)} with bar 8 drop`)
-        showNotification('Track Drop Arrangement', `Created drop arrangement for ${getTrackDisplayName(track.name)} with bar 8 drop`, 'success')
+        // Removed annoying notification
         return
       }
       
@@ -3241,7 +3231,7 @@ export function SongArrangement({
       onPatternsChange?.(finalPatterns)
       
       console.log(`[TRACK DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)} with bar 8 drop`)
-      showNotification('Track Drop Arrangement', `Created drop arrangement for ${getTrackDisplayName(track.name)} with bar 8 drop`, 'success')
+              // Removed annoying notification
       return
     }
     
@@ -3256,77 +3246,106 @@ export function SongArrangement({
     onPatternsChange?.(finalPatterns)
     
     console.log(`[TRACK DROP ARRANGEMENT] Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)}`)
-    showNotification('Track Drop Arrangement', `Created ${dropPatternBlocks.length} drop patterns for ${getTrackDisplayName(track.name)}`, 'success')
+            // Removed annoying notification
     
     // Clear shuffling flag
     isShufflingRef.current = false
   }
 
-  // Shuffle saved arrangements for a specific track
+  // Load saved arrangements for a specific track using the working API
   const shuffleTrackSavedArrangements = async (trackId: number) => {
-    console.log(`[TRACK SHUFFLE SAVED] Loading saved arrangements for track ${trackId}`)
-    
-    // Set shuffling flag to prevent auto-initialization
-    isShufflingRef.current = true
+    console.log(`[TRACK LOAD SAVED] Loading saved arrangements for track ${trackId}`)
     
     const track = tracks.find(t => t.id === trackId)
     if (!track) {
-      showNotification('Track Not Found', 'Track not found', 'error')
-      isShufflingRef.current = false
+      console.error('[TRACK LOAD SAVED] Track not found')
       return
     }
 
     try {
-      // Query saved arrangements for this specific track
-      const { data: arrangements, error } = await supabase
-        .from('saved_arrangements')
-        .select('*')
-        .eq('trackName', track.name)
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        console.error('[TRACK SHUFFLE SAVED] Error loading arrangements:', error)
-        showNotification('Error', 'Failed to load saved arrangements', 'error')
+      // Get user session
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        console.log('[TRACK LOAD SAVED] No user session')
         return
       }
 
-      if (!arrangements || arrangements.length === 0) {
-        showNotification('No Saved Arrangements', `No saved arrangements found for ${getTrackDisplayName(track.name)}`, 'warning')
-        return
-      }
+      // Search for arrangements for this specific track
+      const response = await fetch('/api/arrangements/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          filters: {
+            searchTerm: track.name
+          },
+          limit: 50
+        })
+      })
 
-      // Pick a random arrangement
-      const randomArrangement = arrangements[Math.floor(Math.random() * arrangements.length)]
-      console.log(`[TRACK SHUFFLE SAVED] Loading arrangement for ${track.name}:`, randomArrangement)
+      if (response.ok) {
+        const data = await response.json()
+        const trackArrangements = data.arrangements || []
+        
+        if (trackArrangements.length > 0) {
+          // Randomly select an arrangement for this track
+          const randomArrangement = trackArrangements[Math.floor(Math.random() * trackArrangements.length)]
+          console.log(`[TRACK LOAD SAVED] Loading arrangement for ${track.name}:`, randomArrangement)
 
-      if (randomArrangement.arrangement_data) {
-        // Parse the arrangement data
-        const arrangementData = JSON.parse(randomArrangement.arrangement_data)
-        
-        // Filter patterns to only include those for this track
-        const trackPatterns = arrangementData.patterns?.filter((pattern: any) => pattern.trackId === trackId) || []
-        const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
-        
-        if (trackPatterns.length === 0) {
-          showNotification('No Patterns in Arrangement', `No patterns found for this track in the selected arrangement`, 'warning')
-          return
+          // Load patterns for this specific track from the arrangement
+          const trackPatterns = await loadArrangementPatternsForTrack(randomArrangement.arrangementId, track.id)
+          if (trackPatterns.length > 0) {
+            // Cut patterns that extend beyond totalBars
+            const cutPatterns = trackPatterns.map(pattern => {
+              if (pattern.startBar > totalBars) {
+                // Pattern starts beyond the limit - skip it
+                return null
+              } else if (pattern.endBar > totalBars) {
+                // Pattern extends beyond the limit - cut it
+                return {
+                  ...pattern,
+                  id: `${pattern.id}-cut-at-${totalBars}`,
+                  name: `${pattern.name} (Cut at Bar ${totalBars})`,
+                  endBar: totalBars,
+                  duration: totalBars - pattern.startBar + 1
+                }
+              } else {
+                // Pattern is within the limit - keep as is
+                return pattern
+              }
+            }).filter(pattern => pattern !== null)
+            
+            if (cutPatterns.length > 0) {
+              // Get patterns for other tracks (keep existing)
+              const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
+              
+              // Combine all patterns
+              const finalPatternBlocks = [...otherTrackPatterns, ...cutPatterns]
+              
+              // Sort by start bar to maintain timeline order
+              finalPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
+              
+              // Apply all changes at once
+              setPatternBlocks(finalPatternBlocks)
+              
+              // Notify parent component
+              onPatternsChange?.(finalPatternBlocks)
+              
+              console.log(`[TRACK LOAD SAVED] Successfully loaded ${cutPatterns.length} patterns for ${track.name}`)
+            }
+          } else {
+            console.log(`[TRACK LOAD SAVED] No patterns found in arrangement for ${track.name}`)
+          }
+        } else {
+          console.log(`[TRACK LOAD SAVED] No saved arrangements found for ${track.name}`)
         }
-
-        // Combine track patterns from saved arrangement with other tracks' current patterns
-        const newPatternBlocks = [...trackPatterns, ...otherTrackPatterns]
-        
-        // Sort by start bar to maintain timeline order
-        newPatternBlocks.sort((a: any, b: any) => a.startBar - b.startBar)
-        
-        setPatternBlocks(newPatternBlocks)
-        showNotification('Track Arrangement Loaded', `Loaded ${trackPatterns.length} patterns from saved arrangement for ${getTrackDisplayName(track.name)}`, 'success')
+      } else {
+        console.error('[TRACK LOAD SAVED] Failed to search arrangements')
       }
     } catch (error) {
-      console.error('[TRACK SHUFFLE SAVED] Error:', error)
-      showNotification('Error', 'Failed to load arrangement', 'error')
-    } finally {
-      // Clear shuffling flag
-      isShufflingRef.current = false
+      console.error('[TRACK LOAD SAVED] Error:', error)
     }
   }
 
@@ -6604,19 +6623,20 @@ export function SongArrangement({
                     <Button
                       size="sm"
                       variant="outline"
-                      className={`w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs ${
-                        (trackShuffleModes[track.id] || 'A') === 'A'
-                          ? 'bg-orange-600 hover:bg-orange-700 text-white border-orange-500'
-                          : 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500'
-                      }`}
+                      className="w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
                       onClick={() => shuffleTrackPatterns(track.id)}
-                      title={`${(trackShuffleModes[track.id] || 'A') === 'A' ? 'Create Drop' : 'Shuffle Saved'} for ${getTrackDisplayName(track.name)}`}
+                      title={`Execute A mode (drops) for ${getTrackDisplayName(track.name)}`}
                     >
-                      {(trackShuffleModes[track.id] || 'A') === 'A' ? (
-                        <Shuffle className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                      ) : (
-                        <span className="text-xs font-bold">B</span>
-                      )}
+                      <span className="text-xs font-bold">A</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                      onClick={() => shuffleTrackSavedArrangements(track.id)}
+                      title={`Execute B mode (saved arrangements) for ${getTrackDisplayName(track.name)}`}
+                    >
+                      <span className="text-xs font-bold">B</span>
                     </Button>
                   </div>
                 </div>
