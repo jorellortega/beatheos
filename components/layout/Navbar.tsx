@@ -34,6 +34,9 @@ export default function Navbar() {
         <Link href="/ai" className="text-lg text-white hover:text-[#FFD700]">
           AI Assistant
         </Link>
+        <Link href="/mp4converter" className="text-lg text-white hover:text-[#FFD700]">
+          MP4 Converter
+        </Link>
         <Link href="/editdata" className="text-lg text-white hover:text-[#FFD700]">
           Edit Data
         </Link>

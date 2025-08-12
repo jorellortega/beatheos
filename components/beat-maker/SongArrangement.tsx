@@ -177,6 +177,11 @@ export function SongArrangement({
   const [loadedTrackId, setLoadedTrackId] = useState<number | null>(null) // which track is in "load" mode
   const [selectedDuration, setSelectedDuration] = useState(8) // default 8 bars for new patterns
   const [isDeleteMode, setIsDeleteMode] = useState(false) // delete mode state
+  
+  // Fill track dialog state
+  const [showFillTrackDialog, setShowFillTrackDialog] = useState(false)
+  const [selectedTrackForFill, setSelectedTrackForFill] = useState<Track | null>(null)
+  const [fillPatternSize, setFillPatternSize] = useState<4 | 8>(8)
   const [isCutMode, setIsCutMode] = useState(false) // cut mode state for splitting patterns
   const [isResizing, setIsResizing] = useState(false) // resize mode state
   const [isSelectorMode, setIsSelectorMode] = useState(false) // selector mode state for multi-selection
@@ -1100,6 +1105,12 @@ export function SongArrangement({
       setIsLoading(false)
       setShowLoadDialog(true)
     }
+  }
+
+  const openFillTrackDialog = (track: Track) => {
+    setSelectedTrackForFill(track)
+    setFillPatternSize(8) // Default to 8 bars
+    setShowFillTrackDialog(true)
   }
 
   const saveArrangement = async () => {
@@ -3347,6 +3358,66 @@ export function SongArrangement({
     } catch (error) {
       console.error('[TRACK LOAD SAVED] Error:', error)
     }
+  }
+
+  // Fill track with patterns of specified size (4 or 8 bars)
+  const fillTrackWithPatterns = (trackId: number, patternSize: 4 | 8) => {
+    console.log(`[FILL TRACK] Filling track ${trackId} with ${patternSize}-bar patterns`)
+    
+    const track = tracks.find(t => t.id === trackId)
+    if (!track) {
+      console.error('[FILL TRACK] Track not found')
+      return
+    }
+
+    // Calculate how many patterns we need to fill the track
+    const patternsNeeded = Math.ceil(totalBars / patternSize)
+    const newPatterns: PatternBlock[] = []
+    
+    // Create patterns to fill the entire track
+    for (let i = 0; i < patternsNeeded; i++) {
+      const startBar = (i * patternSize) + 1
+      const endBar = Math.min((i + 1) * patternSize, totalBars)
+      const duration = endBar - startBar + 1
+      
+      // Create a new pattern block
+      const newPattern: PatternBlock = {
+        id: `fill-${trackId}-${i}-${Date.now()}`,
+        name: `${getTrackDisplayName(track.name)} ${patternSize}bar ${i + 1}`,
+        tracks: [track],
+        sequencerData: { [trackId]: Array(16).fill(false) }, // Default empty pattern
+        bpm: bpm,
+        steps: 16,
+        duration: duration,
+        startBar: startBar,
+        endBar: endBar,
+        color: track.color,
+        trackId: trackId
+      }
+      
+      newPatterns.push(newPattern)
+    }
+    
+    // Remove existing patterns for this track
+    const otherTrackPatterns = patternBlocks.filter(block => block.trackId !== trackId)
+    
+    // Combine with new patterns
+    const finalPatternBlocks = [...otherTrackPatterns, ...newPatterns]
+    
+    // Sort by start bar to maintain timeline order
+    finalPatternBlocks.sort((a, b) => a.startBar - b.startBar)
+    
+    // Apply all changes at once
+    setPatternBlocks(finalPatternBlocks)
+    
+    // Notify parent component
+    onPatternsChange?.(finalPatternBlocks)
+    
+    console.log(`[FILL TRACK] Successfully filled track ${track.name} with ${newPatterns.length} patterns`)
+    
+    // Close the dialog
+    setShowFillTrackDialog(false)
+    setSelectedTrackForFill(null)
   }
 
   // Export the arrangement as a high-quality WAV file (Option 1: Offline rendering)
@@ -6638,6 +6709,15 @@ export function SongArrangement({
                     >
                       <span className="text-xs font-bold">B</span>
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-5 h-5 sm:w-6 sm:h-6 p-0 text-xs bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                      onClick={() => openFillTrackDialog(track)}
+                      title={`Fill track with patterns for ${getTrackDisplayName(track.name)}`}
+                    >
+                      <span className="text-xs font-bold">F</span>
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -8188,6 +8268,71 @@ export function SongArrangement({
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               Set Bars
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Fill Track Dialog */}
+      <Dialog open={showFillTrackDialog} onOpenChange={setShowFillTrackDialog}>
+        <DialogContent className="bg-[#1a1a1a] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-white">
+              Fill Track with Patterns
+            </DialogTitle>
+            <DialogDescription className="text-gray-400 mt-2">
+              Fill the entire track with patterns of the specified size. This will replace any existing patterns for this track.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label className="text-white">Track</Label>
+              <div className="bg-gray-800 border border-gray-600 rounded-md p-3">
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${selectedTrackForFill?.color || 'bg-gray-500'}`}></div>
+                  <span className="text-white">{selectedTrackForFill ? getTrackDisplayName(selectedTrackForFill.name) : 'Unknown Track'}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <Label className="text-white">Pattern Size</Label>
+              <div className="flex gap-2">
+                <Button
+                  variant={fillPatternSize === 4 ? "default" : "outline"}
+                  onClick={() => setFillPatternSize(4)}
+                  className={fillPatternSize === 4 ? "bg-purple-600 hover:bg-purple-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-white"}
+                >
+                  4 Bars
+                </Button>
+                <Button
+                  variant={fillPatternSize === 8 ? "default" : "outline"}
+                  onClick={() => setFillPatternSize(8)}
+                  className={fillPatternSize === 8 ? "bg-purple-600 hover:bg-purple-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-white"}
+                >
+                  8 Bars
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Will create {Math.ceil(totalBars / fillPatternSize)} patterns to fill {totalBars} bars
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowFillTrackDialog(false)}
+              className="bg-gray-800 hover:bg-gray-700 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => selectedTrackForFill && fillTrackWithPatterns(selectedTrackForFill.id, fillPatternSize)}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              Fill Track
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -40,6 +40,9 @@ interface Album {
   additional_covers?: { label: string; url: string }[]
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  distributor?: string
+  distributor_notes?: string
+  notes?: string
 }
 interface Single {
   id: string
@@ -383,6 +386,14 @@ export default function MyLibrary() {
   const [viewMode, setViewMode] = useState<'grid' | 'packs'>('grid');
   const [selectedPack, setSelectedPack] = useState<string | null>(null);
   
+  // Pack name editing
+  const [editingPackName, setEditingPackName] = useState<string | null>(null);
+  const [editingPackNameValue, setEditingPackNameValue] = useState<string>('');
+  
+  // Pack description editing
+  const [editingPackDescription, setEditingPackDescription] = useState<string | null>(null);
+  const [editingPackDescriptionValue, setEditingPackDescriptionValue] = useState<string>('');
+  
   // Subfolders
   const [subfolders, setSubfolders] = useState<AudioSubfolder[]>([]);
   const [expandedSubfolders, setExpandedSubfolders] = useState<Set<string>>(new Set());
@@ -617,6 +628,9 @@ export default function MyLibrary() {
     release_date: '',
     cover_art_url: '',
     description: '',
+    distributor: '',
+    distributor_notes: '',
+    notes: '',
   });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -639,11 +653,14 @@ export default function MyLibrary() {
           release_date: album.release_date || '',
           cover_art_url: album.cover_art_url || '',
           description: album.description || '',
+          distributor: album.distributor || '',
+          distributor_notes: album.distributor_notes || '',
+          notes: album.notes || '',
         });
       }
     } else {
       setEditAlbum(null);
-      setEditForm({ title: '', artist: '', release_date: '', cover_art_url: '', description: '' });
+      setEditForm({ title: '', artist: '', release_date: '', cover_art_url: '', description: '', distributor: '', distributor_notes: '', notes: '' });
       setEditError(null);
     }
   }, [editAlbumId, albums]);
@@ -3247,6 +3264,89 @@ export default function MyLibrary() {
     setAudioItems(audioItems.filter(item => item.id !== itemId));
   }
   
+  // Handle pack name editing
+  function startEditingPackName(packId: string, currentName: string) {
+    setEditingPackName(packId);
+    setEditingPackNameValue(currentName);
+  }
+
+  async function savePackName(packId: string) {
+    if (!editingPackNameValue.trim()) {
+      setEditingPackName(null);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('audio_packs')
+        .update({ name: editingPackNameValue.trim() })
+        .eq('id', packId);
+
+      if (error) {
+        console.error('Error updating pack name:', error);
+        return;
+      }
+
+      // Update local state
+      setAudioPacks(prev => prev.map(pack => 
+        pack.id === packId 
+          ? { ...pack, name: editingPackNameValue.trim() }
+          : pack
+      ));
+
+      console.log('Pack name updated successfully');
+    } catch (error) {
+      console.error('Error updating pack name:', error);
+    } finally {
+      setEditingPackName(null);
+      setEditingPackNameValue('');
+    }
+  }
+
+  function cancelEditingPackName() {
+    setEditingPackName(null);
+    setEditingPackNameValue('');
+  }
+
+  // Handle pack description editing
+  function startEditingPackDescription(packId: string, currentDescription: string) {
+    setEditingPackDescription(packId);
+    setEditingPackDescriptionValue(currentDescription || '');
+  }
+
+  async function savePackDescription(packId: string) {
+    try {
+      const { error } = await supabase
+        .from('audio_packs')
+        .update({ description: editingPackDescriptionValue.trim() || null })
+        .eq('id', packId);
+
+      if (error) {
+        console.error('Error updating pack description:', error);
+        return;
+      }
+
+      // Update local state
+      setAudioPacks(prev => prev.map(pack => 
+        pack.id === packId 
+          ? { ...pack, description: editingPackDescriptionValue.trim() || null }
+          : pack
+      ));
+
+      console.log('Pack description updated successfully');
+    } catch (error) {
+      console.error('Error updating pack description:', error);
+    } finally {
+      setEditingPackDescription(null);
+      setEditingPackDescriptionValue('');
+    }
+  }
+
+  function cancelEditingPackDescription() {
+    setEditingPackDescription(null);
+    setEditingPackDescriptionValue('');
+  }
+
   // Handle edit audio file
   async function handleEditAudio(e: React.FormEvent) {
     e.preventDefault();
@@ -4764,7 +4864,7 @@ export default function MyLibrary() {
         throw new Error('Track not found')
       }
 
-      if (moveTrackType === 'single') {
+      if ((moveTrackType || 'single') === 'single') {
         // Move to singles table
         const { error: singleError } = await supabase
           .from('singles')
@@ -4789,7 +4889,7 @@ export default function MyLibrary() {
           title: "Success",
           description: `Track "${trackToMove.title}" moved to singles successfully!`,
         })
-      } else if (selectedTargetAlbumForTrack) {
+      } else if (selectedTargetAlbumForTrack && (moveTrackType || 'single') === 'album_track') {
         // Move to album as a track
         // Get the next track order for this album
         const { data: existingTracks } = await supabase
@@ -4898,6 +4998,17 @@ export default function MyLibrary() {
           >
             <Plus className="h-4 w-4 mr-2" />
             Artist Management
+          </Button>
+          
+          {/* Navigate to MP4 Converter Button */}
+          <Button 
+            onClick={() => {
+              window.location.href = '/mp4converter'
+            }}
+            className="bg-purple-600 hover:bg-purple-700 text-white w-full sm:w-auto"
+          >
+            <Video className="h-4 w-4 mr-2" />
+            MP4 Converter
           </Button>
           
           {/* Action Buttons */}
@@ -5067,6 +5178,25 @@ export default function MyLibrary() {
               placeholder="Description"
               value={editForm.description}
               onChange={e => setEditForm({ ...editForm, description: e.target.value })}
+            />
+            
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                placeholder="Distributor (e.g., DistroKid, TuneCore)"
+                value={editForm.distributor || ''}
+                onChange={e => setEditForm({ ...editForm, distributor: e.target.value })}
+              />
+              <Input
+                placeholder="Distributor Notes"
+                value={editForm.distributor_notes || ''}
+                onChange={e => setEditForm({ ...editForm, distributor_notes: e.target.value })}
+              />
+            </div>
+            
+            <Textarea
+              placeholder="General Notes"
+              value={editForm.notes || ''}
+              onChange={e => setEditForm({ ...editForm, notes: e.target.value })}
             />
             {/* Additional Covers */}
             <div className="space-y-2">
@@ -5522,6 +5652,15 @@ export default function MyLibrary() {
                         </Link>
                         <p className="text-gray-500">{album.artist}</p>
                         <p className="text-sm text-gray-400">{album.description}</p>
+                        <div className="mt-2">
+                          {album.distributor ? (
+                            <span className="bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
+                              {album.distributor}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">No distributor</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </Card>
@@ -5966,6 +6105,37 @@ export default function MyLibrary() {
                       <h3 className="font-medium mb-2">Description</h3>
                       <div className="text-sm text-gray-500 font-semibold">{album.description || 'No description.'}</div>
                     </div>
+                    
+                    <div className="mt-4">
+                      <h3 className="font-medium mb-2">Distributor</h3>
+                      <div className="text-sm text-gray-500">
+                        {album.distributor ? (
+                          <span className="bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
+                            {album.distributor}
+                          </span>
+                        ) : (
+                          <span className="italic text-gray-400">No distributor assigned</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {album.distributor_notes && (
+                      <div className="mt-4">
+                        <h3 className="font-medium mb-2">Distributor Notes</h3>
+                        <div className="text-sm text-gray-500 bg-zinc-800 p-2 rounded">
+                          {album.distributor_notes}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {album.notes && (
+                      <div className="mt-4">
+                        <h3 className="font-medium mb-2">Notes</h3>
+                        <div className="text-sm text-gray-500 bg-zinc-800 p-2 rounded">
+                          {album.notes}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -7279,7 +7449,7 @@ export default function MyLibrary() {
                   {getFilteredAudioItemsForSearch().map(item => (
                   <Card 
                     key={item.id} 
-                    className={`p-6 flex items-center gap-6 cursor-move transition-opacity ${
+                    className={`p-4 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 cursor-move transition-opacity ${
                       draggedItem?.id === item.id ? 'opacity-50' : ''
                     }`}
                     draggable
@@ -7357,8 +7527,8 @@ export default function MyLibrary() {
                         />
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                <div className="flex flex-wrap gap-2 min-w-0 w-full sm:w-auto justify-start sm:justify-end">
+                  <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)} className="flex-shrink-0">
                     <Pencil className="h-4 w-4 mr-2" />Edit
                   </Button>
                   {/* Open in Loop Editor Button */}
@@ -7367,17 +7537,17 @@ export default function MyLibrary() {
                       variant="outline" 
                       size="sm" 
                       onClick={() => openInLoopEditor(item.file_url!, item.name, item.bpm || undefined)}
-                      className="bg-teal-600 hover:bg-teal-700 text-white border-teal-500"
+                      className="bg-teal-600 hover:bg-teal-700 text-white border-teal-500 flex-shrink-0"
                       title="Open in Loop Editor"
                     >
                       <Edit3 className="h-4 w-4 mr-2" />
                       Loop Editor
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" asChild>
+                  <Button variant="outline" size="sm" asChild className="flex-shrink-0">
                   <a href={item.file_url} download>Download</a>
                   </Button>
-                      <Button variant="destructive" size="sm" onClick={() => handleDeleteAudio(item.id)}>
+                      <Button variant="destructive" size="sm" onClick={() => handleDeleteAudio(item.id)} className="flex-shrink-0">
                         <Trash2 className="h-4 w-4 mr-2" />Delete
                       </Button>
                 </div>
@@ -7483,8 +7653,64 @@ export default function MyLibrary() {
                           <Package className="h-6 w-6" style={{ color: pack.color }} />
                         </div>
                         <div>
-                          <h3 className="text-lg font-semibold">{pack.name}</h3>
-                          <p className="text-sm text-gray-400">{pack.description}</p>
+                          {editingPackName === pack.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={editingPackNameValue}
+                                onChange={(e) => setEditingPackNameValue(e.target.value)}
+                                onBlur={() => savePackName(pack.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    savePackName(pack.id);
+                                  } else if (e.key === 'Escape') {
+                                    cancelEditingPackName();
+                                  }
+                                }}
+                                className="text-lg font-semibold h-8 px-2 py-1"
+                                autoFocus
+                              />
+                            </div>
+                          ) : (
+                            <h3 
+                              className="text-lg font-semibold cursor-pointer hover:text-blue-500 transition-colors"
+                              onClick={() => startEditingPackName(pack.id, pack.name)}
+                              title="Click to edit pack name"
+                            >
+                              {pack.name}
+                            </h3>
+                          )}
+                          {editingPackDescription === pack.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={editingPackDescriptionValue}
+                                onChange={(e) => setEditingPackDescriptionValue(e.target.value)}
+                                onBlur={() => savePackDescription(pack.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    savePackDescription(pack.id);
+                                  } else if (e.key === 'Escape') {
+                                    cancelEditingPackDescription();
+                                  }
+                                }}
+                                className="text-sm text-gray-400 h-6 px-2 py-1"
+                                placeholder="Enter description..."
+                                autoFocus
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 group">
+                              <p className="text-sm text-gray-400">
+                                {pack.description || 'No description'}
+                              </p>
+                              <button
+                                onClick={() => startEditingPackDescription(pack.id, pack.description || '')}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-gray-200 rounded"
+                                title="Edit description"
+                              >
+                                <Pencil className="h-3 w-3 text-gray-500 hover:text-gray-700" />
+                              </button>
+                            </div>
+                          )}
                           <p className="text-xs text-gray-500">
                             {pack.item_count || 0} items
                           </p>
@@ -7764,7 +7990,7 @@ export default function MyLibrary() {
                                         .map(item => (
                                           <div 
                                             key={`${pack.id}-${subfolder.name}-${item.id}`} 
-                                            className={`flex items-center gap-4 p-2 bg-black rounded-lg ml-4 cursor-move transition-opacity ${
+                                            className={`flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-2 bg-black rounded-lg ml-4 cursor-move transition-opacity ${
                                               selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
                                             } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
                                             draggable={!selectedFiles.has(item.id)}
@@ -7839,17 +8065,18 @@ export default function MyLibrary() {
                                                />
                                              )}
                                           </div>
-                                          <div className="flex gap-1">
-                                            <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                                          <div className="flex flex-wrap gap-1 min-w-0">
+                                            <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)} className="flex-shrink-0">
                                               <Pencil className="h-3 w-3" />
                                             </Button>
-                                            <Button variant="outline" size="sm" asChild>
+                                            <Button variant="outline" size="sm" asChild className="flex-shrink-0">
                                               <a href={item.file_url} download className="text-xs">⬇️</a>
                                             </Button>
                                             <Button 
                                               variant="destructive" 
                                               size="sm" 
                                               onClick={() => handleDeleteAudio(item.id)}
+                                              className="flex-shrink-0"
                                             >
                                               <Trash2 className="h-3 w-3" />
                                             </Button>
@@ -8023,7 +8250,7 @@ export default function MyLibrary() {
                             .map(item => (
                               <div 
                                 key={`${pack.id}-root-${item.id}`} 
-                                className={`flex items-center gap-4 p-3 bg-black rounded-lg transition-opacity ${
+                                className={`flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-3 bg-black rounded-lg transition-opacity ${
                                   selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
                                 } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
                                 draggable={!selectedFiles.has(item.id)}
@@ -8243,7 +8470,7 @@ export default function MyLibrary() {
                         .map(item => (
                             <div 
                               key={item.id} 
-                              className={`flex items-center gap-4 p-3 bg-black rounded-lg cursor-move transition-opacity ${
+                              className={`flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 p-3 bg-black rounded-lg cursor-move transition-opacity ${
                                 selectedFiles.has(item.id) ? 'ring-2 ring-yellow-400' : ''
                               } ${draggedItem?.id === item.id ? 'opacity-50' : ''}`}
                               draggable={!selectedFiles.has(item.id)}
@@ -8343,17 +8570,18 @@ export default function MyLibrary() {
                                 />
                               )}
                             </div>
-                            <div className="flex gap-1">
-                              <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)}>
+                            <div className="flex flex-wrap gap-1 min-w-0">
+                              <Button variant="outline" size="sm" onClick={() => openEditAudioModal(item)} className="flex-shrink-0">
                                 <Pencil className="h-3 w-3" />
                               </Button>
-                              <Button variant="outline" size="sm" asChild>
+                              <Button variant="outline" size="sm" asChild className="flex-shrink-0">
                                 <a href={item.file_url} download className="text-xs">Download</a>
                               </Button>
                               <Button 
                                 variant="destructive" 
                                 size="sm" 
                                 onClick={() => handleDeleteAudio(item.id)}
+                                className="flex-shrink-0"
                               >
                                 <Trash2 className="h-3 w-3" />
                               </Button>
@@ -10118,7 +10346,7 @@ export default function MyLibrary() {
           <DialogHeader>
             <DialogTitle>Move Track</DialogTitle>
             <DialogDescription>
-              Move "{moveTrackTitle}" to singles or to an album.
+              Move "{moveTrackTitle || 'Track'}" to singles or to an album.
             </DialogDescription>
           </DialogHeader>
           
@@ -10132,7 +10360,7 @@ export default function MyLibrary() {
                   type="radio"
                   id="move-track-to-singles"
                   name="track-destination"
-                  checked={moveTrackType === 'single'}
+                  checked={(moveTrackType || 'single') === 'single'}
                   onChange={() => {
                     setMoveTrackType('single');
                     setSelectedTargetAlbumForTrack('');
@@ -10150,7 +10378,7 @@ export default function MyLibrary() {
                   type="radio"
                   id="move-track-to-album"
                   name="track-destination"
-                  checked={moveTrackType === 'album_track'}
+                  checked={(moveTrackType || 'single') === 'album_track'}
                   onChange={() => {
                     setMoveTrackType('album_track');
                     setSelectedTargetAlbumForTrack('');
@@ -10164,19 +10392,21 @@ export default function MyLibrary() {
             </div>
 
             {/* Album Selection */}
-            {moveTrackType === 'album_track' && (
+            {(moveTrackType || 'single') === 'album_track' && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Select Album</Label>
-                <Select value={selectedTargetAlbumForTrack} onValueChange={setSelectedTargetAlbumForTrack}>
+                <Select value={selectedTargetAlbumForTrack || ''} onValueChange={(value) => setSelectedTargetAlbumForTrack(value || '')}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose an album..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableAlbums.map((album) => (
-                      <SelectItem key={album.id} value={album.id}>
-                        {album.title}
-                      </SelectItem>
-                    ))}
+                    {(availableAlbums || [])
+                      .filter(album => album && album.id && album.title) // Filter out null/undefined albums
+                      .map((album) => (
+                        <SelectItem key={album.id} value={album.id}>
+                          {album.title || 'Untitled Album'}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -10190,7 +10420,7 @@ export default function MyLibrary() {
           <DialogFooter>
             <Button 
               onClick={executeMoveTrack}
-              disabled={movingTrack || (moveTrackType === 'album_track' && !selectedTargetAlbumForTrack)}
+              disabled={movingTrack || ((moveTrackType || 'single') === 'album_track' && !selectedTargetAlbumForTrack)}
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               {movingTrack ? 'Moving...' : 'Move Track'}

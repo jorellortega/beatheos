@@ -33,6 +33,9 @@ interface Album {
   additional_covers?: { label: string; url: string }[]
   status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  distributor?: string
+  distributor_notes?: string
+  notes?: string
 }
 
 export default function AlbumDetailsPage() {
@@ -76,7 +79,7 @@ export default function AlbumDetailsPage() {
 
   // Album editing state
   const [showEditAlbum, setShowEditAlbum] = useState(false);
-  const [editAlbumForm, setEditAlbumForm] = useState({ title: '', artist: '', release_date: '', description: '', cover_art_url: '' });
+  const [editAlbumForm, setEditAlbumForm] = useState({ title: '', artist: '', release_date: '', description: '', cover_art_url: '', distributor: '', distributor_notes: '' });
   const [editAlbumSaving, setEditAlbumSaving] = useState(false);
   const [editAlbumError, setEditAlbumError] = useState<string | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -266,7 +269,10 @@ export default function AlbumDetailsPage() {
         artist: album.artist,
         release_date: album.release_date,
         description: album.description || '',
-        cover_art_url: album.cover_art_url || ''
+        cover_art_url: album.cover_art_url || '',
+        distributor: album.distributor || '',
+        distributor_notes: album.distributor_notes || '',
+        notes: album.notes || ''
       });
       // Initialize artists array from the album's artist field
       // Split by comma and trim whitespace, or use single artist if no comma
@@ -1332,6 +1338,47 @@ export default function AlbumDetailsPage() {
           </div>
           <h2 className="text-lg font-semibold mb-2">Description</h2>
           <div className="mb-6 text-gray-400">{album.description || <span className="italic">No description.</span>}</div>
+          
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-md font-semibold">Distributor</h3>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={openEditAlbumDialog}
+                  className="h-6 px-2 text-xs"
+                >
+                  <FileText className="h-3 w-3 mr-1" />
+                  Edit
+                </Button>
+              </div>
+              <div className="text-gray-400">
+                {album.distributor ? (
+                  <span className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm">
+                    {album.distributor}
+                  </span>
+                ) : (
+                  <span className="italic text-gray-500">No distributor assigned</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <h3 className="text-md font-semibold mb-2">Distributor Notes</h3>
+              <div className="text-gray-400">
+                {album.distributor_notes || <span className="italic text-gray-500">No distributor notes</span>}
+              </div>
+            </div>
+          </div>
+          
+          {album.notes && (
+            <div className="mb-6">
+              <h3 className="text-md font-semibold mb-2">Notes</h3>
+              <div className="text-gray-400 bg-zinc-800 p-3 rounded-lg">
+                {album.notes}
+              </div>
+            </div>
+          )}
           {album.additional_covers && album.additional_covers.length > 0 && (
             <div className="mt-4">
               <h3 className="font-medium mb-2">Additional Covers</h3>
@@ -2034,6 +2081,35 @@ export default function AlbumDetailsPage() {
               <Textarea
                 value={editAlbumForm.description}
                 onChange={(e) => setEditAlbumForm(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium">Distributor</label>
+                <Input
+                  value={editAlbumForm.distributor}
+                  onChange={(e) => setEditAlbumForm(prev => ({ ...prev, distributor: e.target.value }))}
+                  placeholder="e.g., DistroKid, TuneCore, CD Baby"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Distributor Notes</label>
+                <Input
+                  value={editAlbumForm.distributor_notes}
+                  onChange={(e) => setEditAlbumForm(prev => ({ ...prev, distributor_notes: e.target.value }))}
+                  placeholder="Account details, submission notes..."
+                />
+              </div>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Notes</label>
+              <Textarea
+                value={editAlbumForm.notes || ''}
+                onChange={(e) => setEditAlbumForm(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="General album notes..."
                 rows={3}
               />
             </div>
