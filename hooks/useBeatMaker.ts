@@ -1018,7 +1018,10 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       // Create a sequence that loops perfectly
       const sequence = new Tone.Sequence((time, step) => {
         console.log(`[TONE SEQUENCER] Step: ${step} at time ${time}`)
-        // Only trigger audio playback, let Transport handle playhead
+        // Update playhead FIRST for perfect sync, then play audio
+        playheadRef.current = step
+        setCurrentStep(step)
+        // Now play the audio - timing will be perfect
         playStep(step)
       }, Array.from({ length: steps }, (_, i) => i), stepDuration)
       

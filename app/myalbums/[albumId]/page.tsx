@@ -36,6 +36,7 @@ interface Album {
   distributor?: string
   distributor_notes?: string
   notes?: string
+  user_id?: string
 }
 
 export default function AlbumDetailsPage() {
@@ -79,7 +80,7 @@ export default function AlbumDetailsPage() {
 
   // Album editing state
   const [showEditAlbum, setShowEditAlbum] = useState(false);
-  const [editAlbumForm, setEditAlbumForm] = useState({ title: '', artist: '', release_date: '', description: '', cover_art_url: '', distributor: '', distributor_notes: '' });
+  const [editAlbumForm, setEditAlbumForm] = useState({ title: '', artist: '', release_date: '', description: '', cover_art_url: '', distributor: '', distributor_notes: '', notes: '' });
   const [editAlbumSaving, setEditAlbumSaving] = useState(false);
   const [editAlbumError, setEditAlbumError] = useState<string | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -137,20 +138,28 @@ export default function AlbumDetailsPage() {
   useEffect(() => {
     if (!albumId) return;
     setLoadingTracks(true);
-    supabase.from('album_tracks').select(`
-      *,
-      beat_sessions!inner(name)
-    `).eq('album_id', albumId).order('track_order', { ascending: true })
+    console.log('Fetching album tracks for album:', albumId);
+    
+    supabase.from('album_tracks')
+      .select('*')
+      .eq('album_id', albumId)
+      .order('track_order', { ascending: true })
       .then(({ data, error }) => {
-        if (error) setTrackError(error.message);
-        
-        // Transform data to include session_name
-        const tracksWithSessionName = data?.map(track => ({
-          ...track,
-          session_name: track.beat_sessions?.name || null
-        })) || [];
-        
-        setTracks(tracksWithSessionName);
+        if (error) {
+          console.error('Error fetching album tracks:', error);
+          setTrackError(error.message);
+        } else {
+          console.log('Fetched album tracks:', data);
+          
+          // Transform data to include session_name if available
+          const tracksWithSessionName = data?.map(track => ({
+            ...track,
+            session_name: track.beat_sessions?.name || null
+          })) || [];
+          
+          console.log('Transformed tracks:', tracksWithSessionName);
+          setTracks(tracksWithSessionName);
+        }
         setLoadingTracks(false);
       });
   }, [albumId, showAddTrack]);
@@ -165,23 +174,228 @@ export default function AlbumDetailsPage() {
     };
   }, [audioRef]);
 
+  // Audio playback management
+  useEffect(() => {
+    if (audioRef) {
+      const handlePlay = () => {
+        // Audio started playing
+      };
+      
+      const handlePause = () => {
+        // Audio paused
+      };
+      
+      const handleEnded = () => {
+        setPlayingTrackId(null);
+      };
+      
+      const handleError = () => {
+        setPlayingTrackId(null);
+        toast({
+          title: "Playback Error",
+          description: "Failed to play audio track",
+          variant: "destructive"
+        });
+      };
+
+      audioRef.addEventListener('play', handlePlay);
+      audioRef.addEventListener('pause', handlePause);
+      audioRef.addEventListener('ended', handleEnded);
+      audioRef.addEventListener('error', handleError);
+
+      return () => {
+        audioRef.removeEventListener('play', handlePlay);
+        audioRef.removeEventListener('pause', handlePause);
+        audioRef.removeEventListener('ended', handleEnded);
+        audioRef.removeEventListener('error', handleError);
+      };
+    }
+  }, [audioRef, toast]);
+
   // Helper to upload audio file
-  async function uploadTrackAudio(file: File, trackId?: string): Promise<string | null> {
-    if (!albumId) return null;
-    setAudioUploading(true);
-    setAudioUploadError(null);
-    const fileExt = file.name.split('.').pop();
-    const filePath = `album_tracks/${albumId}/${trackId || 'new'}_${Date.now()}.${fileExt}`;
-    const { error } = await supabase.storage.from('beats').upload(filePath, file, { upsert: true });
-    if (error) {
-      setAudioUploadError(error.message);
-      setAudioUploading(false);
+  const uploadTrackAudio = async (file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const filePath = `album_tracks/${albumId}/${Date.now()}.${fileExt}`;
+      const { error } = await supabase.storage.from('beats').upload(filePath, file, { upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from('beats').getPublicUrl(filePath);
+      return data?.publicUrl || null;
+    } catch (error) {
+      console.error('Error uploading audio:', error);
       return null;
     }
-    const { data } = supabase.storage.from('beats').getPublicUrl(filePath);
-    setAudioUploading(false);
-    return data?.publicUrl || null;
-  }
+  };
+
+  // Helper to stop currently playing audio
+  const stopCurrentAudio = () => {
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+    }
+    setPlayingTrackId(null);
+  };
+
+  // Helper to play a specific track
+  const playTrack = (trackId: string, audioUrl: string) => {
+    console.log('Playing track:', trackId, 'with URL:', audioUrl);
+    // Stop any currently playing audio first
+    stopCurrentAudio();
+    
+    // Start playing the new track
+    setPlayingTrackId(trackId);
+    if (audioRef) {
+      audioRef.src = audioUrl;
+      audioRef.play().catch(error => {
+        console.error('Error playing audio:', error);
+        setPlayingTrackId(null);
+        toast({
+          title: "Playback Error",
+          description: "Failed to play audio track",
+          variant: "destructive"
+        });
+      });
+    }
+  };
+
+
+
+  // Update track status function
+  const updateTrackStatus = async (trackId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
+    try {
+      const { error } = await supabase
+        .from('album_tracks')
+        .update({ status: newStatus })
+        .eq('id', trackId);
+
+      if (error) throw error;
+
+      setTracks(prev => prev.map(track =>
+        track.id === trackId ? { ...track, status: newStatus } : track
+      ));
+
+      toast({
+        title: "Success",
+        description: `Track status updated to ${newStatus}`
+      });
+    } catch (error) {
+      console.error('Error updating track status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update track status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Drag and drop reordering functions
+  const handleDragStart = (e: React.DragEvent, track: any) => {
+    setDraggedTrack(track);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (!draggedTrack) return;
+
+    const draggedIndex = tracks.findIndex(track => track.id === draggedTrack.id);
+    if (draggedIndex === -1) return;
+
+    const newTracks = [...tracks];
+    const [removed] = newTracks.splice(draggedIndex, 1);
+    newTracks.splice(dropIndex, 0, removed);
+
+    setTracks(newTracks);
+    setDraggedTrack(null);
+    setDragOverIndex(null);
+
+    // Save the new order to the database
+    saveTrackOrder(newTracks);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTrack(null);
+    setDragOverIndex(null);
+  };
+
+  const saveTrackOrder = async (newTracks: any[]) => {
+    try {
+      // Update the track_order field in the album_tracks table
+      // Include all existing track data to avoid NOT NULL constraint violations
+      const updates = newTracks.map((track, index) => ({
+        id: track.id,
+        album_id: track.album_id,
+        title: track.title,
+        duration: track.duration,
+        isrc: track.isrc,
+        audio_url: track.audio_url,
+        status: track.status,
+        created_at: track.created_at,
+        updated_at: track.updated_at,
+        track_order: index + 1
+      }));
+
+      const { error } = await supabase
+        .from('album_tracks')
+        .upsert(updates, { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error saving track order:', error);
+        toast({
+          title: "Error",
+          description: "Failed to save track order",
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Track order updated",
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Error saving track order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save track order",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Update album status function
+  const updateAlbumStatus = async (newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+    if (!album) return;
+    
+    const { error } = await supabase
+      .from('albums')
+      .update({ status: newStatus })
+      .eq('id', album.id);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update status: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setAlbum({ ...album, status: newStatus });
+    toast({
+      title: "Success",
+      description: `Status updated to ${newStatus}`,
+    });
+  };
 
   // Helper to upload audio for edit
   async function uploadEditTrackAudio(file: File, trackId: string): Promise<string | null> {
@@ -206,24 +420,108 @@ export default function AlbumDetailsPage() {
   // On submit, use audioUrl as audio_url
   async function handleAddTrack(e: React.FormEvent) {
     e.preventDefault();
+    console.log('=== ADD TRACK DEBUG ===');
+    console.log('newTrack:', newTrack);
+    console.log('albumId:', albumId);
+    console.log('audioUrl:', audioUrl);
+    
+    if (!newTrack.title.trim()) {
+      setAddTrackError('Track title is required');
+      return;
+    }
+    
     setAddingTrack(true);
     setAddTrackError(null);
+    
     if (audioUploading) {
       setAddTrackError('Please wait for the audio upload to finish.');
       setAddingTrack(false);
       return;
     }
-    const nextTrackOrder = tracks.length + 1;
-    const { data, error } = await supabase.from('album_tracks').insert([{ ...newTrack, album_id: albumId, audio_url: audioUrl, track_order: nextTrackOrder }]).select('*').single();
-    setAddingTrack(false);
-    if (error) {
-      setAddTrackError(error.message);
-      return;
+    
+    try {
+      const nextTrackOrder = tracks.length + 1;
+      const insertData = {
+        ...newTrack,
+        album_id: albumId,
+        audio_url: audioUrl,
+        track_order: nextTrackOrder,
+        status: 'draft' // Set default status
+      };
+      
+      console.log('Inserting track with data:', insertData);
+      console.log('Album data:', album);
+      console.log('Album user_id:', album?.user_id);
+      
+      const { data, error } = await supabase
+        .from('album_tracks')
+        .insert([insertData]);
+        
+      if (error) {
+        console.error('Error inserting track:', error);
+        console.error('Error details:', error.details);
+        console.error('Error hint:', error.hint);
+        console.error('Error code:', error.code);
+        setAddTrackError(error.message);
+        setAddingTrack(false);
+        return;
+      }
+      
+      console.log('Track created successfully, response:', data);
+      
+      // Create the track object manually since we can't select it back
+      const newTrackData = {
+        id: (data as any)?.[0]?.id || `temp-${Date.now()}`, // Use returned ID or generate temp one
+        ...insertData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      console.log('New track data to add to state:', newTrackData);
+      
+      // Update local state
+      setTracks([...tracks, newTrackData]);
+      
+      // Force refresh of tracks from database
+      const { data: refreshedTracks, error: refreshError } = await supabase
+        .from('album_tracks')
+        .select('*')
+        .eq('album_id', albumId)
+        .order('track_order', { ascending: true });
+        
+      if (!refreshError && refreshedTracks) {
+        console.log('Refreshed tracks from database:', refreshedTracks);
+        
+        // Transform data to include session_name if available
+        const tracksWithSessionName = refreshedTracks.map(track => ({
+          ...track,
+          session_name: track.beat_sessions?.name || null
+        }));
+        
+        console.log('Setting refreshed tracks:', tracksWithSessionName);
+        setTracks(tracksWithSessionName);
+      } else if (refreshError) {
+        console.error('Error refreshing tracks:', refreshError);
+      }
+      
+      // Show success message
+      toast({
+        title: "Track Added",
+        description: `"${newTrack.title}" has been added to the album.`,
+        variant: "default",
+      });
+      
+      // Reset form and close dialog
+      setShowAddTrack(false);
+      setNewTrack({ title: '', duration: '', isrc: '' });
+      setAudioUrl('');
+      setAddTrackError(null);
+    } catch (error) {
+      console.error('Unexpected error:', error);
+      setAddTrackError('An unexpected error occurred');
+    } finally {
+      setAddingTrack(false);
     }
-    setTracks([...tracks, data]);
-    setShowAddTrack(false);
-    setNewTrack({ title: '', duration: '', isrc: '' });
-    setAudioUrl('');
   }
 
   // Edit Track: open modal and populate state
@@ -439,30 +737,6 @@ export default function AlbumDetailsPage() {
       return <span className="text-xs px-2 py-1 bg-gray-600 text-white rounded font-medium">{extension?.toUpperCase()}</span>;
     }
   }
-
-  const updateAlbumStatus = async (newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
-    if (!album) return;
-    
-    const { error } = await supabase
-      .from('albums')
-      .update({ status: newStatus })
-      .eq('id', album.id);
-    
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update status: " + error.message,
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    setAlbum({ ...album, status: newStatus });
-    toast({
-      title: "Success",
-      description: `Status updated to ${newStatus}`,
-    });
-  };
 
   const convertTrackToMp3 = async (trackId: string, audioUrl: string, compressionLevel: 'ultra_high' | 'high' | 'medium' | 'low' = 'medium') => {
     setConvertingTrack(trackId)
@@ -680,42 +954,6 @@ export default function AlbumDetailsPage() {
 
   // Download track function
   // Audio playback functions
-  const playTrack = (trackId: string, audioUrl: string) => {
-    // Stop any currently playing audio
-    if (audioRef) {
-      audioRef.pause();
-      audioRef.currentTime = 0;
-    }
-
-    // Create new audio element
-    const audio = new Audio(audioUrl);
-    audio.addEventListener('ended', () => {
-      setPlayingTrackId(null);
-      setAudioRef(null);
-    });
-
-    audio.play().then(() => {
-      setPlayingTrackId(trackId);
-      setAudioRef(audio);
-    }).catch((error) => {
-      console.error('Error playing audio:', error);
-      toast({
-        title: "Error",
-        description: "Error playing audio. Please check if the file exists.",
-        variant: "destructive"
-      });
-    });
-  };
-
-  const stopTrack = () => {
-    if (audioRef) {
-      audioRef.pause();
-      audioRef.currentTime = 0;
-      setPlayingTrackId(null);
-      setAudioRef(null);
-    }
-  };
-
   const downloadTrack = async (trackId: string, audioUrl: string, title: string) => {
     try {
       const response = await fetch(audioUrl);
@@ -1055,119 +1293,7 @@ export default function AlbumDetailsPage() {
     }
   }
 
-  // Update track status function
-  const updateTrackStatus = async (trackId: string, newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
-    try {
-      const { error } = await supabase
-        .from('album_tracks')
-        .update({ status: newStatus })
-        .eq('id', trackId);
-
-      if (error) throw error;
-
-      setTracks(prev => prev.map(track =>
-        track.id === trackId ? { ...track, status: newStatus } : track
-      ));
-
-      toast({
-        title: "Success",
-        description: `Track status updated to ${newStatus}`
-      });
-    } catch (error) {
-      console.error('Error updating track status:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update track status",
-        variant: "destructive"
-      });
-    }
-  };
-
   // Update album production status function
-  // Drag and drop reordering functions
-  const handleDragStart = (e: React.DragEvent, track: any) => {
-    setDraggedTrack(track);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    setDragOverIndex(index);
-  };
-
-  const handleDragLeave = () => {
-    setDragOverIndex(null);
-  };
-
-  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    if (!draggedTrack) return;
-
-    const draggedIndex = tracks.findIndex(track => track.id === draggedTrack.id);
-    if (draggedIndex === -1) return;
-
-    const newTracks = [...tracks];
-    const [removed] = newTracks.splice(draggedIndex, 1);
-    newTracks.splice(dropIndex, 0, removed);
-
-    setTracks(newTracks);
-    setDraggedTrack(null);
-    setDragOverIndex(null);
-
-    // Save the new order to the database
-    saveTrackOrder(newTracks);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedTrack(null);
-    setDragOverIndex(null);
-  };
-
-  const saveTrackOrder = async (newTracks: any[]) => {
-    try {
-      // Update the track_order field in the album_tracks table
-      // Include all existing track data to avoid NOT NULL constraint violations
-      const updates = newTracks.map((track, index) => ({
-        id: track.id,
-        album_id: track.album_id,
-        title: track.title,
-        duration: track.duration,
-        isrc: track.isrc,
-        audio_url: track.audio_url,
-        status: track.status,
-        created_at: track.created_at,
-        updated_at: track.updated_at,
-        track_order: index + 1
-      }));
-
-      const { error } = await supabase
-        .from('album_tracks')
-        .upsert(updates, { onConflict: 'id' });
-
-      if (error) {
-        console.error('Error saving track order:', error);
-        toast({
-          title: "Error",
-          description: "Failed to save track order",
-          variant: "destructive"
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: "Track order updated",
-          variant: "default"
-        });
-      }
-    } catch (error) {
-      console.error('Error saving track order:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save track order",
-        variant: "destructive"
-      });
-    }
-  };
-
   const updateAlbumProductionStatus = async (newStatus: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution') => {
     try {
       const { error } = await supabase
@@ -1192,6 +1318,8 @@ export default function AlbumDetailsPage() {
       });
     }
   };
+
+
 
   if (loading) {
     return <div className="container mx-auto py-8">Loading...</div>
@@ -1397,7 +1525,9 @@ export default function AlbumDetailsPage() {
       <div className="mt-10">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Tracks</h2>
-          <Button onClick={() => setShowAddTrack(true)} variant="default">Add Track</Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setShowAddTrack(true)} variant="default">Add Track</Button>
+          </div>
         </div>
         {loadingTracks ? (
           <div>Loading tracks...</div>
@@ -1457,12 +1587,51 @@ export default function AlbumDetailsPage() {
                         </Badge>
                       )}
                     </div>
+                    {/* Play Button - Always Show */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        console.log('Play button clicked for track:', track);
+                        console.log('Track audio_url:', track.audio_url);
+                        if (track.audio_url) {
+                          if (playingTrackId === track.id) {
+                            stopCurrentAudio();
+                          } else {
+                            playTrack(track.id, track.audio_url);
+                          }
+                        } else {
+                          toast({
+                            title: "No Audio File",
+                            description: "This track doesn't have an audio file uploaded yet.",
+                            variant: "destructive"
+                          });
+                        }
+                      }}
+                      disabled={!track.audio_url}
+                      className={`${
+                        !track.audio_url 
+                          ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                          : playingTrackId === track.id 
+                            ? 'bg-green-600 hover:bg-green-700 text-white border-green-500' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500'
+                      }`}
+                      title={!track.audio_url ? 'No audio file' : playingTrackId === track.id ? 'Stop' : 'Play'}
+                    >
+                      {playingTrackId === track.id ? (
+                        <Pause className="h-4 w-4" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                    </Button>
+                    {/* Debug: Show if track has audio */}
+                    <span className="text-xs text-gray-500">
+                      {track.audio_url ? 'Has Audio' : 'No Audio'}
+                    </span>
+
                     <span className="text-gray-400">{track.duration}</span>
                     <span className="text-gray-400">ISRC: {track.isrc}</span>
                     {track.audio_url && getAudioFileLabel(track.audio_url)}
-                    {track.audio_url && (
-                      <audio controls src={track.audio_url} className="h-10 w-64" />
-                    )}
                     <div className="flex items-center gap-2">
                       {track.audio_url && (
                         <Button 
@@ -1613,9 +1782,33 @@ export default function AlbumDetailsPage() {
                             </div>
                             <span className="text-sm text-gray-300">{mp3Track.title}</span>
                             <span className="text-xs text-gray-500">MP3</span>
+                            {/* Play Button for MP3 Track */}
                             {mp3Track.audio_url && (
-                              <audio controls src={mp3Track.audio_url} className="h-8 w-48" />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  if (playingTrackId === mp3Track.id) {
+                                    stopCurrentAudio();
+                                  } else {
+                                    playTrack(mp3Track.id, mp3Track.audio_url);
+                                  }
+                                }}
+                                className={`${
+                                  playingTrackId === mp3Track.id 
+                                    ? 'bg-green-600 hover:bg-green-700 text-white border-green-500' 
+                                    : 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500'
+                                }`}
+                                title={playingTrackId === mp3Track.id ? 'Stop' : 'Play'}
+                              >
+                                {playingTrackId === mp3Track.id ? (
+                                  <Pause className="h-3 w-3" />
+                                ) : (
+                                  <Play className="h-3 w-3" />
+                                )}
+                              </Button>
                             )}
+
                             {/* Status Dropdown for MP3 Track */}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -2160,6 +2353,93 @@ export default function AlbumDetailsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Track Dialog */}
+      <Dialog open={showAddTrack} onOpenChange={setShowAddTrack}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Track to Album</DialogTitle>
+            <DialogDescription>
+              Add a new track to "{album?.title}". You can add the audio file later.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAddTrack} className="space-y-4">
+            <div>
+              <Label htmlFor="track-title">Track Title *</Label>
+              <Input
+                id="track-title"
+                placeholder="Track Title"
+                value={newTrack.title}
+                onChange={e => setNewTrack({ ...newTrack, title: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-duration">Duration</Label>
+              <Input
+                id="track-duration"
+                placeholder="3:45"
+                value={newTrack.duration}
+                onChange={e => setNewTrack({ ...newTrack, duration: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-isrc">ISRC</Label>
+              <Input
+                id="track-isrc"
+                placeholder="ISRC Code"
+                value={newTrack.isrc}
+                onChange={e => setNewTrack({ ...newTrack, isrc: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="track-audio">Audio File (Optional)</Label>
+              <Input
+                id="track-audio"
+                type="file"
+                accept="audio/*"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setAudioUploading(true);
+                    setAudioUploadError(null);
+                    try {
+                      const fileExt = file.name.split('.').pop();
+                      const filePath = `album_tracks/${albumId}/${Date.now()}.${fileExt}`;
+                      const { error } = await supabase.storage.from('beats').upload(filePath, file, { upsert: true });
+                      if (error) {
+                        setAudioUploadError(error.message);
+                        return;
+                      }
+                      const { data } = supabase.storage.from('beats').getPublicUrl(filePath);
+                      setAudioUrl(data?.publicUrl || '');
+                    } catch (error) {
+                      setAudioUploadError('Failed to upload audio file');
+                    } finally {
+                      setAudioUploading(false);
+                    }
+                  }
+                }}
+                disabled={audioUploading}
+              />
+              {audioUploading && <p className="text-sm text-blue-500 mt-1">Uploading audio...</p>}
+              {audioUploadError && <p className="text-sm text-red-500 mt-1">{audioUploadError}</p>}
+              {audioUrl && <p className="text-sm text-green-500 mt-1">Audio uploaded successfully!</p>}
+            </div>
+            
+            {addTrackError && <div className="text-red-500 text-sm">{addTrackError}</div>}
+            
+            <DialogFooter>
+              <Button type="submit" disabled={addingTrack || audioUploading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {addingTrack ? 'Adding...' : 'Add Track'}
+              </Button>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </DialogClose>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* Track Metadata Dialog */}
       <TrackMetadataDialog
         open={showMetadataDialog}
@@ -2179,6 +2459,20 @@ export default function AlbumDetailsPage() {
         initialNotes={editingNotes}
         itemTitle={editingNotesTitle}
         onSave={saveNotes}
+      />
+
+      {/* Hidden Audio Element for Playback */}
+      <audio
+        ref={(el) => setAudioRef(el)}
+        onEnded={() => setPlayingTrackId(null)}
+        onError={() => {
+          setPlayingTrackId(null);
+          toast({
+            title: "Playback Error",
+            description: "Failed to play audio track",
+            variant: "destructive"
+          });
+        }}
       />
     </div>
   )
