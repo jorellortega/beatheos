@@ -2063,23 +2063,25 @@ export default function MyLibrary() {
       setCreateAlbumError('Please wait for the cover art to finish uploading.');
       return;
     }
-    if (!newAlbum.cover_art_url) {
-      setCreateAlbumError('Please upload a cover art image.');
-      return;
-    }
+
     if (newAdditionalCovers.some(c => c.uploading)) {
       setCreateAlbumError('Please wait for all additional covers to finish uploading.');
       return;
     }
     setCreatingAlbum(true);
     setCreateAlbumError(null);
-    const { data, error } = await supabase.from('albums').insert([
-      {
-        ...newAlbum,
-        user_id: user.id,
-        additional_covers: newAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })),
-      },
-    ]).select('*').single();
+    // Filter out empty values to avoid database errors
+    const albumData = {
+      title: newAlbum.title,
+      user_id: user.id,
+      ...(newAlbum.artist && { artist: newAlbum.artist }),
+      ...(newAlbum.release_date && { release_date: newAlbum.release_date }),
+      ...(newAlbum.cover_art_url && { cover_art_url: newAlbum.cover_art_url }),
+      ...(newAlbum.description && { description: newAlbum.description }),
+      additional_covers: newAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })),
+    };
+
+    const { data, error } = await supabase.from('albums').insert([albumData]).select('*').single();
     setCreatingAlbum(false);
     if (error) {
       setCreateAlbumError(error.message);
@@ -2098,20 +2100,24 @@ export default function MyLibrary() {
       setEditError('Please wait for the cover art to finish uploading.');
       return;
     }
-    if (!editForm.cover_art_url) {
-      setEditError('Please upload a cover art image.');
-      return;
-    }
+
     if (editAdditionalCovers.some(c => c.uploading)) {
       setEditError('Please wait for all additional covers to finish uploading.');
       return;
     }
     setEditSaving(true);
     setEditError(null);
-    const { error } = await supabase.from('albums').update({
-      ...editForm,
+    // Filter out empty values to avoid database errors
+    const updateData = {
+      ...(editForm.title && { title: editForm.title }),
+      ...(editForm.artist && { artist: editForm.artist }),
+      ...(editForm.release_date && { release_date: editForm.release_date }),
+      ...(editForm.cover_art_url && { cover_art_url: editForm.cover_art_url }),
+      ...(editForm.description && { description: editForm.description }),
       additional_covers: editAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })),
-    }).eq('id', editAlbumId);
+    };
+
+    const { error } = await supabase.from('albums').update(updateData).eq('id', editAlbumId);
     setEditSaving(false);
     if (error) {
       setEditError(error.message);
@@ -5052,7 +5058,6 @@ export default function MyLibrary() {
               placeholder="Artist Name"
               value={newAlbum.artist}
               onChange={e => setNewAlbum({ ...newAlbum, artist: e.target.value })}
-              required
             />
             <Input
               type="date"
