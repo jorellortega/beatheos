@@ -36,6 +36,7 @@ interface SongArrangementProps {
   sequencerData: {[trackId: number]: boolean[]}
   bpm: number
   steps: number
+
   onPlayPattern?: (patternData: {[trackId: number]: boolean[]}) => void
   onStopPattern?: () => void
   isPlaying?: boolean
@@ -155,14 +156,9 @@ export function SongArrangement({
   const setCurrentBarSafe = (value: number) => {
     // Multiple safety checks to ensure positive value
     const safeValue = Math.max(1, Math.abs(value || 1))
-    console.log('[PLAYHEAD DEBUG] setCurrentBarSafe called with:', value, 'setting to:', safeValue, 'current currentBar:', currentBar)
     
-    // Add more detailed logging
     if (safeValue !== currentBar) {
-      console.log('[PLAYHEAD DEBUG] State will change from', currentBar, 'to', safeValue)
       setCurrentBar(safeValue)
-    } else {
-      console.log('[PLAYHEAD DEBUG] State unchanged - same value')
     }
   }
   const [totalBars, setTotalBars] = useState(64) // Default 64 bars (8 patterns of 8 bars each)
@@ -316,7 +312,6 @@ export function SongArrangement({
       const endBar = Math.max(...patternBlocks.map(block => block.endBar))
       setExportStartBar(startBar)
       setExportEndBar(endBar)
-      console.log(`[EXPORT MARKERS] Updated: Start=${startBar}, End=${endBar}`)
     }
   }, [patternBlocks])
 
@@ -335,7 +330,6 @@ export function SongArrangement({
       setExportStartBar(startBar)
       setExportEndBar(endBar)
       setExportMarkersActive(true)
-      console.log(`[EXPORT MARKERS] Set active: Start=${startBar}, End=${endBar}`)
       showNotification('Export Markers Set', `Start: Bar ${startBar}, End: Bar ${endBar}\n\nYou can now adjust the markers by clicking on the timeline, then click Export (Live) again to start recording.`, 'info')
     } else {
       showNotification('No Patterns', 'No patterns to export! Please add some patterns first.', 'warning')
@@ -345,23 +339,17 @@ export function SongArrangement({
   // Function to reset export markers
   const resetExportMarkers = () => {
     setExportMarkersActive(false)
-    console.log('[EXPORT MARKERS] Reset - markers deactivated')
   }
 
   // Function to update export timer when markers change
   const updateExportTimer = () => {
     if (isExportLiveRecording && (window as any).exportTimer) {
-      console.log('[EXPORT TIMER] Updating timer due to marker change')
-      console.log(`[EXPORT TIMER] New markers - Start: ${exportStartBar}, End: ${exportEndBar}`)
-      
       // Calculate new duration
       const newExportDurationBars = exportEndBar - exportStartBar + 1
       const secondsPerBeat = 60 / bpm
       const beatsPerBar = 4
       const secondsPerBar = secondsPerBeat * beatsPerBar
       const newTotalDurationSeconds = newExportDurationBars * secondsPerBar
-      
-      console.log(`[EXPORT TIMER] New duration: ${newTotalDurationSeconds}s (${newExportDurationBars} bars)`)
       
       // Clear existing timer
       if ((window as any).exportTimer) {
@@ -370,7 +358,6 @@ export function SongArrangement({
       
       // Set new timer
       (window as any).exportTimer = setTimeout(() => {
-        console.log('[EXPORT TIMER] Updated timer fired - stopping recording')
         try {
           // Create a separate function to call stopExportLive
           const executeStop = () => {
@@ -381,8 +368,6 @@ export function SongArrangement({
           console.error('[EXPORT TIMER] Error calling stopExportLive:', error)
         }
       }, newTotalDurationSeconds * 1000)
-      
-      console.log(`[EXPORT TIMER] Timer updated to ${newTotalDurationSeconds}s`)
     }
   }
 
@@ -391,16 +376,10 @@ export function SongArrangement({
   
   const stopExportLive = (): void => {
     try {
-      console.log('[EXPORT LIVE] Manual stop triggered')
-      
       // Stop MediaRecorder if it exists
       const mediaRecorder = (window as any).mediaRecorderForExport
       if (mediaRecorder && mediaRecorder.state === 'recording') {
-        console.log('[EXPORT LIVE] Stopping MediaRecorder')
         mediaRecorder.stop()
-        console.log('[EXPORT LIVE] MediaRecorder.stop() called - onstop event should fire')
-      } else {
-        console.log('[EXPORT LIVE] MediaRecorder not found or not recording')
       }
       (window as any).mediaRecorderForExport = null
       
@@ -411,8 +390,6 @@ export function SongArrangement({
       
       // Reset recording state
       setIsExportLiveRecording(false)
-      
-      console.log('[EXPORT LIVE] Manual stop completed')
     } catch (error) {
       console.error('[EXPORT LIVE] Error in manual stop:', error)
       // Force reset state even if there's an error
@@ -470,31 +447,20 @@ export function SongArrangement({
 
   // Fixed playhead update using transport position
   const updatePlayhead = () => {
-    console.log('[PLAYHEAD DEBUG] updatePlayhead called', {
-      isPlayingRef: isPlayingRef.current,
-      hasTransport: !!arrangementTransportRef.current,
-      transportState: arrangementTransportRef.current?.state,
-      currentBar: currentBar
-    })
-    
     if (isPlayingRef.current && arrangementTransportRef.current) {
       try {
         // Get the current transport position as a string (e.g., "2:1:0")
         const positionStr = arrangementTransportRef.current.position
-        console.log('[PLAYHEAD DEBUG] Raw transport position:', positionStr)
         
         // Convert position string to [bars, beats, sixteenths]
         const [bars, beats, sixteenths] = positionStr.split(':').map(Number)
-        console.log('[PLAYHEAD DEBUG] Parsed position:', { bars, beats, sixteenths })
         
         // Calculate the current bar as a float
         let currentBarPosition = (bars || 0) + 1 + ((beats || 0) / 4) + ((sixteenths || 0) / 16 / 4)
-        console.log('[PLAYHEAD DEBUG] Calculated bar position:', currentBarPosition)
         
         // In export mode, adjust the bar position to be relative to the export start marker
         if (exportMarkersActive) {
           currentBarPosition = exportStartBar + (currentBarPosition - 1)
-          console.log('[PLAYHEAD DEBUG] Export mode adjusted position:', currentBarPosition)
         }
         
         // Calculate the maximum duration based on actual pattern blocks, not the steps prop
@@ -503,76 +469,78 @@ export function SongArrangement({
         // If export markers are active, use the export end marker as the stop point
         const stopBar = exportMarkersActive ? exportEndBar : maxEndBar
         
-        console.log('[PLAYHEAD DEBUG] Position check:', {
-          currentBarPosition,
-          currentBar,
-          difference: Math.abs(currentBarPosition - currentBar),
-          shouldUpdate: currentBarPosition >= 1 && Math.abs(currentBarPosition - currentBar) > 0.01
-        })
-        
         // Only update if we have a valid position and it's significantly different
         // Allow playhead to go beyond the steps limit (8 bars) up to the actual arrangement duration
         // Note: Steps are now 128 (8 bars at 1/16 resolution)
         if (currentBarPosition >= 1 && Math.abs(currentBarPosition - currentBar) > 0.01) {
-          console.log('[PLAYHEAD DEBUG] Updating playhead from', currentBar, 'to', currentBarPosition)
           setCurrentBarSafe(currentBarPosition)
-        } else {
-          console.log('[PLAYHEAD DEBUG] Skipping update - position not significantly different')
         }
         
         // Check if we've reached the end of the arrangement or export marker
         if (currentBarPosition > stopBar) {
-          console.log(`[PLAYHEAD DEBUG] Reached end of ${exportMarkersActive ? 'export' : 'arrangement'} at bar ${stopBar}, stopping playback`)
           stopArrangement()
         }
         
         // CRITICAL: In export mode, also check if we've reached the export end marker exactly
         if (exportMarkersActive && currentBarPosition >= exportEndBar) {
-          console.log(`[PLAYHEAD DEBUG] Reached export end marker at bar ${exportEndBar}, stopping playback`)
           stopArrangement()
         }
       } catch (error) {
         console.error('[PLAYHEAD DEBUG] Error in update:', error)
       }
-    } else {
-      console.log('[PLAYHEAD DEBUG] Skipping update - conditions not met:', {
-        isPlayingRef: isPlayingRef.current,
-        hasTransport: !!arrangementTransportRef.current
-      })
     }
   }
 
   // Initialize separate audio system for arrangement
   useEffect(() => {
     const initializeArrangementAudio = async () => {
-      console.log('[ARRANGEMENT AUDIO] Starting audio initialization...')
       if (isArrangementAudioInitialized.current) {
-        console.log('[ARRANGEMENT AUDIO] Already initialized, skipping')
         return
       }
       
       try {
         // Start Tone.js audio context
-        console.log('[ARRANGEMENT AUDIO] Starting Tone.js...')
         await Tone.start()
-        console.log('[ARRANGEMENT AUDIO] Tone.js started successfully')
         
-        // CRITICAL FIX: Use the global transport but ensure it's properly configured for arrangement
-        // This allows both sequencer and arrangement to coexist
+        // CRITICAL: Ensure audio context is running
+        if (Tone.context.state !== 'running') {
+          await Tone.context.resume()
+        }
+        
+        // Ensure audio context is fully ready
+        if (Tone.context.state === 'suspended') {
+          try {
+            await Tone.context.resume()
+          } catch (resumeError) {
+            console.error('[ARRANGEMENT AUDIO] Failed to resume audio context:', resumeError)
+            return
+          }
+        }
+        
+        // CRITICAL FIX: Use the global transport but ensure it's properly configured and isolated
+        // This allows both sequencer and arrangement to coexist without conflicts
         arrangementTransportRef.current = Tone.getTransport()
-        arrangementTransportRef.current.stop()
-        arrangementTransportRef.current.cancel()
+        
+        // CRITICAL: Ensure transport is in a clean state
+        if (arrangementTransportRef.current.state !== 'stopped') {
+          arrangementTransportRef.current.stop()
+          arrangementTransportRef.current.cancel()
+        }
+        
         arrangementTransportRef.current.loop = false // Explicitly disable looping for arrangement
         arrangementTransportRef.current.bpm.value = bpm
+        arrangementTransportRef.current.position = 0
         
-        console.log('[ARRANGEMENT AUDIO] Configured transport for arrangement use')
+        // CRITICAL: Verify transport is properly initialized
+        if (!arrangementTransportRef.current.start || typeof arrangementTransportRef.current.start !== 'function') {
+          console.error('[ARRANGEMENT AUDIO] Transport is not properly initialized! start method missing.')
+          return
+        }
         
       // Load audio for tracks that have audio URLs
       const loadPromises = tracks.map(async (track) => {
         if (track.audioUrl && track.audioUrl !== 'undefined') {
           try {
-            console.log(`[ARRANGEMENT AUDIO] Loading audio for track ${track.name}: ${track.audioUrl}`)
-            
             // Create gain node for volume control
             const gainNode = new Tone.Gain(1).toDestination()
             
@@ -587,7 +555,6 @@ export function SongArrangement({
             // Apply pitch shift after creation if needed
             if (track.pitchShift && track.pitchShift !== 0) {
               pitchShifter.pitch = track.pitchShift
-              console.log(`[ARRANGEMENT AUDIO] Applied pitch shift ${track.pitchShift} to track ${track.name}`)
             }
             
             const player = new Tone.Player(track.audioUrl).connect(pitchShifter)
@@ -603,8 +570,6 @@ export function SongArrangement({
             arrangementPlayersRef.current[track.id] = player
             arrangementPitchShiftersRef.current[track.id] = pitchShifter
             arrangementGainNodesRef.current[track.id] = gainNode
-            
-            console.log(`[ARRANGEMENT AUDIO] Audio loaded and ready for track ${track.name}`)
           } catch (error) {
             console.error(`[ARRANGEMENT AUDIO] Failed to load audio for track ${track.name}:`, error)
           }
@@ -614,8 +579,7 @@ export function SongArrangement({
       // Wait for all audio to load
       await Promise.all(loadPromises)
       
-    isArrangementAudioInitialized.current = true
-      console.log('[ARRANGEMENT AUDIO] Audio system initialized with players:', Object.keys(arrangementPlayersRef.current))
+      isArrangementAudioInitialized.current = true
     } catch (error) {
       console.error('[ARRANGEMENT AUDIO] Error initializing audio system:', error)
     }
@@ -656,8 +620,6 @@ export function SongArrangement({
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current)
       }
-      
-      console.log('[ARRANGEMENT AUDIO] Audio system cleaned up')
     }
   }, [])
 
@@ -670,141 +632,92 @@ export function SongArrangement({
 
   // Sync patterns when they change from parent component
   useEffect(() => {
-    // Use a small delay to ensure this runs after auto-initialization logic
-    const timer = setTimeout(() => {
-      console.log('[PATTERN SYNC] Syncing patterns from parent:', patterns.length, 'patterns')
+    if (patterns && patterns.length > 0) {
+      console.log('[SONG ARRANGEMENT] Initializing patterns from props:', patterns)
       setPatternBlocks(patterns)
-    }, 100)
-    
-    return () => clearTimeout(timer)
+    } else {
+      // Clear any existing patterns to ensure clean slate
+      console.log('[SONG ARRANGEMENT] No patterns from props - clearing any existing patterns')
+      setPatternBlocks([])
+    }
   }, [patterns])
 
-  // Auto-initialize patterns ONLY when component mounts and there are truly NO patterns at all
-  // Use a ref to track if we've already auto-initialized to prevent aggressive reloading
-  const hasAutoInitializedRef = useRef(false)
-  const lastSessionIdRef = useRef<string | null | undefined>(undefined)
+  // DISABLED: Auto-initialize patterns - this was causing unwanted patterns to appear
+  // const hasAutoInitializedRef = useRef(false)
+  // const lastSessionIdRef = useRef<string | null | undefined>(undefined)
   const isShufflingRef = useRef(false) // Flag to prevent auto-init during shuffle operations
   
-  // Reset auto-initialization flag when session changes
-  useEffect(() => {
-    if (currentSessionId !== lastSessionIdRef.current) {
-      console.log('[AUTO INIT] Session changed, resetting auto-initialization flag')
-      hasAutoInitializedRef.current = false
-      lastSessionIdRef.current = currentSessionId
-    }
-  }, [currentSessionId])
+  // DISABLED: Reset auto-initialization flag when session changes
+  // useEffect(() => {
+  //   if (currentSessionId !== lastSessionIdRef.current) {
+  //     hasAutoInitializedRef.current = false
+  //     lastSessionIdRef.current = currentSessionId
+  //   }
+  // }, [currentSessionId])
   
+  // DISABLED: Auto-initialization effect - this was creating unwanted patterns
+  // useEffect(() => {
+  //   // Don't auto-initialize if we're currently shuffling
+  //   if (isShufflingRef.current) {
+  //     return
+  //   }
+  //   
+  //   // Don't auto-initialize if we have a current session (session is being loaded)
+  //   // This prevents overwriting patterns that are being loaded from a saved session
+  //   if (currentSessionId) {
+  //     return
+  //   }
+  //   
+  //   // Only auto-initialize if:
+  //   // 1. We haven't auto-initialized before
+  //   // 2. We have tracks
+  //   // 3. There are absolutely no patterns anywhere
+  //   // 4. No current session (not loading a saved session)
+  //   if (!hasAutoInitializedRef.current && tracks.length > 0 && patternBlocks.length === 0 && patterns.length === 0) {
+  //     hasAutoInitializedRef.current = true
+  //     
+  //     // First try to create patterns from current sequencer data
+  //     if (Object.keys(sequencerData).length > 0 && Object.values(sequencerData).some(data => data && data.length > 0)) {
+  //       console.log('[AUTO-INIT] Creating patterns from current sequencer data')
+  //       createPatternsFromSequencer()
+  //     } else {
+  //       // Fall back to loading default patterns
+  //       console.log('[AUTO-INIT] No sequencer data available, loading default patterns')
+  //       loadElevenPatternsFromEachTrack()
+  //     }
+  //   }
+  // }, [tracks, patternBlocks.length, patterns.length, currentSessionId, sequencerData])
+
+
+
+
+
+
+
+  // Monitor for unexpected audio playback - only when needed
   useEffect(() => {
-    // Don't auto-initialize if we're currently shuffling
-    if (isShufflingRef.current) {
-      console.log('[AUTO INIT] Shuffle operation in progress - skipping auto-initialization')
-      return
-    }
+    let monitorInterval: NodeJS.Timeout | null = null
     
-    // Don't auto-initialize if we have a current session (session is being loaded)
-    // This prevents overwriting patterns that are being loaded from a saved session
-    if (currentSessionId) {
-      console.log('[AUTO INIT] Session exists - skipping auto-initialization to preserve loaded patterns')
-      return
-    }
-    
-    // Only auto-initialize if:
-    // 1. We haven't auto-initialized before
-    // 2. We have tracks
-    // 3. There are absolutely no patterns anywhere
-    // 4. No current session (not loading a saved session)
-    if (!hasAutoInitializedRef.current && tracks.length > 0 && patternBlocks.length === 0 && patterns.length === 0) {
-      console.log('[AUTO INIT] First time initialization - auto-initializing patterns for song arrangement')
-      hasAutoInitializedRef.current = true
-      loadElevenPatternsFromEachTrack()
-    } else if (patternBlocks.length > 0 || patterns.length > 0) {
-      console.log('[AUTO INIT] Patterns already exist - skipping auto-initialization')
-    } else if (hasAutoInitializedRef.current) {
-      console.log('[AUTO INIT] Already auto-initialized before - not re-triggering')
-    }
-  }, [tracks, patternBlocks.length, patterns.length, currentSessionId])
-
-  // Debug: Monitor isArrangementPlaying state changes
-  useEffect(() => {
-    console.log('[PLAYHEAD DEBUG] isArrangementPlaying state changed to:', isArrangementPlaying)
-  }, [isArrangementPlaying])
-
-  // Debug: Monitor currentBar state changes
-  useEffect(() => {
-    console.log('[PLAYHEAD DEBUG] currentBar state changed to:', currentBar)
-  }, [currentBar])
-
-  // Debug: Manual transport position check
-  const debugTransportPosition = () => {
-    if (arrangementTransportRef.current) {
-      console.log('[PLAYHEAD DEBUG] Manual transport check:', {
-        position: arrangementTransportRef.current.position,
-        state: arrangementTransportRef.current.state,
-        bpm: arrangementTransportRef.current.bpm.value,
-        time: arrangementTransportRef.current.seconds
-      })
-    } else {
-      console.log('[PLAYHEAD DEBUG] No transport available')
-    }
-  }
-
-  // Debug: Test transport advancement (call this from console)
-  const testTransportAdvancement = () => {
-    if (arrangementTransportRef.current) {
-      const startPosition = arrangementTransportRef.current.position
-      console.log('[PLAYHEAD DEBUG] Starting position:', startPosition)
-      
-      // Wait 1 second and check again
-      setTimeout(() => {
-        const endPosition = arrangementTransportRef.current?.position
-        console.log('[PLAYHEAD DEBUG] After 1 second position:', endPosition)
-        console.log('[PLAYHEAD DEBUG] Position changed:', startPosition !== endPosition)
-      }, 1000)
-    }
-  }
-
-        // Expose debug functions to window for console access
-      useEffect(() => {
-        (window as any).debugTransportPosition = debugTransportPosition
-        ;(window as any).testTransportAdvancement = testTransportAdvancement
-        ;(window as any).debugPlayhead = () => {
-          console.log('[PLAYHEAD DEBUG] Current state:', {
-            currentBar,
-            isArrangementPlaying,
-            isPlayingRef: isPlayingRef.current,
-            hasTransport: !!arrangementTransportRef.current,
-            transportState: arrangementTransportRef.current?.state,
-            transportPosition: arrangementTransportRef.current?.position,
-            progressInterval: progressIntervalRef.current
-          })
-        }
-        ;(window as any).forcePlayheadUpdate = () => {
-          console.log('[PLAYHEAD DEBUG] Forcing playhead update...')
-          updatePlayhead()
-        }
-      }, [currentBar, isArrangementPlaying])
-
-  // Monitor for unexpected audio playback
-  useEffect(() => {
     if (!isArrangementPlaying) {
       // Set up a monitoring interval to check if audio is playing when it shouldn't be
-      const monitorInterval = setInterval(() => {
+      monitorInterval = setInterval(() => {
         const anyPlayerPlaying = Object.values(arrangementPlayersRef.current).some(player => 
           player && player.state === 'started'
         )
         const transportPlaying = arrangementTransportRef.current?.state === 'started'
         
         if (anyPlayerPlaying || transportPlaying) {
-          console.warn('[AUDIO MONITOR] Unexpected audio detected when stopped!')
-          console.warn('[AUDIO MONITOR] Players playing:', Object.entries(arrangementPlayersRef.current).filter(([id, player]) => player?.state === 'started').map(([id]) => id))
-          console.warn('[AUDIO MONITOR] Transport state:', arrangementTransportRef.current?.state)
+          // Only log once per issue to avoid spam
+          if (!window._audioMonitorLogged) {
+            console.warn('[AUDIO MONITOR] Unexpected audio detected when stopped!')
+            window._audioMonitorLogged = true
+          }
           
           // Force stop everything with aggressive cleanup
           if (arrangementTransportRef.current) {
             try {
               arrangementTransportRef.current.stop()
               arrangementTransportRef.current.cancel()
-              console.log('[AUDIO MONITOR] Transport force stopped')
             } catch (error) {
               console.error('[AUDIO MONITOR] Error stopping transport:', error)
             }
@@ -814,20 +727,16 @@ export function SongArrangement({
           let stuckPlayers = 0
           Object.entries(arrangementPlayersRef.current).forEach(([trackId, player]) => {
             if (player && player.state === 'started') {
-              console.warn(`[AUDIO MONITOR] Force stopping player for track ${trackId}`)
               try {
                 player.stop()
                 // Double-check
                 if (player.state === 'started') {
-                  console.warn(`[AUDIO MONITOR] Player ${trackId} still playing, trying again...`)
                   player.stop()
                   // If still stuck after second attempt, mark for disposal
                   if (player.state === 'started') {
                     stuckPlayers++
-                    console.error(`[AUDIO MONITOR] Player ${trackId} is stuck! Will dispose.`)
                   }
                 }
-                console.log(`[AUDIO MONITOR] Player ${trackId} force stopped, final state: ${player.state}`)
               } catch (error) {
                 console.error(`[AUDIO MONITOR] Error stopping unexpected player ${trackId}:`, error)
                 stuckPlayers++
@@ -835,7 +744,6 @@ export function SongArrangement({
                 try {
                   if (player.dispose) {
                     player.dispose()
-                    console.log(`[AUDIO MONITOR] Disposed player ${trackId} as last resort`)
                   }
                 } catch (disposeError) {
                   console.error(`[AUDIO MONITOR] Error disposing player ${trackId}:`, disposeError)
@@ -852,10 +760,18 @@ export function SongArrangement({
             arrangementPlayersRef.current = {}
             arrangementPitchShiftersRef.current = {}
           }
+        } else {
+          // Reset the log flag when no issues detected
+          window._audioMonitorLogged = false
         }
-      }, 500) // Check every 500ms for faster response
-      
-      return () => clearInterval(monitorInterval)
+      }, 1000) // Check every 1 second instead of 500ms to reduce spam
+    }
+    
+    return () => {
+      if (monitorInterval) {
+        clearInterval(monitorInterval)
+        monitorInterval = null
+      }
     }
   }, [isArrangementPlaying])
 
@@ -909,7 +825,6 @@ export function SongArrangement({
     setPatternBlocks(updatedPatterns)
     setSelectedBlocks([])
     onPatternsChange?.(updatedPatterns)
-    console.log(`[SELECTOR] Deleted ${selectedBlocks.length} selected patterns`)
   }
 
   // Duplicate selected patterns
@@ -929,7 +844,6 @@ export function SongArrangement({
     setPatternBlocks(updatedPatterns)
     setSelectedBlocks([])
     onPatternsChange?.(updatedPatterns)
-    console.log(`[SELECTOR] Duplicated ${selectedPatterns.length} patterns`)
   }
 
   // Start selection box
@@ -945,8 +859,6 @@ export function SongArrangement({
     setIsSelectionBoxActive(true)
     setSelectionBoxStart({ x, y })
     setSelectionBoxEnd({ x, y })
-    
-    console.log('[SELECTION BOX] Started selection box at:', { x, y })
   }
 
   // Update selection box
@@ -999,8 +911,6 @@ export function SongArrangement({
       })
       return newSelection
     })
-    
-    console.log('[SELECTION BOX] Selected patterns:', selectedPatternIds)
   }
 
   // Check if a pattern is in the current selection box
@@ -1123,7 +1033,6 @@ export function SongArrangement({
     
     try {
       // Get user session with better error handling
-      console.log('[SAVE ARRANGEMENT] Checking authentication...')
       
       // Try multiple authentication methods
       let user = null
@@ -1132,7 +1041,6 @@ export function SongArrangement({
       // Method 1: Try getSession
       try {
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-        console.log('[SAVE ARRANGEMENT] getSession result:', { session: !!sessionData.session, error: sessionError })
         
         if (sessionData.session) {
           session = sessionData.session
@@ -1146,7 +1054,6 @@ export function SongArrangement({
       if (!user) {
         try {
           const { data: userData, error: userError } = await supabase.auth.getUser()
-          console.log('[SAVE ARRANGEMENT] getUser result:', { user: !!userData.user, error: userError })
           
           if (userData.user) {
             user = userData.user
@@ -1160,7 +1067,6 @@ export function SongArrangement({
       if (!session && user) {
         try {
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-          console.log('[SAVE ARRANGEMENT] refreshSession result:', { session: !!refreshData.session, error: refreshError })
           
           if (refreshData.session) {
             session = refreshData.session
@@ -1169,8 +1075,6 @@ export function SongArrangement({
           console.error('[SAVE ARRANGEMENT] refreshSession error:', error)
         }
       }
-      
-      console.log('[SAVE ARRANGEMENT] Final auth check:', { user: !!user, session: !!session, accessToken: !!session?.access_token })
       
       if (!user) {
         alert('Please log in to save arrangements. No user found.')
@@ -1563,26 +1467,21 @@ export function SongArrangement({
       
       if (startDistance <= endDistance) {
         setExportStartBar(clickedBar)
-        console.log(`[EXPORT MARKERS] Start marker moved to bar ${clickedBar}`)
         // Update timer if recording
         setTimeout(() => updateExportTimer(), 100)
       } else {
         setExportEndBar(clickedBar)
-        console.log(`[EXPORT MARKERS] End marker moved to bar ${clickedBar}`)
         // Update timer if recording
         setTimeout(() => updateExportTimer(), 100)
       }
       return
     }
     
-    console.log('[TIMELINE] Header clicked at position:', clickX, 'setting playhead to bar:', clickedBar)
-    
     // Set the playhead to the clicked position
     setCurrentBarSafe(clickedBar)
     
     // If currently playing, restart from the new position
     if (isArrangementPlaying) {
-      console.log('[TIMELINE] Restarting playback from new position')
       stopArrangement()
       setTimeout(() => playArrangement(), 100) // Small delay to ensure clean restart
     }
@@ -1610,8 +1509,6 @@ export function SongArrangement({
       // Find the loaded track
       const loadedTrack = tracks.find(t => t.id === loadedTrackId)
       if (!loadedTrack) return
-      
-      console.log('Click position:', { clickX, clickY, clickedBar, loadedTrack: loadedTrack.name, loadedTrackId })
       
       // Check if the pattern would extend beyond totalBars
       const endBar = clickedBar + selectedDuration - 1
@@ -1648,7 +1545,6 @@ export function SongArrangement({
       if (arrangementTransportRef.current) {
         const newPosition = (newBar - 1) * 4 // 4 beats per bar
         arrangementTransportRef.current.position = newPosition
-        console.log(`[ARRANGEMENT AUDIO] Seeking to bar ${newBar} (position ${newPosition})`)
       }
     }
   }
@@ -1673,15 +1569,12 @@ export function SongArrangement({
   // Handle pattern block click for delete mode, cut mode, and selector mode
   const handlePatternBlockClick = (blockId: string) => {
     if (isSelectorMode) {
-      console.log(`[SELECTOR MODE] Toggling selection for pattern block: ${blockId}`)
       togglePatternSelection(blockId)
     } else if (isDeleteMode) {
-      console.log(`[DELETE MODE] Deleting pattern block: ${blockId}`)
       removePatternBlock(blockId)
     } else if (isCutMode) {
       const block = patternBlocks.find(b => b.id === blockId)
       if (block) {
-        console.log(`[CUT MODE] Splitting pattern block: ${blockId}`)
         splitPatternBlock(block)
       }
     }
@@ -1806,6 +1699,45 @@ export function SongArrangement({
     setResizeStart({ x: 0, originalDuration: 0, originalStartBar: 0 })
   }
 
+  // Function to calculate actual pattern length from sequencer data
+  const calculatePatternLengthFromSequencer = (trackSequencerData: boolean[], stepsPerBar: number = 16): number => {
+    if (!trackSequencerData || trackSequencerData.length === 0) {
+      return 1 // Default to 1 bar if no data
+    }
+    
+    // Find the last active step
+    let lastActiveStep = -1
+    for (let i = trackSequencerData.length - 1; i >= 0; i--) {
+      if (trackSequencerData[i]) {
+        lastActiveStep = i
+        break
+      }
+    }
+    
+    if (lastActiveStep === -1) {
+      return 1 // No active steps, default to 1 bar
+    }
+    
+    // Calculate bars based on steps and grid division
+    const totalSteps = trackSequencerData.length
+    const bars = Math.ceil((lastActiveStep + 1) / stepsPerBar)
+    
+    // CRITICAL FIX: For song arrangement, we want to respect the full pattern length
+    // If the sequencer has 128 steps (8 bars), and we have active steps, 
+    // we should use the full 8 bars, not just the bars with active steps
+    const totalBars = Math.ceil(totalSteps / stepsPerBar)
+    
+    // If we have active steps and the total is 8 bars, use the full 8 bars
+    // This ensures patterns play their intended full length
+    if (totalBars === 8 && bars > 0) {
+      console.log(`[PATTERN LENGTH] Full 8-bar pattern detected, using full length instead of ${bars} bars`)
+      return 8
+    }
+    
+    console.log(`[PATTERN LENGTH] Track has ${totalSteps} steps, last active at step ${lastActiveStep}, calculated ${bars} bars, total available: ${totalBars} bars`)
+    return Math.max(1, bars) // Minimum 1 bar
+  }
+
   // Load 11 patterns from each track automatically
   const loadElevenPatternsFromEachTrack = () => {
     console.log('[LOAD PATTERNS] Loading 11 patterns from each track')
@@ -1814,14 +1746,33 @@ export function SongArrangement({
     const newPatternBlocks: PatternBlock[] = []
     
     tracks.forEach((track, trackIndex) => {
+      // Get the sequencer data for this track
+      const trackSequencerData = sequencerData[track.id] || []
+      
+      // Calculate the actual pattern length from sequencer data
+      // steps = 128 represents 8 bars at 16 steps per bar, so stepsPerBar = 16
+      const stepsPerBar = 16 // Fixed: 16 steps per bar for 1/16 resolution
+      const actualPatternLength = calculatePatternLengthFromSequencer(trackSequencerData, stepsPerBar)
+      
+      console.log(`[LOAD PATTERNS] Track ${track.name}:`, {
+        sequencerDataLength: trackSequencerData.length,
+        stepsPerBar,
+        actualPatternLength,
+        selectedDuration,
+        finalPatternDuration: Math.max(actualPatternLength, selectedDuration)
+      })
+      
+      // Use the actual pattern length instead of hardcoded selectedDuration
+      const patternDuration = Math.max(actualPatternLength, selectedDuration)
+      
       // Calculate how many patterns can fit within totalBars
-      const maxPatterns = Math.floor(totalBars / selectedDuration)
+      const maxPatterns = Math.floor(totalBars / patternDuration)
       const patternsToCreate = Math.min(11, maxPatterns)
       
       // Create patterns for each track, starting from bar 1
       for (let i = 0; i < patternsToCreate; i++) {
-        const startBar = 1 + (i * selectedDuration) // Start from bar 1, then 1+8=9, 1+16=17, etc. (8-bar default)
-        const endBar = startBar + selectedDuration - 1
+        const startBar = 1 + (i * patternDuration) // Start from bar 1, then 1+8=9, 1+16=17, etc.
+        const endBar = startBar + patternDuration - 1
         
         // Skip if this pattern would extend beyond totalBars
         if (endBar > totalBars) {
@@ -1832,10 +1783,10 @@ export function SongArrangement({
           id: `pattern-${Date.now()}-${track.id}-${i}-${Math.random()}`,
           name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
           tracks: [track],
-          sequencerData: { [track.id]: sequencerData[track.id] || [] },
+          sequencerData: { [track.id]: trackSequencerData },
           bpm: bpm,
           steps: steps,
-          duration: selectedDuration,
+          duration: patternDuration, // Use actual calculated duration
           startBar: startBar,
           endBar: endBar,
           color: track.color,
@@ -3374,20 +3325,42 @@ export function SongArrangement({
     const patternsNeeded = Math.ceil(totalBars / patternSize)
     const newPatterns: PatternBlock[] = []
     
+    // Get the current sequencer data for this track
+    const trackSequencerData = sequencerData[trackId] || []
+    
     // Create patterns to fill the entire track
     for (let i = 0; i < patternsNeeded; i++) {
       const startBar = (i * patternSize) + 1
       const endBar = Math.min((i + 1) * patternSize, totalBars)
       const duration = endBar - startBar + 1
       
-      // Create a new pattern block
+      // CRITICAL FIX: Extend sequencer data to cover the full pattern duration
+      let extendedSequencerData = [...trackSequencerData]
+      
+      // Calculate how many steps we need for this pattern duration
+      const stepsPerBar = 16 // Assuming 16 steps per bar (1/16th notes)
+      const totalStepsNeeded = duration * stepsPerBar
+      
+      // If we need more steps than we have, extend the sequencer data
+      if (totalStepsNeeded > trackSequencerData.length) {
+        // Repeat the sequencer data to fill the required length
+        while (extendedSequencerData.length < totalStepsNeeded) {
+          extendedSequencerData = [...extendedSequencerData, ...trackSequencerData]
+        }
+        // Trim to exact length needed
+        extendedSequencerData = extendedSequencerData.slice(0, totalStepsNeeded)
+        
+        console.log(`[FILL TRACK] Extended sequencer data for track ${track.name} from ${trackSequencerData.length} to ${extendedSequencerData.length} steps for ${duration} bars`)
+      }
+      
+      // Create a new pattern block using the extended sequencer data
       const newPattern: PatternBlock = {
         id: `fill-${trackId}-${i}-${Date.now()}`,
         name: `${getTrackDisplayName(track.name)} ${patternSize}bar ${i + 1}`,
         tracks: [track],
-        sequencerData: { [trackId]: Array(16).fill(false) }, // Default empty pattern
+        sequencerData: { [trackId]: extendedSequencerData }, // Use extended sequencer data
         bpm: bpm,
-        steps: 16,
+        steps: totalStepsNeeded, // Use the actual steps needed for this pattern
         duration: duration,
         startBar: startBar,
         endBar: endBar,
@@ -3413,11 +3386,92 @@ export function SongArrangement({
     // Notify parent component
     onPatternsChange?.(finalPatternBlocks)
     
-    console.log(`[FILL TRACK] Successfully filled track ${track.name} with ${newPatterns.length} patterns`)
+    console.log(`[FILL TRACK] Successfully filled track ${track.name} with ${newPatterns.length} patterns using actual sequencer data`)
     
     // Close the dialog
     setShowFillTrackDialog(false)
     setSelectedTrackForFill(null)
+  }
+
+  // Create patterns from current sequencer data for all tracks
+  const createPatternsFromSequencer = () => {
+    console.log('[CREATE PATTERNS] Creating patterns from current sequencer data')
+    
+    if (Object.keys(sequencerData).length === 0) {
+      console.warn('[CREATE PATTERNS] No sequencer data available')
+      return
+    }
+    
+    const newPatterns: PatternBlock[] = []
+    
+    // Create patterns for each track based on their sequencer data
+    tracks.forEach(track => {
+      const trackSequencerData = sequencerData[track.id]
+      if (trackSequencerData && trackSequencerData.length > 0) {
+        // Calculate how many patterns we need based on the track length
+        const patternsNeeded = Math.ceil(totalBars / selectedDuration)
+        
+        for (let i = 0; i < patternsNeeded; i++) {
+          const startBar = (i * selectedDuration) + 1
+          const endBar = Math.min((i + 1) * selectedDuration, totalBars)
+          const duration = endBar - startBar + 1
+          
+          // CRITICAL FIX: Extend sequencer data to cover the full pattern duration
+          // If the original sequencer data is shorter than needed, repeat it to fill the pattern
+          let extendedSequencerData = [...trackSequencerData]
+          
+          // Calculate how many steps we need for this pattern duration
+          const stepsPerBar = 16 // Assuming 16 steps per bar (1/16th notes)
+          const totalStepsNeeded = duration * stepsPerBar
+          
+          // DEBUG: Log the extension process
+          console.log(`[DEBUG CREATE PATTERNS] Track ${track.name}:`, {
+            originalSteps: trackSequencerData.length,
+            patternDuration: duration,
+            totalStepsNeeded: totalStepsNeeded,
+            originalData: trackSequencerData
+          })
+          
+          // If we need more steps than we have, extend the sequencer data
+          if (totalStepsNeeded > trackSequencerData.length) {
+            // Repeat the sequencer data to fill the required length
+            while (extendedSequencerData.length < totalStepsNeeded) {
+              extendedSequencerData = [...extendedSequencerData, ...trackSequencerData]
+            }
+            // Trim to exact length needed
+            extendedSequencerData = extendedSequencerData.slice(0, totalStepsNeeded)
+            
+            console.log(`[CREATE PATTERNS] Extended sequencer data for track ${track.name} from ${trackSequencerData.length} to ${extendedSequencerData.length} steps for ${duration} bars`)
+            console.log(`[DEBUG] Extended data:`, extendedSequencerData)
+          }
+          
+          const newPattern: PatternBlock = {
+            id: `sequencer-${track.id}-${i}-${Date.now()}`,
+            name: `${getTrackDisplayName(track.name)} Pattern ${i + 1}`,
+            tracks: [track],
+            sequencerData: { [track.id]: extendedSequencerData }, // Use extended sequencer data
+            bpm: bpm,
+            steps: totalStepsNeeded, // Use the actual steps needed for this pattern
+            duration: duration,
+            startBar: startBar,
+            endBar: endBar,
+            color: track.color,
+            trackId: track.id
+          }
+          
+          newPatterns.push(newPattern)
+        }
+      }
+    })
+    
+    if (newPatterns.length > 0) {
+      // Replace existing patterns with new ones from sequencer
+      setPatternBlocks(newPatterns)
+      onPatternsChange?.(newPatterns)
+      console.log(`[CREATE PATTERNS] Created ${newPatterns.length} patterns from sequencer data`)
+    } else {
+      console.warn('[CREATE PATTERNS] No patterns could be created from sequencer data')
+    }
   }
 
   // Export the arrangement as a high-quality WAV file (Option 1: Offline rendering)
@@ -5543,6 +5597,13 @@ export function SongArrangement({
   // Play the entire arrangement using arrangement audio system
   const playArrangement = async (): Promise<void> => {
     console.log('=== PLAY ARRANGEMENT FUNCTION STARTED ===')
+    console.log('[PLAY DEBUG] Current state:', {
+      isArrangementPlaying,
+      patternBlocksLength: patternBlocks.length,
+      currentBar,
+      transportState: arrangementTransportRef.current?.state,
+      playersCount: Object.keys(arrangementPlayersRef.current).length
+    })
     console.log('[ARRANGEMENT AUDIO] Play arrangement called')
     console.log('[PLAY DEBUG] Current state:', { 
       isArrangementPlaying, 
@@ -5551,11 +5612,26 @@ export function SongArrangement({
       transportState: arrangementTransportRef.current?.state,
       playersCount: Object.keys(arrangementPlayersRef.current).length
     })
-    console.log('[ARRANGEMENT AUDIO] Pattern blocks:', patternBlocks)
-    console.log('[ARRANGEMENT AUDIO] Pattern blocks length:', patternBlocks.length)
-    console.log('[ARRANGEMENT AUDIO] Patterns prop length:', patterns.length)
-    console.log('[ARRANGEMENT AUDIO] Available tracks:', tracks)
-    console.log('[ARRANGEMENT AUDIO] Current players:', arrangementPlayersRef.current)
+          console.log('[ARRANGEMENT AUDIO] Pattern blocks:', patternBlocks)
+      console.log('[ARRANGEMENT AUDIO] Pattern blocks length:', patternBlocks.length)
+      console.log('[ARRANGEMENT AUDIO] Patterns prop length:', patterns.length)
+      console.log('[ARRANGEMENT AUDIO] Available tracks:', tracks)
+      console.log('[ARRANGEMENT AUDIO] Current players:', arrangementPlayersRef.current)
+      
+      // CRITICAL: Check if we have any pattern blocks to play
+      if (patternBlocks.length === 0) {
+        console.error('[ARRANGEMENT AUDIO] No pattern blocks to play!')
+        return
+      }
+      
+      // CRITICAL: Check if we have any players loaded
+      const loadedPlayers = Object.values(arrangementPlayersRef.current).filter(player => player && player.loaded)
+      console.log('[ARRANGEMENT AUDIO] Loaded players count:', loadedPlayers.length)
+      
+      if (loadedPlayers.length === 0) {
+        console.error('[ARRANGEMENT AUDIO] No players loaded! Cannot start arrangement.')
+        return
+      }
     
     if (patternBlocks.length === 0) {
       console.log('[ARRANGEMENT AUDIO] No pattern blocks found - manual loading required')
@@ -5741,33 +5817,22 @@ export function SongArrangement({
     // Don't reset currentBar - preserve the playhead position
     arrangementStartTimeRef.current = Date.now()
     
-    console.log('[PLAYHEAD DEBUG] Set isArrangementPlaying to true, isPlayingRef to true')
-    
     // Stop any currently playing arrangement and set transport to current playhead position
     if (arrangementTransportRef.current) {
-      console.log('[PLAY DEBUG] Transport state before setup:', arrangementTransportRef.current.state)
-      console.log('[PLAY DEBUG] Transport position before setup:', arrangementTransportRef.current.position)
-      
       arrangementTransportRef.current.stop()
       arrangementTransportRef.current.cancel() // Cancel all scheduled events first
       
       // CRITICAL FIX: In export mode, always start from position 0 since patterns are scheduled relative to export start
       const startPosition = exportMarkersActive ? 0 : 0 // Always start from 0, patterns are scheduled relative to export start
-      console.log(`[PLAY DEBUG] Setting transport position to ${startPosition} for fresh start (export mode: ${exportMarkersActive})`)
       arrangementTransportRef.current.position = startPosition
-      
-      console.log('[PLAY DEBUG] Transport state after setup:', arrangementTransportRef.current.state)
-      console.log('[PLAY DEBUG] Transport position after setup:', arrangementTransportRef.current.position)
     }
     
     // CRITICAL FIX: Don't interfere with global transport - let sequencer keep running
     // The arrangement transport is now properly isolated
     const globalTransport = Tone.getTransport()
-    console.log('[ARRANGEMENT AUDIO] Global transport state before arrangement play:', globalTransport.state)
     
     // Sort pattern blocks by start bar
     const sortedBlocks = [...patternBlocks].sort((a, b) => a.startBar - b.startBar)
-    console.log('[ARRANGEMENT AUDIO] Sorted blocks:', sortedBlocks)
     
     try {
       // Calculate total arrangement duration in bars based on actual pattern blocks
@@ -5779,20 +5844,25 @@ export function SongArrangement({
       const beatsPerBar = 4
       const secondsPerBar = secondsPerBeat * beatsPerBar
       
-      console.log('[ARRANGEMENT AUDIO] Scheduling patterns with timing:', { bpm, secondsPerBeat, secondsPerBar, totalDurationBars })
-      console.log('[ARRANGEMENT AUDIO] Available players before scheduling:', arrangementPlayersRef.current)
-      
       // Schedule each pattern to start at its calculated time, adjusted for current playhead position
+      let scheduledCount = 0
+      let failedCount = 0
+      
       sortedBlocks.forEach((block, index) => {
         const track = block.tracks[0]
         const player = arrangementPlayersRef.current[track.id]
         
-        console.log(`[ARRANGEMENT AUDIO] Processing block ${block.name}:`, {
-          trackId: track.id,
-          trackName: track.name,
-          player: player,
-          playerLoaded: player?.loaded,
-          playerState: player?.state
+        // Get the sequencer data for this track to determine which steps should play
+        const trackSequencerData = block.sequencerData[track.id] || []
+        
+        // DEBUG: Log the sequencer data to see what we're working with
+        console.log(`[DEBUG] Pattern ${block.name} for track ${track.name}:`, {
+          patternDuration: block.duration,
+          patternSteps: block.steps,
+          sequencerDataLength: trackSequencerData.length,
+          sequencerData: trackSequencerData,
+          filledSteps: trackSequencerData.filter(step => step).length,
+          lastFilledStep: trackSequencerData.lastIndexOf(true)
         })
         
         // Calculate start time in seconds (convert from bar number)
@@ -5805,7 +5875,6 @@ export function SongArrangement({
           const effectiveEndBar = Math.min(block.endBar, exportEndBar)
           
           if (effectiveStartBar > effectiveEndBar) {
-            console.log(`[ARRANGEMENT AUDIO] Skipping pattern ${block.name} - outside export range (${exportStartBar}-${exportEndBar})`)
             return
           }
           
@@ -5813,59 +5882,109 @@ export function SongArrangement({
           startTimeInBars = effectiveStartBar - exportStartBar // Relative to export start
           startTimeInSeconds = startTimeInBars * secondsPerBar
           durationInSeconds = (effectiveEndBar - effectiveStartBar + 1) * secondsPerBar
-          
-          console.log(`[ARRANGEMENT AUDIO] Export mode: Pattern ${block.name} scheduled at +${startTimeInSeconds}s (bar ${effectiveStartBar} relative to export start), duration ${durationInSeconds}s`)
         } else {
           // Normal mode: use absolute bar positions
           startTimeInBars = block.startBar - 1 // Convert to 0-based (bar 1 = position 0)
           startTimeInSeconds = startTimeInBars * secondsPerBar
           durationInSeconds = block.duration * secondsPerBar
-          
-          console.log(`[ARRANGEMENT AUDIO] Normal mode: Pattern ${block.name} scheduled at +${startTimeInSeconds}s (bar ${block.startBar} = position ${startTimeInBars} bars), duration ${durationInSeconds}s`)
         }
         
         if (player && player.loaded) {
           try {
-            // Schedule all patterns since we're starting from the beginning
-            console.log(`[ARRANGEMENT AUDIO] About to schedule player for ${block.name} at +${startTimeInSeconds}s`)
-                  player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
-            console.log(`[ARRANGEMENT AUDIO] Successfully scheduled pattern ${block.name} to start at +${startTimeInSeconds}s`)
+            // CRITICAL FIX: Make the audio player respect the full pattern duration
+            // If the pattern is longer than the original audio, we need to loop it
+            const originalAudioDuration = player.buffer.duration
+            
+            if (durationInSeconds <= originalAudioDuration) {
+              // Pattern fits within original audio, play normally
+              player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
+              console.log(`[ARRANGEMENT AUDIO] Pattern fits: ${block.name} at +${startTimeInSeconds}s for ${durationInSeconds}s`)
+            } else {
+              // Pattern is longer than original audio, we need to loop it
+              // Calculate how many times we need to loop
+              const loopsNeeded = Math.ceil(durationInSeconds / originalAudioDuration)
+              
+              for (let loop = 0; loop < loopsNeeded; loop++) {
+                const loopStartTime = startTimeInSeconds + (loop * originalAudioDuration)
+                const loopDuration = Math.min(originalAudioDuration, durationInSeconds - (loop * originalAudioDuration))
+                
+                if (loopDuration > 0) {
+                  player.start(`+${loopStartTime}`, 0, loopDuration)
+                  console.log(`[ARRANGEMENT AUDIO] Loop ${loop + 1}: ${block.name} at +${loopStartTime}s for ${loopDuration}s`)
+                }
+              }
+            }
+            
+            scheduledCount++
           } catch (error) {
             console.error(`[ARRANGEMENT AUDIO] Error scheduling pattern ${block.name}:`, error)
+            failedCount++
           }
         } else {
           console.warn(`[ARRANGEMENT AUDIO] No player available for track ${track.name}. Player:`, player)
+          failedCount++
         }
       })
       
       // CRITICAL FIX: Start the transport with proper timing
-      console.log('[ARRANGEMENT AUDIO] Starting transport...')
-      console.log('[PLAY DEBUG] Transport position before start:', arrangementTransportRef.current.position)
+      
+      // CRITICAL: Check if we have any audio scheduled
+      const scheduledPatterns = sortedBlocks.filter(block => {
+        const track = block.tracks[0]
+        const player = arrangementPlayersRef.current[track.id]
+        return player && player.loaded
+      })
+      
+      if (scheduledPatterns.length === 0) {
+        console.error('[ARRANGEMENT AUDIO] No audio patterns scheduled! Transport cannot start.')
+        return
+      }
       
       // CRITICAL FIX: Set playing state to true so playhead can update
       isPlayingRef.current = true
       setIsArrangementPlaying(true)
       onArrangementPlayStateChange?.(true)
       
-      console.log('[PLAYHEAD DEBUG] Play state set:', {
-        isPlayingRef: isPlayingRef.current,
-        isArrangementPlaying: true,
-        transportState: arrangementTransportRef.current?.state
-      })
+
       
-      // Start the transport from position 0 (already set earlier)
-        arrangementTransportRef.current?.start()
-      console.log('[ARRANGEMENT AUDIO] Transport started successfully at position 0')
-      console.log('[PLAY DEBUG] Transport state after start:', arrangementTransportRef.current.state)
+              // CRITICAL: Ensure transport is properly configured before starting
+        
+        // Force stop and reset transport to ensure clean state
+        arrangementTransportRef.current.stop()
+        arrangementTransportRef.current.cancel()
+        arrangementTransportRef.current.position = 0
+        arrangementTransportRef.current.bpm.value = bpm
+        
+        // Start the transport from position 0
+        try {
+          // CRITICAL: Use a more robust start method
+          if (arrangementTransportRef.current.start) {
+            arrangementTransportRef.current.start()
+          } else {
+            console.error('[ARRANGEMENT AUDIO] Transport start method not available!')
+            return
+          }
+          
+          // Wait a moment for the transport to actually start
+          setTimeout(() => {
+            if (arrangementTransportRef.current?.state !== 'started') {
+              // Try alternative start method
+              try {
+                arrangementTransportRef.current?.start('+0')
+              } catch (altError) {
+                console.error('[ARRANGEMENT AUDIO] Alternative start method also failed:', altError)
+              }
+            }
+          }, 100)
+          
+        } catch (error) {
+          console.error('[ARRANGEMENT AUDIO] Error starting transport:', error)
+        }
       
       // Update playhead every 16ms (60fps) for smooth movement
       progressIntervalRef.current = setInterval(() => {
-        console.log('[PLAYHEAD DEBUG] Interval callback fired!')
         updatePlayhead()
       }, 16)
-      console.log('[PLAYHEAD DEBUG] Playhead interval set up with ID:', progressIntervalRef.current)
-      
-      console.log(`[ARRANGEMENT AUDIO] Started arrangement with ${sortedBlocks.length} patterns, total duration: ${totalDurationBars} bars`)
     } catch (error) {
       console.error('[ARRANGEMENT AUDIO] Error creating sequence:', error)
       setIsArrangementPlaying(false)
@@ -5876,15 +5995,12 @@ export function SongArrangement({
   const stopArrangement = (): void => {
     // CRITICAL: If we're in export mode and the arrangement stops, we need to stop the MediaRecorder too
     if (exportMarkersActive && (window as any).mediaRecorderForExport) {
-      console.log('[STOP] Export mode detected - stopping MediaRecorder')
       if ((window as any).mediaRecorderForExport.state === 'recording') {
         (window as any).mediaRecorderForExport.stop()
-        console.log('[STOP] MediaRecorder stopped due to arrangement stop')
       }
       // Clean up the global reference
       (window as any).mediaRecorderForExport = null
     }
-    console.log('[STOP] AGGRESSIVE STOP - Stopping all audio immediately')
     
     // Set state to stopped immediately
     setIsArrangementPlaying(false)
@@ -5892,61 +6008,54 @@ export function SongArrangement({
     setCurrentPattern(null)
     onArrangementPlayStateChange?.(false)
     
-    // CRITICAL: Stop ALL transports first (most important)
-    try {
-      // Stop arrangement transport
-      if (arrangementTransportRef.current) {
-        console.log('[STOP] Stopping arrangement transport')
-        arrangementTransportRef.current.stop()
-        arrangementTransportRef.current.cancel()
-        arrangementTransportRef.current.position = 0 // Reset to beginning
+          // CRITICAL: Stop ALL transports first (most important)
+      try {
+        // Stop arrangement transport
+        if (arrangementTransportRef.current) {
+          arrangementTransportRef.current.stop()
+          arrangementTransportRef.current.cancel()
+          arrangementTransportRef.current.position = 0 // Reset to beginning
+        }
+        
+        // Stop global transport
+        const globalTransport = Tone.getTransport()
+        globalTransport.stop()
+        globalTransport.cancel()
+        globalTransport.position = 0
+        globalTransport.loop = false
+      } catch (error) {
+        console.error('[STOP] Error stopping transports:', error)
       }
-      
-      // Stop global transport
-      const globalTransport = Tone.getTransport()
-      console.log('[STOP] Stopping global transport')
-      globalTransport.stop()
-      globalTransport.cancel()
-      globalTransport.position = 0
-      globalTransport.loop = false
-    } catch (error) {
-      console.error('[STOP] Error stopping transports:', error)
-    }
     
     // AGGRESSIVE: Stop ALL players immediately
-    Object.entries(arrangementPlayersRef.current).forEach(([trackId, player]) => {
-      if (player) {
-        try {
-          console.log(`[STOP] Force stopping player for track ${trackId}`)
-          player.stop()
-          player.stop() // Double stop to be sure
-          
-          // If still playing, dispose and recreate
-          if (player.state === 'started') {
-            console.log(`[STOP] Player ${trackId} still playing, disposing...`)
-            player.dispose()
-            delete arrangementPlayersRef.current[Number(trackId)]
-          }
-        } catch (error) {
-          console.error(`[STOP] Error stopping player ${trackId}:`, error)
-          // Force dispose as last resort
+          Object.entries(arrangementPlayersRef.current).forEach(([trackId, player]) => {
+        if (player) {
           try {
-            player.dispose()
-            delete arrangementPlayersRef.current[Number(trackId)]
-          } catch (disposeError) {
-            console.error(`[STOP] Error disposing player ${trackId}:`, disposeError)
+            player.stop()
+            player.stop() // Double stop to be sure
+            
+            // If still playing, dispose and recreate
+            if (player.state === 'started') {
+              player.dispose()
+              delete arrangementPlayersRef.current[Number(trackId)]
+            }
+          } catch (error) {
+            console.error(`[STOP] Error stopping player ${trackId}:`, error)
+            // Force dispose as last resort
+            try {
+              player.dispose()
+              delete arrangementPlayersRef.current[Number(trackId)]
+            } catch (disposeError) {
+              console.error(`[STOP] Error disposing player ${trackId}:`, disposeError)
+            }
           }
         }
-      }
-    })
+      })
     
     // Clear all intervals
     if (progressIntervalRef.current) {
-      console.log('[PLAYHEAD DEBUG] Clearing playhead interval:', progressIntervalRef.current)
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
-    } else {
-      console.log('[PLAYHEAD DEBUG] No playhead interval to clear')
     }
     
     // Nuclear option: Clear ALL intervals on the page
@@ -5963,13 +6072,11 @@ export function SongArrangement({
     // Force audio context to stop if needed
     try {
       if (Tone.context.state === 'running') {
-        console.log('[STOP] Audio context is running - will be handled by transport stops')
+        // Audio context will be handled by transport stops
       }
     } catch (error) {
       console.error('[STOP] Error checking audio context:', error)
     }
-    
-    console.log('[STOP] AGGRESSIVE STOP COMPLETE - All audio should be stopped')
   }
 
   // Calculate time position for a bar
@@ -6252,6 +6359,52 @@ export function SongArrangement({
             >
               <RotateCcw className="w-4 h-4" />
             </Button>
+            
+            {/* Button to create patterns from current sequencer data */}
+            <Button
+              onClick={createPatternsFromSequencer}
+              variant="outline"
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+              title="Create patterns from current sequencer data"
+            >
+              <Music className="w-4 h-4 mr-2" />
+              From Sequencer
+            </Button>
+            
+            {/* Button to clear all patterns */}
+            <Button
+              onClick={() => {
+                setPatternBlocks([])
+                onPatternsChange?.([])
+                console.log('[CLEAR] All patterns cleared from timeline')
+              }}
+              variant="outline"
+              size="sm"
+              className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+              title="Clear all patterns from timeline"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Clear All
+            </Button>
+            
+            {/* Button to reset everything */}
+            <Button
+              onClick={() => {
+                setPatternBlocks([])
+                onPatternsChange?.([])
+                setCurrentBarSafe(1)
+                setTotalBars(64)
+                console.log('[RESET] Song arrangement completely reset')
+              }}
+              variant="outline"
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
+              title="Reset song arrangement to initial state"
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reset
+            </Button>
             <div className="text-gray-300 text-sm">
               {isArrangementPlaying 
                 ? `Playing: Bar ${Math.floor(currentBar)}.${Math.floor((currentBar % 1) * 4)}` 
@@ -6266,69 +6419,8 @@ export function SongArrangement({
                 No Patterns - Load Manually
               </Badge>
             )}
-            <Button
-              onClick={() => {
-                console.log('=== AUDIO SYSTEM DEBUG ===')
-                console.log('1. Audio context state:', Tone.context.state)
-                console.log('2. Audio system initialized:', isArrangementAudioInitialized.current)
-                console.log('3. Available players:', Object.keys(arrangementPlayersRef.current))
-                console.log('4. Transport exists:', !!arrangementTransportRef.current)
-                console.log('5. Transport state:', arrangementTransportRef.current?.state)
-                console.log('6. Pattern blocks:', patternBlocks.length)
-                console.log('7. Tracks with audio:', tracks.filter(t => t.audioUrl).length)
-                console.log('8. Current bar:', currentBar)
-                console.log('9. Is playing:', isArrangementPlaying)
-                console.log('10. Is playing ref:', isPlayingRef.current)
-                console.log('11. Progress interval:', progressIntervalRef.current)
-                
-                // Test if we can actually play audio
-                if (Object.keys(arrangementPlayersRef.current).length > 0) {
-                  const firstPlayer = Object.values(arrangementPlayersRef.current)[0]
-                  console.log('12. First player state:', firstPlayer.state)
-                  console.log('13. First player loaded:', firstPlayer.loaded)
-                } else {
-                  console.log('12. NO PLAYERS AVAILABLE!')
-                }
-                
-                // Check for any playing players
-                const playingPlayers = Object.entries(arrangementPlayersRef.current).filter(([id, player]) => player?.state === 'started')
-                console.log('14. Currently playing players:', playingPlayers.map(([id]) => id))
-                
-                // Check transport state
-                if (arrangementTransportRef.current) {
-                  console.log('15. Transport position:', arrangementTransportRef.current.position)
-                  console.log('16. Transport loop:', arrangementTransportRef.current.loop)
-                }
-                
-                // Check if transport is stuck
-                if (arrangementTransportRef.current && arrangementTransportRef.current.state === 'started') {
-                  console.log('17. ⚠️ TRANSPORT IS STILL RUNNING!')
-                } else {
-                  console.log('17. ✅ Transport is stopped')
-                }
-                
-                // Check if any players are stuck
-                const stuckPlayers = Object.entries(arrangementPlayersRef.current).filter(([id, player]) => player?.state === 'started')
-                if (stuckPlayers.length > 0) {
-                  console.log('18. ⚠️ STUCK PLAYERS:', stuckPlayers.map(([id]) => id))
-                } else {
-                  console.log('18. ✅ All players are stopped')
-                }
-              }}
-              variant="outline"
-              size="sm"
-              className="text-xs"
-            >
-              Debug Audio
-            </Button>
-            <Button
-              onClick={debugTransportPosition}
-              variant="outline"
-              size="sm"
-              className="text-xs"
-            >
-              Debug Transport
-            </Button>
+
+
             <Button
               onClick={() => {
                 setIsDeleteMode(!isDeleteMode)
@@ -6742,7 +6834,6 @@ export function SongArrangement({
                   visibility: 'visible'
                 }}
                 onClick={(e) => {
-                  console.log('[TIMELINE] Timeline header clicked! Event:', e)
                   handleTimelineHeaderClick(e)
                 }}
                 title="Click to set playhead position"

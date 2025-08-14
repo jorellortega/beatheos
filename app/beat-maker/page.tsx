@@ -12,6 +12,7 @@ declare global {
     trackId: number
   }
   _masterEQChain?: any[]
+  _audioMonitorLogged?: boolean
 }
 }
 
@@ -6297,6 +6298,15 @@ export default function BeatMakerPage() {
         const serialized = JSON.stringify(songArrangementPatterns)
         console.log('[SESSION DEBUG] Song arrangement data is serializable, length:', serialized.length)
         console.log('[SESSION DEBUG] Serialized data preview:', serialized.substring(0, 500) + '...')
+        
+        // Validate pattern structure
+        if (Array.isArray(validatedSongArrangementData)) {
+          validatedSongArrangementData.forEach((pattern, index) => {
+            if (!pattern.id || !pattern.name || !pattern.trackId) {
+              console.warn(`[SESSION DEBUG] Pattern ${index} missing required fields:`, pattern)
+            }
+          })
+        }
       } catch (error) {
         console.error('[SESSION DEBUG] Song arrangement data is not serializable, using empty array:', error)
         validatedSongArrangementData = []
@@ -6369,6 +6379,7 @@ export default function BeatMakerPage() {
       console.log('[SESSION DEBUG] Tracks count:', sessionData.tracks?.length || 0)
       console.log('[SESSION DEBUG] Sequencer data keys:', Object.keys(sessionData.sequencer_data || {}))
       console.log('[SESSION DEBUG] Song arrangement data count:', sessionData.song_arrangement_data?.length || 0)
+      console.log('[SESSION DEBUG] Song arrangement data:', sessionData.song_arrangement_data)
       
       // Test if the entire session data can be serialized
       try {
@@ -6447,6 +6458,15 @@ export default function BeatMakerPage() {
         // Test if the data can be serialized
         const serialized = JSON.stringify(songArrangementPatterns)
         console.log('[SESSION DEBUG] Song arrangement data is serializable, length:', serialized.length)
+        
+        // Validate pattern structure
+        if (Array.isArray(validatedSongArrangementData)) {
+          validatedSongArrangementData.forEach((pattern, index) => {
+            if (!pattern.id || !pattern.name || !pattern.trackId) {
+              console.warn(`[SESSION DEBUG] Pattern ${index} missing required fields:`, pattern)
+            }
+          })
+        }
       } catch (error) {
         console.error('[SESSION DEBUG] Song arrangement data is not serializable, using empty array:', error)
         validatedSongArrangementData = []
@@ -6507,6 +6527,7 @@ export default function BeatMakerPage() {
       console.log('[SESSION DEBUG] Session data keys:', Object.keys(sessionData))
       console.log('[SESSION DEBUG] Tracks count:', sessionData.tracks?.length || 0)
       console.log('[SESSION DEBUG] Song arrangement data count:', sessionData.song_arrangement_data?.length || 0)
+      console.log('[SESSION DEBUG] Song arrangement data:', sessionData.song_arrangement_data)
 
       const result = await supabase
         .from('beat_sessions')
@@ -6558,10 +6579,23 @@ export default function BeatMakerPage() {
 
   // Wrapper function for toggleStep that also marks session as changed
   const handleToggleStep = (trackId: number, stepIndex: number) => {
+    console.log('[DEBUG] handleToggleStep called:', { trackId, stepIndex })
+    console.log('[DEBUG] Current sequencerData before toggle:', sequencerData)
+    console.log('[DEBUG] Current track data before toggle:', sequencerData[trackId])
+    
     toggleStep(trackId, stepIndex)
+    
+    console.log('[DEBUG] After toggleStep call')
+    
     markSessionChanged()
     // Add to undo/redo history
     undoRedo.addToHistory(captureCurrentState(), 'Toggle step')
+    
+    // Log the state after all updates
+    setTimeout(() => {
+      console.log('[DEBUG] Final sequencerData after toggle:', sequencerData)
+      console.log('[DEBUG] Final track data after toggle:', sequencerData[trackId])
+    }, 100)
   }
 
   // Load saved sessions
@@ -6919,8 +6953,14 @@ export default function BeatMakerPage() {
       }
 
       // Restore song arrangement data
-      if (data.song_arrangement_data) {
+      if (data.song_arrangement_data && Array.isArray(data.song_arrangement_data)) {
+        console.log('[SESSION LOAD] Restoring song arrangement patterns:', data.song_arrangement_data.length)
+        console.log('[SESSION LOAD] Pattern data:', data.song_arrangement_data)
         setSongArrangementPatterns(data.song_arrangement_data)
+      } else {
+        // Clear song arrangement patterns if no data exists
+        setSongArrangementPatterns([])
+        console.log('[SESSION LOAD] No song arrangement data found, cleared patterns')
       }
 
       // Restore playback state (but don't auto-play)
@@ -7640,6 +7680,11 @@ export default function BeatMakerPage() {
       [trackId]: !prev[trackId]
     }))
   }
+
+  // Monitor patterns state changes for debugging
+  useEffect(() => {
+    console.log('[PATTERNS DEBUG] Patterns state changed:', songArrangementPatterns.length, songArrangementPatterns)
+  }, [songArrangementPatterns])
 
   // Song arrangement pattern management
   const handleSongArrangementPatternsChange = (patterns: any[]) => {
@@ -8571,133 +8616,7 @@ export default function BeatMakerPage() {
                     </svg>
                   </button>
                   
-                  {showDebugDropdown && (
-                    <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-50 min-w-[200px]">
-                      <div className="p-2 space-y-1">
-                        <button
-                          onClick={() => {
-                            console.log('[LOOP DEBUG] Debugging all tracks with loops...')
-                            tracks.forEach(track => {
-                              if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
-                                debugLoopTiming(track)
-                              }
-                            })
-                          }}
-                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-cyan-300"
-                        >
-                          🔄 Loop Debug
-                        </button>
-                        
-                        <button
-                          onClick={async () => {
-                            console.log('[TRANSPORT DEBUG] Checking Transport synchronization...')
-                            const transportStep = await getCurrentStepFromTransport()
-                            const playheadStep = getCurrentPlayheadPosition()
-                            console.log(`[TRANSPORT DEBUG] Transport step: ${transportStep}, Playhead step: ${playheadStep}`)
-                            console.log(`[TRANSPORT DEBUG] Difference: ${Math.abs(transportStep - playheadStep)} steps`)
-                          }}
-                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-yellow-300"
-                        >
-                          ⏱️ Transport Debug
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            console.log('[LOOP CONTROL] Manually restarting all loops at pattern boundary...')
-                            restartAllLoopsAtPatternBoundary()
-                          }}
-                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-green-300"
-                        >
-                          🔄 Restart Loops
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            console.log('[LOOP CONTROL] Stopping all loops...')
-                            stopAllLoops()
-                          }}
-                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-red-300"
-                        >
-                          ⏹️ Stop Loops
-                        </button>
-                        
-                        <button
-                          onClick={() => {
-                            console.log('[WAVEFORM DEBUG] Checking waveform loading status...')
-                            tracks.forEach(track => {
-                              if (track.audioUrl && track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
-                                const loopDuration = track.loopEndTime - track.loopStartTime
-                                const secondsPerBeat = 60 / bpm
-                                const stepDuration = secondsPerBeat / (gridDivision / 4)
-                                const sequencerDuration = steps * stepDuration
-                                const extensionRatio = loopDuration / sequencerDuration
-                                
-                                console.log(`[WAVEFORM DEBUG] Track ${track.name}:`)
-                                console.log(`  - Loop: ${loopDuration.toFixed(2)}s`)
-                                console.log(`  - Sequencer: ${sequencerDuration.toFixed(2)}s`)
-                                console.log(`  - Extension ratio: ${extensionRatio.toFixed(2)}x`)
-                                console.log(`  - Audio URL: ${track.audioUrl?.substring(0, 50)}...`)
-                              }
-                            })
-                          }}
-                          className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-pink-300"
-                                                 >
-                           📊 Waveform Debug
-                         </button>
-                         
-                         <button
-                           onClick={() => {
-                             console.log('🔍 DEBUG: Current state')
-                             console.log('File links:', fileLinks)
-                             console.log('Tracks with audio:', tracks.filter(t => t.audioUrl).map(t => ({
-                               name: t.name,
-                               audioFileId: t.audioFileId,
-                               audioUrl: t.audioUrl
-                             })))
-                             console.log('Prefer MP3:', preferMp3)
-                           }}
-                           className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-red-300"
-                         >
-                           🔍 General Debug
-                         </button>
-                         
-                         <button
-                           onClick={async () => {
-                             console.log('🔄 FORCE REFRESH: Fetching file links...')
-                             await fetchFileLinks()
-                             console.log('✅ File links refreshed')
-                           }}
-                           className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-blue-300"
-                         >
-                           🔄 Force Refresh
-                         </button>
-                         
-                         <button
-                           onClick={() => {
-                             console.log('🔍 MP3/WAV DEBUG:')
-                             console.log('Current preferMp3:', preferMp3)
-                             console.log('File links count:', fileLinks.length)
-                             console.log('Sample file links:', fileLinks.slice(0, 3))
-                             console.log('Tracks with audioFileId:', tracks.filter(t => t.audioFileId).map(t => ({
-                               name: t.name,
-                               audioFileId: t.audioFileId,
-                               audioUrl: t.audioUrl?.substring(0, 50) + '...'
-                             })))
-                           }}
-                           className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-green-300"
-                                                    >
-                             🎵 MP3/WAV Debug
-                           </button>
-                           
-                           <button
-                             onClick={debugAudioLibraryData}
-                             className="w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-700 text-orange-300"
-                           >
-                             🎵 Audio Library Debug
-                           </button>
-                         </div>
-                       </div>
-                     )}
+
                    </div>
 
                 {/* Format Toggle (WAV/MP3) - Only show when format system is enabled */}
@@ -9388,7 +9307,6 @@ export default function BeatMakerPage() {
             onToggleWaveforms={() => setShowWaveforms(!showWaveforms)}
             trackWaveformStates={trackWaveformStates}
             onToggleTrackWaveform={handleToggleTrackWaveform}
-            gridDivision={gridDivision}
             onGridDivisionChange={setGridDivision}
             onQuantizeSequencerData={(trackId, quantizedData) => {
               // Use the hook's setSequencerDataFromSession function instead

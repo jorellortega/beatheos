@@ -141,14 +141,16 @@ export function SequencerGrid({
     return stepTime
   }
 
-  // Function to convert step to bar (16 steps per bar for 1/16 resolution)
+  // Function to convert step to bar (based on grid division)
   const stepToBar = (stepIndex: number) => {
-    return Math.floor(stepIndex / 16) + 1
+    const stepsPerBar = gridDivision // Each bar has gridDivision steps
+    return Math.floor(stepIndex / stepsPerBar) + 1
   }
 
   // Function to check if step is start of a bar
   const isBarStart = (stepIndex: number) => {
-    return stepIndex % 16 === 0
+    const stepsPerBar = gridDivision // Each bar has gridDivision steps
+    return stepIndex % stepsPerBar === 0
   }
 
   // Function to convert step index to grid-aware step number
@@ -795,7 +797,19 @@ export function SequencerGrid({
                           } ${
                             isCurrentStep ? 'ring-2 ring-white' : ''
                           }`}
-                          onClick={() => handleGridStepToggle(track.id, stepIndex)}
+                                                  onClick={() => {
+                          console.log('Grid clicked:', { 
+                            trackId: track.id, 
+                            stepIndex, 
+                            isActive,
+                            stepNumber: stepIndex + 1,
+                            barNumber: stepToBar(stepIndex),
+                            totalSteps: steps,
+                            stepWidth: stepWidth,
+                            gridDivision: gridDivision
+                          })
+                          handleGridStepToggle(track.id, stepIndex)
+                        }}
                           title={`Step ${getGridStepNumber(stepIndex)}`}
                         >
                           {isActive && (

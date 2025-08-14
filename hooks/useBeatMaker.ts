@@ -152,29 +152,84 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   // Function to set sequencer data from outside (for session loading)
   const setSequencerDataFromSession = useCallback((newSequencerData: SequencerData | ((prev: SequencerData) => SequencerData)) => {
     console.log('[HOOK] setSequencerDataFromSession called with:', newSequencerData)
+    console.log('[HOOK] Current sequencerData before update:', sequencerData)
+    console.log('[HOOK] Current steps value:', steps)
+    console.log('[HOOK] Type of newSequencerData:', typeof newSequencerData)
     isLoadingPatternRef.current = true
     
     if (typeof newSequencerData === 'function') {
+      console.log('[HOOK] Processing function-based sequencer data')
       // If it's a function, call it with current state
       setSequencerData(prev => {
         const result = newSequencerData(prev)
-        // Save the result as original data for step preservation
-        originalSequencerDataRef.current = { ...result }
+        console.log('[HOOK] Function result:', result)
+        
+        // Ensure all track arrays have the correct length
+        const expandedResult: SequencerData = {}
+        Object.keys(result).forEach(trackIdStr => {
+          const trackId = parseInt(trackIdStr)
+          const trackData = result[trackId]
+          console.log(`[HOOK] Processing track ${trackId}:`, trackData)
+          if (trackData && Array.isArray(trackData)) {
+            if (trackData.length !== steps) {
+              console.log(`[HOOK] Expanding track ${trackId} from ${trackData.length} to ${steps} steps`)
+              const expandedArray = new Array(steps).fill(false)
+              // Copy existing data
+              for (let i = 0; i < Math.min(trackData.length, steps); i++) {
+                expandedArray[i] = trackData[i]
+              }
+              expandedResult[trackId] = expandedArray
+              console.log(`[HOOK] Expanded array for track ${trackId}:`, expandedArray)
+            } else {
+              expandedResult[trackId] = trackData
+              console.log(`[HOOK] Track ${trackId} already correct length`)
+            }
+          }
+        })
+        
+        // Save the expanded result as original data for step preservation
+        originalSequencerDataRef.current = { ...expandedResult }
         console.log('[HOOK] Sequencer data updated via function and original data saved')
-        return result
+        console.log('[HOOK] Final expanded result:', expandedResult)
+        return expandedResult
       })
     } else {
-      // If it's direct data, use it directly
-      originalSequencerDataRef.current = { ...newSequencerData }
-      setSequencerData(newSequencerData)
+      console.log('[HOOK] Processing direct sequencer data')
+      // If it's direct data, ensure all arrays have correct length
+      const expandedData: SequencerData = {}
+      Object.keys(newSequencerData).forEach(trackIdStr => {
+        const trackId = parseInt(trackIdStr)
+        const trackData = newSequencerData[trackId]
+        console.log(`[HOOK] Processing track ${trackId}:`, trackData)
+        if (trackData && Array.isArray(trackData)) {
+          if (trackData.length !== steps) {
+            console.log(`[HOOK] Expanding track ${trackId} from ${trackData.length} to ${steps} steps`)
+            const expandedArray = new Array(steps).fill(false)
+            // Copy existing data
+            for (let i = 0; i < Math.min(trackData.length, steps); i++) {
+              expandedArray[i] = trackData[i]
+            }
+            expandedData[trackId] = expandedArray
+            console.log(`[HOOK] Expanded array for track ${trackId}:`, expandedArray)
+          } else {
+            expandedData[trackId] = trackData
+            console.log(`[HOOK] Track ${trackId} already correct length`)
+          }
+        }
+      })
+      
+      originalSequencerDataRef.current = { ...expandedData }
+      setSequencerData(expandedData)
       console.log('[HOOK] Sequencer data updated directly and original data saved')
+      console.log('[HOOK] Final expanded data:', expandedData)
     }
     
     // Reset the loading flag after a short delay to allow the state to update
     setTimeout(() => {
       isLoadingPatternRef.current = false
+      console.log('[HOOK] Loading flag reset, current sequencerData:', sequencerData)
     }, 100)
-  }, [])
+  }, [sequencerData, steps])
 
   // Initialize sequencer data for new tracks or step count changes
   useEffect(() => {
@@ -240,12 +295,25 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     } else if (isLoadingPatternRef.current) {
       console.log('[HOOK] Skipping initialization - pattern is being loaded')
     }
-  }, [steps]) // Only depend on steps, not tracks
+  }, [steps, tracks]) // Depend on both steps and tracks to properly initialize
 
   // Update BPM
   useEffect(() => {
     Tone.Transport.bpm.value = bpm
   }, [bpm])
+
+  // Ensure sequencer data is properly synchronized when tracks change
+  useEffect(() => {
+    if (tracks.length > 0 && Object.keys(sequencerData).length === 0) {
+      console.log('[HOOK] Tracks loaded but sequencer data is empty, initializing...')
+      const newSequencerData: SequencerData = {}
+      tracks.forEach(track => {
+        newSequencerData[track.id] = new Array(steps).fill(false)
+      })
+      setSequencerData(newSequencerData)
+      console.log('[HOOK] Initialized empty sequencer data for tracks:', Object.keys(newSequencerData))
+    }
+  }, [tracks, sequencerData, steps])
 
   // Load samples with improved pitch shifting
   useEffect(() => {
@@ -515,93 +583,11 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     })
   }, [])
 
-  // Function to get current step from Transport position
-  const getCurrentStepFromTransport = useCallback(async () => {
-    const Tone = await import('tone')
-    const transportPosition = Tone.Transport.position as number
-    const secondsPerBeat = 60 / bpm
-    const stepDuration = secondsPerBeat / (gridDivision / 4)
-    
-    // Convert transport position to step number
-    const currentStep = Math.floor(transportPosition / stepDuration) % steps
-    return currentStep
-  }, [bpm, steps, gridDivision])
 
-  // Real-time Transport-synchronized playhead update
-  const updatePlayheadFromTransport = useCallback(() => {
-    if (!transportSyncRef.current) return
-    
-    getCurrentStepFromTransport().then(step => {
-      if (step !== playheadRef.current) {
-        playheadRef.current = step
-        setCurrentStep(step)
-        
-        // Check if we need to restart loops at pattern boundary
-        if (step === 0) {
-          restartAllLoopsAtPatternBoundary()
-        }
-      }
-    }).catch(console.error)
-    
-    // Continue the animation loop
-    animationFrameRef.current = requestAnimationFrame(updatePlayheadFromTransport)
-  }, [getCurrentStepFromTransport])
 
-  // Function to restart all loops at the pattern boundary (8 bars)
-  const restartAllLoopsAtPatternBoundary = useCallback(() => {
-    console.log('[PATTERN BOUNDARY] Checking loops at 8-bar boundary')
-    
-    tracks.forEach(track => {
-      const player = samplesRef.current[track.id]
-      if (!player || !player.loaded || !track.audioUrl || track.audioUrl === 'undefined') return
-      
-      // Only handle tracks with loop points that are currently playing
-      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined && player.state === 'started') {
-        const loopDuration = track.loopEndTime - track.loopStartTime
-        const playbackRate = track.playbackRate || 1.0
-        const actualDuration = loopDuration / playbackRate
-        
-        // Calculate sequencer duration
-        const secondsPerBeat = 60 / bpm
-        const stepDuration = secondsPerBeat / (gridDivision / 4)
-        const sequencerDuration = steps * stepDuration
-        
-        console.log(`[PATTERN BOUNDARY DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s`)
-        
-        // Check if the loop is extended to fill the sequencer duration
-        // Compare the actual loop end time with the original loop end time
-        const currentLoopEnd = player.loopEnd
-        const isExtendedLoop = currentLoopEnd && 
-          (typeof currentLoopEnd === 'number' ? currentLoopEnd > track.loopEndTime : 
-           typeof currentLoopEnd === 'string' ? parseFloat(currentLoopEnd) > track.loopEndTime : false)
-        
-        if (isExtendedLoop) {
-          // This is an extended loop that should continue seamlessly
-          console.log(`[PATTERN BOUNDARY] Track ${track.name} has extended loop - letting it continue seamlessly`)
-          
-          // Special debugging for Percussion Loop
-          if (track.name === 'Perc' || track.name === 'Percussion Loop') {
-            console.log(`[PERC PATTERN BOUNDARY] Percussion Loop extended - continuing seamlessly`)
-          }
-        } else {
-          // This is a short loop that needs to restart
-          console.log(`[PATTERN BOUNDARY] Restarting short loop for track ${track.name}`)
-          
-          // Special debugging for Percussion Loop
-          if (track.name === 'Perc' || track.name === 'Percussion Loop') {
-            console.log(`[PERC PATTERN BOUNDARY] Restarting Percussion Loop at pattern boundary`)
-          }
-          
-          // Stop the current loop
-          player.stop()
-          
-          // Start the loop again from the beginning
-          const startTime = Tone.now()
-          player.start(startTime, track.loopStartTime)
-        }
-      }
-    })
-  }, [tracks, bpm, steps, gridDivision])
+
+
+
 
   // Function to force stop all loops (for manual control)
   const stopAllLoops = useCallback(() => {
@@ -640,46 +626,55 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     })
   }, [tracks])
 
-  // Define playStep function first
+  // Define playStep function first with improved timing precision
   const playStep = useCallback((step: number) => {
     // Update playhead immediately for real-time response
     updatePlayhead(step)
     
     console.log(`[PLAYSTEP] Step ${step}/${steps} (${((step / steps) * 100).toFixed(1)}% through pattern)`)
     
+    // Debug: Show what steps are filled for each track
+    console.log(`[PLAYSTEP DEBUG] Sequencer data for step ${step}:`, Object.entries(sequencerData).map(([trackId, trackSteps]) => ({
+      trackId,
+      shouldPlay: trackSteps[step],
+      allSteps: trackSteps
+    })))
+    
+
+    
     // Debug: Track which loops are playing at each step
     const playingLoops: string[] = []
     const stoppedLoops: string[] = []
     
-          tracks.forEach(track => {
-        const player = samplesRef.current[track.id]
-        const shouldPlay = sequencerData[track.id]?.[step]
-        const validAudio = track.audioUrl && track.audioUrl !== 'undefined'
-        
-        // Debug: Track loop state for this track
-        const hasLoop = track.loopStartTime !== undefined && track.loopEndTime !== undefined
-        const loopDuration = hasLoop && track.loopStartTime !== undefined && track.loopEndTime !== undefined 
-          ? track.loopEndTime - track.loopStartTime : 0
-        const playbackRate = track.playbackRate || 1.0
-        const actualLoopDuration = loopDuration / playbackRate
-        
-        if (hasLoop) {
-          console.log(`[LOOP DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualLoopDuration.toFixed(2)}s`)
-        }
-        
-        // Special debugging for Percussion Loop
-        if (track.name === 'Perc' || track.name === 'Percussion Loop') {
-          console.log(`[PERC DEBUG] Step ${step}: Track ${track.name} - shouldPlay=${shouldPlay}, playerState=${player?.state}, hasLoop=${hasLoop}`)
-          console.log(`[PERC DEBUG] Track details: loopStartTime=${track.loopStartTime}, loopEndTime=${track.loopEndTime}, audioUrl=${track.audioUrl}`)
-        }
-        
-        // Handle audio samples (main sequencer pattern)
-        if (
-          shouldPlay &&
-          player &&
-          player.loaded &&
-          validAudio
-        ) {
+    tracks.forEach(track => {
+      const player = samplesRef.current[track.id]
+      const shouldPlay = sequencerData[track.id]?.[step]
+      const validAudio = track.audioUrl && track.audioUrl !== 'undefined'
+      
+      // Debug: Track loop state for this track
+      const hasLoop = track.loopStartTime !== undefined && track.loopEndTime !== undefined
+      const loopDuration = hasLoop && track.loopStartTime !== undefined && track.loopEndTime !== undefined 
+        ? track.loopEndTime - track.loopStartTime : 0
+      const playbackRate = track.playbackRate || 1.0
+      const actualLoopDuration = loopDuration / playbackRate
+      
+      if (hasLoop) {
+        console.log(`[LOOP DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualLoopDuration.toFixed(2)}s`)
+      }
+      
+      // Special debugging for Percussion Loop
+      if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+        console.log(`[PERC DEBUG] Step ${step}: Track ${track.name} - shouldPlay=${shouldPlay}, playerState=${player?.state}, hasLoop=${hasLoop}`)
+        console.log(`[PERC DEBUG] Track details: loopStartTime=${track.loopStartTime}, loopEndTime=${track.loopEndTime}, audioUrl=${track.audioUrl}`)
+      }
+      
+      // Handle audio samples (main sequencer pattern)
+      if (
+        shouldPlay &&
+        player &&
+        player.loaded &&
+        validAudio
+      ) {
         // If track is muted, stop any playing loops
         if (track.mute) {
           if (player.state === 'started') {
@@ -693,78 +688,66 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
         try {
           // For tracks with loop points, we need to handle them differently
           if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
-            // For looping tracks, we only start once and let it loop continuously
+            // For looping tracks, we need to ensure they stay perfectly in sync
             if (step === 0) {
-              // Start the loop from the quantized start position on first step
-              const startTime = Tone.now()
-              player.start(startTime, track.loopStartTime)
-              console.log(`[LOOP START] Started loop for track ${track.name} at loop start: ${track.loopStartTime}s`)
-              
-              // Special debugging for Percussion Loop
-              if (track.name === 'Perc' || track.name === 'Percussion Loop') {
-                console.log(`[PERC START] Percussion Loop started at step ${step}, player state: ${player.state}`)
+              // Stop any existing playback to ensure clean start
+              if (player.state === 'started') {
+                player.stop()
               }
               
-              // Debug loop timing
-              debugLoopTiming(track)
+              // Calculate precise timing for the loop
+              const loopDuration = track.loopEndTime - track.loopStartTime
+              const secondsPerBeat = 60 / bpm
+              const stepDuration = secondsPerBeat / (gridDivision / 4)
+              const sequencerDuration = steps * stepDuration
+              
+              // Calculate how many times the loop needs to repeat to fill the sequencer
+              const loopRepeatCount = Math.ceil(sequencerDuration / loopDuration)
+              const totalLoopDuration = loopDuration * loopRepeatCount
+              
+              console.log(`[LOOP SYNC] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s, repeats=${loopRepeatCount}, total=${totalLoopDuration.toFixed(2)}s`)
+              
+              // Set up the player for perfect loop synchronization
+              player.loop = true
+              player.loopStart = track.loopStartTime
+              player.loopEnd = track.loopEndTime
+              
+              // Start the loop with precise timing and duration
+              const startTime = Tone.now()
+              player.start(startTime, track.loopStartTime, totalLoopDuration)
+              
+              console.log(`[LOOP START] Started synchronized loop for track ${track.name} at ${startTime}s, duration: ${totalLoopDuration}s`)
               
               // Track that this loop is now playing
               playingLoops.push(track.name)
             } else {
-              // For subsequent steps, just ensure the loop is still playing
-              // But don't restart if it's already playing - let it continue naturally
-              if (player.state !== 'started') {
-                console.log(`[LOOP RESTART] Restarting loop for track ${track.name} at step ${step}`)
+              // For subsequent steps, just track that the loop is still playing
+              // Don't restart or interfere with the loop - let it continue naturally
+              if (player.state === 'started') {
+                playingLoops.push(track.name)
+                console.log(`[LOOP CONTINUE] Track ${track.name} continuing at step ${step}`)
+              } else {
+                // Loop stopped unexpectedly, restart it
+                console.log(`[LOOP RESTART] Track ${track.name} stopped unexpectedly at step ${step}, restarting`)
+                
+                const loopDuration = track.loopEndTime - track.loopStartTime
+                const secondsPerBeat = 60 / bpm
+                const stepDuration = secondsPerBeat / (gridDivision / 4)
+                const sequencerDuration = steps * stepDuration
+                const loopRepeatCount = Math.ceil(sequencerDuration / loopDuration)
+                const totalLoopDuration = loopDuration * loopRepeatCount
+                
                 const startTime = Tone.now()
-                player.start(startTime, track.loopStartTime)
-                
-                // Special debugging for Percussion Loop
-                if (track.name === 'Perc' || track.name === 'Percussion Loop') {
-                  console.log(`[PERC RESTART] Percussion Loop restarted at step ${step}, player state: ${player.state}`)
-                }
+                player.start(startTime, track.loopStartTime, totalLoopDuration)
                 
                 playingLoops.push(track.name)
-              } else {
-                // Loop is still playing
-                playingLoops.push(track.name)
-                
-                // Special debugging for Percussion Loop
-                if (track.name === 'Perc' || track.name === 'Percussion Loop') {
-                  console.log(`[PERC CONTINUE] Percussion Loop continuing at step ${step}, player state: ${player.state}`)
-                }
-              }
-            }
-            
-            // Always extend loops to fill the sequencer duration, but handle differently based on playback rate
-            const loopDuration = track.loopEndTime - track.loopStartTime
-            const secondsPerBeat = 60 / bpm
-            const stepDuration = secondsPerBeat / (gridDivision / 4)
-            const sequencerDuration = steps * stepDuration
-            
-            const loopRepeatCount = Math.ceil(sequencerDuration / loopDuration)
-            const adjustedLoopEnd = track.loopStartTime + (loopDuration * loopRepeatCount)
-            
-            // Debug: Log loop extension details
-            console.log(`[LOOP EXTEND DEBUG] Track ${track.name}: original=${loopDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s, repeats=${loopRepeatCount}, adjusted=${adjustedLoopEnd.toFixed(2)}s`)
-            
-            // Update the player's loop end point to ensure it plays for the full sequencer duration
-            if (player.loopEnd !== adjustedLoopEnd) {
-              player.loopEnd = adjustedLoopEnd
-              
-              if (track.playbackRate && track.playbackRate !== 1.0) {
-                console.log(`[LOOP EXTEND] Extended loop for track ${track.name} to ${adjustedLoopEnd.toFixed(2)}s (${loopRepeatCount}x repeats, stretched)`)
-              } else {
-                console.log(`[LOOP EXTEND] Extended loop for track ${track.name} to ${adjustedLoopEnd.toFixed(2)}s (${loopRepeatCount}x repeats, natural speed)`)
               }
             }
           } else {
-            // For non-looping tracks, restart each time
+            // For non-looping tracks, play immediately at the current step time
             if (player.state === 'started') {
               player.stop()
             }
-            
-            // Start the sample with precise timing to ensure perfect sync
-            const startTime = Tone.now() + 0.001 // 1ms offset
             
             // Ensure the playback rate is still correctly set
             if (track.playbackRate && track.playbackRate !== 1) {
@@ -772,7 +755,10 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               player.playbackRate = precisePlaybackRate
             }
             
-            player.start(startTime)
+            // Start immediately - Tone.js will handle the timing
+            player.start()
+            
+            console.log(`[SAMPLE SYNC] Track ${track.name} at step ${step}: playing immediately`)
           }
           
           // Track the playing sample for cleanup
@@ -982,6 +968,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     if (!isSequencePlaying) return
     
     console.log(`[SEQUENCER START] Starting sequencer with ${tracks.length} tracks, ${steps} steps, ${bpm} BPM`)
+    console.log(`[SEQUENCER START] Grid division: ${gridDivision}, Steps: ${steps}`)
     
     // Debug: Log all tracks with loops
     tracks.forEach(track => {
@@ -993,15 +980,28 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       }
     })
     
-    // Clear any existing interval
+    // Clear any existing interval and ensure clean state
     if (intervalRef.current) {
-      clearInterval(intervalRef.current)
+      try {
+        const Tone = require('tone')
+        if (intervalRef.current instanceof Tone.Sequence) {
+          intervalRef.current.stop()
+          intervalRef.current.dispose()
+        }
+      } catch (error) {
+        console.warn('[SEQUENCER CLEANUP] Error cleaning up sequence:', error)
+      }
       intervalRef.current = null
     }
 
     // Use Tone.js Transport for precise timing
     const setupToneSequencer = async () => {
       const Tone = await import('tone')
+      
+      // Ensure Transport is stopped and reset before starting
+      Tone.Transport.stop()
+      Tone.Transport.cancel()
+      Tone.Transport.position = 0
       
       // Set the BPM for Tone.js Transport
       Tone.Transport.bpm.value = bpm
@@ -1010,7 +1010,10 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       const secondsPerBeat = 60 / bpm
       const stepDuration = secondsPerBeat / (gridDivision / 4)
       
-      console.log(`[SEQUENCER SETUP] BPM: ${bpm}, Step duration: ${stepDuration}s, Steps: ${steps}`)
+      // Calculate total loop duration
+      const totalLoopDuration = steps * stepDuration
+      
+      console.log(`[SEQUENCER SETUP] BPM: ${bpm}, Step duration: ${stepDuration}s, Steps: ${steps}, Total loop: ${totalLoopDuration}s`)
       
       // Create a sequence that loops perfectly
       const sequence = new Tone.Sequence((time, step) => {
@@ -1023,7 +1026,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       sequence.start(0)
       Tone.Transport.loop = true
       Tone.Transport.loopStart = 0
-      Tone.Transport.loopEnd = steps * stepDuration
+      Tone.Transport.loopEnd = totalLoopDuration
       Tone.Transport.start()
       
       console.log(`[SEQUENCER SETUP] Started sequence with loop: ${Tone.Transport.loopStart}s to ${Tone.Transport.loopEnd}s`)
@@ -1054,13 +1057,47 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   }, [bpm, isSequencePlaying, playStep, steps, gridDivision])
 
   const toggleStep = useCallback((trackId: number, stepIndex: number) => {
-    setSequencerData(prev => ({
-      ...prev,
-      [trackId]: prev[trackId]?.map((value, index) => 
-        index === stepIndex ? !value : value
-      ) || new Array(steps).fill(false)
-    }))
-  }, [steps])
+    console.log('[DEBUG] toggleStep called in hook:', { trackId, stepIndex })
+    console.log('[DEBUG] Current sequencerData in hook:', sequencerData)
+    console.log('[DEBUG] Current track data in hook:', sequencerData[trackId])
+    console.log('[DEBUG] Steps value:', steps)
+    
+    setSequencerData(prev => {
+      console.log('[DEBUG] setSequencerData callback - prev state:', prev)
+      
+      // Create a proper copy of the previous state
+      const newState = { ...prev }
+      
+      // Ensure the track exists in the state AND has the correct length
+      if (!newState[trackId] || newState[trackId].length !== steps) {
+        console.log(`[DEBUG] Track ${trackId} needs array creation/resizing: current length ${newState[trackId]?.length || 0}, target length ${steps}`)
+        
+        // Create new array with correct length
+        const newArray = new Array(steps).fill(false)
+        
+        // If we have existing data, copy it (preserve patterns)
+        if (newState[trackId] && Array.isArray(newState[trackId])) {
+          const copyLength = Math.min(newState[trackId].length, steps)
+          for (let i = 0; i < copyLength; i++) {
+            newArray[i] = newState[trackId][i]
+          }
+          console.log(`[DEBUG] Copied ${copyLength} existing steps to new array`)
+        }
+        
+        newState[trackId] = newArray
+      }
+      
+      // Now toggle the specific step
+      newState[trackId] = [...newState[trackId]]
+      newState[trackId][stepIndex] = !newState[trackId][stepIndex]
+      
+      console.log('[DEBUG] setSequencerData callback - new state:', newState)
+      console.log(`[DEBUG] Step ${stepIndex} for track ${trackId} is now: ${newState[trackId][stepIndex]}`)
+      return newState
+    })
+    
+    console.log('[DEBUG] toggleStep completed')
+  }, [steps, sequencerData])
 
   const playSequence = useCallback(async () => {
     if (isSequencePlaying) return
@@ -1136,7 +1173,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   }, [tracks, pianoRollData, bpm])
 
   const stopSequence = useCallback(() => {
-    setIsSequencePlaying(false)
+        setIsSequencePlaying(false)
     setCurrentStep(0)
     playheadRef.current = 0
     
@@ -1149,7 +1186,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       animationFrameRef.current = null
     }
     
-    // Stop the Tone.js sequence
+        // Stop the Tone.js sequence
     if (intervalRef.current) {
       const Tone = require('tone')
       if (intervalRef.current instanceof Tone.Sequence) {
@@ -1161,6 +1198,13 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       }
       intervalRef.current = null
     }
+    
+    // Stop Tone.js Transport and disable looping
+    import('tone').then(Tone => {
+      Tone.Transport.stop()
+      Tone.Transport.loop = false // Disable looping when stopping
+      console.log('[STOP SEQUENCE] Tone.js Transport stopped and loop disabled')
+    }).catch(console.warn)
     
     // Stop ALL samples from ALL tracks, not just the ones tracked in playingSamplesRef
     // This ensures long samples that are still playing get stopped
@@ -1210,13 +1254,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     trackPlayersRef.current = {}
     
     console.log('[STOP SEQUENCE] All samples stopped')
-    
-    // Stop Tone.js Transport and disable looping
-    import('tone').then(Tone => {
-      Tone.Transport.stop()
-      Tone.Transport.loop = false // Disable looping when stopping
-      console.log('[STOP SEQUENCE] Tone.js Transport stopped and loop disabled')
-    }).catch(console.warn)
+
+
   }, [])
 
   // Function to update track tempo and recalculate playback rate
@@ -1296,6 +1335,103 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     }
   }, [bpm, steps, gridDivision])
 
+
+
+
+
+
+  // Function to restart all loops at the pattern boundary (8 bars)
+  const restartAllLoopsAtPatternBoundary = useCallback(() => {
+    console.log('[PATTERN BOUNDARY] Checking loops at 8-bar boundary')
+    
+    tracks.forEach(track => {
+      const player = samplesRef.current[track.id]
+      if (!player || !player.loaded || !track.audioUrl || track.audioUrl === 'undefined') return
+      
+      // Only handle tracks with loop points that are currently playing
+      if (track.loopStartTime !== undefined && track.loopEndTime !== undefined && player.state === 'started') {
+        const loopDuration = track.loopEndTime - track.loopStartTime
+        const playbackRate = track.playbackRate || 1.0
+        const actualDuration = loopDuration / playbackRate
+        
+        // Calculate sequencer duration
+        const secondsPerBeat = 60 / bpm
+        const stepDuration = secondsPerBeat / (gridDivision / 4)
+        const sequencerDuration = steps * stepDuration
+        
+        console.log(`[PATTERN BOUNDARY DEBUG] Track ${track.name}: loop=${loopDuration.toFixed(2)}s, rate=${playbackRate.toFixed(2)}x, actual=${actualDuration.toFixed(2)}s, sequencer=${sequencerDuration.toFixed(2)}s`)
+        
+        // Check if the loop is extended to fill the sequencer duration
+        // Compare the actual loop end time with the original loop end time
+        const currentLoopEnd = player.loopEnd
+        const isExtendedLoop = currentLoopEnd && 
+          (typeof currentLoopEnd === 'number' ? currentLoopEnd > track.loopEndTime : 
+           typeof currentLoopEnd === 'string' ? parseFloat(currentLoopEnd) > track.loopEndTime : false)
+        
+        if (isExtendedLoop) {
+          // This is an extended loop that should continue seamlessly
+          console.log(`[PATTERN BOUNDARY] Track ${track.name} has extended loop - letting it continue seamlessly`)
+          
+          // Special debugging for Percussion Loop
+          if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+            console.log(`[PERC PATTERN BOUNDARY] Percussion Loop extended - continuing seamlessly`)
+          }
+        } else {
+          // This is a short loop that needs to restart
+          console.log(`[PATTERN BOUNDARY] Restarting short loop for track ${track.name}`)
+          
+          // Special debugging for Percussion Loop
+          if (track.name === 'Perc' || track.name === 'Percussion Loop') {
+            console.log(`[PERC PATTERN BOUNDARY] Restarting Percussion Loop at pattern boundary`)
+          }
+          
+          // Stop the current loop
+          player.stop()
+          
+          // Start the loop again from the beginning
+          const startTime = Tone.now()
+          player.start(startTime, track.loopStartTime)
+        }
+      }
+    })
+  }, [tracks, bpm, steps, gridDivision])
+
+  // Function to get current step from Transport position
+  const getCurrentStepFromTransport = useCallback(async () => {
+    const Tone = await import('tone')
+    const transportPosition = Tone.Transport.position as number
+    const secondsPerBeat = 60 / bpm
+    const stepDuration = secondsPerBeat / (gridDivision / 4)
+    
+    // Convert transport position to step number
+    const currentStep = Math.floor(transportPosition / stepDuration) % steps
+    return currentStep
+  }, [bpm, steps, gridDivision])
+
+  // Real-time Transport-synchronized playhead update
+  const updatePlayheadFromTransport = useCallback(() => {
+    if (!transportSyncRef.current) return
+    
+    getCurrentStepFromTransport().then(step => {
+      if (step !== playheadRef.current) {
+        playheadRef.current = step
+        setCurrentStep(step)
+        
+        // Check if we need to restart loops at pattern boundary
+        if (step === 0) {
+          restartAllLoopsAtPatternBoundary()
+        }
+      }
+      
+      // Continue updating
+      if (transportSyncRef.current) {
+        animationFrameRef.current = requestAnimationFrame(updatePlayheadFromTransport)
+      }
+    })
+  }, [getCurrentStepFromTransport, restartAllLoopsAtPatternBoundary])
+
+
+  
   // Function to force reload samples for a specific track with improved sync
   const forceReloadTrackSamples = useCallback(async (trackId: number) => {
     const track = tracks.find(t => t.id === trackId)
@@ -1446,7 +1582,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       console.error(`[FORCE RELOAD] Failed to reload sample for track ${track.name}:`, error)
       throw error // Re-throw to allow calling code to handle the error
     }
-  }, [tracks, timeStretchMode])
+  }, [tracks, timeStretchMode, bpm])
 
   // Function to quantize track timing for perfect sync
   const quantizeTrackTiming = useCallback((trackId: number) => {
