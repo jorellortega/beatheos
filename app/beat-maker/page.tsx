@@ -8702,16 +8702,7 @@ export default function BeatMakerPage() {
                   Clear Tracker
                 </Button>
 
-                {/* Database Test Button - Quick Access */}
-                <Button
-                  onClick={testDatabaseConnection}
-                  variant="outline"
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
-                  title="Test database connection and limits"
-                >
-                  🗄️ DB Test
-                </Button>
+
 
                 {/* Melody Loop Mode Toggle (T→M/M→T) */}
                 <button
