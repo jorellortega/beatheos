@@ -31,7 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Bug, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon, Edit3, X, CheckCircle2, Copy } from 'lucide-react'
+import { Play, Square, RotateCcw, Settings, Save, Upload, Music, List, Disc, Shuffle, FolderOpen, Clock, Plus, Brain, Lock, Unlock, Download, Mic, Trash2, CheckCircle, ChevronDown, Link as LinkIcon, Edit3, X, CheckCircle2, Copy } from 'lucide-react'
 import { SequencerGrid } from '@/components/beat-maker/SequencerGrid'
 import { TrackList } from '@/components/beat-maker/TrackList'
 import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
@@ -76,23 +76,13 @@ export default function BeatMakerPage() {
   const [hasLoadedSessionFromUrl, setHasLoadedSessionFromUrl] = useState(false)
   
   // Debug dropdown state
-  const [showDebugDropdown, setShowDebugDropdown] = useState(false)
+
   
   // Advanced settings toggle state
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   
   // Close debug dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element
-      if (showDebugDropdown && !target.closest('.debug-dropdown')) {
-        setShowDebugDropdown(false)
-      }
-    }
-    
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showDebugDropdown])
+
   
   // AI Prompt state
   const [aiPrompt, setAiPrompt] = useState('')
@@ -2775,11 +2765,21 @@ export default function BeatMakerPage() {
         query = query.eq('audio_type', originalTrack.audio_type)
       }
       
-      // Add key filtering with relative keys if we're in T-M mode
+      // Add key filtering with ALL 12 chromatic keys if we're in T-M mode
       if (originalTrack.key && melodyLoopMode === 'transport-dominates') {
-        const relativeKeys = getRelativeKeys(originalTrack.key)
-        console.log(`[DUPLICATE KEY FILTER] Filtering by relative keys: ${relativeKeys.join(', ')}`)
-        query = query.in('key', relativeKeys)
+        // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+        const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        const allKeysWithModes = [
+          ...allChromaticKeys, // Major keys
+          ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+          ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+          ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+          ...allChromaticKeys.map(k => k + ' major') // Key signature format
+        ]
+        
+        console.log(`[DUPLICATE KEY FILTER] Using ALL 12 chromatic keys instead of just 5 relative keys for maximum variety`)
+        console.log(`[DUPLICATE KEY FILTER] Total expanded keys: ${allKeysWithModes.length}`)
+        query = query.in('key', allKeysWithModes)
       } else if (originalTrack.key) {
         // Fallback to exact key match if not in T-M mode
         query = query.eq('key', originalTrack.key)
@@ -3963,6 +3963,10 @@ export default function BeatMakerPage() {
     console.log('[CACHE CLEAR] Manually cleared audio cache')
   }
 
+
+
+
+
   // Function to get cache status for debugging
   const getCacheStatus = () => {
     const cacheSize = Object.keys(batchedAudioCache).length
@@ -4085,9 +4089,19 @@ export default function BeatMakerPage() {
         
         // Add key filtering if transport key is provided and we're in T-M mode
         if (transportKey && melodyLoopMode === 'transport-dominates') {
-          const relativeKeys = getRelativeKeys(transportKey)
-          console.log(`[KEY FILTER] Filtering by keys: ${relativeKeys.join(', ')}`)
-          query = query.in('key', relativeKeys)
+          // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+          const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+          const allKeysWithModes = [
+            ...allChromaticKeys, // Major keys
+            ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+            ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+            ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+            ...allChromaticKeys.map(k => k + ' major') // Key signature format
+          ]
+          
+          console.log(`[KEY FILTER] Using ALL 12 chromatic keys instead of just 5 relative keys for maximum variety`)
+          console.log(`[KEY FILTER] Total expanded keys: ${allKeysWithModes.length}`)
+          query = query.in('key', allKeysWithModes)
         }
         
         const { data: allFiles } = await query
@@ -4103,10 +4117,20 @@ export default function BeatMakerPage() {
           filesByType[type] = allFiles.filter(file => file.audio_type === type)
         })
         
+        // Group files by audio type (using existing filesByType from above)
+        audioTypes.forEach(type => {
+          filesByType[type] = allFiles.filter(file => file.audio_type === type)
+        })
+        
         // Shuffle each group and apply limitation
         const result: { [audioType: string]: any[] } = {}
         Object.keys(filesByType).forEach(audioType => {
-          const shuffledFiles = shuffleArray(filesByType[audioType])
+          const files = filesByType[audioType]
+
+          
+          const shuffledFiles = shuffleArray(files)
+          
+
           
           if (isShuffleLimitEnabled) {
             result[audioType] = shuffledFiles.slice(0, 10)
@@ -4153,8 +4177,21 @@ export default function BeatMakerPage() {
       }
       
       if (transportKey && melodyLoopMode === 'transport-dominates') {
-        const relativeKeys = getRelativeKeys(transportKey)
-        query = query.in('key', relativeKeys)
+        // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+        const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        const allKeysWithModes = [
+          ...allChromaticKeys, // Major keys
+          ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+          ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+          ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+          ...allChromaticKeys.map(k => k + ' major') // Key signature format
+        ]
+        
+        console.log(`[KEY FILTER] Using ALL 12 chromatic keys instead of just 5 relative keys`)
+        console.log(`[KEY FILTER] Total keys available: ${allKeysWithModes.length}`)
+        console.log(`[KEY FILTER] Keys: ${allKeysWithModes.slice(0, 10).join(', ')}...`)
+        
+        query = query.in('key', allKeysWithModes)
       }
       
       if (applyBpmFilter && transportBpm) {
@@ -4171,8 +4208,7 @@ export default function BeatMakerPage() {
         return {}
       }
       
-      // Group files by audio type
-      const filesByType: { [audioType: string]: any[] } = {}
+      // Group files by audio type (using existing filesByType from above)
       audioTypes.forEach(type => {
         filesByType[type] = availableFiles.filter(file => file.audio_type === type)
       })
@@ -4290,11 +4326,22 @@ export default function BeatMakerPage() {
         
         // Add key filtering if transport key is provided and we're in T-M mode
         if (transportKey && melodyLoopMode === 'transport-dominates') {
-          const relativeKeys = getRelativeKeys(transportKey)
-          console.log(`[KEY FILTER] Filtering by keys: ${relativeKeys.join(', ')}`)
+          // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+          const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+          const allKeysWithModes = [
+            ...allChromaticKeys, // Major keys
+            ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+            ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+            ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+            ...allChromaticKeys.map(k => k + ' major') // Key signature format
+          ]
+          
+          console.log(`[KEY FILTER] Using ALL 12 chromatic keys instead of just 5 relative keys`)
+          console.log(`[KEY FILTER] Total keys available: ${allKeysWithModes.length}`)
+          console.log(`[KEY FILTER] Keys: ${allKeysWithModes.slice(0, 10).join(', ')}...`)
           
           // Filter by key column first
-          query = query.in('key', relativeKeys)
+          query = query.in('key', allKeysWithModes)
           
           // If no results from key column, try key_signature column as fallback
           const { data: keyFilteredFiles } = await query
@@ -4329,35 +4376,22 @@ export default function BeatMakerPage() {
               query = query.gte('bpm', minBpm).lte('bpm', maxBpm)
             }
             
-            // Map keys to key_signature format
-            const keySignatureFilters = relativeKeys.map(key => {
-              const isMinor = key.toLowerCase().includes('m') || key.toLowerCase().includes('minor')
-              const rootNote = key.replace(/[mM]|inor?/g, '').trim()
-              return isMinor ? `${rootNote} minor` : `${rootNote} major`
-            })
+            // Map ALL 12 chromatic keys to key_signature format for fallback
+            const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+            const keySignatureFilters = [
+              ...allChromaticKeys.map(k => `${k} major`),
+              ...allChromaticKeys.map(k => `${k} minor`)
+            ]
             
             query = query.in('key_signature', keySignatureFilters)
-            console.log(`[KEY FILTER] Trying key_signature filters: ${keySignatureFilters.join(', ')}`)
+            console.log(`[KEY FILTER] Fallback: Using ALL 12 chromatic keys in key_signature format`)
+            console.log(`[KEY FILTER] Fallback keys: ${keySignatureFilters.slice(0, 10).join(', ')}...`)
           }
         }
         
         const { data: allFiles } = await query
         
-        // Special debug for Kick audio type
-        if (audioType === 'Kick') {
-          console.log(`[KICK DEBUG] Query result: ${allFiles?.length || 0} files found`)
-          if (allFiles && allFiles.length > 0) {
-            console.log(`[KICK DEBUG] Sample files from query:`, allFiles.slice(0, 3).map(f => ({
-              id: f.id,
-              name: f.name,
-              is_ready: f.is_ready,
-              genre: f.genre,
-              subgenre: f.subgenre,
-              bpm: f.bpm,
-              key: f.key
-            })))
-          }
-        }
+
         
         if (!allFiles || allFiles.length === 0) {
           console.log(`[KEY FILTER] No files found with key filtering for ${audioType}`)
@@ -4403,8 +4437,16 @@ export default function BeatMakerPage() {
       
       // Add key filtering to total count query
       if (transportKey && melodyLoopMode === 'transport-dominates') {
-        const relativeKeys = getRelativeKeys(transportKey)
-        totalAudioQuery = totalAudioQuery.in('key', relativeKeys)
+        // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+        const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        const allKeysWithModes = [
+          ...allChromaticKeys, // Major keys
+          ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+          ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+          ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+          ...allChromaticKeys.map(k => k + ' major') // Key signature format
+        ]
+        totalAudioQuery = totalAudioQuery.in('key', allKeysWithModes)
       }
       
       const { data: totalAudioFiles } = await totalAudioQuery
@@ -4445,8 +4487,16 @@ export default function BeatMakerPage() {
       
       // Add key filtering to top files query
       if (transportKey && melodyLoopMode === 'transport-dominates') {
-        const relativeKeys = getRelativeKeys(transportKey)
-        topFilesQuery = topFilesQuery.in('key', relativeKeys)
+        // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+        const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        const allKeysWithModes = [
+          ...allChromaticKeys, // Major keys
+          ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+          ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+          ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+          ...allChromaticKeys.map(k => k + ' major') // Key signature format
+        ]
+        topFilesQuery = topFilesQuery.in('key', allKeysWithModes)
       }
       
       // Add BPM filtering to top files query
@@ -4473,8 +4523,16 @@ export default function BeatMakerPage() {
       
       // Add key filtering to bottom files query
       if (transportKey && melodyLoopMode === 'transport-dominates') {
-        const relativeKeys = getRelativeKeys(transportKey)
-        bottomFilesQuery = bottomFilesQuery.in('key', relativeKeys)
+        // USE ALL 12 CHROMATIC KEYS instead of just 5 relative keys for maximum variety
+        const allChromaticKeys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        const allKeysWithModes = [
+          ...allChromaticKeys, // Major keys
+          ...allChromaticKeys.map(k => k + 'm'), // Minor keys
+          ...allChromaticKeys.map(k => k + 'min'), // Alternative minor format
+          ...allChromaticKeys.map(k => k + ' minor'), // Key signature format
+          ...allChromaticKeys.map(k => k + ' major') // Key signature format
+        ]
+        bottomFilesQuery = bottomFilesQuery.in('key', allKeysWithModes)
       }
       
       // Add BPM filtering to bottom files query
@@ -8560,22 +8618,7 @@ export default function BeatMakerPage() {
                   {formatSystemEnabled ? 'FORMAT ON' : 'FORMAT OFF'}
                 </button>
 
-                {/* Debugs Dropdown Button */}
-                <div className="relative debug-dropdown">
-                  <button
-                    onClick={() => setShowDebugDropdown(!showDebugDropdown)}
-                    className="text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 text-purple-300 bg-purple-900/40 border border-purple-500/60 shadow-lg shadow-purple-500/30 flex items-center gap-1"
-                    title="Debug tools and utilities"
-                  >
-                    <Bug className="w-3 h-3" />
-                    Debugs
-                    <svg className={`w-3 h-3 transition-transform ${showDebugDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
-                  
-
-                   </div>
+                
 
                 {/* Format Toggle (WAV/MP3) - Only show when format system is enabled */}
                 {formatSystemEnabled && (
@@ -8657,6 +8700,17 @@ export default function BeatMakerPage() {
                 >
                   <RotateCcw className="w-4 h-4 mr-1" />
                   Clear Tracker
+                </Button>
+
+                {/* Database Test Button - Quick Access */}
+                <Button
+                  onClick={testDatabaseConnection}
+                  variant="outline"
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                  title="Test database connection and limits"
+                >
+                  🗄️ DB Test
                 </Button>
 
                 {/* Melody Loop Mode Toggle (T→M/M→T) */}
