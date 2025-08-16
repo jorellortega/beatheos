@@ -38,10 +38,7 @@ import { SampleLibrary } from '@/components/beat-maker/SampleLibrary'
 import { SongArrangement } from '@/components/beat-maker/SongArrangement'
 import { QuantizeLoopModal } from '@/components/beat-maker/QuantizeLoopModal'
 import { PianoRoll } from '@/components/beat-maker/PianoRoll'
-import { AudioPianoRoll } from '@/components/beat-maker/AudioPianoRoll'
 import { TrackPianoRoll } from '@/components/beat-maker/TrackPianoRoll'
-import { UndoRedoControls } from '@/components/beat-maker/UndoRedoControls'
-import { EQPanel } from '@/components/beat-maker/EQPanel'
 import { useBeatMaker, Track } from '@/hooks/useBeatMaker'
 import { useUndoRedo, BeatMakerState } from '@/hooks/useUndoRedo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -138,8 +135,7 @@ export default function BeatMakerPage() {
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
   const [showPianoRoll, setShowPianoRoll] = useState(false)
   const [pianoRollTrack, setPianoRollTrack] = useState<number | null>(null)
-  const [showAudioPianoRoll, setShowAudioPianoRoll] = useState(false)
-  const [audioPianoRollNotes, setAudioPianoRollNotes] = useState<any[]>([])
+
   const [showTrackPianoRoll, setShowTrackPianoRoll] = useState(false)
   const [trackPianoRollTrack, setTrackPianoRollTrack] = useState<Track | null>(null)
   const [trackPianoRollNotes, setTrackPianoRollNotes] = useState<any[]>([])
@@ -1007,8 +1003,7 @@ export default function BeatMakerPage() {
     setSelectedTrack(state.selectedTrack || null)
     setShowPianoRoll(state.showPianoRoll || false)
     setPianoRollTrack(state.pianoRollTrack || null)
-    setShowAudioPianoRoll(state.showAudioPianoRoll || false)
-    setAudioPianoRollNotes(state.audioPianoRollNotes || [])
+
     setShowTrackPianoRoll(state.showTrackPianoRoll || false)
     setTrackPianoRollTrack(state.trackPianoRollTrack || null)
     setTrackPianoRollNotes(state.trackPianoRollNotes || [])
@@ -1080,8 +1075,8 @@ export default function BeatMakerPage() {
       selectedTrack,
       showPianoRoll,
       pianoRollTrack,
-      showAudioPianoRoll,
-      audioPianoRollNotes,
+
+
       showTrackPianoRoll,
       trackPianoRollTrack,
       trackPianoRollNotes,
@@ -1102,7 +1097,7 @@ export default function BeatMakerPage() {
     isAutoMode, isLatidoMode, isHeliosMode, isBpmToleranceEnabled, midiSoundType, midiVolume,
             audioLevels, peakLevels, masterLevel, masterPeak, savedPatterns, activeTab, lastLoadedPattern, showPatternDetails,
     editingBpm, editingPosition, editingTransportKey, bpmInputValue, positionInputValue, transportKeyInputValue,
-    showSampleLibrary, selectedTrack, showPianoRoll, pianoRollTrack, showAudioPianoRoll, audioPianoRollNotes,
+    showSampleLibrary, selectedTrack, showPianoRoll, pianoRollTrack,
     showTrackPianoRoll, trackPianoRollTrack, trackPianoRollNotes, showEditTrackModal, editingTrack,
     editTrackForm, savingTrack, trackEditError, bpmRange, showBpmRangeControls, aiPrompt, isAiPromptVisible,
 
@@ -2178,13 +2173,7 @@ export default function BeatMakerPage() {
     ))
   }
 
-  const handleOpenAudioPianoRoll = () => {
-    setShowAudioPianoRoll(true)
-  }
 
-  const handleAudioPianoRollNotesChange = (notes: any[]) => {
-    setAudioPianoRollNotes(notes)
-  }
 
   const handleOpenTrackPianoRoll = (trackId: number) => {
     const track = tracks.find(t => t.id === trackId)
@@ -6116,11 +6105,11 @@ export default function BeatMakerPage() {
   }, [isPlaying, hasLoadedAudio, activeTab, showQuantizeModal, currentSessionId, hasUnsavedChanges])
   
   // EQ Panel state
-  const [showEQPanel, setShowEQPanel] = useState(false)
+
   const [selectedTrackForEQ, setSelectedTrackForEQ] = useState<number | null>(null)
   // Master EQ state
   const [masterEQ, setMasterEQ] = useState({ low: 0, mid: 0, high: 0 })
-  const [showMasterEQPanel, setShowMasterEQPanel] = useState(false)
+
 
   // Add subgenre to new genre
   const addSubgenreToNewGenre = () => {
@@ -6251,7 +6240,7 @@ export default function BeatMakerPage() {
   const [isShuffleLimitEnabled, setIsShuffleLimitEnabled] = useState(false) // Separate toggle for 10 file limitation
   const [isReadyCheckLocked, setIsReadyCheckLocked] = useState(false)
   const [showWaveforms, setShowWaveforms] = useState(false) // New state for waveform visibility
-  const [trackWaveformStates, setTrackWaveformStates] = useState<{[trackId: number]: boolean}>({}) // Individual track waveform states
+
   const [melodyLoopMode, setMelodyLoopMode] = useState<'transport-dominates' | 'melody-dominates'>('transport-dominates')
 
   // Pattern management state
@@ -7674,12 +7663,7 @@ export default function BeatMakerPage() {
     setIsPackLocked(!isPackLocked)
   }
 
-  const handleToggleTrackWaveform = (trackId: number) => {
-    setTrackWaveformStates(prev => ({
-      ...prev,
-      [trackId]: !prev[trackId]
-    }))
-  }
+
 
   // Monitor patterns state changes for debugging
   useEffect(() => {
@@ -7799,7 +7783,7 @@ export default function BeatMakerPage() {
     setIsShuffleLimitEnabled(false)
     setIsReadyCheckLocked(false)
     setShowWaveforms(false)
-    setTrackWaveformStates({})
+
     setMelodyLoopMode('transport-dominates')
     
     // Clear all sequencer data (will be re-initialized by the useEffect when Strata mode is set to true)
@@ -7816,8 +7800,7 @@ export default function BeatMakerPage() {
     setSelectedTrack(null)
     setShowPianoRoll(false)
     setPianoRollTrack(null)
-    setShowAudioPianoRoll(false)
-    setAudioPianoRollNotes([])
+
     setShowTrackPianoRoll(false)
     setTrackPianoRollTrack(null)
     setTrackPianoRollNotes([])
@@ -7984,26 +7967,7 @@ export default function BeatMakerPage() {
     ))
   }
 
-  // Open EQ panel for a specific track
-  const openEQPanel = (trackId: number) => {
-    setSelectedTrackForEQ(trackId)
-    setShowEQPanel(true)
-  }
 
-  // Close EQ panel
-  const closeEQPanel = () => {
-    setShowEQPanel(false)
-    setSelectedTrackForEQ(null)
-  }
-  
-  // Master EQ functions
-  const openMasterEQPanel = () => {
-    setShowMasterEQPanel(true)
-  }
-  
-  const closeMasterEQPanel = () => {
-    setShowMasterEQPanel(false)
-  }
   
   const updateMasterEQ = (band: 'low' | 'mid' | 'high', value: number) => {
     console.log(`[MASTER EQ] Updating ${band} band to ${value}dB`)
@@ -8474,13 +8438,7 @@ export default function BeatMakerPage() {
                   Latido
                 </Button>
                 
-                {/* Undo/Redo Controls */}
-                <UndoRedoControls
-                  undoRedo={undoRedo}
-                  currentState={captureCurrentState()}
-                  onStateRestore={restoreState}
-                  className="ml-2"
-                />
+
                 <Button
                   onClick={() => setIsHeliosMode(!isHeliosMode)}
                   variant="outline"
@@ -9305,8 +9263,8 @@ export default function BeatMakerPage() {
             onGenreChange={loadSubgenres}
             showWaveforms={showWaveforms}
             onToggleWaveforms={() => setShowWaveforms(!showWaveforms)}
-            trackWaveformStates={trackWaveformStates}
-            onToggleTrackWaveform={handleToggleTrackWaveform}
+
+
             onGridDivisionChange={setGridDivision}
             onQuantizeSequencerData={(trackId, quantizedData) => {
               // Use the hook's setSequencerDataFromSession function instead
@@ -9343,19 +9301,7 @@ export default function BeatMakerPage() {
         />
       )}
 
-      {/* Audio Piano Roll Modal */}
-      {showAudioPianoRoll && (
-        <AudioPianoRoll
-          isOpen={showAudioPianoRoll}
-          onClose={() => setShowAudioPianoRoll(false)}
-          steps={steps}
-          bpm={bpm}
-          tracks={tracks}
-          onNotesChange={handleAudioPianoRollNotesChange}
-          initialNotes={audioPianoRollNotes}
-          onSavePattern={handleSavePattern}
-        />
-      )}
+
 
       {/* Track Piano Roll Modal */}
       {showTrackPianoRoll && trackPianoRollTrack && (
@@ -9446,7 +9392,7 @@ export default function BeatMakerPage() {
                           <Button
                             size="sm"
                             variant={settings.eq && (settings.eq.low !== 0 || settings.eq.mid !== 0 || settings.eq.high !== 0) ? "default" : "outline"}
-                            onClick={() => openEQPanel(track.id)}
+                            onClick={() => console.log('EQ functionality removed')}
                             className={`w-full h-6 text-xs ${
                               settings.eq && (settings.eq.low !== 0 || settings.eq.mid !== 0 || settings.eq.high !== 0)
                                 ? 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -9552,7 +9498,7 @@ export default function BeatMakerPage() {
                     <Button
                       size="sm"
                       variant={masterEQ.low !== 0 || masterEQ.mid !== 0 || masterEQ.high !== 0 ? "default" : "outline"}
-                      onClick={openMasterEQPanel}
+                      onClick={() => console.log('Master EQ functionality removed')}
                       className={`w-full h-6 text-xs ${
                         masterEQ.low !== 0 || masterEQ.mid !== 0 || masterEQ.high !== 0
                           ? 'bg-red-600 hover:bg-red-700 text-white'
@@ -11976,27 +11922,7 @@ export default function BeatMakerPage() {
         </DialogContent>
       </Dialog>
 
-              {/* EQ Panel */}
-        {showEQPanel && selectedTrackForEQ && (
-          <EQPanel
-            isOpen={showEQPanel}
-            onClose={closeEQPanel}
-            trackName={getTrackDisplayName(tracks.find(t => t.id === selectedTrackForEQ)?.name || '')}
-            eq={mixerSettings[selectedTrackForEQ]?.eq || { low: 0, mid: 0, high: 0 }}
-            onEQChange={(band, value) => updateEQ(selectedTrackForEQ, band, value)}
-          />
-        )}
-        
-        {/* Master EQ Panel */}
-        {showMasterEQPanel && (
-          <EQPanel
-            isOpen={showMasterEQPanel}
-            onClose={closeMasterEQPanel}
-            trackName="MASTER"
-            eq={masterEQ}
-            onEQChange={(band, value) => updateMasterEQ(band, value)}
-          />
-        )}
+
 
       {/* Notification Modal */}
       <NotificationModal

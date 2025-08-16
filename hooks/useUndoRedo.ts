@@ -38,8 +38,7 @@ export interface BeatMakerState {
   selectedTrack: number | null
   showPianoRoll: boolean
   pianoRollTrack: number | null
-  showAudioPianoRoll: boolean
-  audioPianoRollNotes: any[]
+
   showTrackPianoRoll: boolean
   trackPianoRollTrack: any
   trackPianoRollNotes: any[]

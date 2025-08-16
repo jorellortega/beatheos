@@ -13,7 +13,7 @@ import { Play, Square, RotateCcw, Plus, Trash2, Copy, Music, Clock, GripVertical
 import { Track } from '@/hooks/useBeatMaker'
 import * as Tone from 'tone'
 import { supabase } from '@/lib/supabaseClient'
-import { TrackWaveform } from './TrackWaveform'
+
 import React from 'react' // Added missing import for React
 import { NotificationModal } from '@/components/ui/notification-modal'
 
@@ -7310,21 +7310,7 @@ export function SongArrangement({
                           )}
                         </div>
                       </div>
-                      {patternWaveSub[block.id] && tracks.find(t => t.id === block.trackId)?.audioUrl && (
-                        <div className="w-full flex bg-black/80 border-t border-gray-700" style={{ position: 'absolute', left: `${(block.startBar - 1) * zoom}px`, top: `${tracks.findIndex(t => t.id === block.trackId) * 60 + 5 + parseInt(blockHeight)}px`, width: `${block.duration * zoom}px` }}>
-                          <div className="w-2 h-full bg-transparent"></div>
-                          <TrackWaveform
-                            audioUrl={tracks.find(t => t.id === block.trackId)?.audioUrl || null}
-                            trackColor={tracks.find(t => t.id === block.trackId)?.color || '#60a5fa'}
-                            height={40}
-                            width={block.duration * zoom}
-                            bpm={block.bpm}
-                            steps={block.duration * 4}
-                            activeSteps={block.sequencerData[block.trackId]}
-                            isVisible={true}
-                          />
-                        </div>
-                      )}
+
                     </React.Fragment>
                   )
                 })}

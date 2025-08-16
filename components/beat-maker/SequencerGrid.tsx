@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Save, Download, Plus, FolderOpen, Music, Piano, Brain, MoreHorizontal, List } from 'lucide-react'
 import { Track, SequencerData } from '@/hooks/useBeatMaker'
 import { useState, useEffect, useMemo } from 'react'
-import { TrackWaveform } from './TrackWaveform'
+
 
 interface SequencerGridProps {
   tracks: Track[]
@@ -36,7 +36,7 @@ interface SequencerGridProps {
   showWaveforms?: boolean // New prop for waveform visibility
   onToggleWaveforms?: () => void // New prop for waveform toggle function
   trackWaveformStates?: {[trackId: number]: boolean} // Individual track waveform visibility
-  onToggleTrackWaveform?: (trackId: number) => void // Toggle individual track waveform
+
   gridDivision?: number // New prop for grid quantization
   onGridDivisionChange?: (division: number) => void // New prop for grid division change
   onQuantizeSequencerData?: (trackId: number, quantizedData: boolean[]) => void // New prop for quantizing sequencer data
@@ -70,7 +70,7 @@ export function SequencerGrid({
   showWaveforms = false, // Default to false for better performance
   onToggleWaveforms,
   trackWaveformStates = {},
-  onToggleTrackWaveform,
+
   gridDivision = 16, // Default to sixteenth notes (1/16)
   onGridDivisionChange,
   onQuantizeSequencerData,
@@ -599,39 +599,7 @@ export function SequencerGrid({
 
             {tracks.map((track) => (
               <div key={track.id}>
-                {/* Waveform for tracks with custom samples - moved above sequencer pattern */}
-                {track.audioUrl && track.audioUrl !== 'undefined' && (
-                  (trackWaveformStates[track.id] !== undefined ? trackWaveformStates[track.id] : showWaveforms) && (
-                    <div className="flex mb-2">
-                      <div className="w-56 flex-shrink-0"></div>
-                      <div className="flex-1">
-                        <TrackWaveform 
-                          audioUrl={track.audioUrl}
-                          trackColor={track.color}
-                          height={60}
-                          width={steps * stepWidth}
-                          bpm={bpm}
-                          steps={steps}
-                          currentStep={memoizedCurrentStep}
-                          activeSteps={sequencerData[track.id] || []}
-                          isVisible={true}
-                          loopStartTime={track.loopStartTime}
-                          loopEndTime={track.loopEndTime}
-                          showFullLoop={showFullLoopWaveforms}
-                          playbackRate={track.playbackRate || 1.0}
-                        />
-                        {/* Loop length indicator */}
-                        {track.loopStartTime !== undefined && track.loopEndTime !== undefined && (
-                          <div className="flex items-center gap-1 mt-1">
-                            <div className="text-xs text-gray-400">
-                              Loop: {Math.round(((track.loopEndTime - track.loopStartTime) / stepDuration) / 4)} bars
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                )}
+
                 
                 <div className={`flex ${track.id === tracks[0].id ? 'mt-4' : ''}`}>
                   <div className="w-56 flex-shrink-0 flex flex-col px-2 py-0">
@@ -756,21 +724,7 @@ export function SequencerGrid({
                             </DropdownMenuItem>
                           )}
                           
-                          {track.audioUrl && (
-                            <DropdownMenuItem
-                              onClick={() => onToggleTrackWaveform?.(track.id)}
-                              className={`cursor-pointer ${
-                                trackWaveformStates[track.id] 
-                                  ? 'text-green-300 bg-green-900/30' 
-                                  : 'text-green-400 hover:text-green-300 hover:bg-green-900/20'
-                              }`}
-                            >
-                              <div className="w-3 h-3 mr-2 flex items-center justify-center">
-                                <div className="w-2 h-1 bg-current rounded-sm"></div>
-                              </div>
-                              Waveform {trackWaveformStates[track.id] ? 'ON' : 'OFF'}
-                            </DropdownMenuItem>
-                          )}
+
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

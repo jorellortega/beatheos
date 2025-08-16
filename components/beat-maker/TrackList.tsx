@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Music, Volume2, VolumeX, Plus, Trash2, GripVertical, RotateCcw, Clock, Edit, ChevronDown, ChevronUp, Music2, Brain, Piano, Lock, Unlock, Copy, X, Save, FolderOpen, Upload } from 'lucide-react'
 import { Track } from '@/hooks/useBeatMaker'
 import { useState, useEffect } from 'react'
-import { StockSoundSelector } from './StockSoundSelector'
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 // Musical key calculation utilities
@@ -290,7 +290,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   const [selectedKey, setSelectedKey] = useState<string>(transportKey || 'C')
 
   // Stock sound selector state
-  const [showStockSoundSelector, setShowStockSoundSelector] = useState<{trackId: number | null}>({trackId: null})
+
 
   // Function to get track display name with icons
   const getTrackDisplayName = (trackName: string) => {
@@ -787,18 +787,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
   return (
     <>
       {/* Stock Sound Selector Modal */}
-      {showStockSoundSelector.trackId !== null && (
-        <StockSoundSelector
-          isOpen={true}
-          onClose={() => setShowStockSoundSelector({trackId: null})}
-          onSelectSound={(sound) => {
-            if (onTrackStockSoundSelect) {
-              onTrackStockSoundSelect(showStockSoundSelector.trackId!, sound)
-            }
-            setShowStockSoundSelector({trackId: null})
-          }}
-        />
-      )}
+
       
       {/* Category Selection Modal */}
       {showCategoryModal && (
@@ -1197,7 +1186,7 @@ export function TrackList({ tracks, onTrackAudioSelect, currentStep, sequencerDa
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setShowStockSoundSelector({trackId: track.id})}
+                        onClick={() => console.log('Stock sound functionality removed')}
                         className="text-xs"
                       >
                         {track.stockSound ? 'Change Sound' : 'Select Sound'}
