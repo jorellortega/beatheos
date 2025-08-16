@@ -489,7 +489,6 @@ export default function BeatMakerPage() {
       if (track.name === 'MIDI' && track.midiNotes && track.midiNotes.length > 0 && shouldPlay) {
         const notesAtStep = track.midiNotes.filter(note => note.startStep === step)
         notesAtStep.forEach(note => {
-          console.log(`[DEBUG] Playing MIDI note: ${note.note} at step ${step}`)
           playMidiNote(note.note)
         })
       }
@@ -508,7 +507,6 @@ export default function BeatMakerPage() {
       const loadPatternId = searchParams.get('load-pattern')
       const loadSessionId = searchParams.get('session')
       
-      console.log('[BEAT MAKER DEBUG] URL parameters check:', {
         loadPatternId,
         loadSessionId,
         allParams: Object.fromEntries(searchParams.entries()),
@@ -522,12 +520,10 @@ export default function BeatMakerPage() {
       
       if (loadSessionId) {
         console.log(`[BEAT MAKER] Loading session from URL: ${loadSessionId}`)
-        console.log(`[BEAT MAKER DEBUG] This will auto-load session: ${loadSessionId}`)
         setHasLoadedSessionFromUrl(true) // Mark as loaded to prevent re-loading on refresh
         handleLoadSession(loadSessionId)
       }
     } else if (searchParams && hasLoadedSessionFromUrl) {
-      console.log('[BEAT MAKER DEBUG] Skipping URL parameter loading - already loaded session from URL')
     }
   }, [searchParams, hasLoadedSessionFromUrl])
 
@@ -2788,13 +2784,11 @@ export default function BeatMakerPage() {
               // Add genre filter if a genre is selected and locked
         if (selectedGenre && selectedGenre.name && isGenreLocked) {
           query = query.eq('genre', selectedGenre.name)
-          console.log(`[DEBUG] Duplicate shuffle filtering by locked genre: ${selectedGenre.name}`)
         }
         
         // Add subgenre filter if a subgenre is selected and locked
         if (selectedSubgenre && selectedSubgenre.trim() && isSubgenreLocked) {
           query = query.ilike('subgenre', selectedSubgenre.trim())
-          console.log(`[DEBUG] Duplicate shuffle filtering by locked subgenre (case-insensitive): ${selectedSubgenre.trim()}`)
         }
       
       // Try to exclude current audio if it's a database ID
@@ -3060,20 +3054,6 @@ export default function BeatMakerPage() {
       if (!track) return
 
       // CRITICAL DEBUG: Log the exact state before shuffling
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === STARTING INDIVIDUAL SHUFFLE FOR ${track.name} ===`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track ID: ${trackId}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track name: ${track.name}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Current transport BPM: ${bpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Current transport key: ${transportKey}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track currentBpm before shuffle: ${track.currentBpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track originalBpm before shuffle: ${track.originalBpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track playbackRate before shuffle: ${track.playbackRate}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Track pitchShift before shuffle: ${track.pitchShift}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isBpmLocked: ${isBpmLocked}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isKeyLocked: ${isKeyLocked}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] melodyLoopMode: ${melodyLoopMode}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isDrumTrack: ${['Kick', 'Snare', 'Hi-Hat', 'Clap', 'Crash', 'Ride', 'Tom', 'Cymbal', 'Percussion', 'Drum Loop'].includes(track.name)}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isLoopTrack: ${track.name.includes(' Loop')}`)
 
       // CRITICAL: Stop any existing audio for this track first
       console.log(`[SHUFFLE AUDIO] Stopping existing audio for track: ${track.name}`)
@@ -3126,13 +3106,6 @@ export default function BeatMakerPage() {
       await new Promise(resolve => setTimeout(resolve, 200))
 
       // Debug: Log the current state
-      console.log(`[DEBUG] Shuffle triggered for track: ${track.name}`)
-      console.log(`[DEBUG] Current state - selectedGenre:`, selectedGenre)
-      console.log(`[DEBUG] Current state - selectedSubgenre:`, selectedSubgenre)
-      console.log(`[DEBUG] Current state - isGenreLocked:`, isGenreLocked)
-      console.log(`[DEBUG] Current state - isSubgenreLocked:`, isSubgenreLocked)
-      console.log(`[DEBUG] Current state - selectedPacks:`, selectedPacks)
-      console.log(`[DEBUG] Current state - isPackLocked:`, isPackLocked)
 
       // Get current user
       const { data: { user } } = await supabase.auth.getUser()
@@ -3147,35 +3120,20 @@ export default function BeatMakerPage() {
         .select('*')
         .eq('user_id', user.id)
       
-      console.log(`[DEBUG] User has ${allUserFiles?.length || 0} total audio files`)
       if (allUserFiles && allUserFiles.length > 0) {
-        console.log('[DEBUG] Available audio types:', [...new Set(allUserFiles.map(f => f.audio_type))])
       }
 
       // Special debug for Kick track
       if (track.name === 'Kick') {
-        console.log(`[KICK DEBUG] === KICK TRACK SHUFFLE DEBUG ===`)
-        console.log(`[KICK DEBUG] Track name: ${track.name}`)
-        console.log(`[KICK DEBUG] isReadyCheckEnabled: ${isReadyCheckEnabled}`)
-        console.log(`[KICK DEBUG] isShuffleTrackerEnabled: ${isShuffleTrackerEnabled}`)
-        console.log(`[KICK DEBUG] isBpmToleranceEnabled: ${isBpmToleranceEnabled}`)
-        console.log(`[KICK DEBUG] selectedGenre:`, selectedGenre)
-        console.log(`[KICK DEBUG] selectedSubgenre:`, selectedSubgenre)
-        console.log(`[KICK DEBUG] transportKey: ${transportKey}`)
-        console.log(`[KICK DEBUG] bpm: ${bpm}`)
         
         // Check Kick files specifically
         const kickFiles = allUserFiles?.filter(f => f.audio_type === 'Kick') || []
-        console.log(`[KICK DEBUG] Total Kick files: ${kickFiles.length}`)
         
         const readyKickFiles = kickFiles.filter(f => f.is_ready)
-        console.log(`[KICK DEBUG] Ready Kick files: ${readyKickFiles.length}`)
         
         const notReadyKickFiles = kickFiles.filter(f => !f.is_ready)
-        console.log(`[KICK DEBUG] Not ready Kick files: ${notReadyKickFiles.length}`)
         
         if (kickFiles.length > 0) {
-          console.log(`[KICK DEBUG] Sample Kick files:`, kickFiles.slice(0, 3).map(f => ({
             id: f.id,
             name: f.name,
             is_ready: f.is_ready,
@@ -3241,10 +3199,8 @@ export default function BeatMakerPage() {
       }
       
       const audioType = trackTypeMap[baseTrackName]
-      console.log(`[DEBUG] Track: ${track.name}, Base: ${baseTrackName}, AudioType: ${audioType}`)
       if (!audioType) {
         console.log(`No audio type mapping found for track: ${track.name} (base: ${baseTrackName})`)
-        console.log(`[DEBUG] Available track types:`, Object.keys(trackTypeMap))
         return
       }
 
@@ -3288,16 +3244,6 @@ export default function BeatMakerPage() {
       let playbackRate = 1.0
       
       // CRITICAL DEBUG: Log BPM calculation process
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === BPM CALCULATION PROCESS ===`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Selected audio BPM: ${selectedAudio.bpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Selected audio key: ${selectedAudio.key}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Transport BPM: ${bpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Transport key: ${transportKey}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isBpmLocked: ${isBpmLocked}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isKeyLocked: ${isKeyLocked}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isDrumTrack: ${isDrumTrack}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] isLoopTrack: ${track.name.includes(' Loop')}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] melodyLoopMode: ${melodyLoopMode}`)
       
       // Mark session as changed
       markSessionChanged()
@@ -3347,10 +3293,8 @@ export default function BeatMakerPage() {
         
         if (isDrumTrack) {
           console.log(`[DRUM TRACK] ${track.name} adapts to Transport BPM only: ${selectedAudio.bpm}BPM -> ${finalBpm}BPM (rate: ${playbackRate.toFixed(2)}, no pitch shift)`)
-          console.log(`[INDIVIDUAL SHUFFLE DEBUG] DRUM TRACK - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         } else {
         console.log(`[TRANSPORT LOCKED] Track adapts to Transport: ${selectedAudio.bpm}BPM ${selectedAudio.key} -> ${finalBpm}BPM ${finalKey} (pitch: ${pitchShift}, rate: ${playbackRate.toFixed(2)})`)
-        console.log(`[INDIVIDUAL SHUFFLE DEBUG] TRANSPORT LOCKED - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         }
       } else if (track.name === 'Melody Loop') {
         // Melody Loop: Adapt to transport BPM based on melody loop mode
@@ -3380,7 +3324,6 @@ export default function BeatMakerPage() {
           }
           
           console.log(`[MELODY LOOP T→M] Original ${selectedAudio.bpm}BPM ${selectedAudio.key} → Transport ${bpm}BPM ${transportKey} (rate: ${playbackRate.toFixed(3)}, pitch: ${pitchShift})`)
-          console.log(`[INDIVIDUAL SHUFFLE DEBUG] MELODY LOOP T→M - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         } else {
           // Melody Loop dominates: Transport adapts to melody loop
           finalBpm = selectedAudio.bpm || 120
@@ -3389,7 +3332,6 @@ export default function BeatMakerPage() {
           pitchShift = 0
           
           console.log(`[MELODY LOOP M→T] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
-          console.log(`[INDIVIDUAL SHUFFLE DEBUG] MELODY LOOP M→T - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
         }
       } else if (track.name.includes(' Loop')) {
         // Loop tracks: currentBpm MUST match transport BPM for proper sync
@@ -3406,7 +3348,6 @@ export default function BeatMakerPage() {
         pitchShift = 0
         
         console.log(`[LOOP TRACK] ${track.name}: Original ${selectedAudio.bpm}BPM → Transport ${bpm}BPM (rate: ${playbackRate.toFixed(3)})`)
-        console.log(`[INDIVIDUAL SHUFFLE DEBUG] LOOP TRACK - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
       } else {
         // Transport not locked and not a loop track - use original audio BPM and key
         finalBpm = selectedAudio.bpm || 120
@@ -3415,7 +3356,6 @@ export default function BeatMakerPage() {
         pitchShift = 0
         
         console.log(`[NORMAL] Using original audio: ${selectedAudio.bpm}BPM ${selectedAudio.key}`)
-        console.log(`[INDIVIDUAL SHUFFLE DEBUG] NORMAL TRACK - Final BPM: ${finalBpm}, playback rate: ${playbackRate}`)
       }
       
       // Check if this is a relative key (not exact match with transport key)
@@ -3423,13 +3363,6 @@ export default function BeatMakerPage() {
       const isRelativeKey = !isDrumTrack && transportKey && selectedAudio.key && selectedAudio.key !== transportKey
       
       // CRITICAL DEBUG: Log final calculated values
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === FINAL CALCULATED VALUES ===`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Final BPM: ${finalBpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Final key: ${finalKey}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Playback rate: ${playbackRate}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Pitch shift: ${pitchShift}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] CRITICAL: selectedAudio.bpm at state update: ${selectedAudio.bpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] CRITICAL: originalBpm being set to: ${selectedAudio.bpm || 120}`)
       
       // CRITICAL: For Drum Loop tracks, ensure they ALWAYS match transport BPM
       // This must be the FINAL override to ensure Drum Loop tracks always sync properly
@@ -3488,12 +3421,6 @@ export default function BeatMakerPage() {
       ))
 
       // CRITICAL DEBUG: Log the calculated values that will be set
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === CALCULATED VALUES TO BE SET ===`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Final BPM to be set: ${finalBpm}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Final key to be set: ${finalKey}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Playback rate to be set: ${playbackRate}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] Pitch shift to be set: ${pitchShift}`)
-      console.log(`[INDIVIDUAL SHUFFLE DEBUG] === END INDIVIDUAL SHUFFLE FOR ${track.name} ===`)
       
       // CRITICAL: Verify that the calculated values are correct (before state update)
       if (track.name.includes(' Loop')) {
@@ -3798,7 +3725,6 @@ export default function BeatMakerPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       
-      console.log('=== AUDIO LIBRARY DEBUG ===')
       
       // Check what's in the genres table
       const { data: genresData } = await supabase
@@ -3806,7 +3732,6 @@ export default function BeatMakerPage() {
         .select('*')
         .order('name')
       
-      console.log('[DEBUG] Genres table data:', genresData)
       
       // Check what's in the genre_subgenres table
       const { data: subgenresData } = await supabase
@@ -3814,7 +3739,6 @@ export default function BeatMakerPage() {
         .select('*')
         .order('genre, subgenre')
       
-      console.log('[DEBUG] Genre_subgenres table data:', subgenresData)
       
       // Check what's in the audio_library_items table
       const { data: allFiles } = await supabase
@@ -3823,38 +3747,24 @@ export default function BeatMakerPage() {
         .eq('user_id', user.id)
         .limit(50)
       
-      console.log('[DEBUG] Audio library items data:', allFiles)
       
       // Show unique genres and subgenres in audio files
       const audioGenres = [...new Set(allFiles?.map(f => f.genre).filter(Boolean) || [])]
       const audioSubgenres = [...new Set(allFiles?.map(f => f.subgenre).filter(Boolean) || [])]
       
-      console.log('[DEBUG] Genres in audio files:', audioGenres)
-      console.log('[DEBUG] Subgenres in audio files:', audioSubgenres)
       
       // Check for kick files specifically
       console.log('\n=== KICK FILES ANALYSIS ===')
       const kickFiles = allFiles?.filter(f => f.audio_type === 'Kick') || []
-      console.log('[DEBUG] Kick files (audio_type="Kick"):', kickFiles)
-      console.log('[DEBUG] Kick files count:', kickFiles.length)
       
       const readyKickFiles = kickFiles.filter(f => f.is_ready)
-      console.log('[DEBUG] Ready kick files:', readyKickFiles)
-      console.log('[DEBUG] Ready kick files count:', readyKickFiles.length)
       
       // Check for files with "kick" in name
       const kickNameFiles = allFiles?.filter(f => f.name?.toLowerCase().includes('kick')) || []
-      console.log('[DEBUG] Files with "kick" in name:', kickNameFiles)
-      console.log('[DEBUG] Files with "kick" in name count:', kickNameFiles.length)
       
       // Check ready check status
       const readyFiles = allFiles?.filter(f => f.is_ready) || []
       const notReadyFiles = allFiles?.filter(f => !f.is_ready) || []
-      console.log('[DEBUG] Ready files count:', readyFiles.length)
-      console.log('[DEBUG] Not ready files count:', notReadyFiles.length)
-      console.log('[DEBUG] Ready check enabled:', isReadyCheckEnabled)
-      console.log('[DEBUG] Shuffle tracker enabled:', isShuffleTrackerEnabled)
-      console.log('[DEBUG] Selected packs:', selectedPacks.map(p => p.name))
       
       // Check for Trap + LA specifically
       if (selectedGenre?.name === 'Trap' && selectedSubgenre === 'LA') {
@@ -3862,19 +3772,15 @@ export default function BeatMakerPage() {
         
         // Check if "Trap" exists in genres table
         const trapInGenres = genresData?.find(g => g.name === 'Trap')
-        console.log('[DEBUG] "Trap" in genres table:', trapInGenres)
         
         // Check if "LA" exists in genre_subgenres table
         const laInSubgenres = subgenresData?.find(s => s.genre === 'Trap' && s.subgenre === 'LA')
-        console.log('[DEBUG] "LA" subgenre for "Trap" in genre_subgenres table:', laInSubgenres)
         
         // Check if any audio files have genre="Trap" AND subgenre="LA"
         const trapLAFiles = allFiles?.filter(f => f.genre === 'Trap' && f.subgenre === 'LA') || []
-        console.log('[DEBUG] Audio files with genre="Trap" AND subgenre="LA":', trapLAFiles)
         
         // Check if any audio files have genre="LA" AND subgenre="Trap" (swapped)
         const laTrapFiles = allFiles?.filter(f => f.genre === 'LA' && f.subgenre === 'Trap') || []
-        console.log('[DEBUG] Audio files with genre="LA" AND subgenre="Trap":', laTrapFiles)
       }
     } catch (error) {
       console.error('[DEBUG] Error checking audio library data:', error)
@@ -4280,14 +4186,6 @@ export default function BeatMakerPage() {
         
         // Special debug for Kick audio type
         if (audioType === 'Kick') {
-          console.log(`[KICK DEBUG] === GETSHUFFLEAUDIOBATCH DEBUG ===`)
-          console.log(`[KICK DEBUG] audioType: ${audioType}`)
-          console.log(`[KICK DEBUG] transportKey: ${transportKey}`)
-          console.log(`[KICK DEBUG] selectedGenre:`, selectedGenre)
-          console.log(`[KICK DEBUG] selectedSubgenre: ${selectedSubgenre}`)
-          console.log(`[KICK DEBUG] transportBpm: ${transportBpm}`)
-          console.log(`[KICK DEBUG] applyBpmFilter: ${applyBpmFilter}`)
-          console.log(`[KICK DEBUG] isReadyCheckEnabled: ${isReadyCheckEnabled}`)
         }
         
         let query = supabase
@@ -4587,13 +4485,6 @@ export default function BeatMakerPage() {
   const handleShuffleAll = async () => {
     try {
       console.log('[SHUFFLE ALL] Starting shuffle all operation...')
-      console.log('[SHUFFLE ALL DEBUG] === STARTING SHUFFLE ALL OPERATION ===')
-      console.log('[SHUFFLE ALL DEBUG] Current transport BPM:', bpm)
-      console.log('[SHUFFLE ALL DEBUG] Current transport key:', transportKey)
-      console.log('[SHUFFLE ALL DEBUG] isBpmLocked:', isBpmLocked)
-      console.log('[SHUFFLE ALL DEBUG] isKeyLocked:', isKeyLocked)
-      console.log('[SHUFFLE ALL DEBUG] melodyLoopMode:', melodyLoopMode)
-      console.log('[SHUFFLE ALL DEBUG] Current tracks:', tracks.map(t => ({ name: t.name, currentBpm: t.currentBpm, originalBpm: t.originalBpm, playbackRate: t.playbackRate })))
       
       // CRITICAL: Reset all halftime states before shuffling
       console.log('[SHUFFLE ALL] Resetting all halftime states...')
@@ -4822,10 +4713,6 @@ export default function BeatMakerPage() {
 
       // Get tempo range based on current genre/subgenre or use transport BPM range
       let newBpm = bpm
-      console.log(`[SHUFFLE DEBUG] selectedGenreId: "${selectedGenreId}"`)
-      console.log(`[SHUFFLE DEBUG] selectedGenreId !== 'none': ${selectedGenreId !== 'none'}`)
-      console.log(`[SHUFFLE DEBUG] selectedGenreId && selectedGenreId !== 'none': ${selectedGenreId && selectedGenreId !== 'none'}`)
-      console.log(`[SHUFFLE DEBUG] Current BPM range: ${bpmRange[0]}-${bpmRange[1]}`)
       
       if (selectedGenreId && selectedGenreId !== 'none') {
         try {
@@ -5218,7 +5105,6 @@ export default function BeatMakerPage() {
           const displayName = getTrackDisplayName(track.name);
           const isLoopTrack = displayName.includes('🔄');
           
-          console.log(`[SHUFFLE ALL DEBUG] Track: ${track.name}, Display: ${displayName}, isLoopTrack: ${isLoopTrack}`);
           
           if (isLoopTrack) {
             console.log(`[SHUFFLE ALL] Loop track (icon detected) ${track.name}: Setting first step only`);
@@ -5321,8 +5207,6 @@ export default function BeatMakerPage() {
 
       // Update BPM based on loop tracks when in T-M mode (Transport-Melody)
       // In T-M mode, transport should adapt to loop tracks' BPM
-      console.log(`[SHUFFLE DEBUG] Current melodyLoopMode: ${melodyLoopMode}`)
-      console.log(`[SHUFFLE DEBUG] melodyLoopMode === 'transport-dominates': ${melodyLoopMode === 'transport-dominates'}`)
       
       if (!isBpmLocked) {
         if (melodyLoopMode === 'transport-dominates') {
@@ -5420,10 +5304,6 @@ export default function BeatMakerPage() {
       console.log('Shuffled all audio samples and patterns using tracking system')
       
       // CRITICAL DEBUG: Log final state after shuffle all
-      console.log('[SHUFFLE ALL DEBUG] === FINAL STATE AFTER SHUFFLE ALL ===')
-      console.log('[SHUFFLE ALL DEBUG] Final transport BPM:', bpm)
-      console.log('[SHUFFLE ALL DEBUG] Final transport key:', transportKey)
-      console.log('[SHUFFLE ALL DEBUG] Final tracks state:', tracks.map(t => ({ 
         name: t.name, 
         currentBpm: t.currentBpm, 
         originalBpm: t.originalBpm, 
@@ -5431,7 +5311,6 @@ export default function BeatMakerPage() {
         pitchShift: t.pitchShift,
         audioName: t.audioName
       })))
-      console.log('[SHUFFLE ALL DEBUG] === END SHUFFLE ALL OPERATION ===')
       
       markSessionChanged()
     } catch (error) {
@@ -6131,7 +6010,6 @@ export default function BeatMakerPage() {
       if (event.code === 'Space' && !isTyping && !showQuantizeModal) {
         // Don't handle spacebar in song arrangement tab - let it handle its own spacebar
         if (activeTab === 'song-arrangement') {
-          console.log('[SPACEBAR DEBUG] Spacebar pressed in song arrangement tab - letting song arrangement handle it')
           return // Don't prevent default, let song arrangement handle it
         }
         
@@ -6337,14 +6215,11 @@ export default function BeatMakerPage() {
       const tags = sessionTags.trim() ? sessionTags.split(',').map(tag => tag.trim()) : []
 
       // Validate and sanitize song arrangement data before saving
-      console.log('[SESSION DEBUG] Validating song arrangement data before save:', songArrangementPatterns)
       
       let validatedSongArrangementData = songArrangementPatterns
       try {
         // Test if the data can be serialized
         const serialized = JSON.stringify(songArrangementPatterns)
-        console.log('[SESSION DEBUG] Song arrangement data is serializable, length:', serialized.length)
-        console.log('[SESSION DEBUG] Serialized data preview:', serialized.substring(0, 500) + '...')
         
         // Validate pattern structure
         if (Array.isArray(validatedSongArrangementData)) {
@@ -6360,7 +6235,6 @@ export default function BeatMakerPage() {
       }
 
       // Sanitize tracks data to remove any non-serializable objects
-      console.log('[SESSION DEBUG] Sanitizing tracks data before save')
       const sanitizedTracks = tracks.map(track => ({
         id: track.id,
         name: track.name,
@@ -6381,7 +6255,6 @@ export default function BeatMakerPage() {
         // Exclude any audio players, samples, or other complex objects
       }))
       
-      console.log('[SESSION DEBUG] Sanitized tracks count:', sanitizedTracks.length)
 
       // Collect all session data
       const sessionData = {
@@ -6421,17 +6294,10 @@ export default function BeatMakerPage() {
       }
 
       // Debug: Log the session data being sent
-      console.log('[SESSION DEBUG] Session data being sent to database:')
-      console.log('[SESSION DEBUG] Session data keys:', Object.keys(sessionData))
-      console.log('[SESSION DEBUG] Tracks count:', sessionData.tracks?.length || 0)
-      console.log('[SESSION DEBUG] Sequencer data keys:', Object.keys(sessionData.sequencer_data || {}))
-      console.log('[SESSION DEBUG] Song arrangement data count:', sessionData.song_arrangement_data?.length || 0)
-      console.log('[SESSION DEBUG] Song arrangement data:', sessionData.song_arrangement_data)
       
       // Test if the entire session data can be serialized
       try {
         const fullSessionSerialized = JSON.stringify(sessionData)
-        console.log('[SESSION DEBUG] Full session data is serializable, total length:', fullSessionSerialized.length)
       } catch (error) {
         console.error('[SESSION DEBUG] Full session data is NOT serializable:', error)
         throw new Error('Session data contains non-serializable content')
@@ -6498,13 +6364,11 @@ export default function BeatMakerPage() {
       }
 
       // Validate and sanitize song arrangement data before saving
-      console.log('[SESSION DEBUG] Validating song arrangement data before update:', songArrangementPatterns)
       
       let validatedSongArrangementData = songArrangementPatterns
       try {
         // Test if the data can be serialized
         const serialized = JSON.stringify(songArrangementPatterns)
-        console.log('[SESSION DEBUG] Song arrangement data is serializable, length:', serialized.length)
         
         // Validate pattern structure
         if (Array.isArray(validatedSongArrangementData)) {
@@ -6520,7 +6384,6 @@ export default function BeatMakerPage() {
       }
 
       // Sanitize tracks data to remove any non-serializable objects
-      console.log('[SESSION DEBUG] Sanitizing tracks data before update')
       const sanitizedTracks = tracks.map(track => ({
         id: track.id,
         name: track.name,
@@ -6541,7 +6404,6 @@ export default function BeatMakerPage() {
         // Exclude any audio players, samples, or other complex objects
       }))
       
-      console.log('[SESSION DEBUG] Sanitized tracks count:', sanitizedTracks.length)
 
       // Collect all session data
       const sessionData = {
@@ -6570,11 +6432,6 @@ export default function BeatMakerPage() {
       }
 
       // Debug: Log the session data being sent
-      console.log('[SESSION DEBUG] Session data being sent to database for update:')
-      console.log('[SESSION DEBUG] Session data keys:', Object.keys(sessionData))
-      console.log('[SESSION DEBUG] Tracks count:', sessionData.tracks?.length || 0)
-      console.log('[SESSION DEBUG] Song arrangement data count:', sessionData.song_arrangement_data?.length || 0)
-      console.log('[SESSION DEBUG] Song arrangement data:', sessionData.song_arrangement_data)
 
       const result = await supabase
         .from('beat_sessions')
@@ -6615,24 +6472,17 @@ export default function BeatMakerPage() {
 
   // Function to mark session as having unsaved changes
   const markSessionChanged = () => {
-    console.log('[SESSION DEBUG] markSessionChanged called, currentSessionId:', currentSessionId)
     if (currentSessionId) {
       setHasUnsavedChanges(true)
-      console.log('[SESSION DEBUG] Session marked as changed')
     } else {
-      console.log('[SESSION DEBUG] No current session ID, skipping mark as changed')
     }
   }
 
   // Wrapper function for toggleStep that also marks session as changed
   const handleToggleStep = (trackId: number, stepIndex: number) => {
-    console.log('[DEBUG] handleToggleStep called:', { trackId, stepIndex })
-    console.log('[DEBUG] Current sequencerData before toggle:', sequencerData)
-    console.log('[DEBUG] Current track data before toggle:', sequencerData[trackId])
     
     toggleStep(trackId, stepIndex)
     
-    console.log('[DEBUG] After toggleStep call')
     
     markSessionChanged()
     // Add to undo/redo history
@@ -6640,8 +6490,6 @@ export default function BeatMakerPage() {
     
     // Log the state after all updates
     setTimeout(() => {
-      console.log('[DEBUG] Final sequencerData after toggle:', sequencerData)
-      console.log('[DEBUG] Final track data after toggle:', sequencerData[trackId])
     }, 100)
   }
 
@@ -7042,7 +6890,6 @@ export default function BeatMakerPage() {
         const url = new URL(window.location.href)
         url.searchParams.delete('session')
         window.history.replaceState({}, '', url.toString())
-        console.log('[BEAT MAKER DEBUG] Cleared session parameter from URL to prevent auto-reload')
       }
       
       // Populate form fields with current session data
@@ -7707,17 +7554,14 @@ export default function BeatMakerPage() {
 
   // Clear all function - reset to fresh start
   const handleToggleGenreLock = () => {
-    console.log(`[DEBUG] Toggling genre lock from ${isGenreLocked} to ${!isGenreLocked}`)
     setIsGenreLocked(!isGenreLocked)
   }
 
   const handleToggleSubgenreLock = () => {
-    console.log(`[DEBUG] Toggling subgenre lock from ${isSubgenreLocked} to ${!isSubgenreLocked}`)
     setIsSubgenreLocked(!isSubgenreLocked)
   }
 
   const handleTogglePackLock = () => {
-    console.log(`[DEBUG] Toggling pack lock from ${isPackLocked} to ${!isPackLocked}`)
     setIsPackLocked(!isPackLocked)
   }
 
@@ -7725,13 +7569,10 @@ export default function BeatMakerPage() {
 
   // Monitor patterns state changes for debugging
   useEffect(() => {
-    console.log('[PATTERNS DEBUG] Patterns state changed:', songArrangementPatterns.length, songArrangementPatterns)
   }, [songArrangementPatterns])
 
   // Song arrangement pattern management
   const handleSongArrangementPatternsChange = (patterns: any[]) => {
-    console.log('[SESSION DEBUG] Song arrangement patterns changed:', patterns)
-    console.log('[SESSION DEBUG] Patterns structure:', JSON.stringify(patterns, null, 2))
     
     try {
       // Sanitize the patterns data to ensure it can be stored in the database
@@ -7765,11 +7606,9 @@ export default function BeatMakerPage() {
         return sanitizedPattern
       })
       
-      console.log('[SESSION DEBUG] Sanitized patterns:', sanitizedPatterns)
       
       setSongArrangementPatterns(sanitizedPatterns)
       markSessionChanged() // Mark session as changed when patterns are modified
-      console.log('[SESSION DEBUG] Successfully updated song arrangement patterns')
     } catch (error) {
       console.error('[SESSION DEBUG] Error updating song arrangement patterns:', error)
     }
