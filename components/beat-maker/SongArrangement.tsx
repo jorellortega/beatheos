@@ -5896,21 +5896,70 @@ export function SongArrangement({
             const originalAudioDuration = player.buffer.duration
             
             if (durationInSeconds <= originalAudioDuration) {
-              // Pattern fits within original audio, play normally
-              player.start(`+${startTimeInSeconds}`, 0, durationInSeconds)
-              console.log(`[ARRANGEMENT AUDIO] Pattern fits: ${block.name} at +${startTimeInSeconds}s for ${durationInSeconds}s`)
+              // IMPROVED SYNC FIX: Quantize to 16th note subdivisions for tighter sync
+              const beatsPerSecond = bpm / 60
+              const sixteenthNotesPerSecond = beatsPerSecond * 4 // 4 sixteenth notes per beat
+              
+              // Quantize to nearest 16th note for ultra-tight sync
+              const sixteenthNotePosition = Math.round(startTimeInSeconds * sixteenthNotesPerSecond)
+              const quantizedStartTime = sixteenthNotePosition / sixteenthNotesPerSecond
+              
+              // For duration, use a smarter approach - align to musical boundaries
+              const endTime = startTimeInSeconds + durationInSeconds
+              const quantizedEndSixteenthNote = Math.round(endTime * sixteenthNotesPerSecond)
+              const quantizedEndTime = quantizedEndSixteenthNote / sixteenthNotesPerSecond
+              const quantizedDuration = quantizedEndTime - quantizedStartTime
+              
+              // Track timing precision with improved threshold
+              const startTimeDrift = quantizedStartTime - startTimeInSeconds
+              if (Math.abs(startTimeDrift) > 0.005) { // More sensitive threshold (5ms)
+                console.warn(`[SYNC DEBUG] Single pattern start time drift for ${block.name}: expected ${startTimeInSeconds.toFixed(3)}s, quantized ${quantizedStartTime.toFixed(3)}s, drift: ${startTimeDrift.toFixed(3)}s`)
+              }
+              
+              player.start(`+${quantizedStartTime}`, 0, quantizedDuration)
+              console.log(`[ARRANGEMENT AUDIO] Pattern fits: ${block.name} at +${quantizedStartTime}s for ${quantizedDuration}s (quantized)`)
             } else {
-              // Pattern is longer than original audio, we need to loop it
+              // ENHANCED SYNC FIX: Ultra-precise quantization for looped patterns
+              const beatsPerSecond = bpm / 60
+              const sixteenthNotesPerSecond = beatsPerSecond * 4 // 4 sixteenth notes per beat
+              const secondsPerBeat = 60 / bpm
+              const barDuration = secondsPerBeat * 4 // 4 beats per bar
+              
               // Calculate how many times we need to loop
               const loopsNeeded = Math.ceil(durationInSeconds / originalAudioDuration)
               
+              console.log(`[ENHANCED SYNC FIX] Pattern ${block.name} quantization:`, {
+                originalDuration: durationInSeconds,
+                audioDuration: originalAudioDuration,
+                bpm,
+                barDuration: barDuration.toFixed(3),
+                sixteenthNotesPerSecond: sixteenthNotesPerSecond.toFixed(3),
+                loopsNeeded
+              })
+              
               for (let loop = 0; loop < loopsNeeded; loop++) {
-                const loopStartTime = startTimeInSeconds + (loop * originalAudioDuration)
-                const loopDuration = Math.min(originalAudioDuration, durationInSeconds - (loop * originalAudioDuration))
+                // Enhanced quantization to 16th note subdivisions
+                const rawLoopStartTime = startTimeInSeconds + (loop * originalAudioDuration)
+                const sixteenthNotePosition = Math.round(rawLoopStartTime * sixteenthNotesPerSecond)
+                const quantizedLoopStartTime = sixteenthNotePosition / sixteenthNotesPerSecond
                 
-                if (loopDuration > 0) {
-                  player.start(`+${loopStartTime}`, 0, loopDuration)
-                  console.log(`[ARRANGEMENT AUDIO] Loop ${loop + 1}: ${block.name} at +${loopStartTime}s for ${loopDuration}s`)
+                const rawLoopDuration = Math.min(originalAudioDuration, durationInSeconds - (rawLoopStartTime - startTimeInSeconds))
+                
+                // Quantize duration to ensure it ends on a musical boundary
+                const rawEndTime = quantizedLoopStartTime + rawLoopDuration
+                const endSixteenthNote = Math.round(rawEndTime * sixteenthNotesPerSecond)
+                const quantizedEndTime = endSixteenthNote / sixteenthNotesPerSecond
+                const quantizedLoopDuration = quantizedEndTime - quantizedLoopStartTime
+                
+                // Track timing precision with more sensitive threshold
+                const startTimeDrift = quantizedLoopStartTime - rawLoopStartTime
+                if (Math.abs(startTimeDrift) > 0.005) { // More sensitive threshold (5ms)
+                  console.warn(`[SYNC DEBUG] Loop ${loop + 1} start time drift: expected ${rawLoopStartTime.toFixed(3)}s, quantized ${quantizedLoopStartTime.toFixed(3)}s, drift: ${startTimeDrift.toFixed(3)}s`)
+                }
+                
+                if (quantizedLoopDuration > 0.001) { // Minimum viable duration check
+                  player.start(`+${quantizedLoopStartTime}`, 0, quantizedLoopDuration)
+                  console.log(`[ARRANGEMENT AUDIO] Loop ${loop + 1}: ${block.name} at +${quantizedLoopStartTime}s for ${quantizedLoopDuration}s (quantized)`)
                 }
               }
             }

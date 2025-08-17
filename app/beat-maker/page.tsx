@@ -123,6 +123,188 @@ export default function BeatMakerPage() {
   const [gridDivision, setGridDivision] = useState(16) // Grid quantization (1/4, 1/8, 1/16, 1/32) - default to 1/16
   const [showSampleLibrary, setShowSampleLibrary] = useState(false)
   const [selectedTrack, setSelectedTrack] = useState<number | null>(null)
+
+  // === SYNC DEBUGGING SYSTEM ===
+  const [syncDebugEnabled, setSyncDebugEnabled] = useState(false)
+  const [syncDebugData, setSyncDebugData] = useState<{
+    lastTransportTime: number
+    lastSequencerStep: number
+    lastArrangementTime: number
+    lastStepTimingError?: number
+    lastContextState?: string
+    lastTransportPosition?: number
+    lastActualStepTime?: number
+    lastExpectedStepTime?: number
+    timingDrifts: Array<{timestamp: number, component: string, expectedTime: number, actualTime: number, drift: number}>
+    audioLatencies: Array<{timestamp: number, trackId: number, expectedStart: number, actualStart: number, latency: number}>
+    syncEvents: Array<{timestamp: number, event: string, details: any}>
+  }>({
+    lastTransportTime: 0,
+    lastSequencerStep: 0,
+    lastArrangementTime: 0,
+    timingDrifts: [],
+    audioLatencies: [],
+    syncEvents: []
+  })
+  const syncDebugRef = useRef<any>(null)
+
+  // Sync Debug Functions
+  const logSyncEvent = useCallback((event: string, details: any = {}) => {
+    if (!syncDebugEnabled) return
+    const timestamp = performance.now()
+    setSyncDebugData(prev => ({
+      ...prev,
+      syncEvents: [...prev.syncEvents.slice(-49), {timestamp, event, details}] // Keep last 50 events
+    }))
+    console.log(`[SYNC DEBUG] ${event}:`, details)
+  }, [syncDebugEnabled])
+
+  const logTimingDrift = useCallback((component: string, expectedTime: number, actualTime: number) => {
+    if (!syncDebugEnabled) return
+    const timestamp = performance.now()
+    const drift = actualTime - expectedTime
+    setSyncDebugData(prev => ({
+      ...prev,
+      timingDrifts: [...prev.timingDrifts.slice(-49), {timestamp, component, expectedTime, actualTime, drift}] // Keep last 50 drifts
+    }))
+    if (Math.abs(drift) > 0.01) { // Log significant drift (>10ms)
+      console.warn(`[SYNC DEBUG] TIMING DRIFT in ${component}: expected ${expectedTime.toFixed(3)}s, actual ${actualTime.toFixed(3)}s, drift: ${drift.toFixed(3)}s`)
+    }
+  }, [syncDebugEnabled])
+
+  const logAudioLatency = useCallback((trackId: number, expectedStart: number, actualStart: number) => {
+    if (!syncDebugEnabled) return
+    const timestamp = performance.now()
+    const latency = actualStart - expectedStart
+    setSyncDebugData(prev => ({
+      ...prev,
+      audioLatencies: [...prev.audioLatencies.slice(-49), {timestamp, trackId, expectedStart, actualStart, latency}] // Keep last 50 latencies
+    }))
+    if (Math.abs(latency) > 0.005) { // Log significant latency (>5ms)
+      console.warn(`[SYNC DEBUG] AUDIO LATENCY on track ${trackId}: expected ${expectedStart.toFixed(3)}s, actual ${actualStart.toFixed(3)}s, latency: ${latency.toFixed(3)}s`)
+    }
+  }, [syncDebugEnabled])
+
+  // Monitor Transport vs Sequencer sync
+  useEffect(() => {
+    if (!syncDebugEnabled) return
+
+    const monitorSync = async () => {
+      try {
+        const Tone = await import('tone')
+        
+        // More comprehensive Transport state check
+        if (!Tone.Transport || Tone.Transport.state !== 'started') {
+          if (isPlaying) {
+            console.warn(`[SYNC DEBUG] Transport not started but sequencer playing. Transport state: ${Tone.Transport?.state || 'undefined'}`)
+          }
+          return
+        }
+
+        const transportTime = Tone.Transport.seconds
+        const transportPosition = Tone.Transport.position
+        const contextState = Tone.getContext().state
+        
+        // IMPROVED: More accurate step calculation matching the useBeatMaker logic
+        const stepDuration = (60 / bpm) / (gridDivision / 4)
+        const totalLoopDuration = steps * stepDuration
+        
+        // Parse Transport position for precise calculation (matching useBeatMaker)
+        const positionString = typeof transportPosition === 'string' ? transportPosition : transportPosition.toString()
+        const positionParts = positionString.split(':')
+        const bars = parseFloat(positionParts[0] || '0')
+        const beats = parseFloat(positionParts[1] || '0')
+        const subdivisions = parseFloat(positionParts[2] || '0')
+        
+        // Convert to seconds (matching useBeatMaker calculation)
+        const beatsPerBar = 4
+        const subdivisionsPerBeat = 4
+        const secondsPerBeat = 60 / bpm
+        
+        const currentTransportPosition = 
+          (bars * beatsPerBar * secondsPerBeat) + 
+          (beats * secondsPerBeat) + 
+          (subdivisions * secondsPerBeat / subdivisionsPerBeat)
+        
+        // Calculate expected step from Transport position
+        const actualStepTime = currentTransportPosition % totalLoopDuration
+        const expectedStep = Math.floor(actualStepTime / stepDuration) % steps
+        
+        // More detailed sync analysis
+        const expectedCurrentStepTime = (currentStep * stepDuration) % totalLoopDuration
+        const stepTimingError = Math.abs(actualStepTime - expectedCurrentStepTime)
+        
+        // Log significant step mismatches with more context
+        if (Math.abs(expectedStep - currentStep) > 1 && isPlaying) {
+          logTimingDrift('sequencer-transport', expectedStep, currentStep)
+          logSyncEvent('step-mismatch', {
+            transportTime,
+            transportPosition,
+            currentTransportPosition,
+            actualStepTime,
+            expectedCurrentStepTime,
+            expectedStep,
+            actualStep: currentStep,
+            stepTimingError: stepTimingError * 1000, // Convert to milliseconds
+            stepMismatch: Math.abs(expectedStep - currentStep),
+            contextState,
+            transportBpm: Tone.Transport.bpm.value,
+            localBpm: bpm,
+            stepDuration: stepDuration * 1000, // Convert to milliseconds
+            totalLoopDuration: totalLoopDuration * 1000 // Convert to milliseconds
+          })
+        }
+
+        setSyncDebugData(prev => ({
+          ...prev,
+          lastTransportTime: transportTime,
+          lastSequencerStep: expectedStep,
+          lastContextState: contextState,
+          lastStepTimingError: stepTimingError * 1000, // Convert to milliseconds
+          lastTransportPosition: currentTransportPosition,
+          lastActualStepTime: actualStepTime,
+          lastExpectedStepTime: expectedCurrentStepTime
+        }))
+
+      } catch (error) {
+        console.error('[SYNC DEBUG] Monitor error:', error)
+      }
+    }
+
+    if (isPlaying) {
+      syncDebugRef.current = setInterval(monitorSync, 100) // Check every 100ms
+    } else {
+      if (syncDebugRef.current) {
+        clearInterval(syncDebugRef.current)
+        syncDebugRef.current = null
+      }
+    }
+
+    return () => {
+      if (syncDebugRef.current) {
+        clearInterval(syncDebugRef.current)
+        syncDebugRef.current = null
+      }
+    }
+  }, [syncDebugEnabled, isPlaying, currentStep, bpm, gridDivision, steps, logTimingDrift, logSyncEvent])
+
+  // Clear sync debug data
+  const clearSyncDebugData = useCallback(() => {
+    setSyncDebugData({
+      lastTransportTime: 0,
+      lastSequencerStep: 0,
+      lastArrangementTime: 0,
+      lastStepTimingError: undefined,
+      lastContextState: undefined,
+      lastTransportPosition: undefined,
+      lastActualStepTime: undefined,
+      lastExpectedStepTime: undefined,
+      timingDrifts: [],
+      audioLatencies: [],
+      syncEvents: []
+    })
+    logSyncEvent('debug-data-cleared')
+  }, [logSyncEvent])
   const [showPianoRoll, setShowPianoRoll] = useState(false)
   const [pianoRollTrack, setPianoRollTrack] = useState<number | null>(null)
 
@@ -451,6 +633,9 @@ export default function BeatMakerPage() {
     return data.publicUrl || ''
   }
 
+  // Define a placeholder for the custom playStep that will be updated later
+  const customPlayStepRef = useRef<((step: number, scheduledTime?: number) => void) | undefined>(undefined)
+
   const {
     sequencerData,
     pianoRollData,
@@ -478,22 +663,80 @@ export default function BeatMakerPage() {
     samplesRef,
     pitchShiftersRef,
     reloadingTracks
-  } = useBeatMaker(tracks, steps, bpm, timeStretchMode, gridDivision)
+  } = useBeatMaker(tracks, steps, bpm, timeStretchMode, gridDivision, customPlayStepRef.current)
 
-  // Custom playStep function that includes MIDI playback
-  const customPlayStep = useCallback((step: number) => {
+  // Custom playStep function that includes MIDI playback and sync debugging
+  const customPlayStep = useCallback((step: number, scheduledTime?: number) => {
+    const stepStartTime = performance.now()
+    
+    // Log sync event when debug is enabled
+    if (syncDebugEnabled) {
+      logSyncEvent('step-triggered', {
+        step,
+        expectedTime: stepStartTime,
+        bpm,
+        totalTracks: tracks.length,
+        activeTracks: tracks.filter(t => sequencerData[t.id]?.[step]).length
+      })
+    }
+
     tracks.forEach(track => {
       const shouldPlay = sequencerData[track.id]?.[step]
       
-      // Handle MIDI notes
-      if (track.name === 'MIDI' && track.midiNotes && track.midiNotes.length > 0 && shouldPlay) {
-        const notesAtStep = track.midiNotes.filter(note => note.startStep === step)
-        notesAtStep.forEach(note => {
-          playMidiNote(note.note)
-        })
+      if (shouldPlay) {
+        const trackPlayStartTime = performance.now()
+        
+        // Handle MIDI notes with sync debugging
+        if (track.name === 'MIDI' && track.midiNotes && track.midiNotes.length > 0) {
+          const notesAtStep = track.midiNotes.filter(note => note.startStep === step)
+          notesAtStep.forEach(note => {
+            playMidiNote(note.note)
+          })
+          
+          // Log MIDI timing if debug enabled
+          if (syncDebugEnabled) {
+            const midiLatency = performance.now() - trackPlayStartTime
+            logSyncEvent('midi-triggered', {
+              trackId: track.id,
+              trackName: track.name,
+              step,
+              notesCount: notesAtStep.length,
+              latency: midiLatency
+            })
+          }
+        }
+        
+        // Audio playback timing logging
+        if (track.audioUrl && syncDebugEnabled) {
+          const expectedAudioStart = stepStartTime
+          logSyncEvent('audio-trigger-requested', {
+            trackId: track.id,
+            trackName: track.name,
+            step,
+            expectedStart: expectedAudioStart,
+            hasLoopPoints: !!(track.loopStartTime && track.loopEndTime)
+          })
+        }
       }
     })
-  }, [tracks, sequencerData, playMidiNote])
+    
+    // Log total step processing time
+    if (syncDebugEnabled) {
+      const totalStepTime = performance.now() - stepStartTime
+      if (totalStepTime > 3) { // Log if step takes more than 3ms
+        logSyncEvent('step-processing-slow', {
+          step,
+          totalTime: totalStepTime,
+          hasScheduledTime: !!scheduledTime
+        })
+      }
+    }
+  }, [tracks, sequencerData, playMidiNote, syncDebugEnabled, logSyncEvent, bpm])
+
+  // Update the ref when the function changes
+  useEffect(() => {
+    customPlayStepRef.current = customPlayStep
+  }, [customPlayStep])
 
   // Sync state with the hook
   useEffect(() => {
@@ -506,12 +749,6 @@ export default function BeatMakerPage() {
     if (searchParams && !hasLoadedSessionFromUrl) {
       const loadPatternId = searchParams.get('load-pattern')
       const loadSessionId = searchParams.get('session')
-      
-        loadPatternId,
-        loadSessionId,
-        allParams: Object.fromEntries(searchParams.entries()),
-        hasLoadedSessionFromUrl
-      })
       
       if (loadPatternId) {
         console.log(`[BEAT MAKER] Loading pattern from URL: ${loadPatternId}`)
@@ -3134,14 +3371,7 @@ export default function BeatMakerPage() {
         const notReadyKickFiles = kickFiles.filter(f => !f.is_ready)
         
         if (kickFiles.length > 0) {
-            id: f.id,
-            name: f.name,
-            is_ready: f.is_ready,
-            genre: f.genre,
-            subgenre: f.subgenre,
-            bpm: f.bpm,
-            key: f.key
-          })))
+          // Kick files available
         }
       }
 
@@ -4114,7 +4344,8 @@ export default function BeatMakerPage() {
         return {}
       }
       
-      // Group files by audio type (using existing filesByType from above)
+      // Group files by audio type
+      const filesByType: { [audioType: string]: any[] } = {}
       audioTypes.forEach(type => {
         filesByType[type] = availableFiles.filter(file => file.audio_type === type)
       })
@@ -5303,14 +5534,7 @@ export default function BeatMakerPage() {
 
       console.log('Shuffled all audio samples and patterns using tracking system')
       
-      // CRITICAL DEBUG: Log final state after shuffle all
-        name: t.name, 
-        currentBpm: t.currentBpm, 
-        originalBpm: t.originalBpm, 
-        playbackRate: t.playbackRate,
-        pitchShift: t.pitchShift,
-        audioName: t.audioName
-      })))
+      // Final state logged after shuffle all
       
       markSessionChanged()
     } catch (error) {
@@ -8398,6 +8622,106 @@ export default function BeatMakerPage() {
                   <Settings className="w-3 h-3" />
                   {showAdvancedSettings ? 'Hide Advanced' : 'Show Advanced'}
                 </button>
+
+                {/* Sync Debug Toggle */}
+                <button
+                  onClick={() => setSyncDebugEnabled(!syncDebugEnabled)}
+                  className={`text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 cursor-pointer hover:scale-105 flex items-center gap-1 ${
+                    syncDebugEnabled 
+                      ? 'bg-orange-600/80 text-white border border-orange-500 shadow-lg shadow-orange-500/30' 
+                      : 'text-gray-300 bg-gray-800/40 border border-gray-600/60'
+                  }`}
+                  title={`Sync Debug: ${syncDebugEnabled ? 'ON - Tracking timing and sync issues' : 'OFF - Click to enable debugging'}`}
+                >
+                  <Clock className="w-3 h-3" />
+                  Sync Debug {syncDebugEnabled ? 'ON' : 'OFF'}
+                </button>
+
+                {/* Sync Debug Panel */}
+                {syncDebugEnabled && (
+                  <div className="fixed top-4 right-4 z-50 bg-black/90 backdrop-blur-md border border-orange-500/30 rounded-lg p-3 max-w-md max-h-96 overflow-y-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-orange-400 font-bold text-sm flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        Sync Monitor
+                      </h3>
+                      <button
+                        onClick={clearSyncDebugData}
+                        className="text-xs px-2 py-1 bg-orange-600/20 text-orange-300 rounded hover:bg-orange-600/30 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    
+                    {/* Current Stats */}
+                    <div className="mb-3 text-xs space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Transport Time:</span>
+                        <span className="text-orange-300">{syncDebugData.lastTransportTime.toFixed(3)}s</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Current Step:</span>
+                        <span className="text-orange-300">{syncDebugData.lastSequencerStep}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Sync Events:</span>
+                        <span className="text-orange-300">{syncDebugData.syncEvents.length}</span>
+                      </div>
+                    </div>
+
+                    {/* Recent Timing Drifts */}
+                    {syncDebugData.timingDrifts.length > 0 && (
+                      <div className="mb-3">
+                        <h4 className="text-red-400 text-xs font-semibold mb-1">Recent Timing Drifts</h4>
+                        <div className="space-y-1 max-h-20 overflow-y-auto">
+                          {syncDebugData.timingDrifts.slice(-5).map((drift, i) => (
+                            <div key={i} className="text-xs flex justify-between items-center">
+                              <span className="text-gray-400 truncate">{drift.component}</span>
+                              <span className={`font-mono ${Math.abs(drift.drift) > 0.01 ? 'text-red-400' : 'text-yellow-400'}`}>
+                                {drift.drift > 0 ? '+' : ''}{(drift.drift * 1000).toFixed(1)}ms
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent Audio Latencies */}
+                    {syncDebugData.audioLatencies.length > 0 && (
+                      <div className="mb-3">
+                        <h4 className="text-blue-400 text-xs font-semibold mb-1">Audio Latencies</h4>
+                        <div className="space-y-1 max-h-20 overflow-y-auto">
+                          {syncDebugData.audioLatencies.slice(-5).map((latency, i) => (
+                            <div key={i} className="text-xs flex justify-between items-center">
+                              <span className="text-gray-400">Track {latency.trackId}</span>
+                              <span className={`font-mono ${Math.abs(latency.latency) > 0.005 ? 'text-red-400' : 'text-green-400'}`}>
+                                {latency.latency > 0 ? '+' : ''}{(latency.latency * 1000).toFixed(1)}ms
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent Sync Events */}
+                    <div>
+                      <h4 className="text-gray-300 text-xs font-semibold mb-1">Recent Events</h4>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {syncDebugData.syncEvents.slice(-8).map((event, i) => (
+                          <div key={i} className="text-xs text-gray-400 truncate">
+                            <span className="text-orange-300">{event.event}</span>
+                            {event.details.step !== undefined && (
+                              <span className="ml-1">step:{event.details.step}</span>
+                            )}
+                            {event.details.drift !== undefined && (
+                              <span className="ml-1 text-red-400">{(event.details.drift * 1000).toFixed(1)}ms</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Advanced Settings Section */}
                 {showAdvancedSettings && (

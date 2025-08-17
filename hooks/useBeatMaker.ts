@@ -66,7 +66,7 @@ export interface PianoRollData {
   [trackId: number]: AudioNote[]
 }
 
-export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling', gridDivision: number = 16) {
+export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeStretchMode: 'resampling' | 'flex-time' = 'resampling', gridDivision: number = 16, customPlayStep?: (step: number, scheduledTime?: number) => void) {
   const [sequencerData, setSequencerData] = useState<SequencerData>({})
   const [pianoRollData, setPianoRollData] = useState<PianoRollData>({})
   const [isSequencePlaying, setIsSequencePlaying] = useState(false)
@@ -627,11 +627,20 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   }, [tracks])
 
   // Define playStep function first with improved timing precision
-  const playStep = useCallback((step: number) => {
+  const playStep = useCallback((step: number, scheduledTime?: number) => {
     // Update playhead immediately for real-time response
     updatePlayhead(step)
     
     console.log(`[PLAYSTEP] Step ${step}/${steps} (${((step / steps) * 100).toFixed(1)}% through pattern)`)
+    
+    // Track timing for sync debugging
+    const stepTriggerTime = performance.now()
+    const expectedStepTime = scheduledTime || (Tone ? Tone.now() : 0)
+    
+    // Call custom playStep function if provided (for MIDI and additional sync debugging)
+    if (customPlayStep) {
+      customPlayStep(step, scheduledTime)
+    }
     
     // Debug: Show what steps are filled for each track
     console.log(`[PLAYSTEP DEBUG] Sequencer data for step ${step}:`, Object.entries(sequencerData).map(([trackId, trackSteps]) => ({
@@ -712,11 +721,19 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               player.loopStart = track.loopStartTime
               player.loopEnd = track.loopEndTime
               
-              // Start the loop with precise timing and duration
-              const startTime = Tone.now()
-              player.start(startTime, track.loopStartTime, totalLoopDuration)
+              // ENHANCED SYNC: Use ultra-precise scheduling with look-ahead compensation
+              const audioLookAhead = 0.1 // 100ms look-ahead for buffer stability
+              const preciseStartTime = Math.max(expectedStepTime, Tone.now() + 0.001) // Ensure we're not scheduling in the past
+              const actualStartTime = performance.now()
+              player.start(preciseStartTime, track.loopStartTime, totalLoopDuration)
               
-              console.log(`[LOOP START] Started synchronized loop for track ${track.name} at ${startTime}s, duration: ${totalLoopDuration}s`)
+              console.log(`[LOOP START] Started synchronized loop for track ${track.name} at ${preciseStartTime}s, duration: ${totalLoopDuration}s`)
+              
+              // Log timing precision for sync debugging
+              const startLatency = actualStartTime - stepTriggerTime
+              if (startLatency > 5) { // Log if audio start takes more than 5ms
+                console.warn(`[SYNC DEBUG] AUDIO START LATENCY for ${track.name}: ${startLatency.toFixed(2)}ms`)
+              }
               
               // Track that this loop is now playing
               playingLoops.push(track.name)
@@ -755,10 +772,18 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
               player.playbackRate = precisePlaybackRate
             }
             
-            // Start immediately - Tone.js will handle the timing
-            player.start()
+            // ENHANCED SYNC FIX: Use ultra-precise scheduling for samples
+            const preciseStartTime = Math.max(expectedStepTime, Tone.now() + 0.001) // Ensure we're not scheduling in the past
+            const sampleStartTime = performance.now()
+            player.start(preciseStartTime)
             
-            console.log(`[SAMPLE SYNC] Track ${track.name} at step ${step}: playing immediately`)
+            console.log(`[SAMPLE SYNC] Track ${track.name} at step ${step}: scheduled at ${preciseStartTime.toFixed(3)}s`)
+            
+            // Log timing precision for sync debugging
+            const sampleLatency = sampleStartTime - stepTriggerTime
+            if (sampleLatency > 3) { // Log if sample start takes more than 3ms
+              console.warn(`[SYNC DEBUG] SAMPLE START LATENCY for ${track.name}: ${sampleLatency.toFixed(2)}ms`)
+            }
           }
           
           // Track the playing sample for cleanup
@@ -970,6 +995,12 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
     console.log(`[SEQUENCER START] Starting sequencer with ${tracks.length} tracks, ${steps} steps, ${bpm} BPM`)
     console.log(`[SEQUENCER START] Grid division: ${gridDivision}, Steps: ${steps}`)
     
+    // CRITICAL FIX: Prevent multiple setup calls by checking if sequence is already running
+    if (intervalRef.current) {
+      console.log('[SEQUENCER START] Sequence already running, skipping setup')
+      return
+    }
+    
     // Debug: Log all tracks with loops
     tracks.forEach(track => {
       if (track.loopStartTime !== undefined && track.loopEndTime !== undefined) {
@@ -996,15 +1027,33 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
 
     // Use Tone.js Transport for precise timing
     const setupToneSequencer = async () => {
+      // CRITICAL FIX: Prevent multiple sequence setups
+      if (intervalRef.current) {
+        console.log('[SEQUENCER START] Sequence already running, skipping setup')
+        return
+      }
+      
       const Tone = await import('tone')
       
-      // Ensure Transport is stopped and reset before starting
+      console.log('[SEQUENCER SETUP] Starting fresh sequencer setup...')
+      
+      // CRITICAL FIX: Ensure Transport is in a completely clean state
       Tone.Transport.stop()
       Tone.Transport.cancel()
       Tone.Transport.position = 0
       
-      // Set the BPM for Tone.js Transport
+      // Clear any existing sequences and events
+      Tone.Transport.clear()
+      
+      // Ensure AudioContext is running before proceeding
+      if (Tone.getContext().state === 'suspended') {
+        console.warn('[TRANSPORT SETUP] AudioContext suspended - attempting to resume')
+        await Tone.getContext().resume()
+      }
+      
+      // Set the BPM for Tone.js Transport with validation
       Tone.Transport.bpm.value = bpm
+      console.log(`[TRANSPORT SETUP] Transport BPM confirmed: ${Tone.Transport.bpm.value}`)
       
       // Calculate step duration based on grid division (like loop editor)
       const secondsPerBeat = 60 / bpm
@@ -1015,24 +1064,156 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       
       console.log(`[SEQUENCER SETUP] BPM: ${bpm}, Step duration: ${stepDuration}s, Steps: ${steps}, Total loop: ${totalLoopDuration}s`)
       
-      // Create a sequence that loops perfectly
+      // Create a sequence that loops perfectly with improved sync debugging
       const sequence = new Tone.Sequence((time, step) => {
-        console.log(`[TONE SEQUENCER] Step: ${step} at time ${time}`)
+        // CRITICAL FIX: Use the scheduled time from Tone.js for accurate timing
+        const scheduleTime = time
+        const transportTime = Tone.Transport.seconds
+        const currentTime = Tone.now()
+        
+        // FIXED: Calculate expected time based on actual Transport position, not step index
+        // This accounts for Transport looping and ensures accurate timing validation
+        const positionParts = Tone.Transport.position.split(':')
+        const bars = parseFloat(positionParts[0] || '0')
+        const beats = parseFloat(positionParts[1] || '0')
+        const subdivisions = parseFloat(positionParts[2] || '0')
+        
+        // Convert Tone.js position format to seconds
+        // In Tone.js: bars:beats:subdivisions where beats are quarter notes and subdivisions are 16th notes
+        const beatsPerBar = 4
+        const subdivisionsPerBeat = 4
+        const secondsPerBeat = 60 / bpm
+        
+        const currentTransportPosition = 
+          (bars * beatsPerBar * secondsPerBeat) + 
+          (beats * secondsPerBeat) + 
+          (subdivisions * secondsPerBeat / subdivisionsPerBeat)
+        
+        // Calculate expected step time relative to current transport loop position
+        const expectedStepTime = (step * stepDuration) % totalLoopDuration
+        const actualStepTime = currentTransportPosition % totalLoopDuration
+        
+        // IMPROVED: More accurate timing validation using scheduled time
+        const scheduledTimingError = Math.abs(scheduleTime - expectedStepTime)
+        const transportTimingError = Math.abs(actualStepTime - expectedStepTime)
+        
+        // IMPROVED: Only log significant timing errors and only during stable playback
+        const isSignificantScheduledError = scheduledTimingError > stepDuration * 0.2 // Reduced threshold to 20%
+        const isSignificantTransportError = transportTimingError > stepDuration * 0.2
+        const isTransportStable = Tone.Transport.state === 'started' && transportTime > 0.2 // More time to stabilize
+        
+        // Log scheduled time errors (these are critical)
+        if (isSignificantScheduledError && isTransportStable) {
+          console.warn(`[SYNC DEBUG] Step ${step} SCHEDULED timing error: scheduled ${scheduleTime.toFixed(3)}s, expected ${expectedStepTime.toFixed(3)}s, error: ${(scheduledTimingError * 1000).toFixed(2)}ms`)
+        }
+        
+        // Log transport position errors (these indicate drift)
+        if (isSignificantTransportError && isTransportStable) {
+          console.warn(`[SYNC DEBUG] Step ${step} TRANSPORT timing error: transport ${actualStepTime.toFixed(3)}s, expected ${expectedStepTime.toFixed(3)}s, error: ${(transportTimingError * 1000).toFixed(2)}ms`)
+        }
+        
+        // IMPROVED: More accurate step sequence validation using Transport position
+        if (isTransportStable) {
+          const expectedStepFromTransport = Math.floor(actualStepTime / stepDuration) % steps
+          if (Math.abs(expectedStepFromTransport - step) > 1) { // Reduced tolerance to 1 step
+            console.warn(`[SYNC DEBUG] Step sequence mismatch: callback step ${step}, transport indicates step ${expectedStepFromTransport} (transport time: ${actualStepTime.toFixed(3)}s)`)
+          }
+        }
+        
         // Update playhead FIRST for perfect sync, then play audio
         playheadRef.current = step
         setCurrentStep(step)
-        // Now play the audio - timing will be perfect
-        playStep(step)
+        
+        // Execute step with optimized timing
+        const stepTriggerStart = performance.now()
+        
+        // Use the Tone.js scheduled time for precise audio triggering
+        playStep(step, scheduleTime)
+        
+        const stepTriggerEnd = performance.now()
+        const stepProcessingTime = stepTriggerEnd - stepTriggerStart
+        
+        // Only log slow step processing if it's significantly slow
+        if (stepProcessingTime > 5) { // Log if step processing takes > 5ms
+          console.warn(`[SYNC DEBUG] Slow step processing for step ${step}: ${stepProcessingTime.toFixed(2)}ms`)
+        }
       }, Array.from({ length: steps }, (_, i) => i), stepDuration)
       
-      // Start the sequence with proper looping
+      // CRITICAL FIX: Start sequence with precise timing coordination
       sequence.start(0)
+      
+      // Configure Transport looping BEFORE starting
       Tone.Transport.loop = true
       Tone.Transport.loopStart = 0
       Tone.Transport.loopEnd = totalLoopDuration
-      Tone.Transport.start()
       
-      console.log(`[SEQUENCER SETUP] Started sequence with loop: ${Tone.Transport.loopStart}s to ${Tone.Transport.loopEnd}s`)
+      console.log(`[SEQUENCER SETUP] Configured loop: ${Tone.Transport.loopStart}s to ${Tone.Transport.loopEnd}s`)
+      console.log(`[SEQUENCER SETUP] About to start Transport - Context state: ${Tone.getContext().state}`)
+      
+      // CRITICAL FIX: Ensure Transport starts properly with improved timing and validation
+      const startTransport = async () => {
+        console.log(`[TRANSPORT START] Pre-start verification - Context state: ${Tone.getContext().state}`)
+        console.log(`[TRANSPORT START] Pre-start verification - Transport state: ${Tone.Transport.state}`)
+        
+        // Ensure AudioContext is running first
+        if (Tone.getContext().state !== 'running') {
+          console.warn(`[TRANSPORT START] AudioContext not running (${Tone.getContext().state}), attempting to start...`)
+          try {
+            await Tone.start()
+            console.log(`[TRANSPORT START] AudioContext started, state: ${Tone.getContext().state}`)
+          } catch (error) {
+            console.error(`[TRANSPORT START] Failed to start AudioContext:`, error)
+            return
+          }
+        }
+        
+        // Wait multiple frames to ensure everything is ready
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        
+        // Record start time for timing validation
+        const startAttemptTime = Tone.now()
+        console.log(`[TRANSPORT START] Starting Transport at Tone time: ${startAttemptTime.toFixed(3)}s`)
+        
+        // Start Transport with precise timing
+        Tone.Transport.start('+0.01') // Small buffer to ensure scheduling
+        console.log(`[TRANSPORT START] Transport.start(+0.01) called`)
+        
+        // Wait for Transport to actually start with better validation
+        let attempts = 0
+        const maxAttempts = 50 // Increased attempts
+        let transportStarted = false
+        
+        while (!transportStarted && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 5)) // Shorter intervals
+          attempts++
+          
+          // Check multiple conditions for successful start
+          const isStarted = Tone.Transport.state === 'started'
+          const hasPosition = Tone.Transport.seconds > 0
+          const isScheduling = Tone.Transport.position !== '0:0:0'
+          
+          transportStarted = isStarted && (hasPosition || isScheduling)
+          
+          if (attempts % 10 === 0) { // Log every 50ms
+            console.log(`[TRANSPORT START] Attempt ${attempts}: state=${Tone.Transport.state}, seconds=${Tone.Transport.seconds.toFixed(3)}, position=${Tone.Transport.position}`)
+          }
+        }
+        
+        if (transportStarted) {
+          console.log(`[TRANSPORT START] Transport started successfully after ${attempts * 5}ms`)
+          console.log(`[TRANSPORT START] Final state: ${Tone.Transport.state}, position: ${Tone.Transport.position}, seconds: ${Tone.Transport.seconds.toFixed(3)}`)
+        } else {
+          console.error(`[TRANSPORT START] Transport failed to start after ${maxAttempts * 5}ms`)
+          console.error(`[TRANSPORT START] Final state: ${Tone.Transport.state}, position: ${Tone.Transport.position}, seconds: ${Tone.Transport.seconds}`)
+        }
+        
+        // Additional verification
+        const postStartTime = Tone.now()
+        const actualStartDelay = postStartTime - startAttemptTime
+        console.log(`[TRANSPORT START] Total startup time: ${actualStartDelay.toFixed(3)}s`)
+      }
+      
+      await startTransport()
       
       // Start Transport-synchronized playhead updates
       transportSyncRef.current = true
@@ -1105,15 +1286,75 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
   const playSequence = useCallback(async () => {
     if (isSequencePlaying) return
 
-    // Start Tone.js audio context
-    await Tone.start()
-    
-    setIsSequencePlaying(true)
-    setCurrentStep(0)
+    try {
+      // CRITICAL FIX: Comprehensive AudioContext activation with multiple fallbacks
+      console.log('[AUDIO CONTEXT] Starting comprehensive AudioContext activation...')
+      console.log(`[AUDIO CONTEXT] Initial state: ${Tone.getContext().state}`)
+      
+      // Step 1: Try Tone.start() (preferred method)
+      try {
+        await Tone.start()
+        console.log('[AUDIO CONTEXT] Tone.start() completed')
+      } catch (startError) {
+        console.warn('[AUDIO CONTEXT] Tone.start() failed:', startError)
+      }
+      
+      // Step 2: Verify and force resume if needed
+      let contextState = Tone.getContext().state
+      console.log(`[AUDIO CONTEXT] State after Tone.start(): ${contextState}`)
+      
+      if (contextState === 'suspended') {
+        console.warn('[AUDIO CONTEXT] Still suspended, forcing resume...')
+        try {
+          await Tone.getContext().resume()
+          contextState = Tone.getContext().state
+          console.log(`[AUDIO CONTEXT] State after resume(): ${contextState}`)
+        } catch (resumeError) {
+          console.error('[AUDIO CONTEXT] Resume failed:', resumeError)
+        }
+      }
+      
+      // Step 3: Additional fallback - direct context activation
+      if (contextState !== 'running') {
+        console.warn('[AUDIO CONTEXT] Attempting direct context activation...')
+        try {
+          const context = Tone.getContext().rawContext
+          if (context.state === 'suspended') {
+            await context.resume()
+            console.log(`[AUDIO CONTEXT] Direct resume result: ${context.state}`)
+          }
+        } catch (directError) {
+          console.error('[AUDIO CONTEXT] Direct activation failed:', directError)
+        }
+      }
+      
+      // Final verification
+      const finalState = Tone.getContext().state
+      console.log(`[AUDIO CONTEXT] Final context state: ${finalState}`)
+      
+      if (finalState !== 'running') {
+        throw new Error(`AudioContext failed to start (final state: ${finalState})`)
+      }
+      
+      // Reset Transport to ensure clean state
+      Tone.Transport.stop()
+      Tone.Transport.position = 0
+      Tone.Transport.bpm.value = bpm
+      console.log(`[TRANSPORT SYNC] Transport BPM set to: ${bpm}`)
+      
+      setIsSequencePlaying(true)
+      setCurrentStep(0)
+      playheadRef.current = 0
 
-    // The actual sequencer setup is handled by the useEffect above
-    // This function just starts the playback state
-  }, [isSequencePlaying])
+      // The actual sequencer setup is handled by the useEffect above
+      // This function just starts the playback state
+      console.log('[AUDIO CONTEXT] AudioContext activation successful, sequencer ready to start')
+    } catch (error) {
+      console.error('[AUDIO CONTEXT] Failed to start audio context:', error)
+      // Don't set playing state if audio context failed
+      return
+    }
+  }, [isSequencePlaying, bpm])
 
   // Function to play piano roll notes independently - TEMPO SYNCED VERSION
   const playPianoRollNotes = useCallback(async () => {
