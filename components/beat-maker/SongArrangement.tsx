@@ -463,25 +463,71 @@ export function SongArrangement({
   const previousPlayingState = useRef(false)
   
   useEffect(() => {
-    console.log(`[AUTO-STOP DEBUG] Play state change: prev=${previousPlayingState.current}, current=${isPlaying}, recording=${isExportLiveRecording}`)
+    const debugTime = Date.now()
+    console.log(`🔍 [AUTO-STOP DEBUG] ===== PLAY STATE CHANGE DETECTED =====`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Time: ${debugTime}`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Previous: ${previousPlayingState.current} | Current: ${isPlaying}`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Recording: ${isExportLiveRecording}`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Transition: ${previousPlayingState.current} → ${isPlaying}`)
+    
+    // AGGRESSIVE DEBUGGING - Check what's actually happening with Tone.js
+    const checkToneState = async () => {
+      try {
+        const Tone = await import('tone')
+        console.log(`🎵 [TONE DEBUG] Tone.Transport.state: ${Tone.Transport.state}`)
+        console.log(`🎵 [TONE DEBUG] Tone.context.state: ${Tone.context.state}`)
+        console.log(`🎵 [TONE DEBUG] Tone.Transport.position: ${Tone.Transport.position}`)
+        console.log(`🎵 [TONE DEBUG] Tone.Transport.seconds: ${Tone.Transport.seconds}`)
+        console.log(`🎵 [TONE DEBUG] Any playing sources:`, Tone.Transport._timeline.length)
+      } catch (error) {
+        console.log(`🎵 [TONE DEBUG] Error checking Tone state:`, error)
+      }
+    }
+    checkToneState()
+    
+    // Check global MediaRecorder state
+    const globalRecorder = (window as any).mediaRecorderForExport
+    console.log(`📹 [RECORDER DEBUG] Global recorder exists: ${!!globalRecorder}`)
+    console.log(`📹 [RECORDER DEBUG] Global recorder state: ${globalRecorder?.state}`)
+    
+    // Check if there are any background audio processes
+    console.log(`🔊 [AUDIO DEBUG] Document has focus: ${document.hasFocus()}`)
+    console.log(`🔊 [AUDIO DEBUG] Page visibility: ${document.visibilityState}`)
     
     // Only trigger when transitioning FROM playing TO stopped, not the other way around
     if (previousPlayingState.current === true && !isPlaying && isExportLiveRecording) {
-      console.log('[AUTO-STOP] ✅ Arrangement stopped playing - auto-stopping live export recording in 500ms')
+      console.log(`🎯 [AUTO-STOP DEBUG] ✅ AUTO-STOP CONDITIONS MET!`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Was playing: ${previousPlayingState.current}`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Now stopped: ${isPlaying}`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Currently recording: ${isExportLiveRecording}`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Triggering auto-stop in 500ms...`)
       
       // Add a small delay to ensure the last bit of audio is captured
       setTimeout(() => {
-        console.log('[AUTO-STOP] ✅ 500ms delay complete - calling stopExportLive()')
+        console.log(`🛑 [AUTO-STOP DEBUG] ⏰ EXECUTING AUTO-STOP NOW!`)
+        console.log(`🛑 [AUTO-STOP DEBUG] Calling stopExportLive() at ${Date.now()}`)
         stopExportLive()
       }, 500) // 500ms delay to capture the tail end of audio
     } else {
-      console.log('[AUTO-STOP DEBUG] No auto-stop triggered:', {
-        prevPlaying: previousPlayingState.current,
-        currentPlaying: isPlaying,
-        recording: isExportLiveRecording,
-        shouldTrigger: previousPlayingState.current === true && !isPlaying && isExportLiveRecording
-      })
+      console.log(`❌ [AUTO-STOP DEBUG] No auto-stop triggered because:`)
+      if (previousPlayingState.current !== true) {
+        console.log(`❌ [AUTO-STOP DEBUG] - Previous state was not playing (was: ${previousPlayingState.current})`)
+      }
+      if (isPlaying !== false) {
+        console.log(`❌ [AUTO-STOP DEBUG] - Current state is not stopped (is: ${isPlaying})`)
+      }
+      if (!isExportLiveRecording) {
+        console.log(`❌ [AUTO-STOP DEBUG] - Not currently recording (is: ${isExportLiveRecording})`)
+      }
+      
+      console.log(`❌ [AUTO-STOP DEBUG] Full condition check:`)
+      console.log(`❌ [AUTO-STOP DEBUG] - prevPlaying === true: ${previousPlayingState.current === true}`)
+      console.log(`❌ [AUTO-STOP DEBUG] - !isPlaying: ${!isPlaying}`)
+      console.log(`❌ [AUTO-STOP DEBUG] - isExportLiveRecording: ${isExportLiveRecording}`)
+      console.log(`❌ [AUTO-STOP DEBUG] - Combined result: ${previousPlayingState.current === true && !isPlaying && isExportLiveRecording}`)
     }
+    
+    console.log(`🔍 [AUTO-STOP DEBUG] ============================================`)
     
     // Update the previous state
     previousPlayingState.current = isPlaying
@@ -559,12 +605,23 @@ export function SongArrangement({
         }
         
         // Check if we've reached the end of the arrangement or export marker
+        console.log(`🎯 [NATURAL STOP DEBUG] Checking end conditions:`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - currentBarPosition: ${currentBarPosition}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - stopBar: ${stopBar}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - exportMarkersActive: ${exportMarkersActive}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - exportEndBar: ${exportEndBar}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - isExportLiveRecording: ${isExportLiveRecording}`)
+        
         if (currentBarPosition > stopBar) {
+          console.log(`🎯 [NATURAL STOP DEBUG] ✅ REACHED END OF ARRANGEMENT! currentBarPosition (${currentBarPosition}) > stopBar (${stopBar})`)
+          console.log(`🎯 [NATURAL STOP DEBUG] 🛑 Calling stopArrangement() - should trigger auto-stop!`)
           stopArrangement()
         }
         
         // CRITICAL: In export mode, also check if we've reached the export end marker exactly
         if (exportMarkersActive && currentBarPosition >= exportEndBar) {
+          console.log(`🎯 [NATURAL STOP DEBUG] ✅ REACHED EXPORT END MARKER! currentBarPosition (${currentBarPosition}) >= exportEndBar (${exportEndBar})`)
+          console.log(`🎯 [NATURAL STOP DEBUG] 🛑 Calling stopArrangement() for export end - should trigger auto-stop!`)
           stopArrangement()
         }
       } catch (error) {
@@ -6451,10 +6508,17 @@ export function SongArrangement({
     }
     
     // Set state to stopped immediately
+    console.log(`🛑 [ARRANGEMENT DEBUG] ===== STOPPING ARRANGEMENT =====`)
+    console.log(`🛑 [ARRANGEMENT DEBUG] Time: ${Date.now()}`)
+    console.log(`🛑 [ARRANGEMENT DEBUG] Previous state: isArrangementPlaying=${isArrangementPlaying}, isPlayingRef=${isPlayingRef.current}`)
+    
     setIsArrangementPlaying(false)
     isPlayingRef.current = false
     setCurrentPattern(null)
+    
+    console.log(`🛑 [ARRANGEMENT DEBUG] Internal state updated, now notifying parent...`)
     onArrangementPlayStateChange?.(false)
+    console.log(`🛑 [ARRANGEMENT DEBUG] Parent notified with isPlaying=false`)
     
           // CRITICAL: Stop ALL transports first (most important)
       try {
