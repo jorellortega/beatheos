@@ -5466,10 +5466,10 @@ export function SongArrangement({
       }
       
       // NUCLEAR OPTION: GLOBAL KILLER TIMER - STARTS IMMEDIATELY
-      console.log('💀 [NUCLEAR TIMER] Setting up GLOBAL KILLER TIMER for 60 seconds MAX!')
+      console.log('💀 [NUCLEAR TIMER] Setting up GLOBAL KILLER TIMER for 120 seconds (2 minutes) MAX!')
       const nuclearTimer = setTimeout(() => {
         console.log('💀 [NUCLEAR TIMER] 🔥 NUCLEAR TIMER FIRED - KILLING EVERYTHING!')
-        console.log('🔥 NUCLEAR TIMER SUCCESS - Auto-stopping recording at 60 second limit!')
+        console.log('🔥 NUCLEAR TIMER SUCCESS - Auto-stopping recording at 2 minute limit!')
         
         // Force stop everything
         try {
@@ -5489,7 +5489,7 @@ export function SongArrangement({
         } catch (error) {
           console.error('💀 [NUCLEAR TIMER] Error in nuclear timer:', error)
         }
-      }, 60000) // 60 second ABSOLUTE MAX
+      }, 120000) // 120 second (2 minute) ABSOLUTE MAX
       
       // Store nuclear timer globally so it can be cleared
       ;(window as any).nuclearTimer = nuclearTimer
