@@ -9543,7 +9543,7 @@ export default function BeatMakerPage() {
               // This callback is kept for compatibility but not used
               console.log('[BEAT MAKER] Song arrangement pattern stop requested')
             }}
-            isPlaying={isPlaying}
+            isPlaying={isArrangementPlaying}
             patterns={songArrangementPatterns}
             onPatternsChange={handleSongArrangementPatternsChange}
             onArrangementPlayStateChange={(isPlaying) => {

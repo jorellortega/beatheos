@@ -294,6 +294,8 @@ export function SongArrangement({
   const [exportEndBar, setExportEndBar] = useState(1)
   const [exportMarkersActive, setExportMarkersActive] = useState(false)
   const [isExportLiveRecording, setIsExportLiveRecording] = useState(false)
+  const exportAbortFlag = useRef(false)
+  const manualStopFlag = useRef(false)
   
   // State for export live mode in save to library dialog
   const [isExportLiveMode, setIsExportLiveMode] = useState(false)
@@ -375,35 +377,161 @@ export function SongArrangement({
   const stopExportLiveRef = useRef<(() => void) | null>(null)
   
   const stopExportLive = (): void => {
+    const manualStopTime = Date.now()
+    console.log(`[MANUAL STOP DEBUG] 🛑 Manual stop requested at ${manualStopTime} - will stop and save recording...`)
+    
+    // CLEAR NUCLEAR TIMER IMMEDIATELY
+    const nuclearTimer = (window as any).nuclearTimer
+    if (nuclearTimer) {
+      console.log('💀 [NUCLEAR TIMER] Clearing nuclear timer - manual stop triggered')
+      clearTimeout(nuclearTimer)
+      ;(window as any).nuclearTimer = null
+    }
+    
+    // Set manual stop flag to indicate user-requested stop (but still save)
+    manualStopFlag.current = true
+    console.log(`[MANUAL STOP DEBUG] ✅ Manual stop flag set to true`)
+    
     try {
       // Stop MediaRecorder if it exists
       const mediaRecorder = (window as any).mediaRecorderForExport
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop()
-      }
-      (window as any).mediaRecorderForExport = null
-      
-      // Stop arrangement
-      if (typeof stopArrangement === 'function') {
-        stopArrangement()
+      if (mediaRecorder) {
+        console.log(`[STOP EXPORT LIVE] Found MediaRecorder in state: ${mediaRecorder.state}`)
+        if (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused') {
+          mediaRecorder.stop()
+          console.log('[STOP EXPORT LIVE] MediaRecorder stopped manually')
+        }
       }
       
-      // Reset recording state
-      setIsExportLiveRecording(false)
-    } catch (error) {
-      console.error('[EXPORT LIVE] Error in manual stop:', error)
-      // Force reset state even if there's an error
-      setIsExportLiveRecording(false)
+      // Clear timer
+      if ((window as any).exportTimer) {
+        clearTimeout((window as any).exportTimer)
+        ;(window as any).exportTimer = null
+        console.log('[STOP EXPORT LIVE] Timer cleared manually')
+      }
+      
+      // Stop arrangement playback
       try {
+        if (typeof stopArrangement === 'function') {
+          stopArrangement()
+          console.log('[STOP EXPORT LIVE] Arrangement stopped')
+        }
+      } catch (stopError) {
+        console.warn('[STOP EXPORT LIVE] Error stopping arrangement:', stopError)
+      }
+      
+      // Disconnect Tone.js if connected
+      try {
+        const Tone = (window as any).Tone
+        if (Tone && Tone.Destination && (window as any).currentMediaStreamDestination) {
+          Tone.Destination.disconnect((window as any).currentMediaStreamDestination)
+          console.log('[STOP EXPORT LIVE] Tone.js disconnected')
+        }
+      } catch (disconnectError) {
+        console.warn('[STOP EXPORT LIVE] Error disconnecting Tone.js:', disconnectError)
+      }
+      
+      // Clean up global variables
+      setIsExportLiveRecording(false)
+      ;(window as any).mediaRecorderForExport = null
+      ;(window as any).currentMediaStreamDestination = null
+      ;(window as any).exportResolve = null
+      ;(window as any).exportReject = null
+      
+      console.log('[STOP EXPORT LIVE] All cleanup completed')
+      
+    } catch (error) {
+      console.error('[STOP EXPORT LIVE] Error stopping export:', error)
+      try {
+        // Force reset state even if there were errors
+        setIsExportLiveRecording(false)
         ;(window as any).mediaRecorderForExport = null
-      } catch (error) {
-        console.error('[EXPORT LIVE] Error setting mediaRecorderForExport to null:', error)
+        ;(window as any).currentMediaStreamDestination = null
+        ;(window as any).exportResolve = null
+        ;(window as any).exportReject = null
+        console.log('[STOP EXPORT LIVE] Force reset completed after error')
+      } catch (cleanupError) {
+        console.error('[STOP EXPORT LIVE] Error in cleanup after stop error:', cleanupError)
       }
     }
   }
   
   // Store the function in ref
   stopExportLiveRef.current = stopExportLive
+
+  // Monitor arrangement play state to auto-stop live export recording
+  const previousPlayingState = useRef(false)
+  
+  useEffect(() => {
+    const debugTime = Date.now()
+    console.log(`🔍 [AUTO-STOP DEBUG] ===== PLAY STATE CHANGE DETECTED =====`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Time: ${debugTime}`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Previous: ${previousPlayingState.current} | Current: ${isPlaying}`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Recording: ${isExportLiveRecording}`)
+    console.log(`🔍 [AUTO-STOP DEBUG] Transition: ${previousPlayingState.current} → ${isPlaying}`)
+    
+    // AGGRESSIVE DEBUGGING - Check what's actually happening with Tone.js
+    const checkToneState = async () => {
+      try {
+        const Tone = await import('tone')
+        console.log(`🎵 [TONE DEBUG] Tone.Transport.state: ${Tone.Transport.state}`)
+        console.log(`🎵 [TONE DEBUG] Tone.context.state: ${Tone.context.state}`)
+        console.log(`🎵 [TONE DEBUG] Tone.Transport.position: ${Tone.Transport.position}`)
+        console.log(`🎵 [TONE DEBUG] Tone.Transport.seconds: ${Tone.Transport.seconds}`)
+        console.log(`🎵 [TONE DEBUG] Any playing sources:`, Tone.Transport._timeline.length)
+      } catch (error) {
+        console.log(`🎵 [TONE DEBUG] Error checking Tone state:`, error)
+      }
+    }
+    checkToneState()
+    
+    // Check global MediaRecorder state
+    const globalRecorder = (window as any).mediaRecorderForExport
+    console.log(`📹 [RECORDER DEBUG] Global recorder exists: ${!!globalRecorder}`)
+    console.log(`📹 [RECORDER DEBUG] Global recorder state: ${globalRecorder?.state}`)
+    
+    // Check if there are any background audio processes
+    console.log(`🔊 [AUDIO DEBUG] Document has focus: ${document.hasFocus()}`)
+    console.log(`🔊 [AUDIO DEBUG] Page visibility: ${document.visibilityState}`)
+    
+    // Only trigger when transitioning FROM playing TO stopped, not the other way around
+    if (previousPlayingState.current === true && !isPlaying && isExportLiveRecording) {
+      console.log(`🎯 [AUTO-STOP DEBUG] ✅ AUTO-STOP CONDITIONS MET!`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Was playing: ${previousPlayingState.current}`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Now stopped: ${isPlaying}`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Currently recording: ${isExportLiveRecording}`)
+      console.log(`🎯 [AUTO-STOP DEBUG] - Triggering auto-stop in 500ms...`)
+      
+      // Add a small delay to ensure the last bit of audio is captured
+      setTimeout(() => {
+        console.log(`🛑 [AUTO-STOP DEBUG] ⏰ EXECUTING AUTO-STOP NOW!`)
+        console.log(`🛑 [AUTO-STOP DEBUG] Calling stopExportLive() at ${Date.now()}`)
+        stopExportLive()
+      }, 500) // 500ms delay to capture the tail end of audio
+    } else {
+      console.log(`❌ [AUTO-STOP DEBUG] No auto-stop triggered because:`)
+      if (previousPlayingState.current !== true) {
+        console.log(`❌ [AUTO-STOP DEBUG] - Previous state was not playing (was: ${previousPlayingState.current})`)
+      }
+      if (isPlaying !== false) {
+        console.log(`❌ [AUTO-STOP DEBUG] - Current state is not stopped (is: ${isPlaying})`)
+      }
+      if (!isExportLiveRecording) {
+        console.log(`❌ [AUTO-STOP DEBUG] - Not currently recording (is: ${isExportLiveRecording})`)
+      }
+      
+      console.log(`❌ [AUTO-STOP DEBUG] Full condition check:`)
+      console.log(`❌ [AUTO-STOP DEBUG] - prevPlaying === true: ${previousPlayingState.current === true}`)
+      console.log(`❌ [AUTO-STOP DEBUG] - !isPlaying: ${!isPlaying}`)
+      console.log(`❌ [AUTO-STOP DEBUG] - isExportLiveRecording: ${isExportLiveRecording}`)
+      console.log(`❌ [AUTO-STOP DEBUG] - Combined result: ${previousPlayingState.current === true && !isPlaying && isExportLiveRecording}`)
+    }
+    
+    console.log(`🔍 [AUTO-STOP DEBUG] ============================================`)
+    
+    // Update the previous state
+    previousPlayingState.current = isPlaying
+  }, [isPlaying, isExportLiveRecording])
 
   // Function to get track display name with icons (same as sequencer)
   const getTrackDisplayName = (trackName: string) => {
@@ -477,12 +605,23 @@ export function SongArrangement({
         }
         
         // Check if we've reached the end of the arrangement or export marker
+        console.log(`🎯 [NATURAL STOP DEBUG] Checking end conditions:`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - currentBarPosition: ${currentBarPosition}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - stopBar: ${stopBar}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - exportMarkersActive: ${exportMarkersActive}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - exportEndBar: ${exportEndBar}`)
+        console.log(`🎯 [NATURAL STOP DEBUG] - isExportLiveRecording: ${isExportLiveRecording}`)
+        
         if (currentBarPosition > stopBar) {
+          console.log(`🎯 [NATURAL STOP DEBUG] ✅ REACHED END OF ARRANGEMENT! currentBarPosition (${currentBarPosition}) > stopBar (${stopBar})`)
+          console.log(`🎯 [NATURAL STOP DEBUG] 🛑 Calling stopArrangement() - should trigger auto-stop!`)
           stopArrangement()
         }
         
         // CRITICAL: In export mode, also check if we've reached the export end marker exactly
         if (exportMarkersActive && currentBarPosition >= exportEndBar) {
+          console.log(`🎯 [NATURAL STOP DEBUG] ✅ REACHED EXPORT END MARKER! currentBarPosition (${currentBarPosition}) >= exportEndBar (${exportEndBar})`)
+          console.log(`🎯 [NATURAL STOP DEBUG] 🛑 Calling stopArrangement() for export end - should trigger auto-stop!`)
           stopArrangement()
         }
       } catch (error) {
@@ -3502,14 +3641,44 @@ export function SongArrangement({
       // - Pan: logged but not yet implemented in offline context
       // - EQ: not yet implemented in offline context
       
-      // Calculate total duration in bars
-      const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+      // Calculate total duration based on actual audio end times, not just pattern block boundaries
       const secondsPerBeat = 60 / bpm
       const beatsPerBar = 4
       const secondsPerBar = secondsPerBeat * beatsPerBar
-      const totalDurationSeconds = maxEndBar * secondsPerBar
       
-      console.log(`[EXPORT] Total duration: ${totalDurationSeconds}s (${maxEndBar} bars) at ${bpm} BPM`)
+      // Calculate the actual last moment when any audio finishes playing
+      let actualAudioEndTime = 0
+      for (const block of patternBlocks) {
+        const track = tracks.find(t => t.id === block.trackId)
+        if (!track?.audioUrl || track.audioUrl === 'undefined') {
+          continue // Skip tracks without audio
+        }
+        
+        // Check if track is muted in mixer settings
+        const trackMixerSettings = mixerSettings[track.id]
+        if (trackMixerSettings?.mute) {
+          continue // Skip muted tracks
+        }
+        
+        const startTimeSeconds = (block.startBar - 1) * secondsPerBar
+        const patternDurationSeconds = block.duration * secondsPerBar
+        const blockAudioEndTime = startTimeSeconds + patternDurationSeconds
+        
+        if (blockAudioEndTime > actualAudioEndTime) {
+          actualAudioEndTime = blockAudioEndTime
+        }
+      }
+      
+      // Fallback to maxEndBar calculation if no audio blocks found
+      if (actualAudioEndTime === 0) {
+        const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
+        actualAudioEndTime = maxEndBar * secondsPerBar
+      }
+      
+      const totalDurationSeconds = actualAudioEndTime
+      const actualDurationBars = totalDurationSeconds / secondsPerBar
+      
+      console.log(`[EXPORT] Total duration: ${totalDurationSeconds}s (${actualDurationBars.toFixed(2)} bars) at ${bpm} BPM based on actual audio end times`)
 
       // Create completely isolated offline audio context for rendering (stereo output)
       // Use maximum quality settings - 96kHz sample rate for professional quality
@@ -3779,14 +3948,58 @@ export function SongArrangement({
         throw new Error('Export markers not set! Please click Export (Live) first to set markers.')
       }
       
-      // HIGH QUALITY RECORDING: Calculate duration
-      const exportDurationBars = exportEndBar - exportStartBar + 1
+      // HIGH QUALITY RECORDING: Calculate duration based on actual audio end times, not just export markers
       const secondsPerBeat = 60 / bpm
       const beatsPerBar = 4
       const secondsPerBar = secondsPerBeat * beatsPerBar
-      const totalDurationSeconds = exportDurationBars * secondsPerBar
       
-      console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Duration = ${totalDurationSeconds}s (${exportDurationBars} bars)`)
+      // Calculate the actual last moment when any audio finishes playing within export range
+      let actualAudioEndTime = 0
+      for (const block of patternBlocks) {
+        const track = tracks.find(t => t.id === block.trackId)
+        if (!track?.audioUrl || track.audioUrl === 'undefined') {
+          continue // Skip tracks without audio
+        }
+        
+        // Check if track is muted in mixer settings
+        const trackMixerSettings = mixerSettings[track.id]
+        if (trackMixerSettings?.mute) {
+          continue // Skip muted tracks
+        }
+        
+        // Only consider patterns that overlap with export range
+        if (block.endBar < exportStartBar || block.startBar > exportEndBar) {
+          continue // Skip patterns outside export range
+        }
+        
+        // Calculate effective start and end within export range
+        const effectiveStartBar = Math.max(block.startBar, exportStartBar)
+        const effectiveEndBar = Math.min(block.endBar, exportEndBar)
+        
+        const startTimeSeconds = (effectiveStartBar - 1) * secondsPerBar
+        const patternDurationSeconds = (effectiveEndBar - effectiveStartBar + 1) * secondsPerBar
+        const blockAudioEndTime = startTimeSeconds + patternDurationSeconds
+        
+        if (blockAudioEndTime > actualAudioEndTime) {
+          actualAudioEndTime = blockAudioEndTime
+        }
+      }
+      
+      // Fallback to export marker calculation if no audio blocks found
+      let totalDurationSeconds
+      if (actualAudioEndTime === 0) {
+        const exportDurationBars = exportEndBar - exportStartBar + 1
+        totalDurationSeconds = exportDurationBars * secondsPerBar
+        console.log('[EXPORT LIVE] No audio patterns found - using export marker duration')
+      } else {
+        // Adjust for export start position
+        const exportStartTimeSeconds = (exportStartBar - 1) * secondsPerBar
+        totalDurationSeconds = actualAudioEndTime - exportStartTimeSeconds
+        console.log('[EXPORT LIVE] Using actual audio end time for precise duration')
+      }
+      
+      const actualDurationBars = totalDurationSeconds / secondsPerBar
+      console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Duration = ${totalDurationSeconds}s (${actualDurationBars.toFixed(2)} bars) based on actual audio end times`)
       
       // HIGH QUALITY RECORDING: Import Tone.js
       const Tone = await import('tone')
@@ -3866,6 +4079,18 @@ export function SongArrangement({
       mediaRecorder.onstop = () => {
         console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: MediaRecorder stopped - ${recordedChunks.length} chunks`)
         
+        // Check abort flag - only skip if truly aborted (not manual stop)
+        if (exportAbortFlag.current && !manualStopFlag.current) {
+          console.log('[EXPORT LIVE] Export was aborted - skipping processing')
+          setIsExportLiveRecording(false)
+          return
+        }
+        
+        // If manual stop, log it but continue processing
+        if (manualStopFlag.current) {
+          console.log('[EXPORT LIVE] Manual stop detected - processing recording up to this point')
+        }
+        
         // HIGH QUALITY RECORDING: Process immediately
         setTimeout(async () => {
           try {
@@ -3881,7 +4106,7 @@ export function SongArrangement({
                   const url = URL.createObjectURL(wavBlob)
                   const a = document.createElement('a')
                   a.href = url
-                  a.download = `HIGH-QUALITY-RECORDING-${bpm}bpm-${exportDurationBars}bars-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
+                  a.download = `HIGH-QUALITY-RECORDING-${bpm}bpm-${Math.max(...patternBlocks.map(block => block.endBar))}bars-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.wav`
                   document.body.appendChild(a)
                   a.click()
                   document.body.removeChild(a)
@@ -3952,12 +4177,24 @@ export function SongArrangement({
         playArrangement()
       }
       
-      // Set a timer to stop recording after exact duration
-      const timerMs = Math.floor(totalDurationSeconds * 1000)
-      console.log(`[EXPORT LIVE] HIGH QUALITY RECORDING: Timer set for ${timerMs}ms`)
+      // FORCE A MINIMUM TIMER - NO MORE INFINITE RECORDING!
+      let safeTimerMs
+      if (!totalDurationSeconds || totalDurationSeconds <= 0 || totalDurationSeconds > 300) {
+        console.log(`🚨 [TIMER FIX] totalDurationSeconds is broken (${totalDurationSeconds}) - FORCING 60 second maximum!`)
+        safeTimerMs = 60000 // Force max 60 seconds
+      } else {
+        safeTimerMs = Math.floor(totalDurationSeconds * 1000)
+      }
+      
+      const timerMinutes = Math.floor(safeTimerMs / 60000)
+      const timerSeconds = Math.floor((safeTimerMs % 60000) / 1000)
+      console.log(`🔥 [FORCED TIMER] ⏱️ FORCED Timer set for ${safeTimerMs}ms (${timerMinutes}m ${timerSeconds}s) - original duration: ${totalDurationSeconds}s`)
       
       setTimeout(() => {
-        console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Timer fired - stopping recording')
+        console.log(`🔥 [FORCED TIMER] ⏰ FORCED Timer fired after ${safeTimerMs}ms - STOPPING RECORDING NOW!`)
+        
+        // FORCE STOP - NO EXCEPTIONS
+        manualStopFlag.current = false // Make sure it's treated as auto-stop
         
         try {
           if (mediaRecorder && mediaRecorder.state === 'recording') {
@@ -3992,7 +4229,7 @@ export function SongArrangement({
         } catch (error) {
           console.error('[EXPORT LIVE] HIGH QUALITY RECORDING: Timer error:', error)
         }
-      }, timerMs)
+      }, safeTimerMs)
       
       console.log('[EXPORT LIVE] HIGH QUALITY RECORDING: Export setup complete - recording with high quality...')
       
@@ -4780,6 +5017,10 @@ export function SongArrangement({
 
   // Export live and save directly to library
   const exportLiveToLibrary = async () => {
+    console.log('🚨🚨🚨 [EXPORT LIVE TO LIBRARY] FUNCTION CALLED - STARTING DEBUGGING 🚨🚨🚨')
+    console.log('🚨 [EXPORT DEBUG] Function entry point reached!')
+    
+    try {
     // Check for title based on the current mode and type
     let title = ''
     if (saveToLibraryType === 'album' && !createNew) {
@@ -4791,42 +5032,124 @@ export function SongArrangement({
     }
     
     if (!title.trim()) {
+      console.log('🚨 [EXPORT DEBUG] ERROR: No title provided!')
       showNotification('Export Error', 'Please enter a title for the export', 'error')
       return
     }
+    
+    console.log('🚨 [EXPORT DEBUG] Title check passed:', title)
 
+    // CRITICAL: Reset flags and force cleanup any existing recording session before starting new one
+    exportAbortFlag.current = false
+    manualStopFlag.current = false
+    console.log('[EXPORT LIVE TO LIBRARY] Forcing cleanup of any existing recording sessions...')
+    
+    try {
+      // Force stop any existing MediaRecorder
+      const existingMediaRecorder = (window as any).mediaRecorderForExport
+      if (existingMediaRecorder) {
+        console.log('[EXPORT LIVE TO LIBRARY] Found existing MediaRecorder - forcing stop')
+        if (existingMediaRecorder.state === 'recording') {
+          existingMediaRecorder.stop()
+        }
+        (window as any).mediaRecorderForExport = null
+      }
+      
+      // Clear any existing timer
+      if ((window as any).exportTimer) {
+        console.log('[EXPORT LIVE TO LIBRARY] Clearing existing export timer')
+        clearTimeout((window as any).exportTimer)
+        ;(window as any).exportTimer = null
+      }
+      
+      // Reset export state
+      setIsExportLiveRecording(false)
+      
+      // Force stop arrangement if it's playing
+      try {
+        if (typeof stopArrangement === 'function') {
+          stopArrangement()
+        }
+      } catch (stopError) {
+        console.warn('[EXPORT LIVE TO LIBRARY] Error stopping arrangement:', stopError)
+      }
+      
+      // Wait a moment for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 200))
+      
+    } catch (cleanupError) {
+      console.error('[EXPORT LIVE TO LIBRARY] Error during cleanup:', cleanupError)
+    }
+
+    console.log('🚨 [EXPORT DEBUG] Cleanup completed, starting fresh recording session...')
+    console.log('[EXPORT LIVE TO LIBRARY] Starting fresh recording session...')
     setIsExportLiveRecording(true)
 
     try {
       // Get current user
+      console.log('🚨 [EXPORT DEBUG] Getting user authentication...')
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
+        console.log('🚨 [EXPORT DEBUG] ERROR: User not authenticated!')
         throw new Error('User not authenticated')
       }
+      console.log('🚨 [EXPORT DEBUG] User authenticated:', user.id)
 
-      // Calculate duration
+      // Calculate duration WITH INTENSIVE DEBUGGING
+      console.log('🧮 [DURATION DEBUG] ========== CALCULATING TOTAL DURATION ==========')
       const patternCount = patternBlocks.length
-      const maxEndBar = Math.max(...patternBlocks.map(block => block.endBar))
-      const secondsPerBeat = 60 / bpm
-      const beatsPerBar = 4
-      const secondsPerBar = secondsPerBeat * beatsPerBar
-      const totalDurationSeconds = maxEndBar * secondsPerBar
-      const durationMinutes = Math.floor(totalDurationSeconds / 60)
-      const durationSeconds = Math.floor(totalDurationSeconds % 60)
-
-      // Import Tone.js and start recording
-      const Tone = await import('tone')
-      await Tone.start()
+      console.log(`🧮 [DURATION DEBUG] patternBlocks.length: ${patternCount}`)
+      console.log(`🧮 [DURATION DEBUG] patternBlocks:`, JSON.stringify(patternBlocks, null, 2))
       
-      // Create audio context
-      const audioContext = Tone.context
-      if (audioContext.state !== 'running') {
-        await audioContext.resume()
+      if (patternCount === 0) {
+        console.log('🚨 [DURATION DEBUG] ERROR: NO PATTERN BLOCKS FOUND!')
+        throw new Error('No pattern blocks found - cannot calculate duration')
       }
       
+      const endBars = patternBlocks.map(block => block.endBar)
+      console.log(`🧮 [DURATION DEBUG] All endBars:`, endBars)
+      const maxEndBar = Math.max(...endBars)
+      console.log(`🧮 [DURATION DEBUG] maxEndBar: ${maxEndBar}`)
+      
+      const secondsPerBeat = 60 / bpm
+      console.log(`🧮 [DURATION DEBUG] BPM: ${bpm}, secondsPerBeat: ${secondsPerBeat}`)
+      const beatsPerBar = 4
+      console.log(`🧮 [DURATION DEBUG] beatsPerBar: ${beatsPerBar}`)
+      const secondsPerBar = secondsPerBeat * beatsPerBar
+      console.log(`🧮 [DURATION DEBUG] secondsPerBar: ${secondsPerBar}`)
+      
+      const totalDurationSeconds = maxEndBar * secondsPerBar
+      console.log(`🧮 [DURATION DEBUG] CALCULATION: ${maxEndBar} * ${secondsPerBar} = ${totalDurationSeconds} seconds`)
+      
+      const durationMinutes = Math.floor(totalDurationSeconds / 60)
+      const durationSeconds = Math.floor(totalDurationSeconds % 60)
+      console.log(`🧮 [DURATION DEBUG] FINAL: ${totalDurationSeconds}s = ${durationMinutes}m ${durationSeconds}s`)
+      console.log('🧮 [DURATION DEBUG] ==============================================')
+
+      // Import Tone.js and start recording
+      console.log('🚨 [EXPORT DEBUG] Importing Tone.js...')
+      const Tone = await import('tone')
+      console.log('🚨 [EXPORT DEBUG] Starting Tone.js...')
+      await Tone.start()
+      console.log('🚨 [EXPORT DEBUG] Tone.js started successfully')
+      
+      // Create audio context
+      console.log('🚨 [EXPORT DEBUG] Creating audio context...')
+      const audioContext = Tone.context
+      if (audioContext.state !== 'running') {
+        console.log('🚨 [EXPORT DEBUG] Resuming audio context...')
+        await audioContext.resume()
+      }
+      console.log('🚨 [EXPORT DEBUG] Audio context ready, state:', audioContext.state)
+      
       // Create MediaStreamDestination
+      console.log('🚨 [EXPORT DEBUG] Creating MediaStreamDestination...')
       const mediaStreamDestination = audioContext.createMediaStreamDestination()
       Tone.Destination.connect(mediaStreamDestination)
+      
+      // Store reference for cleanup
+      ;(window as any).currentMediaStreamDestination = mediaStreamDestination
+      console.log('🚨 [EXPORT DEBUG] MediaStreamDestination created and connected')
       
       // Create MediaRecorder with high quality settings
       let mimeType = 'audio/webm;codecs=opus'
@@ -4841,8 +5164,14 @@ export function SongArrangement({
         }
       }
       
+      console.log('🚨 [EXPORT DEBUG] Creating MediaRecorder with mimeType:', mimeType)
       const recordedChunks: Blob[] = []
       const mediaRecorder = new MediaRecorder(mediaStreamDestination.stream, { mimeType })
+      
+      // Store global reference for cleanup
+      ;(window as any).mediaRecorderForExport = mediaRecorder
+      console.log('🚨 [EXPORT DEBUG] MediaRecorder created and stored globally')
+      console.log('[EXPORT LIVE TO LIBRARY] MediaRecorder created and stored globally')
       
       // Setup data handler
       mediaRecorder.ondataavailable = (event) => {
@@ -4854,7 +5183,35 @@ export function SongArrangement({
       
       // Setup stop handler
       mediaRecorder.onstop = async () => {
-        console.log(`[EXPORT LIVE TO LIBRARY] MediaRecorder stopped - ${recordedChunks.length} chunks`)
+        // CLEAR NUCLEAR TIMER IMMEDIATELY
+        const nuclearTimer = (window as any).nuclearTimer
+        if (nuclearTimer) {
+          console.log('💀 [NUCLEAR TIMER] Clearing nuclear timer - recording stopped normally')
+          clearTimeout(nuclearTimer)
+          ;(window as any).nuclearTimer = null
+        }
+        
+        const stopTime = Date.now()
+        const startTime = (window as any).recordingStartTime || stopTime
+        const elapsedMs = stopTime - startTime
+        const elapsedSeconds = elapsedMs / 1000
+        console.log(`[ONSTOP DEBUG] 🛑 MediaRecorder stopped - ${recordedChunks.length} chunks at ${stopTime}`)
+        console.log(`[ONSTOP DEBUG] ⏱️ Recording duration: ${elapsedSeconds.toFixed(2)}s (expected: ${totalDurationSeconds}s)`)
+        console.log(`[ONSTOP DEBUG] Flags: manual=${manualStopFlag.current}, abort=${exportAbortFlag.current}`)
+        
+        // Check abort flag - only skip if truly aborted (not manual stop)
+        if (exportAbortFlag.current && !manualStopFlag.current) {
+          console.log('[ONSTOP DEBUG] ❌ Export was aborted - skipping save')
+          setIsExportLiveRecording(false)
+          return
+        }
+        
+        // If manual stop, log it but continue saving
+        if (manualStopFlag.current) {
+          console.log('[ONSTOP DEBUG] ⏸️ Manual stop detected - saving recording up to this point')
+        } else {
+          console.log('[ONSTOP DEBUG] ⏰ Auto-stop detected - saving complete recording')
+        }
         
         try {
           if (recordedChunks.length > 0) {
@@ -4862,7 +5219,12 @@ export function SongArrangement({
             console.log(`[EXPORT LIVE TO LIBRARY] Blob created - ${recordedBlob.size} bytes`)
             
             if (recordedBlob.size > 0) {
+              console.log('🔄 [CONVERSION] Starting audio conversion - please wait...')
+              const conversionStartTime = Date.now()
               const wavBlob = await convertBlobToWav(recordedBlob, totalDurationSeconds)
+              const conversionEndTime = Date.now()
+              const conversionDuration = (conversionEndTime - conversionStartTime) / 1000
+              console.log(`✅ [CONVERSION] Audio conversion completed in ${conversionDuration.toFixed(2)}s`)
               
               if (wavBlob) {
                 // Create filename
@@ -5160,47 +5522,141 @@ export function SongArrangement({
         }
       }
       
+      // NUCLEAR OPTION: GLOBAL KILLER TIMER - STARTS IMMEDIATELY
+      console.log('💀 [NUCLEAR TIMER] Setting up BACKUP SAFETY TIMER for 240 seconds (4 minutes) MAX!')
+      const nuclearTimer = setTimeout(() => {
+        console.log('💀 [NUCLEAR TIMER] 🔥 NUCLEAR TIMER FIRED - KILLING EVERYTHING!')
+        console.log('🔥 BACKUP SAFETY ACTIVATED - Auto-stop failed, forcing stop at 4 minute safety limit!')
+        
+        // Force stop everything
+        try {
+          const globalRecorder = (window as any).mediaRecorderForExport
+          if (globalRecorder && globalRecorder.state === 'recording') {
+            console.log('💀 [NUCLEAR TIMER] Stopping global recorder')
+            globalRecorder.stop()
+          }
+          
+          // Force stop arrangement
+          if (typeof stopArrangement === 'function') {
+            console.log('💀 [NUCLEAR TIMER] Force stopping arrangement')
+            stopArrangement()
+          }
+          
+          setIsExportLiveRecording(false)
+        } catch (error) {
+          console.error('💀 [NUCLEAR TIMER] Error in nuclear timer:', error)
+        }
+      }, 240000) // 240 second (4 minute) BACKUP SAFETY LIMIT
+      
+      // Store nuclear timer globally so it can be cleared
+      ;(window as any).nuclearTimer = nuclearTimer
+      
       // Start recording
       setIsExportLiveRecording(true)
+      const recordingStartTime = Date.now()
+      console.log(`📹 [RECORDING DEBUG] About to start MediaRecorder - current state: ${mediaRecorder.state}`)
       mediaRecorder.start(100) // Smaller chunks for better quality
-      console.log('[EXPORT LIVE TO LIBRARY] Recording started')
+      console.log(`📹 [RECORDING DEBUG] ▶️ Recording started at ${recordingStartTime} - expecting ${totalDurationSeconds}s duration`)
+      console.log(`📹 [RECORDING DEBUG] MediaRecorder state after start(): ${mediaRecorder.state}`)
+      
+      // Store start time for debugging
+      ;(window as any).recordingStartTime = recordingStartTime
       
       // Play the arrangement
-      console.log('[EXPORT LIVE TO LIBRARY] Starting arrangement playback...')
+      console.log('🎵 [PLAYBACK DEBUG] About to start arrangement playback...')
       playArrangement()
+      console.log('🎵 [PLAYBACK DEBUG] playArrangement() called')
       
-      // Set timer to stop recording after exact duration
-      const timerMs = Math.floor(totalDurationSeconds * 1000)
-      console.log(`[EXPORT LIVE TO LIBRARY] Timer set for ${timerMs}ms`)
+      // FORCE A MINIMUM TIMER - NO MORE INFINITE RECORDING!
+      console.log('⏰ [TIMER DEBUG] ========== SETTING UP TIMER ==========')
+      console.log(`⏰ [TIMER DEBUG] totalDurationSeconds value: ${totalDurationSeconds}`)
+      console.log(`⏰ [TIMER DEBUG] totalDurationSeconds type: ${typeof totalDurationSeconds}`)
+      console.log(`⏰ [TIMER DEBUG] totalDurationSeconds <= 0: ${totalDurationSeconds <= 0}`)
+      console.log(`⏰ [TIMER DEBUG] totalDurationSeconds > 300: ${totalDurationSeconds > 300}`)
+      console.log(`⏰ [TIMER DEBUG] !totalDurationSeconds: ${!totalDurationSeconds}`)
       
-      setTimeout(() => {
-        console.log('[EXPORT LIVE TO LIBRARY] Timer fired - stopping recording')
+      let safeTimerMs
+      if (!totalDurationSeconds || totalDurationSeconds <= 0 || totalDurationSeconds > 300) {
+        console.log(`🚨 [TIMER FIX] totalDurationSeconds is broken (${totalDurationSeconds}) - FORCING 60 second maximum!`)
+        safeTimerMs = 60000 // Force max 60 seconds
+        console.log(`⏰ [TIMER DEBUG] FORCED safeTimerMs = ${safeTimerMs}`)
+      } else {
+        safeTimerMs = Math.floor(totalDurationSeconds * 1000)
+        console.log(`⏰ [TIMER DEBUG] CALCULATED safeTimerMs = ${safeTimerMs} (from ${totalDurationSeconds} * 1000)`)
+      }
+      
+      const timerMinutes = Math.floor(safeTimerMs / 60000)
+      const timerSeconds = Math.floor((safeTimerMs % 60000) / 1000)
+      console.log(`🔥 [FORCED TIMER] ⏱️ FORCED Timer set for ${safeTimerMs}ms (${timerMinutes}m ${timerSeconds}s) - original duration: ${totalDurationSeconds}s`)
+      
+      const timerStartTime = Date.now()
+      console.log(`⏰ [TIMER DEBUG] Timer started at: ${timerStartTime}`)
+      console.log(`⏰ [TIMER DEBUG] Timer should fire at: ${timerStartTime + safeTimerMs}`)
+      
+      const timerId = setTimeout(() => {
+        const timerFireTime = Date.now()
+        const actualDelay = timerFireTime - timerStartTime
+        console.log(`🔥 [FORCED TIMER] ⏰ FORCED Timer fired at ${timerFireTime} after ${actualDelay}ms (expected: ${safeTimerMs}ms) - STOPPING RECORDING NOW!`)
+        
+        // Check if manual stop already happened - don't auto-stop
+        if (manualStopFlag.current) {
+          console.log('[TIMER DEBUG] ⏸️ Manual stop already occurred - skipping auto-stop')
+          return
+        }
+        
+        // Check abort flag - if aborted, don't auto-stop
+        if (exportAbortFlag.current) {
+          console.log('[TIMER DEBUG] ❌ Export was aborted - skipping auto-stop')
+          return
+        }
+        
+        console.log('[TIMER DEBUG] ✅ No conflicts - proceeding with auto-stop')
         
         try {
+          console.log(`[TIMER DEBUG] MediaRecorder check: exists=${!!mediaRecorder}, state=${mediaRecorder?.state}`)
           if (mediaRecorder && mediaRecorder.state === 'recording') {
+            console.log('[TIMER DEBUG] 🛑 Stopping MediaRecorder via timer')
             mediaRecorder.stop()
             console.log('[EXPORT LIVE TO LIBRARY] MediaRecorder.stop() called')
+          } else {
+            console.log('[TIMER DEBUG] ⚠️ MediaRecorder not recording or not found')
+            console.log(`[TIMER DEBUG] MediaRecorder exists: ${!!mediaRecorder}`)
+            console.log(`[TIMER DEBUG] MediaRecorder state: ${mediaRecorder?.state}`)
           }
           
           // Stop arrangement playback
+          console.log('[TIMER DEBUG] 🛑 Stopping arrangement via timer')
           stopArrangement()
           
           // Clean up
+          console.log('[TIMER DEBUG] 🔌 Disconnecting Tone.js via timer')
           Tone.Destination.disconnect(mediaStreamDestination)
           
           console.log('[EXPORT LIVE TO LIBRARY] Timer cleanup complete')
         } catch (error) {
           console.error('[EXPORT LIVE TO LIBRARY] Timer error:', error)
         }
-      }, timerMs)
+      }, safeTimerMs)
       
+      console.log(`⏰ [TIMER DEBUG] setTimeout returned timerId: ${timerId}`)
+      console.log('⏰ [TIMER DEBUG] ===========================================')
       console.log('[EXPORT LIVE TO LIBRARY] Export setup complete - recording with high quality...')
       
     } catch (error) {
+      console.log('🚨 [EXPORT DEBUG] ❌ CRITICAL ERROR IN EXPORT FUNCTION!')
       console.error('[EXPORT LIVE TO LIBRARY] Error starting export:', error)
+      console.log('🚨 [EXPORT DEBUG] Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace'
+      })
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
       showNotification('Export Failed', `Failed to start live export: ${errorMessage}`, 'error')
       setIsExportLiveRecording(false)
+    }
+    } catch (outerError) {
+      console.log('🚨 [EXPORT DEBUG] ❌ OUTER CATCH - FUNCTION FAILED BEFORE TRY BLOCK!')
+      console.error('[EXPORT LIVE TO LIBRARY] Outer error:', outerError)
     }
   }
 
@@ -6052,10 +6508,17 @@ export function SongArrangement({
     }
     
     // Set state to stopped immediately
+    console.log(`🛑 [ARRANGEMENT DEBUG] ===== STOPPING ARRANGEMENT =====`)
+    console.log(`🛑 [ARRANGEMENT DEBUG] Time: ${Date.now()}`)
+    console.log(`🛑 [ARRANGEMENT DEBUG] Previous state: isArrangementPlaying=${isArrangementPlaying}, isPlayingRef=${isPlayingRef.current}`)
+    
     setIsArrangementPlaying(false)
     isPlayingRef.current = false
     setCurrentPattern(null)
+    
+    console.log(`🛑 [ARRANGEMENT DEBUG] Internal state updated, now notifying parent...`)
     onArrangementPlayStateChange?.(false)
+    console.log(`🛑 [ARRANGEMENT DEBUG] Parent notified with isPlaying=false`)
     
           // CRITICAL: Stop ALL transports first (most important)
       try {
@@ -8300,7 +8763,7 @@ export function SongArrangement({
             )}
           </div>
 
-          <DialogFooter className="flex gap-3 flex-shrink-0 pt-4 border-t border-gray-700">
+                    <DialogFooter className="flex gap-3 flex-shrink-0 pt-4 border-t border-gray-700">
             <Button
               variant="outline"
               onClick={() => setShowSaveToLibraryDialog(false)}
@@ -8308,6 +8771,20 @@ export function SongArrangement({
             >
               Cancel
             </Button>
+            
+            {/* Manual Stop Button for Live Export - Only show when recording */}
+            {isExportLiveMode && isExportLiveRecording && (
+              <Button
+                onClick={stopExportLive}
+                variant="outline"
+                className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500 animate-pulse"
+                title="Stop the live export recording"
+              >
+                <Square className="w-4 h-4 mr-2" />
+                Stop Recording
+              </Button>
+            )}
+            
             <Button
               onClick={isExportLiveMode ? exportLiveToLibrary : saveArrangementToLibrary}
               disabled={isSavingToLibrary || isExportLiveRecording || 
@@ -8334,10 +8811,10 @@ export function SongArrangement({
                 <>
                   <Save className="w-4 h-4 mr-2" />
                   Save Arrangement
-                    </>
-                  )}
                 </>
               )}
+              </>
+            )}
             </Button>
           </DialogFooter>
         </DialogContent>
