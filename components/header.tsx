@@ -130,6 +130,13 @@ export default function Header() {
           >
             Settings
           </Link>
+          <Link
+            href="/setup-ai"
+              className="text-2xl font-semibold text-gray-300 hover:text-white"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            AI Setup
+          </Link>
         </>
       ) : (
         <>
@@ -198,6 +205,11 @@ export default function Header() {
                     <DropdownMenuItem>
                       <Link href="/settings" className="w-full">
                         Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Link href="/setup-ai" className="w-full">
+                        AI Setup
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={logout}>

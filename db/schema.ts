@@ -176,3 +176,56 @@ export const tracks = mysqlTable("tracks", {
   release_date: varchar("release_date", { length: 10 }), // DATE as string
 })
 
+// Lyrics AI Tables
+export const lyrics_assets = mysqlTable("lyrics_assets", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  user_id: varchar("user_id", { length: 255 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content_type: varchar("content_type", { length: 50 }).notNull(), // 'script', 'lyrics', 'poetry', 'prose'
+  content: text("content"),
+  content_url: varchar("content_url", { length: 500 }),
+  version: int("version").default(1),
+  version_name: varchar("version_name", { length: 255 }),
+  is_latest_version: boolean("is_latest_version").default(true),
+  parent_asset_id: varchar("parent_asset_id", { length: 255 }),
+  prompt: text("prompt"),
+  model: varchar("model", { length: 100 }),
+  generation_settings: text("generation_settings"), // JSON
+  metadata: text("metadata"), // JSON
+  locked_sections: text("locked_sections"), // JSON for text locking
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+})
+
+export const lyrics = mysqlTable("lyrics", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  user_id: varchar("user_id", { length: 255 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  movie_id: varchar("movie_id", { length: 255 }),
+  scene_id: varchar("scene_id", { length: 255 }),
+  version: int("version").default(1),
+  version_name: varchar("version_name", { length: 255 }),
+  is_latest_version: boolean("is_latest_version").default(true),
+  parent_lyrics_id: varchar("parent_lyrics_id", { length: 255 }),
+  genre: varchar("genre", { length: 100 }),
+  mood: varchar("mood", { length: 100 }),
+  language: varchar("language", { length: 50 }).default("English"),
+  tags: text("tags"), // JSON array
+  description: text("description"),
+  locked_sections: text("locked_sections"), // JSON for text locking
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+})
+
+// User API Keys for AI Services
+export const user_api_keys = mysqlTable("user_api_keys", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  user_id: varchar("user_id", { length: 255 }).notNull(),
+  openai_api_key: text("openai_api_key"),
+  anthropic_api_key: text("anthropic_api_key"),
+  elevenlabs_api_key: text("elevenlabs_api_key"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+})
+

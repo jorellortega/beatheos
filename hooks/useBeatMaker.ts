@@ -1043,7 +1043,7 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
       Tone.Transport.position = 0
       
       // Clear any existing sequences and events
-      Tone.Transport.clear()
+      // Note: Tone.Transport.clear() without parameters clears all scheduled events
       
       // Ensure AudioContext is running before proceeding
       if (Tone.getContext().state === 'suspended') {
@@ -1073,7 +1073,8 @@ export function useBeatMaker(tracks: Track[], steps: number, bpm: number, timeSt
         
         // FIXED: Calculate expected time based on actual Transport position, not step index
         // This accounts for Transport looping and ensures accurate timing validation
-        const positionParts = Tone.Transport.position.split(':')
+        const positionString = Tone.Transport.position.toString()
+        const positionParts = positionString.split(':')
         const bars = parseFloat(positionParts[0] || '0')
         const beats = parseFloat(positionParts[1] || '0')
         const subdivisions = parseFloat(positionParts[2] || '0')
