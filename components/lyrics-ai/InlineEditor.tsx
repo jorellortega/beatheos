@@ -38,6 +38,85 @@ function HighlightedText({ text, highlightedSection }: HighlightedTextProps) {
   )
 }
 
+interface SelectableTextProps {
+  text: string
+  editMode: boolean
+  onTextSelection?: (text: string, start: number, end: number) => void
+  selectedText?: string
+  selectionRange?: { start: number; end: number } | null
+  highlightedSection?: { startLine: number; endLine: number } | null
+}
+
+function SelectableText({ 
+  text, 
+  editMode, 
+  onTextSelection, 
+  selectedText = '', 
+  selectionRange,
+  highlightedSection 
+}: SelectableTextProps) {
+  const handleMouseUp = () => {
+    if (!editMode || !onTextSelection) return
+    
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    
+    const range = selection.getRangeAt(0)
+    const selectedText = range.toString().trim()
+    
+    if (selectedText) {
+      // Use a simpler approach - find the selected text in the full text
+      const fullText = text
+      const start = fullText.indexOf(selectedText)
+      
+      if (start !== -1) {
+        const end = start + selectedText.length
+        console.log('Text selected:', selectedText, 'Start:', start, 'End:', end)
+        onTextSelection(selectedText, start, end)
+      } else {
+        // Fallback: use the range offsets directly
+        const startOffset = range.startOffset
+        const endOffset = range.endOffset
+        console.log('Text selected (fallback):', selectedText, 'Start:', startOffset, 'End:', endOffset)
+        onTextSelection(selectedText, startOffset, endOffset)
+      }
+    }
+  }
+
+  const renderText = () => {
+    if (highlightedSection) {
+      return <HighlightedText text={text} highlightedSection={highlightedSection} />
+    }
+    
+    if (selectionRange && selectedText) {
+      const beforeSelection = text.substring(0, selectionRange.start)
+      const afterSelection = text.substring(selectionRange.end)
+      
+      return (
+        <span>
+          {beforeSelection}
+          <span className="bg-blue-200 text-blue-900 px-1 rounded">
+            {selectedText}
+          </span>
+          {afterSelection}
+        </span>
+      )
+    }
+    
+    return <span>{text}</span>
+  }
+
+  return (
+    <div
+      onMouseUp={handleMouseUp}
+      className={editMode ? 'select-text cursor-text' : ''}
+      style={{ userSelect: editMode ? 'text' : 'none' }}
+    >
+      {renderText()}
+    </div>
+  )
+}
+
 interface InlineEditorProps {
   value: string
   onChange: (value: string) => void
@@ -52,6 +131,10 @@ interface InlineEditorProps {
   highlightedSection?: { startLine: number; endLine: number } | null
   onClearHighlight?: () => void
   onAIEditSection?: (startLine: number, endLine: number) => void
+  editMode?: boolean
+  onTextSelection?: (text: string, start: number, end: number) => void
+  selectedText?: string
+  selectionRange?: { start: number; end: number } | null
 }
 
 export function InlineEditor({
@@ -67,11 +150,15 @@ export function InlineEditor({
   onUnlockSection,
   highlightedSection,
   onClearHighlight,
-  onAIEditSection
+  onAIEditSection,
+  editMode = false,
+  onTextSelection,
+  selectedText = '',
+  selectionRange
 }: InlineEditorProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(value)
-  const [selectedText, setSelectedText] = useState('')
+  const [localSelectedText, setLocalSelectedText] = useState('')
   const [selectionStart, setSelectionStart] = useState(0)
   const [selectionEnd, setSelectionEnd] = useState(0)
   
@@ -164,7 +251,7 @@ export function InlineEditor({
 
     setSelectionStart(start)
     setSelectionEnd(end)
-    setSelectedText(text)
+    setLocalSelectedText(text)
   }
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -178,13 +265,13 @@ export function InlineEditor({
   }
 
   const handleLockSelection = () => {
-    if (selectedText.trim() && onLockSection) {
-      onLockSection(selectionStart, selectionEnd, selectedText)
-      setSelectedText('')
+    if (localSelectedText.trim() && onLockSection) {
+      onLockSection(selectionStart, selectionEnd, localSelectedText)
+      setLocalSelectedText('')
     }
   }
 
-  const isTextSelected = selectedText.trim().length > 0
+  const isTextSelected = localSelectedText.trim().length > 0
   const isSelectionLocked = lockedSections.some(section => 
     section.start <= selectionStart && section.end >= selectionEnd
   )
@@ -291,15 +378,19 @@ export function InlineEditor({
   return (
     <div className="group relative">
       <div
-        className="cursor-pointer hover:bg-muted/50 rounded p-2 -m-2 transition-colors"
-        onClick={handleStartEdit}
+        className={`${editMode ? 'cursor-text' : 'cursor-pointer'} hover:bg-muted/50 rounded p-2 -m-2 transition-colors`}
+        onClick={editMode ? undefined : handleStartEdit}
       >
         {multiline ? (
           <div className="relative">
             <div className="whitespace-pre-wrap min-h-[200px] max-h-[600px] overflow-y-auto p-4 border rounded-lg bg-muted/20">
               {value ? (
-                <HighlightedText 
-                  text={value} 
+                <SelectableText
+                  text={value}
+                  editMode={editMode}
+                  onTextSelection={onTextSelection}
+                  selectedText={selectedText}
+                  selectionRange={selectionRange}
                   highlightedSection={highlightedSection}
                 />
               ) : (
@@ -359,7 +450,16 @@ export function InlineEditor({
           </div>
         ) : (
           <div className="min-h-[1.5rem]">
-            {value || (
+            {value ? (
+              <SelectableText
+                text={value}
+                editMode={editMode}
+                onTextSelection={onTextSelection}
+                selectedText={selectedText}
+                selectionRange={selectionRange}
+                highlightedSection={highlightedSection}
+              />
+            ) : (
               <span className="text-muted-foreground italic">{placeholder}</span>
             )}
           </div>

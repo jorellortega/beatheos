@@ -108,3 +108,5 @@ INSERT INTO lyrics (id, user_id, title, content, genre, mood, language, version,
 ('sample-lyric-1', 'sample-user-1', 'My First Song', 'Verse 1:\nThis is my first song\nI hope you like it\n\nChorus:\nSing it loud and strong', 'Pop', 'Happy', 'English', 1, true);
 */
 
+
+

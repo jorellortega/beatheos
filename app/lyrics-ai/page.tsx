@@ -36,7 +36,8 @@ import {
   Mic,
   Zap,
   Play,
-  Square
+  Square,
+  Edit3
 } from 'lucide-react'
 import { SimpleLyricsSession, CreateLyricsData, UpdateLyricsData } from '@/lib/lyrics-simple-service'
 import { useToast } from '@/hooks/use-toast'
@@ -98,6 +99,9 @@ export default function LyricsAIPage() {
   const [currentArrangement, setCurrentArrangement] = useState<any[]>([])
   const [lockedSections, setLockedSections] = useState<any[]>([])
   const [highlightedSection, setHighlightedSection] = useState<{ startLine: number; endLine: number } | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [selectedText, setSelectedText] = useState('')
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null)
   const [apiKeys, setApiKeys] = useState({
     openai: '',
     anthropic: '',
@@ -374,14 +378,61 @@ export default function LyricsAIPage() {
 
     const currentContent = selectedLyrics.lyrics || ''
     
+    console.log('=== INSERT SONG STRUCTURE DEBUG ===')
+    console.log('Element:', element)
+    console.log('Current content:', currentContent)
+    
+    // First, clean up any duplicate sections
+    const cleanedContent = cleanDuplicateSections(currentContent)
+    console.log('Cleaned content:', cleanedContent)
+    
     // Count existing sections of this type to determine the next number
-    const sectionType = element.toLowerCase()
-    const existingSections = (currentContent.match(new RegExp(`\\[${element}\\]`, 'gi')) || []).length
+    // Look for patterns like [Verse 1], [Hook 2], etc.
+    const sectionPattern = new RegExp(`\\[${element}\\s+\\d+\\]`, 'gi')
+    const existingSections = (cleanedContent.match(sectionPattern) || []).length
+    
+    console.log('Section pattern:', sectionPattern)
+    console.log('Existing sections found:', cleanedContent.match(sectionPattern))
+    console.log('Existing sections count:', existingSections)
+    
     const nextNumber = existingSections + 1
+    console.log('Next number will be:', nextNumber)
     
     // Create the section marker with number
     const sectionMarker = `[${element} ${nextNumber}]\n\n`
-    const newContent = currentContent + sectionMarker
+    
+    let newContent: string
+    if (element.toLowerCase() === 'intro') {
+      // For Intro sections, add at the very beginning
+      newContent = sectionMarker + cleanedContent
+    } else if (element.toLowerCase() === 'outro') {
+      // For Outro sections, add at the very end
+      newContent = cleanedContent + sectionMarker
+    } else {
+      // For other sections (Verse, Hook, Bridge), add before any existing Outro
+      const outroPattern = /(\[Outro\s+\d+\][\s\S]*)$/
+      const outroMatch = cleanedContent.match(outroPattern)
+      
+      if (outroMatch) {
+        // There's an existing outro, insert before it
+        const beforeOutro = cleanedContent.substring(0, outroMatch.index)
+        const outroSection = outroMatch[1]
+        newContent = beforeOutro + sectionMarker + outroSection
+        console.log('Inserting before existing Outro')
+      } else {
+        // No existing outro, add at the end
+        newContent = cleanedContent + sectionMarker
+        console.log('No existing Outro, adding at end')
+      }
+    }
+    
+    console.log('Section marker to add:', sectionMarker)
+    const placement = element.toLowerCase() === 'intro' ? 'TOP (Intro)' : 
+                     element.toLowerCase() === 'outro' ? 'BOTTOM (Outro)' : 
+                     'BEFORE_OUTRO (Other)'
+    console.log('Placement:', placement)
+    console.log('New content will be:', newContent)
+    console.log('=== END DEBUG ===')
     
     updateAsset(selectedLyrics.id, { lyrics: newContent })
     
@@ -389,6 +440,48 @@ export default function LyricsAIPage() {
     setTimeout(() => {
       setCurrentArrangement([])
     }, 100)
+  }
+
+  const cleanDuplicateSections = (content: string) => {
+    console.log('=== CLEANUP DEBUG ===')
+    console.log('Original content:', content)
+    
+    // Find all section markers in the content
+    const sectionPattern = /\[(\w+)\s+(\d+)\]/g
+    const allMatches = [...content.matchAll(sectionPattern)]
+    
+    console.log('All section matches found:', allMatches.map(m => m[0]))
+    
+    // Track seen sections
+    const seenSections = new Set<string>()
+    let cleanedContent = content
+    
+    // Process matches in reverse order to avoid index shifting
+    for (let i = allMatches.length - 1; i >= 0; i--) {
+      const match = allMatches[i]
+      const fullMatch = match[0] // e.g., "[Verse 1]"
+      const sectionType = match[1] // e.g., "Verse"
+      const number = match[2] // e.g., "1"
+      const sectionKey = `${sectionType} ${number}`
+      
+      console.log(`Processing: ${fullMatch} -> key: ${sectionKey}`)
+      
+      if (seenSections.has(sectionKey)) {
+        console.log(`REMOVING duplicate: ${fullMatch}`)
+        // Remove this duplicate section
+        const beforeMatch = cleanedContent.substring(0, match.index)
+        const afterMatch = cleanedContent.substring(match.index! + fullMatch.length)
+        cleanedContent = beforeMatch + afterMatch
+      } else {
+        console.log(`KEEPING first occurrence: ${fullMatch}`)
+        seenSections.add(sectionKey)
+      }
+    }
+    
+    console.log('Cleaned content:', cleanedContent)
+    console.log('=== END CLEANUP DEBUG ===')
+    
+    return cleanedContent
   }
 
   const updateArrangement = async (arrangement: any[]) => {
@@ -511,10 +604,12 @@ export default function LyricsAIPage() {
     console.log('Highlighting section:', { startLine, endLine })
     setHighlightedSection({ startLine, endLine })
     
-    // Clear highlight after 3 seconds
-    setTimeout(() => {
-      setHighlightedSection(null)
-    }, 3000)
+    // Don't auto-clear - let user manually clear it
+  }
+
+  const handleClearHighlight = () => {
+    console.log('Clearing highlighted section')
+    setHighlightedSection(null)
   }
 
   const handleAIEditSection = (startLine: number, endLine: number) => {
@@ -526,6 +621,42 @@ export default function LyricsAIPage() {
     console.log('AI Edit for section:', sectionText)
     setAiEditSelectedText(sectionText)
     setShowAITextEditor(true)
+  }
+
+  const handleTextSelection = (text: string, start: number, end: number) => {
+    if (!editMode) return
+    
+    console.log('Text selection received:', { text, start, end, editMode })
+    setSelectedText(text)
+    setSelectionRange({ start, end })
+  }
+
+  const handleAIReplace = () => {
+    console.log('AI Replace clicked:', { selectedText, selectionRange })
+    if (!selectedText.trim() || !selectionRange) {
+      console.log('AI Replace blocked - no text or range')
+      return
+    }
+    
+    console.log('Setting AI edit text:', selectedText)
+    setAiEditSelectedText(selectedText)
+    setShowAITextEditor(true)
+  }
+
+  const handleAISave = (newText: string) => {
+    if (!selectedLyrics || !selectionRange) return
+    
+    const currentContent = selectedLyrics.lyrics || ''
+    const beforeSelection = currentContent.substring(0, selectionRange.start)
+    const afterSelection = currentContent.substring(selectionRange.end)
+    const updatedContent = beforeSelection + newText + afterSelection
+    
+    updateAsset(selectedLyrics.id, { lyrics: updatedContent })
+    
+    // Clear selection
+    setSelectedText('')
+    setSelectionRange(null)
+    setShowAITextEditor(false)
   }
 
   const handleCreateNewLyrics = () => {
@@ -777,6 +908,35 @@ export default function LyricsAIPage() {
                   </div>
                   
                   <div className="flex flex-wrap gap-2">
+                    {/* Edit Mode Toggle */}
+                    <Button
+                      variant={editMode ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setEditMode(!editMode)
+                        setSelectedText('')
+                        setSelectionRange(null)
+                      }}
+                      className="text-xs"
+                    >
+                      <Edit3 className="h-3 w-3 mr-1" />
+                      {editMode ? 'Exit Edit' : 'Edit Mode'}
+                    </Button>
+
+                    {/* AI Replace Button - only show when text is selected in edit mode */}
+                    {editMode && selectedText.trim() && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleAIReplace}
+                        className="text-xs bg-blue-600 hover:bg-blue-700"
+                        title={`Replace: "${selectedText.substring(0, 50)}${selectedText.length > 50 ? '...' : ''}"`}
+                      >
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        AI Replace
+                      </Button>
+                    )}
+
                     {/* Arrangement Toggle */}
                     <Button
                       variant="outline"
@@ -838,11 +998,38 @@ export default function LyricsAIPage() {
                     </div>
 
                     {/* Main Actions */}
-                    <Dialog open={showAITextEditor} onOpenChange={setShowAITextEditor}>
+                    <Dialog open={showAITextEditor} onOpenChange={(open) => {
+                      setShowAITextEditor(open)
+                      if (!open) {
+                        // Clear selection when dialog closes
+                        setSelectedText('')
+                        setSelectionRange(null)
+                        setAiEditSelectedText('')
+                      }
+                    }}>
                       <DialogTrigger asChild>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant={selectedText.trim() ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            console.log('AI Edit button clicked:', { selectedText, selectionRange, editMode })
+                            // If we have selected text, use it for AI editing
+                            if (selectedText.trim() && selectionRange) {
+                              console.log('Using selected text for AI editing:', selectedText)
+                              // Set the AI edit selected text to the current selected text
+                              setAiEditSelectedText(selectedText)
+                              console.log('Set aiEditSelectedText to:', selectedText)
+                              setShowAITextEditor(true)
+                            } else {
+                              console.log('No selected text, opening editor normally')
+                              // Otherwise, just open the editor normally
+                              setShowAITextEditor(true)
+                            }
+                          }}
+                          className={selectedText.trim() ? "bg-blue-600 hover:bg-blue-700" : ""}
+                        >
                           <Sparkles className="h-4 w-4 mr-1" />
-                          AI Edit
+                          {selectedText.trim() ? 'AI Replace Selected' : 'AI Edit'}
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto mx-auto">
@@ -856,9 +1043,10 @@ export default function LyricsAIPage() {
                           onGenerate={handleAIGenerate}
                           onSave={(text) => {
                             console.log('onSave called with text:', text, 'selectedLyrics:', selectedLyrics)
+                            console.log('highlightedSection:', highlightedSection, 'aiEditSelectedText:', aiEditSelectedText, 'selectionRange:', selectionRange)
                             if (selectedLyrics) {
-                              // If we have selected text for AI editing, replace just that section
-                              if (aiEditSelectedText && highlightedSection) {
+                              // If we have a highlighted section (from arrangement block click), replace just that section
+                              if (highlightedSection) {
                                 const lines = selectedLyrics.lyrics.split('\n')
                                 const newLines = [...lines]
                                 
@@ -868,10 +1056,16 @@ export default function LyricsAIPage() {
                                   highlightedSection.endLine - highlightedSection.startLine + 1, 
                                   ...aiLines)
                                 
+                                console.log('Replacing highlighted section:', highlightedSection, 'with AI text:', text)
                                 updateAsset(selectedLyrics.id, { lyrics: newLines.join('\n') })
                                 setHighlightedSection(null) // Clear highlight after editing
+                              } else if (selectionRange) {
+                                // Use the new AI replace functionality for text selection
+                                console.log('Using selection range for replacement')
+                                handleAISave(text)
                               } else {
                                 // Replace entire content
+                                console.log('Replacing entire content')
                                 updateAsset(selectedLyrics.id, { lyrics: text })
                               }
                             } else {
@@ -1012,6 +1206,34 @@ export default function LyricsAIPage() {
                     </div>
                   )}
 
+                  {/* Edit Mode Indicator */}
+                  {editMode && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Edit3 className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-800">
+                          Edit Mode: Select text to replace with AI
+                        </span>
+                        {selectedText.trim() && (
+                          <Badge variant="secondary" className="ml-2 bg-green-100 text-green-800">
+                            Text Selected
+                          </Badge>
+                        )}
+                      </div>
+                      {selectedText.trim() && (
+                        <div className="mt-2 p-2 bg-blue-100 rounded border">
+                          <div className="text-xs text-blue-700 font-medium mb-1">Selected Text:</div>
+                          <div className="text-sm text-blue-900 bg-white p-2 rounded border">
+                            "{selectedText}"
+                          </div>
+                          <div className="mt-2 text-xs text-green-700 font-medium">
+                            ✓ Ready for AI editing - click "AI Replace" button above
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Content Editor */}
                   <div>
                     <InlineEditor
@@ -1030,8 +1252,12 @@ export default function LyricsAIPage() {
                       onLockSection={handleLockSection}
                       onUnlockSection={handleUnlockSection}
                       highlightedSection={highlightedSection}
-                      onClearHighlight={() => setHighlightedSection(null)}
+                      onClearHighlight={handleClearHighlight}
                       onAIEditSection={handleAIEditSection}
+                      editMode={editMode}
+                      onTextSelection={handleTextSelection}
+                      selectedText={selectedText}
+                      selectionRange={selectionRange}
                     />
                   </div>
                 </div>

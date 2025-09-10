@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, ChevronRight, Music, Play, Zap, Mic, Square } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Music, Play, Zap, Mic, Square, GripVertical } from 'lucide-react'
 
 interface ArrangementItem {
   type: 'intro' | 'verse' | 'hook' | 'bridge' | 'outro' | 'chorus'
@@ -49,6 +49,8 @@ const getTypeColor = (type: string) => {
 export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangement, onUpdateLyrics, onHighlightSection }: ArrangementSidebarProps) {
   const [arrangement, setArrangement] = useState<ArrangementItem[]>([])
   const previousArrangementRef = useRef<ArrangementItem[]>([])
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   const parseLyricsToArrangement = (lyricsText: string): ArrangementItem[] => {
     if (!lyricsText) return []
@@ -186,6 +188,77 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
     }
   }
 
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/html', '')
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIndex(index)
+  }
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault()
+    
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null)
+      setDragOverIndex(null)
+      return
+    }
+
+    // Reorder the arrangement
+    const newArrangement = [...arrangement]
+    const draggedItem = newArrangement[draggedIndex]
+    
+    // Remove the dragged item
+    newArrangement.splice(draggedIndex, 1)
+    
+    // Insert it at the new position
+    const newIndex = draggedIndex < dropIndex ? dropIndex - 1 : dropIndex
+    newArrangement.splice(newIndex, 0, draggedItem)
+    
+    // Update the arrangement
+    setArrangement(newArrangement)
+    onUpdateArrangement(newArrangement)
+    
+    // Update the lyrics content to match the new arrangement
+    if (onUpdateLyrics) {
+      const updatedLyrics = reorderLyricsContent(lyrics, newArrangement)
+      onUpdateLyrics(updatedLyrics)
+    }
+    
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const reorderLyricsContent = (originalLyrics: string, newArrangement: ArrangementItem[]): string => {
+    const lines = originalLyrics.split('\n')
+    const reorderedLines: string[] = []
+    
+    // Add sections in the new order
+    newArrangement.forEach(section => {
+      // Add the section marker
+      const sectionMarker = `[${section.type.charAt(0).toUpperCase() + section.type.slice(1)} ${section.sectionNumber}]`
+      reorderedLines.push(sectionMarker)
+      
+      // Add the section content
+      const sectionLines = section.content.split('\n')
+      reorderedLines.push(...sectionLines)
+      
+      // Add spacing between sections
+      reorderedLines.push('')
+    })
+    
+    return reorderedLines.join('\n').trim()
+  }
+
   if (!isOpen) {
     return (
       <div className="fixed right-0 top-1/2 transform -translate-y-1/2 z-50">
@@ -226,13 +299,28 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
         ) : (
           arrangement.map((section, index) => (
             <Card 
-              key={index} 
-              className="border-l-4 cursor-pointer hover:bg-muted/50 transition-colors" 
+              key={`${section.type}-${section.sectionNumber}-${index}`}
+              className={`border-l-4 cursor-pointer hover:bg-muted/50 transition-all duration-200 ${
+                draggedIndex === index ? 'opacity-50 scale-95' : ''
+              } ${
+                dragOverIndex === index ? 'ring-2 ring-blue-500 bg-blue-50/50' : ''
+              }`}
               style={{ borderLeftColor: getTypeColor(section.type).replace('bg-', '#') }}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, index)}
               onClick={() => handleSectionClick(section)}
             >
               <CardHeader className="pb-2">
                 <div className="flex items-center gap-2">
+                  <div 
+                    className="cursor-grab active:cursor-grabbing p-1 hover:bg-muted/50 rounded"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <GripVertical className="h-3 w-3 text-muted-foreground" />
+                  </div>
                   {getTypeIcon(section.type)}
                   <CardTitle className="text-sm capitalize">
                     {section.type} {section.sectionNumber}

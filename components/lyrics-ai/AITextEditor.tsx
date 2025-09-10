@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -44,11 +44,25 @@ export function AITextEditor({
   const [showCustomPrompt, setShowCustomPrompt] = useState(false)
   const [showQuickPrompts, setShowQuickPrompts] = useState(false)
   const [savedPrompts, setSavedPrompts] = useState<string[]>([])
+  const [hasAutoPopulated, setHasAutoPopulated] = useState(false)
+  const [includeContext, setIncludeContext] = useState(false)
 
   // Get the current API key based on selected service
   const getCurrentApiKey = () => {
     return selectedService === 'openai' ? apiKeys.openai : apiKeys.anthropic
   }
+
+  // Auto-populate prompt when selectedText changes
+  React.useEffect(() => {
+    console.log('AITextEditor selectedText changed:', { selectedText, hasAutoPopulated })
+    if (selectedText && selectedText.trim() && !hasAutoPopulated) {
+      // Don't auto-populate the prompt, just mark as detected
+      console.log('Selected text detected, but not auto-populating prompt')
+      setHasAutoPopulated(true)
+    } else if (!selectedText) {
+      setHasAutoPopulated(false)
+    }
+  }, [selectedText, hasAutoPopulated])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -75,10 +89,22 @@ export function AITextEditor({
     setIsGenerating(true)
     try {
       const finalPrompt = showCustomPrompt ? customPrompt : prompt
+      
+      // If context is enabled, add the full song as background context
+      let contextPrompt = finalPrompt
+      if (includeContext && fullContent && selectedText) {
+        contextPrompt = `${finalPrompt}
+
+CONTEXT - Full song lyrics for reference:
+${fullContent}
+
+TASK - Edit only this selected section: "${selectedText}"`
+      }
+      
       const result = await onGenerate({
-        prompt: finalPrompt,
+        prompt: contextPrompt,
         selectedText,
-        fullContent,
+        fullContent: includeContext ? fullContent : undefined,
         service: selectedService,
         apiKey: currentApiKey,
         contentType,
@@ -129,9 +155,37 @@ export function AITextEditor({
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
               <span className="font-medium text-yellow-800">Editing Selected Section</span>
+              <Badge variant="secondary" className="ml-2 bg-green-100 text-green-800">
+                Auto-detected
+              </Badge>
             </div>
             <div className="text-sm text-yellow-700 mb-2">
               The AI will edit only the highlighted section below. The rest of your lyrics will remain unchanged.
+              {hasAutoPopulated && (
+                <span className="block mt-1 text-green-700 font-medium">
+                  ✓ Selected text detected - write your prompt below
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 mb-3 p-2 bg-gray-50 rounded border">
+              <button
+                onClick={() => setIncludeContext(!includeContext)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  includeContext 
+                    ? 'bg-yellow-500 text-yellow-900 shadow-md border-2 border-yellow-600' 
+                    : 'bg-yellow-400 text-yellow-900 hover:bg-yellow-500 border-2 border-yellow-500'
+                }`}
+              >
+                {includeContext ? '✓ Context ON' : '+ Add Context'}
+              </button>
+              <div className="text-sm text-gray-700">
+                <div className="font-medium">
+                  {includeContext ? 'Full song context enabled' : 'Optional: Include full song for better AI editing'}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {includeContext ? 'AI will see entire song as background' : 'Click to give AI more context about your song'}
+                </div>
+              </div>
             </div>
             <div className="p-3 bg-white border border-yellow-300 rounded text-sm font-mono text-gray-800 max-h-32 overflow-y-auto">
               {selectedText}
@@ -174,7 +228,14 @@ export function AITextEditor({
         {/* Custom Prompt */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <Label>Custom Prompt</Label>
+            <div className="flex items-center gap-2">
+              <Label>Custom Prompt</Label>
+              {hasAutoPopulated && selectedText && (
+                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                  Text Selected
+                </Badge>
+              )}
+            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -190,12 +251,16 @@ export function AITextEditor({
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
               rows={3}
+              className="text-white !text-white"
+              style={{ color: 'white' }}
             />
           ) : (
             <Input
-              placeholder="Select a quick prompt or enter custom..."
+              placeholder="Write your prompt for the selected text..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              className="text-white !text-white"
+              style={{ color: 'white' }}
             />
           )}
         </div>
@@ -323,7 +388,8 @@ export function AITextEditor({
               value={generatedText}
               onChange={(e) => setGeneratedText(e.target.value)}
               rows={8}
-              className="font-mono text-sm"
+              className="font-mono text-sm text-white !text-white"
+              style={{ color: 'white' }}
             />
             <div className="flex gap-2">
               <Button onClick={handleUseGenerated} className="flex-1">
