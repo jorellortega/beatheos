@@ -34,6 +34,10 @@ export class OpenAIService {
       })
     }
 
+    console.log('=== OPENAI SERVICE DEBUG ===')
+    console.log('Messages:', messages)
+    console.log('API Key length:', apiKey?.length)
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -48,13 +52,27 @@ export class OpenAIService {
       }),
     })
 
+    console.log('OpenAI response status:', response.status)
+    console.log('OpenAI response ok:', response.ok)
+
     if (!response.ok) {
       const error = await response.json()
+      console.log('OpenAI error response:', error)
       throw new Error(`OpenAI API error: ${error.error?.message || 'Unknown error'}`)
     }
 
     const data = await response.json()
-    return data.choices[0]?.message?.content || ''
+    console.log('OpenAI response data:', data)
+    console.log('OpenAI choices:', data.choices)
+    console.log('OpenAI first choice:', data.choices?.[0])
+    console.log('OpenAI message content:', data.choices?.[0]?.message?.content)
+    
+    const result = data.choices[0]?.message?.content || ''
+    console.log('OpenAI final result length:', result.length)
+    console.log('OpenAI final result:', result)
+    console.log('=== END OPENAI SERVICE DEBUG ===')
+    
+    return result
   }
 }
 

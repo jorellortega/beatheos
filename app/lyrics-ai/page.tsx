@@ -95,7 +95,7 @@ export default function LyricsAIPage() {
   const [aiEditSelectedText, setAiEditSelectedText] = useState('')
   const [showGenreEdit, setShowGenreEdit] = useState(false)
   const [editingGenreFor, setEditingGenreFor] = useState<string | null>(null)
-  const [showArrangementSidebar, setShowArrangementSidebar] = useState(false)
+  const [showArrangementSidebar, setShowArrangementSidebar] = useState(true)
   const [currentArrangement, setCurrentArrangement] = useState<any[]>([])
   const [lockedSections, setLockedSections] = useState<any[]>([])
   const [highlightedSection, setHighlightedSection] = useState<{ startLine: number; endLine: number } | null>(null)
@@ -610,6 +610,132 @@ export default function LyricsAIPage() {
   const handleClearHighlight = () => {
     console.log('Clearing highlighted section')
     setHighlightedSection(null)
+  }
+
+  const handleAIGenerateSection = async (section: any) => {
+    console.log('=== AI GENERATE SECTION DEBUG ===')
+    console.log('Section received:', section)
+    console.log('Selected lyrics:', selectedLyrics)
+    console.log('API Keys available:', { openai: !!apiKeys.openai, anthropic: !!apiKeys.anthropic })
+    
+    if (!selectedLyrics) {
+      console.log('ERROR: No selected lyrics')
+      return
+    }
+
+    try {
+      // Set up the AI generation with context
+      const fullContent = selectedLyrics.lyrics || ''
+      console.log('Full content length:', fullContent.length)
+      console.log('Section details:', {
+        type: section.type,
+        startLine: section.startLine,
+        endLine: section.endLine,
+        currentContent: section.content
+      })
+      
+      const sectionPrompt = `Generate new ${section.type} content for this song. The ${section.type} should fit the style and theme of the full song.`
+      
+      const contextPrompt = `${sectionPrompt}
+
+CONTEXT - Full song lyrics for reference:
+${fullContent}
+
+TASK - Generate new content for this ${section.type} section.`
+
+      console.log('Context prompt length:', contextPrompt.length)
+      console.log('API request payload:', {
+        prompt: contextPrompt.substring(0, 200) + '...',
+        service: 'openai',
+        hasApiKey: !!apiKeys.openai,
+        contentType: 'lyrics'
+      })
+
+      // Call the AI generation API
+      console.log('Making API request to /api/lyrics-ai/generate-text')
+      const response = await fetch('/api/lyrics-ai/generate-text', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: contextPrompt,
+          service: 'openai',
+          apiKey: apiKeys.openai,
+          contentType: 'lyrics'
+        }),
+      })
+
+      console.log('API response status:', response.status)
+      console.log('API response ok:', response.ok)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.log('API error response:', errorText)
+        throw new Error(`Failed to generate content: ${response.status} ${errorText}`)
+      }
+
+      const data = await response.json()
+      console.log('API response data:', data)
+      console.log('API response keys:', Object.keys(data))
+      console.log('data.generatedText:', data.generatedText)
+      console.log('data.text:', data.text)
+      console.log('data.success:', data.success)
+      
+      const generatedContent = data.generatedText || data.text || ''
+      console.log('Generated content length:', generatedContent.length)
+      console.log('Generated content preview:', generatedContent.substring(0, 200) + '...')
+
+      if (generatedContent) {
+        // Replace the section content with the generated text
+        const lines = fullContent.split('\n')
+        console.log('Original lines count:', lines.length)
+        console.log('Section lines before replacement:', lines.slice(section.startLine, section.endLine + 1))
+        
+        const newLines = [...lines]
+        const sectionLines = generatedContent.split('\n')
+        console.log('New section lines:', sectionLines)
+        
+        // Replace the section content (keep the section marker)
+        const linesToReplace = section.endLine - section.startLine
+        console.log('Lines to replace:', linesToReplace)
+        console.log('Replacing from line', section.startLine + 1, 'to', section.endLine)
+        
+        newLines.splice(section.startLine + 1, linesToReplace, ...sectionLines)
+        console.log('New lines count after replacement:', newLines.length)
+        console.log('New section lines after replacement:', newLines.slice(section.startLine, section.startLine + sectionLines.length + 1))
+        
+        const updatedLyrics = newLines.join('\n')
+        console.log('Updated lyrics length:', updatedLyrics.length)
+        
+        // Update the lyrics
+        console.log('Calling updateAsset with ID:', selectedLyrics.id)
+        updateAsset(selectedLyrics.id, { lyrics: updatedLyrics })
+        
+        toast({
+          title: "Section Generated",
+          description: `New ${section.type} content has been generated and added to your song.`,
+        })
+        console.log('=== AI GENERATE SECTION SUCCESS ===')
+      } else {
+        console.log('ERROR: No generated content received')
+        toast({
+          title: "Generation Failed",
+          description: "No content was generated. Please try again.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('=== AI GENERATE SECTION ERROR ===')
+      console.error('Error details:', error)
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+      toast({
+        title: "Generation Failed",
+        description: `Failed to generate new section content: ${error.message}`,
+        variant: "destructive",
+      })
+    }
   }
 
   const handleAIEditSection = (startLine: number, endLine: number) => {
@@ -1296,6 +1422,7 @@ export default function LyricsAIPage() {
                 }
               }}
               onHighlightSection={handleHighlightSection}
+              onAIGenerateSection={handleAIGenerateSection}
             />
           </div>
         )}

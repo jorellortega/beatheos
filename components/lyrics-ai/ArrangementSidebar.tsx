@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, ChevronRight, Music, Play, Zap, Mic, Square, GripVertical } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Music, Play, Zap, Mic, Square, GripVertical, Trash2, Sparkles, X } from 'lucide-react'
 
 interface ArrangementItem {
   type: 'intro' | 'verse' | 'hook' | 'bridge' | 'outro' | 'chorus'
@@ -22,6 +22,7 @@ interface ArrangementSidebarProps {
   onUpdateArrangement: (arrangement: ArrangementItem[]) => void
   onUpdateLyrics?: (updatedLyrics: string) => void
   onHighlightSection?: (startLine: number, endLine: number) => void
+  onAIGenerateSection?: (section: ArrangementItem) => void
 }
 
 const getTypeIcon = (type: string) => {
@@ -46,11 +47,12 @@ const getTypeColor = (type: string) => {
   }
 }
 
-export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangement, onUpdateLyrics, onHighlightSection }: ArrangementSidebarProps) {
+export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangement, onUpdateLyrics, onHighlightSection, onAIGenerateSection }: ArrangementSidebarProps) {
   const [arrangement, setArrangement] = useState<ArrangementItem[]>([])
   const previousArrangementRef = useRef<ArrangementItem[]>([])
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [selectedSectionIndex, setSelectedSectionIndex] = useState<number | null>(null)
 
   const parseLyricsToArrangement = (lyricsText: string): ArrangementItem[] => {
     if (!lyricsText) return []
@@ -178,14 +180,69 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
     }
   }, [lyrics, onUpdateArrangement, onUpdateLyrics])
 
-  const handleSectionClick = (section: ArrangementItem) => {
-    console.log('Arrangement section clicked:', section)
+  const handleSectionClick = (section: ArrangementItem, index: number) => {
+    console.log('=== ARRANGEMENT SECTION CLICK DEBUG ===')
+    console.log('Section clicked:', section)
+    console.log('Index:', index)
+    console.log('Current selectedSectionIndex:', selectedSectionIndex)
+    console.log('Will toggle selection:', selectedSectionIndex === index ? 'DESELECT' : 'SELECT')
+    
+    setSelectedSectionIndex(selectedSectionIndex === index ? null : index)
+    
     if (onHighlightSection) {
       console.log('Calling onHighlightSection with:', section.startLine, section.endLine)
       onHighlightSection(section.startLine, section.endLine)
     } else {
       console.log('onHighlightSection is not provided')
     }
+    console.log('=== END ARRANGEMENT SECTION CLICK DEBUG ===')
+  }
+
+  const handleClearSection = (section: ArrangementItem, index: number) => {
+    console.log('Clearing section:', section)
+    const lines = lyrics.split('\n')
+    const newLines = [...lines]
+    
+    // Clear the section content (keep the section marker)
+    for (let i = section.startLine + 1; i <= section.endLine; i++) {
+      if (newLines[i]) {
+        newLines[i] = ''
+      }
+    }
+    
+    if (onUpdateLyrics) {
+      onUpdateLyrics(newLines.join('\n'))
+    }
+    setSelectedSectionIndex(null)
+  }
+
+  const handleDeleteSection = (section: ArrangementItem, index: number) => {
+    console.log('Deleting section:', section)
+    const lines = lyrics.split('\n')
+    const newLines = [...lines]
+    
+    // Remove the entire section including the marker
+    newLines.splice(section.startLine, section.endLine - section.startLine + 1)
+    
+    if (onUpdateLyrics) {
+      onUpdateLyrics(newLines.join('\n'))
+    }
+    setSelectedSectionIndex(null)
+  }
+
+  const handleAIGenerateSection = (section: ArrangementItem) => {
+    console.log('=== ARRANGEMENT SIDEBAR AI GENERATE DEBUG ===')
+    console.log('Section clicked for AI generation:', section)
+    console.log('onAIGenerateSection callback available:', !!onAIGenerateSection)
+    
+    if (onAIGenerateSection) {
+      console.log('Calling onAIGenerateSection with section:', section)
+      onAIGenerateSection(section)
+    } else {
+      console.log('ERROR: onAIGenerateSection callback not provided')
+    }
+    setSelectedSectionIndex(null)
+    console.log('=== END ARRANGEMENT SIDEBAR AI GENERATE DEBUG ===')
   }
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -298,51 +355,111 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
           </div>
         ) : (
           arrangement.map((section, index) => (
-            <Card 
-              key={`${section.type}-${section.sectionNumber}-${index}`}
-              className={`border-l-4 cursor-pointer hover:bg-muted/50 transition-all duration-200 ${
-                draggedIndex === index ? 'opacity-50 scale-95' : ''
-              } ${
-                dragOverIndex === index ? 'ring-2 ring-blue-500 bg-blue-50/50' : ''
-              }`}
-              style={{ borderLeftColor: getTypeColor(section.type).replace('bg-', '#') }}
-              draggable
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, index)}
-              onClick={() => handleSectionClick(section)}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="cursor-grab active:cursor-grabbing p-1 hover:bg-muted/50 rounded"
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <GripVertical className="h-3 w-3 text-muted-foreground" />
-                  </div>
-                  {getTypeIcon(section.type)}
-                  <CardTitle className="text-sm capitalize">
-                    {section.type} {section.sectionNumber}
-                  </CardTitle>
-                  <Badge variant="secondary" className="text-xs">
-                    {section.lines} lines
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
-                  {section.content.split('\n').slice(0, 3).map((line, lineIndex) => (
-                    <div key={lineIndex} className="truncate">
-                      {line || '...'}
+            <div key={`${section.type}-${section.sectionNumber}-${index}`} className="relative">
+              <Card 
+                className={`border-l-4 cursor-pointer hover:bg-muted/50 transition-all duration-200 ${
+                  draggedIndex === index ? 'opacity-50 scale-95' : ''
+                } ${
+                  dragOverIndex === index ? 'ring-2 ring-blue-500 bg-blue-50/50' : ''
+                } ${
+                  selectedSectionIndex === index ? 'ring-2 ring-yellow-500 bg-yellow-50/50' : ''
+                }`}
+                style={{ borderLeftColor: getTypeColor(section.type).replace('bg-', '#') }}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, index)}
+                onClick={() => handleSectionClick(section, index)}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="cursor-grab active:cursor-grabbing p-1 hover:bg-muted/50 rounded"
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <GripVertical className="h-3 w-3 text-muted-foreground" />
                     </div>
-                  ))}
-                  {section.content.split('\n').length > 3 && (
-                    <div className="text-muted-foreground">...</div>
-                  )}
+                    {getTypeIcon(section.type)}
+                    <CardTitle className="text-sm capitalize">
+                      {section.type} {section.sectionNumber}
+                    </CardTitle>
+                    <Badge variant="secondary" className="text-xs">
+                      {section.lines} lines
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
+                    {section.content.split('\n').slice(0, 3).map((line, lineIndex) => (
+                      <div key={lineIndex} className="truncate">
+                        {line || '...'}
+                      </div>
+                    ))}
+                    {section.content.split('\n').length > 3 && (
+                      <div className="text-muted-foreground">...</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Action Buttons - Show when section is selected */}
+              {selectedSectionIndex === index && (
+                <div className="absolute top-2 right-2 bg-yellow-400 text-yellow-900 text-sm px-3 py-2 rounded-md shadow-lg font-medium z-30">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium">Actions</span>
+                    <div className="flex gap-1">
+                      <button
+                        className="bg-yellow-500 hover:bg-yellow-600 text-yellow-900 px-2 py-1 rounded text-xs font-medium transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleClearSection(section, index)
+                        }}
+                        title="Clear section content"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteSection(section, index)
+                        }}
+                        title="Delete entire section"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+                        onClick={(e) => {
+                          console.log('=== AI GENERATE BUTTON CLICKED ===')
+                          console.log('Event:', e)
+                          console.log('Section:', section)
+                          console.log('Stopping propagation')
+                          e.stopPropagation()
+                          console.log('Calling handleAIGenerateSection')
+                          handleAIGenerateSection(section)
+                          console.log('=== END AI GENERATE BUTTON CLICKED ===')
+                        }}
+                        title="AI generate section content"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                      </button>
+                      <button
+                        className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedSectionIndex(null)
+                        }}
+                        title="Close actions"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </div>
           ))
         )}
 

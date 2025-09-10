@@ -34,12 +34,24 @@ export async function POST(request: NextRequest) {
 
     let generatedText: string
 
+    console.log('=== AI GENERATE API DEBUG ===')
+    console.log('Service:', service)
+    console.log('API Key length:', apiKey?.length)
+    console.log('Prompt length:', prompt?.length)
+    console.log('Content type:', contentType)
+
     switch (service) {
       case 'openai':
+        console.log('Calling OpenAI service...')
         generatedText = await OpenAIService.generateText(params)
+        console.log('OpenAI response length:', generatedText?.length)
+        console.log('OpenAI response preview:', generatedText?.substring(0, 200))
         break
       case 'anthropic':
+        console.log('Calling Anthropic service...')
         generatedText = await AnthropicService.generateText(params)
+        console.log('Anthropic response length:', generatedText?.length)
+        console.log('Anthropic response preview:', generatedText?.substring(0, 200))
         break
       default:
         return NextResponse.json(
@@ -47,6 +59,10 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
     }
+
+    console.log('Final generatedText length:', generatedText?.length)
+    console.log('Final generatedText:', generatedText)
+    console.log('=== END AI GENERATE API DEBUG ===')
 
     return NextResponse.json({ 
       success: true, 
