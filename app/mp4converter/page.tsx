@@ -13,6 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { FFmpeg } from '@ffmpeg/ffmpeg'
+import { fetchFile, toBlobURL } from '@ffmpeg/util'
 import { 
   Music, 
   Image, 
@@ -60,18 +62,18 @@ interface VideoProject {
   name: string
   audio: AudioItem | null
   cover: CoverItem | null
-  customAudio: File | null
-  customCover: File | null
+  // Database uses snake_case
   format: 'youtube' | 'reels'
   duration: number
-  fadeIn: number
-  fadeOut: number
-  textOverlay: string
-  textColor: string
-  textSize: number
-  textPosition: 'top' | 'center' | 'bottom'
-  backgroundColor: string
-  createdAt: Date
+  fade_in: number
+  fade_out: number
+  text_overlay: string
+  text_color: string
+  text_size: number
+  text_position: 'top' | 'center' | 'bottom'
+  background_color: string
+  description?: string // Stores crop settings and other metadata as JSON
+  created_at: Date
 }
 
 export default function MP4ConverterPage() {
@@ -90,7 +92,7 @@ export default function MP4ConverterPage() {
   const [selectedCover, setSelectedCover] = useState<CoverItem | null>(null)
   const [customAudio, setCustomAudio] = useState<File | null>(null)
   const [customCover, setCustomCover] = useState<File | null>(null)
-  const [videoFormat, setVideoFormat] = useState<'youtube' | 'reels'>('youtube')
+  const [videoFormat, setVideoFormat] = useState<'youtube' | 'reels' | 'both'>('youtube')
   const [duration, setDuration] = useState(30)
   const [fadeIn, setFadeIn] = useState(2)
   const [fadeOut, setFadeOut] = useState(2)
@@ -119,9 +121,14 @@ export default function MP4ConverterPage() {
   const [editingProject, setEditingProject] = useState<VideoProject | null>(null)
   const [projectName, setProjectName] = useState('')
   
+  // Search states
+  const [audioSearch, setAudioSearch] = useState('')
+  const [coverSearch, setCoverSearch] = useState('')
+  
   // State for video generation
   const [generating, setGenerating] = useState(false)
   const [generationProgress, setGenerationProgress] = useState(0)
+  const [generationStatus, setGenerationStatus] = useState('')
   
   // Audio preview
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null)
@@ -131,6 +138,8 @@ export default function MP4ConverterPage() {
   // Refs
   const audioFileInputRef = useRef<HTMLInputElement>(null)
   const coverFileInputRef = useRef<HTMLInputElement>(null)
+  const ffmpegRef = useRef(new FFmpeg())
+  const [ffmpegLoaded, setFfmpegLoaded] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -138,6 +147,239 @@ export default function MP4ConverterPage() {
       loadProjects()
     }
   }, [user])
+
+  // Load FFmpeg on component mount
+  useEffect(() => {
+    loadFFmpeg()
+  }, [])
+
+  const loadFFmpeg = async () => {
+    try {
+      console.log('[DEBUG] Loading FFmpeg...')
+      const ffmpeg = ffmpegRef.current
+      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+      
+      ffmpeg.on('log', ({ message }) => {
+        console.log('[FFMPEG LOG]', message)
+      })
+      
+      ffmpeg.on('progress', ({ progress, time }) => {
+        const percent = Math.round(progress * 100)
+        console.log('[FFMPEG PROGRESS]', percent + '%', 'time:', time)
+        if (generating) {
+          const adjustedProgress = 45 + (percent * 0.45) // 45-90% range for encoding
+          setGenerationProgress(adjustedProgress)
+          console.log('[DEBUG] Updated progress to:', adjustedProgress)
+        }
+      })
+
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      })
+      
+      setFfmpegLoaded(true)
+      console.log('[DEBUG] FFmpeg loaded successfully')
+    } catch (error) {
+      console.error('[ERROR] Failed to load FFmpeg:', error)
+    }
+  }
+
+  const generateVideoWithFFmpeg = async (
+    coverImg: HTMLImageElement,
+    audioBlob: Blob,
+    duration: number,
+    format: 'youtube' | 'reels'
+  ) => {
+    const ffmpeg = ffmpegRef.current
+    
+    try {
+      console.log('[DEBUG] Starting FFmpeg video generation for format:', format)
+      setGenerationProgress(15)
+      setGenerationStatus(`Creating ${format} video frames...`)
+      
+      // Create canvas and draw cover image
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Could not get canvas context')
+      
+      // Set canvas size based on format
+      if (format === 'youtube') {
+        canvas.width = 1920
+        canvas.height = 1080
+      } else {
+        canvas.width = 1080
+        canvas.height = 1920
+      }
+      
+      console.log('[DEBUG] ========================================')
+      console.log('[DEBUG] CANVAS RENDERING - Format:', format)
+      console.log('[DEBUG] Canvas size:', canvas.width, 'x', canvas.height)
+      console.log('[DEBUG] Cover image original size:', coverImg.width, 'x', coverImg.height)
+      
+      // Draw background first
+      ctx.fillStyle = backgroundColor
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      
+      const crop = format === 'youtube' ? youtubeCrop : reelsCrop
+      console.log('[DEBUG] Crop settings:', JSON.stringify(crop))
+      
+      // STEP 1: The preview container is the visible preview area
+      // For canvas, this is the full canvas size
+      const containerWidth = canvas.width
+      const containerHeight = canvas.height
+      console.log('[DEBUG] Step 1 - Container (visible area):', containerWidth, 'x', containerHeight)
+      
+      // STEP 2: Inside preview, there's a 400% container positioned at -150%
+      // This creates a larger workspace, but we work relative to the visible container
+      // The image is set to crop.scale * 300% of this workspace
+      const innerContainerWidth = containerWidth * 4 // 400%
+      const innerContainerHeight = containerHeight * 4 // 400%
+      console.log('[DEBUG] Step 2 - Inner container (400%):', innerContainerWidth, 'x', innerContainerHeight)
+      
+      // STEP 3: Image element has width/height: crop.scale * 300%
+      // In CSS, 300% = 3x, so crop.scale * 300% = crop.scale * 3
+      // This is relative to the INNER container
+      const imgElementWidth = innerContainerWidth * crop.scale * 3
+      const imgElementHeight = innerContainerHeight * crop.scale * 3
+      console.log('[DEBUG] Step 3 - Image element bounds (crop.scale * 300%):', imgElementWidth, 'x', imgElementHeight)
+      console.log('[DEBUG] Step 3 - Calculation: innerContainer', innerContainerWidth, '* scale', crop.scale, '* 3 =', imgElementWidth)
+      
+      // STEP 4: Apply object-contain within these bounds
+      const imgAspect = coverImg.width / coverImg.height
+      const boundsAspect = imgElementWidth / imgElementHeight
+      console.log('[DEBUG] Step 4 - Aspect ratios - Image:', imgAspect.toFixed(3), 'Bounds:', boundsAspect.toFixed(3))
+      
+      let finalWidth, finalHeight
+      if (imgAspect > boundsAspect) {
+        // Image is wider - fit to element width
+        finalWidth = imgElementWidth
+        finalHeight = imgElementWidth / imgAspect
+        console.log('[DEBUG] Step 4 - Image is WIDER, fitting to width')
+      } else {
+        // Image is taller - fit to element height  
+        finalHeight = imgElementHeight
+        finalWidth = imgElementHeight * imgAspect
+        console.log('[DEBUG] Step 4 - Image is TALLER, fitting to height')
+      }
+      console.log('[DEBUG] Step 4 - Final contained size:', finalWidth, 'x', finalHeight)
+      
+      // STEP 5: Center within the canvas and apply crop offset
+      // The inner container is at -150% offset, which centers it
+      // Then the image is centered within that
+      const xPos = (containerWidth - finalWidth) / 2 + crop.x
+      const yPos = (containerHeight - finalHeight) / 2 + crop.y
+      console.log('[DEBUG] Step 5 - Centering offset:', (containerWidth - finalWidth) / 2, ',', (containerHeight - finalHeight) / 2)
+      console.log('[DEBUG] Step 5 - Crop offset:', crop.x, ',', crop.y)
+      console.log('[DEBUG] Step 5 - Final position:', xPos, ',', yPos)
+      
+      console.log('[DEBUG] ========================================')
+      
+      // Draw cover art
+      ctx.drawImage(coverImg, xPos, yPos, finalWidth, finalHeight)
+      
+      // Add text overlay if specified
+      if (textOverlay) {
+        ctx.fillStyle = textColor
+        ctx.font = `bold ${textSize * 2}px Arial`
+        ctx.textAlign = 'center'
+        
+        let textY
+        if (textPosition === 'top') {
+          textY = textSize * 3
+        } else if (textPosition === 'bottom') {
+          textY = canvas.height - textSize * 3
+        } else {
+          textY = canvas.height / 2
+        }
+        
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
+        ctx.shadowBlur = 10
+        ctx.shadowOffsetX = 3
+        ctx.shadowOffsetY = 3
+        
+        ctx.fillText(textOverlay, canvas.width / 2, textY)
+      }
+      
+      console.log('[DEBUG] Canvas rendered')
+      setGenerationProgress(25)
+      setGenerationStatus('Converting canvas to image...')
+      
+      // Convert canvas to blob
+      const imageBlob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob)
+        }, 'image/png')
+      })
+      
+      console.log('[DEBUG] Image blob created, size:', imageBlob.size)
+      setGenerationProgress(35)
+      setGenerationStatus('Writing files to FFmpeg...')
+      
+      // Write files to FFmpeg virtual filesystem
+      await ffmpeg.writeFile('cover.png', await fetchFile(imageBlob))
+      await ffmpeg.writeFile('audio.mp3', await fetchFile(audioBlob))
+      
+      console.log('[DEBUG] Files written to FFmpeg')
+      setGenerationProgress(45)
+      setGenerationStatus(`Encoding video (this is FAST!)...`)
+      
+      // Use FFmpeg to create video from image + audio
+      console.log('[DEBUG] ===== STARTING FFMPEG ENCODING =====')
+      console.log('[DEBUG] Canvas dimensions:', canvas.width, 'x', canvas.height)
+      console.log('[DEBUG] Duration:', duration, 'seconds')
+      
+      const ffmpegArgs = [
+        '-loop', '1',
+        '-framerate', '1',  // Only 1 frame per second since image is static!
+        '-i', 'cover.png',
+        '-i', 'audio.mp3',
+        '-c:v', 'libx264',
+        '-tune', 'stillimage',  // Optimize for still images
+        '-preset', 'ultrafast',  // Fastest encoding preset
+        '-t', duration.toString(),
+        '-pix_fmt', 'yuv420p',
+        '-vf', `scale=${canvas.width}:${canvas.height}`,
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-shortest',
+        '-y',  // Overwrite output file
+        'output.mp4'
+      ]
+      
+      console.log('[DEBUG] FFmpeg command:', 'ffmpeg', ffmpegArgs.join(' '))
+      console.log('[DEBUG] Calling ffmpeg.exec()...')
+      
+      try {
+        await ffmpeg.exec(ffmpegArgs)
+        console.log('[DEBUG] FFmpeg encoding complete successfully!')
+      } catch (error) {
+        console.error('[ERROR] FFmpeg exec failed:', error)
+        throw new Error(`FFmpeg encoding failed: ${error}`)
+      }
+      console.log('[DEBUG] FFmpeg exec completed, setting progress to 90%')
+      setGenerationProgress(90)
+      setGenerationStatus('Reading output file...')
+      
+      console.log('[DEBUG] Calling ffmpeg.readFile("output.mp4")...')
+      const data = await ffmpeg.readFile('output.mp4')
+      console.log('[DEBUG] Read file data, type:', typeof data, 'size:', data.length || data.byteLength || 'unknown')
+      
+      const videoBlob = new Blob([data], { type: 'video/mp4' })
+      console.log('[DEBUG] Video blob created, size:', videoBlob.size, 'bytes')
+      console.log('[DEBUG] Video blob size in MB:', (videoBlob.size / 1024 / 1024).toFixed(2), 'MB')
+      
+      setGenerationProgress(100)
+      setGenerationStatus('Complete!')
+      console.log('[DEBUG] Progress set to 100%, status: Complete!')
+      
+      return videoBlob
+      
+    } catch (error) {
+      console.error('[ERROR] FFmpeg generation failed:', error)
+      throw error
+    }
+  }
 
   const loadContent = async () => {
     try {
@@ -186,29 +428,58 @@ export default function MP4ConverterPage() {
         console.log('Tracks table not found or error:', tracksError.message)
       }
       
-      // Process data with null safety
-      const processedSingles = Array.isArray(singlesData) ? singlesData.map(single => ({
-        ...single,
-        type: 'single' as const,
-        source: 'singles' as const
-      })) : []
+      // Process data with null safety and filter out items without audio URLs
+      const processedSingles = Array.isArray(singlesData) ? singlesData
+        .filter(single => {
+          const hasAudio = single.audio_url && single.audio_url !== ''
+          if (!hasAudio) {
+            console.warn('[WARN] Single without audio URL:', single.title, single.id)
+          }
+          return hasAudio
+        })
+        .map(single => ({
+          ...single,
+          type: 'single' as const,
+          source: 'singles' as const
+        })) : []
       
-      const processedAlbumTracks = Array.isArray(albumTracksData) ? albumTracksData.map(track => ({
-        id: track.id,
-        title: track.title,
-        artist: track.albums?.artist || '',
-        audio_url: track.audio_url,
-        duration: track.duration,
-        cover_art_url: track.albums?.cover_art_url,
-        type: 'album_track' as const,
-        source: 'albums' as const
-      })) : []
+      const processedAlbumTracks = Array.isArray(albumTracksData) ? albumTracksData
+        .filter(track => {
+          const hasAudio = track.audio_url && track.audio_url !== ''
+          if (!hasAudio) {
+            console.warn('[WARN] Album track without audio URL:', track.title, track.id)
+          }
+          return hasAudio
+        })
+        .map(track => ({
+          id: track.id,
+          title: track.title,
+          artist: track.albums?.artist || '',
+          audio_url: track.audio_url,
+          duration: track.duration,
+          cover_art_url: track.albums?.cover_art_url,
+          type: 'album_track' as const,
+          source: 'albums' as const
+        })) : []
       
-      const processedTracks = Array.isArray(tracksData) ? tracksData.map(track => ({
-        ...track,
-        type: 'track' as const,
-        source: 'tracks' as const
-      })) : []
+      const processedTracks = Array.isArray(tracksData) ? tracksData
+        .filter(track => {
+          const hasAudio = track.audio_url && track.audio_url !== ''
+          if (!hasAudio) {
+            console.warn('[WARN] Track without audio URL:', track.title, track.id)
+          }
+          return hasAudio
+        })
+        .map(track => ({
+          ...track,
+          type: 'track' as const,
+          source: 'tracks' as const
+        })) : []
+      
+      console.log('[DEBUG] Loaded audio items:')
+      console.log('[DEBUG]   - Singles with audio:', processedSingles.length)
+      console.log('[DEBUG]   - Album tracks with audio:', processedAlbumTracks.length)
+      console.log('[DEBUG]   - Tracks with audio:', processedTracks.length)
       
       setSingles(processedSingles)
       setAlbums(processedAlbumTracks)
@@ -278,7 +549,7 @@ export default function MP4ConverterPage() {
       if (data) {
         setProjects(data.map(project => ({
           ...project,
-          createdAt: new Date(project.created_at)
+          createdAt: new Date(project.created_at || project.createdAt)
         })))
       }
     } catch (error) {
@@ -289,6 +560,18 @@ export default function MP4ConverterPage() {
   }
 
   const handleAudioSelect = (audio: AudioItem) => {
+    // Validate audio URL before selection
+    if (!audio.audio_url || audio.audio_url === '') {
+      console.error('[ERROR] Cannot select audio without valid URL:', audio)
+      toast({
+        title: "Invalid Audio",
+        description: `"${audio.title}" has no audio file. Please select a different track or upload a custom audio file.`,
+        variant: "destructive"
+      })
+      return
+    }
+    
+    console.log('[DEBUG] Audio selected:', audio.title, '-', audio.audio_url)
     setSelectedAudio(audio)
     setCustomAudio(null)
     
@@ -360,6 +643,47 @@ export default function MP4ConverterPage() {
     return (selectedAudio || customAudio) && (selectedCover || customCover)
   }
 
+  // Filter audio items based on search
+  const filteredSingles = singles.filter(item => {
+    if (!audioSearch) return true
+    const searchLower = audioSearch.toLowerCase()
+    return (
+      item.title.toLowerCase().includes(searchLower) ||
+      item.artist.toLowerCase().includes(searchLower)
+    )
+  })
+
+  const filteredAlbums = albums.filter(item => {
+    if (!audioSearch) return true
+    const searchLower = audioSearch.toLowerCase()
+    return (
+      item.title.toLowerCase().includes(searchLower) ||
+      item.artist.toLowerCase().includes(searchLower)
+    )
+  })
+
+  const filteredTracks = tracks.filter(item => {
+    if (!audioSearch) return true
+    const searchLower = audioSearch.toLowerCase()
+    return (
+      item.title.toLowerCase().includes(searchLower) ||
+      item.artist.toLowerCase().includes(searchLower)
+    )
+  })
+
+  // Total filtered audio count for display
+  const totalFilteredAudio = filteredSingles.length + filteredAlbums.length + filteredTracks.length
+
+  // Filter cover items based on search
+  const filteredCovers = covers.filter(cover => {
+    if (!coverSearch) return true
+    const searchLower = coverSearch.toLowerCase()
+    return (
+      cover.name.toLowerCase().includes(searchLower) ||
+      cover.type.toLowerCase().includes(searchLower)
+    )
+  })
+
   // Function to get the best available cover for selected audio
   const getBestCoverForAudio = (audio: AudioItem) => {
     // First try to find exact match
@@ -401,23 +725,26 @@ export default function MP4ConverterPage() {
     }
 
     try {
+      // Map camelCase to snake_case for database and only save when format is single
+      // Note: Database only supports 'youtube' or 'reels', not 'both'
+      const formatToSave = videoFormat === 'both' ? 'youtube' : videoFormat
+      
       const projectData = {
         name: projectName,
         audio: selectedAudio,
         cover: selectedCover,
-        customAudio: customAudio,
-        customCover: customCover,
-        format: videoFormat,
+        // customAudio and customCover File objects can't be saved to DB
+        format: formatToSave,
         duration,
-        fadeIn,
-        fadeOut,
-        textOverlay,
-        textColor,
-        textSize,
-        textPosition,
-        backgroundColor,
-        youtubeCrop,
-        reelsCrop,
+        fade_in: fadeIn,
+        fade_out: fadeOut,
+        text_overlay: textOverlay,
+        text_color: textColor,
+        text_size: textSize,
+        text_position: textPosition,
+        background_color: backgroundColor,
+        // Store crop settings as metadata in description for now
+        description: JSON.stringify({ youtubeCrop, reelsCrop, originalFormat: videoFormat }),
         user_id: user?.id
       }
 
@@ -479,14 +806,14 @@ export default function MP4ConverterPage() {
   }
 
   const generateVideo = async () => {
-    console.log('generateVideo function called!')
-    console.log('selectedAudio:', selectedAudio)
-    console.log('customAudio:', customAudio)
-    console.log('selectedCover:', selectedCover)
-    console.log('customCover:', customCover)
+    console.log('[DEBUG] ===== GENERATE VIDEO CALLED (FFMPEG MODE) =====')
+    console.log('[DEBUG] selectedAudio:', selectedAudio)
+    console.log('[DEBUG] customAudio:', customAudio)
+    console.log('[DEBUG] selectedCover:', selectedCover)
+    console.log('[DEBUG] customCover:', customCover)
     
     if (!selectedAudio && !customAudio) {
-      console.log('No audio selected')
+      console.log('[ERROR] No audio selected')
       toast({
         title: "Error",
         description: "Please select or upload audio",
@@ -496,7 +823,7 @@ export default function MP4ConverterPage() {
     }
   
     if (!selectedCover && !customCover) {
-      console.log('No cover selected')
+      console.log('[ERROR] No cover selected')
       toast({
         title: "Error",
         description: "Please select or upload cover art",
@@ -504,342 +831,209 @@ export default function MP4ConverterPage() {
       })
       return
     }
+    
+    // Validate audio URL
+    if (selectedAudio) {
+      console.log('[DEBUG] Validating selected audio:', JSON.stringify(selectedAudio, null, 2))
+      if (!selectedAudio.audio_url || selectedAudio.audio_url === '') {
+        console.error('[ERROR] Selected audio has no valid audio_url!')
+        console.error('[ERROR] Audio object:', selectedAudio)
+        toast({
+          title: "Error",
+          description: "The selected audio file has no valid URL. Please try uploading a custom audio file instead.",
+          variant: "destructive"
+        })
+        return
+      }
+    }
+    
+    if (!ffmpegLoaded) {
+      toast({
+        title: "Please Wait",
+        description: "FFmpeg is still loading. Please try again in a moment.",
+        variant: "default"
+      })
+      return
+    }
   
     try {
-      console.log('Starting video generation...')
+      console.log('[DEBUG] Starting FAST video generation with FFmpeg...')
       setGenerating(true)
-      setGenerationProgress(0)
+      setGenerationProgress(5)
+      setGenerationStatus('Loading audio...')
       
-      // Create canvas for video generation
-      console.log('Creating canvas...')
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        throw new Error('Could not get canvas context')
-      }
-      console.log('Canvas created successfully')
-  
-      // Set canvas size based on format
-      if (videoFormat === 'youtube') {
-        canvas.width = 1920
-        canvas.height = 1080
+      // Load audio as blob
+      console.log('[DEBUG] ===== LOADING AUDIO =====')
+      let audioBlob: Blob
+      if (selectedAudio) {
+        const audioSrc = selectedAudio.audio_url || ''
+        console.log('[DEBUG] Loading audio from URL:', audioSrc)
+        
+        if (!audioSrc || audioSrc === '') {
+          throw new Error(`Selected audio "${selectedAudio.title}" has no valid audio URL.`)
+        }
+        
+        const response = await fetch(audioSrc)
+        if (!response.ok) throw new Error('Failed to fetch audio file')
+        audioBlob = await response.blob()
+        console.log('[DEBUG] Audio loaded, size:', audioBlob.size, 'bytes')
+      } else if (customAudio) {
+        audioBlob = customAudio
+        console.log('[DEBUG] Using custom audio file:', customAudio.name, customAudio.size, 'bytes')
       } else {
-        canvas.width = 1080
-        canvas.height = 1920
+        throw new Error('No audio source available')
       }
-      console.log('Canvas size set:', canvas.width, 'x', canvas.height)
-  
-      // Fill background
-      console.log('Filling background with color:', backgroundColor)
-      ctx.fillStyle = backgroundColor
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-  
-      // Load and draw cover art
-      console.log('Loading cover art...')
+      
+      setGenerationProgress(10)
+      setGenerationStatus('Loading cover image...')
+      
+      // Load cover image
+      console.log('[DEBUG] ===== LOADING COVER IMAGE =====')
       const coverImg = new window.Image()
       coverImg.crossOrigin = 'anonymous'
       
       await new Promise((resolve, reject) => {
         coverImg.onload = () => {
-          console.log('Cover art loaded successfully')
+          console.log('[DEBUG] Cover loaded:', coverImg.width, 'x', coverImg.height)
           resolve(null)
         }
         coverImg.onerror = (error) => {
-          console.error('Cover art failed to load:', error)
+          console.error('[ERROR] Cover failed to load:', error)
           reject(error)
         }
         
         if (selectedCover) {
-          console.log('Using selected cover:', selectedCover.url)
           coverImg.src = selectedCover.url
         } else if (customCover) {
-          console.log('Using custom cover')
           coverImg.src = URL.createObjectURL(customCover)
         }
       })
-      console.log('Cover art loaded, dimensions:', coverImg.width, 'x', coverImg.height)
-  
-      // Calculate cover art positioning and scaling
-      const crop = videoFormat === 'youtube' ? youtubeCrop : reelsCrop
-      const scale = crop.scale * 3 // Adjust scale factor for canvas
-      const x = (canvas.width / 2) + crop.x * 2
-      const y = (canvas.height / 2) + crop.y * 2
       
-      const imgWidth = coverImg.width * scale
-      const imgHeight = coverImg.height * scale
-      
-      console.log('Drawing cover art with crop settings:', { crop, scale, x, y, imgWidth, imgHeight })
-      
-      // Draw cover art
-      ctx.drawImage(
-        coverImg,
-        x - (imgWidth / 2),
-        y - (imgHeight / 2),
-        imgWidth,
-        imgHeight
-      )
-      console.log('Cover art drawn to canvas')
-  
-      // Add text overlay if specified
-      if (textOverlay) {
-        console.log('Adding text overlay:', textOverlay)
-        ctx.fillStyle = textColor
-        ctx.font = `bold ${textSize * 2}px Arial`
-        ctx.textAlign = 'center'
+      // Generate video with FFmpeg (FAST!)
+      if (videoFormat === 'both') {
+        console.log('[DEBUG] Generating BOTH formats...')
         
-        let textY
-        if (textPosition === 'top') {
-          textY = textSize * 3
-        } else if (textPosition === 'bottom') {
-          textY = canvas.height - textSize * 3
-        } else {
-          textY = canvas.height / 2
-        }
+        // Generate YouTube version
+        setGenerationStatus('Generating YouTube version...')
+        const youtubeBlob = await generateVideoWithFFmpeg(coverImg, audioBlob, duration, 'youtube')
+        console.log('[DEBUG] YouTube video complete:', (youtubeBlob.size / 1024 / 1024).toFixed(2), 'MB')
         
-        // Add text shadow
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
-        ctx.shadowBlur = 4
-        ctx.shadowOffsetX = 2
-        ctx.shadowOffsetY = 2
+        // Download YouTube
+        const youtubeLink = document.createElement('a')
+        youtubeLink.href = URL.createObjectURL(youtubeBlob)
+        youtubeLink.download = `video-youtube-${Date.now()}.mp4`
+        youtubeLink.click()
         
-        ctx.fillText(textOverlay, canvas.width / 2, textY)
-        console.log('Text overlay added')
-      }
-  
-      // Check if MediaRecorder is supported at all
-      console.log('Checking MediaRecorder support...')
-      if (typeof MediaRecorder === 'undefined') {
-        console.warn('MediaRecorder not supported, creating static image instead')
+        // Generate Reels version
+        setGenerationStatus('Generating Reels version...')
+        const reelsBlob = await generateVideoWithFFmpeg(coverImg, audioBlob, duration, 'reels')
+        console.log('[DEBUG] Reels video complete:', (reelsBlob.size / 1024 / 1024).toFixed(2), 'MB')
         
-        // Convert canvas to blob and download as image
-        const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob) => {
-            if (blob) resolve(blob)
-          }, 'image/png')
-        })
-        
-        setGenerationProgress(100)
+        // Download Reels
+        setTimeout(() => {
+          const reelsLink = document.createElement('a')
+          reelsLink.href = URL.createObjectURL(reelsBlob)
+          reelsLink.download = `video-reels-${Date.now()}.mp4`
+          reelsLink.click()
+        }, 500)
         
         toast({
-          title: "Video Recording Not Supported",
-          description: "Your browser doesn't support video recording. Downloading as image instead.",
-          variant: "default"
+          title: "Success!",
+          description: `Both videos created! YouTube: ${(youtubeBlob.size / 1024 / 1024).toFixed(2)} MB, Reels: ${(reelsBlob.size / 1024 / 1024).toFixed(2)} MB`,
         })
+      } else {
+        // Single format
+        const videoBlob = await generateVideoWithFFmpeg(coverImg, audioBlob, duration, videoFormat as 'youtube' | 'reels')
         
-        // Download the generated image
-        setTimeout(() => {
-          const link = document.createElement('a')
-          link.href = URL.createObjectURL(blob)
-          link.download = `image-${videoFormat}-${Date.now()}.png`
-          link.click()
-        }, 1000)
+        console.log('[DEBUG] Video generation complete!')
+        console.log('[DEBUG] Final video size:', (videoBlob.size / 1024 / 1024).toFixed(2), 'MB')
         
-        return
-      }
-      console.log('MediaRecorder is supported')
-      
-      // Create a MediaRecorder to record the canvas
-      let canvasStream: MediaStream
-      
-      try {
-        console.log('Attempting to capture canvas stream...')
-        canvasStream = canvas.captureStream(30) // 30 FPS
-        console.log('Canvas stream captured successfully:', canvasStream)
-      } catch (error) {
-        console.warn('canvas.captureStream not supported, creating static image instead:', error)
-        
-        // Convert canvas to blob and download as image
-        const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob) => {
-            if (blob) resolve(blob)
-          }, 'image/png')
-        })
-        
-        setGenerationProgress(100)
-        
+        // Download the video
         toast({
-          title: "Video Recording Not Supported",
-          description: "Your browser doesn't support canvas recording. Downloading as image instead.",
-          variant: "default"
+          title: "Success!",
+          description: `Video created! Size: ${(videoBlob.size / 1024 / 1024).toFixed(2)} MB`,
         })
         
-        // Download the generated image
         setTimeout(() => {
           const link = document.createElement('a')
-          link.href = URL.createObjectURL(blob)
-          link.download = `image-${videoFormat}-${Date.now()}.png`
+          link.href = URL.createObjectURL(videoBlob)
+          link.download = `video-${videoFormat}-${Date.now()}.mp4`
           link.click()
-        }, 1000)
-        
-        return
+          console.log('[DEBUG] Download initiated')
+        }, 500)
       }
-       
-      // Check for supported MediaRecorder formats with multiple fallbacks
-      console.log('Checking supported MediaRecorder formats...')
-      let mimeType = null
-      const supportedTypes = [
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8', 
-        'video/webm',
-        'video/mp4',
-        'video/ogg;codecs=theora'
-      ]
-      
-      for (const type of supportedTypes) {
-        if (MediaRecorder.isTypeSupported(type)) {
-          mimeType = type
-          console.log('Found supported mime type:', mimeType)
-          break
-        }
-      }
-      
-      if (!mimeType) {
-        // If no video recording is supported, fall back to creating a static image
-        console.warn('Video recording not supported, creating static image instead')
-        
-        // Convert canvas to blob and download as image
-        const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob) => {
-            if (blob) resolve(blob)
-          }, 'image/png')
-        })
-        
-        setGenerationProgress(100)
-        
-        toast({
-          title: "Video Recording Not Supported",
-          description: "Your browser doesn't support video recording. Downloading as image instead.",
-          variant: "default"
-        })
-        
-        // Download the generated image
-        setTimeout(() => {
-          const link = document.createElement('a')
-          link.href = URL.createObjectURL(blob)
-          link.download = `image-${videoFormat}-${Date.now()}.png`
-          link.click()
-        }, 1000)
-        
-        return
-      }
-      
-      console.log('Creating MediaRecorder with mime type:', mimeType)
-      const mediaRecorder = new MediaRecorder(canvasStream, { mimeType })
-      console.log('MediaRecorder created:', mediaRecorder)
-       
-      const chunks: Blob[] = []
-      
-      // Set up the recording
-      console.log('Setting up MediaRecorder event handlers...')
-      mediaRecorder.ondataavailable = (event) => {
-        console.log('ondataavailable fired, data size:', event.data.size)
-        if (event.data.size > 0) {
-          chunks.push(event.data)
-          console.log('Chunk added, total chunks:', chunks.length)
-        }
-      }
-      
-      mediaRecorder.onstop = async () => {
-        console.log('onstop fired, processing video...')
-        try {
-          const videoBlob = new Blob(chunks, { type: 'video/webm' })
-          console.log('Video blob created, size:', videoBlob.size)
-          
-          setGenerationProgress(100)
-          
-          toast({
-            title: "Success",
-            description: "Video generated successfully! Download will begin shortly."
-          })
-          
-          // Download the generated video
-          setTimeout(() => {
-            const link = document.createElement('a')
-            link.href = URL.createObjectURL(videoBlob)
-            link.download = `video-${videoFormat}-${Date.now()}.webm`
-            link.click()
-            console.log('Video download initiated')
-          }, 1000)
-        } catch (error) {
-          console.error('Error creating video blob:', error)
-          toast({
-            title: "Error",
-            description: "Failed to create video file",
-            variant: "destructive"
-          })
-        }
-      }
-      
-      // Start recording
-      console.log('Starting MediaRecorder...')
-      mediaRecorder.start()
-      console.log('MediaRecorder started, state:', mediaRecorder.state)
-      
-      // Update progress during recording
-      console.log('Setting up progress interval...')
-      const progressInterval = setInterval(() => {
-        setGenerationProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval)
-            return 90
-          }
-          return prev + 10
-        })
-      }, (duration * 1000) / 9) // Spread progress over 90% of duration
-      console.log('Progress interval set up, duration:', duration, 'seconds')
-       
-      // Record for the specified duration
-      console.log('Setting timeout to stop recording in', duration, 'seconds...')
-      setTimeout(() => {
-        console.log('Timeout fired, stopping recording...')
-        try {
-          clearInterval(progressInterval)
-          console.log('Progress interval cleared')
-          mediaRecorder.stop()
-          console.log('MediaRecorder.stop() called')
-        } catch (error) {
-          console.error('Error stopping recording:', error)
-          clearInterval(progressInterval)
-          // Force stop if needed
-          if (mediaRecorder.state === 'recording') {
-            console.log('Force stopping MediaRecorder...')
-            mediaRecorder.stop()
-          }
-        }
-      }, duration * 1000)
-      console.log('Timeout set successfully')
        
     } catch (error) {
-      console.error('Error generating video:', error)
+      console.error('[ERROR] Video generation failed:', error)
+      
+      let errorMessage = "Failed to generate video"
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to load audio')) {
+          errorMessage = "Failed to load audio file. Please check the audio URL or try uploading a custom audio file."
+        } else if (error.message.includes('timeout')) {
+          errorMessage = "Audio loading timed out. Please try again or use a different audio file."
+        } else {
+          errorMessage = error.message
+        }
+      }
+      
       toast({
         title: "Error",
-        description: "Failed to generate video",
+        description: errorMessage,
         variant: "destructive"
       })
     } finally {
       console.log('Finally block executed, cleaning up...')
       setGenerating(false)
       setGenerationProgress(0)
+      setGenerationStatus('')
     }
   }
 
-  const openProject = (project: VideoProject) => {
+  const openProject = (project: any) => {
     setEditingProject(project)
     setProjectName(project.name)
     setSelectedAudio(project.audio)
     setSelectedCover(project.cover)
-    setCustomAudio(project.customAudio)
-    setCustomCover(project.customCover)
-    setVideoFormat(project.format)
+    // Custom uploaded files are not saved with projects
+    setCustomAudio(null)
+    setCustomCover(null)
+    
+    // Try to parse description for crop settings and original format
+    let metadata = { youtubeCrop: { scale: 1.0, x: 0, y: 0 }, reelsCrop: { scale: 1.0, x: 0, y: 0 }, originalFormat: project.format }
+    if (project.description) {
+      try {
+        metadata = JSON.parse(project.description)
+      } catch (e) {
+        console.log('[DEBUG] Could not parse project description as JSON')
+      }
+    }
+    
+    setVideoFormat(metadata.originalFormat || project.format)
     setDuration(project.duration)
-    setFadeIn(project.fadeIn)
-    setFadeOut(project.fadeOut)
-    setTextOverlay(project.textOverlay)
-    setTextColor(project.textColor)
-    setTextSize(project.textSize)
-    setTextPosition(project.textPosition)
-    setBackgroundColor(project.backgroundColor)
-    setShowProjectDialog(true)
+    setFadeIn(project.fade_in || project.fadeIn || 2)
+    setFadeOut(project.fade_out || project.fadeOut || 2)
+    setTextOverlay(project.text_overlay || project.textOverlay || '')
+    setTextColor(project.text_color || project.textColor || '#ffffff')
+    setTextSize(project.text_size || project.textSize || 48)
+    setTextPosition(project.text_position || project.textPosition || 'center')
+    setBackgroundColor(project.background_color || project.backgroundColor || '#000000')
+    setYoutubeCrop(metadata.youtubeCrop)
+    setReelsCrop(metadata.reelsCrop)
+    
+    // Show success message
+    toast({
+      title: "Project Loaded!",
+      description: `"${project.name}" has been loaded successfully.`,
+    })
+    
+    // Scroll to video settings section
+    setTimeout(() => {
+      const videoSettings = document.querySelector('[data-video-settings]')
+      if (videoSettings) {
+        videoSettings.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }, 100)
   }
 
   const deleteProject = async (projectId: string) => {
@@ -927,6 +1121,81 @@ export default function MP4ConverterPage() {
         )}
       </div>
 
+      {/* Saved Projects - Quick Load */}
+      {projects.length > 0 && (
+        <Card className="mb-8 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Video className="h-5 w-5 text-blue-600" />
+              <h2 className="text-xl font-semibold">Your Saved Projects</h2>
+              <Badge variant="secondary">{projects.length}</Badge>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {projects.map(project => (
+              <Card 
+                key={project.id} 
+                className="p-4 hover:bg-gray-50 cursor-pointer transition-colors border-2 hover:border-blue-500"
+                onClick={() => openProject(project)}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-sm line-clamp-1">{project.name}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      {project.format === 'youtube' ? (
+                        <Badge variant="outline" className="text-xs">
+                          <Youtube className="h-3 w-3 mr-1 text-red-600" />
+                          16:9
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          <Instagram className="h-3 w-3 mr-1 text-purple-600" />
+                          9:16
+                        </Badge>
+                      )}
+                      <span className="text-xs text-gray-500">{formatTime(project.duration)}</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteProject(project.id)
+                    }}
+                    className="h-6 w-6 p-0 hover:bg-red-100 hover:text-red-600"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+                
+                <div className="space-y-1 text-xs text-gray-600 mt-3">
+                  <p className="line-clamp-1">
+                    <Music className="h-3 w-3 inline mr-1" />
+                    {project.audio?.title || 'Custom Audio'}
+                  </p>
+                  <p className="line-clamp-1">
+                    <Image className="h-3 w-3 inline mr-1" />
+                    {project.cover?.name || 'Custom Cover'}
+                  </p>
+                  <p className="text-gray-400">
+                    {project.createdAt.toLocaleDateString()}
+                  </p>
+                </div>
+                
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-blue-600 font-medium flex items-center">
+                    <Eye className="h-3 w-3 mr-1" />
+                    Click to load project
+                  </p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Content Selection Panel */}
         <div className="lg:col-span-1">
@@ -940,10 +1209,46 @@ export default function MP4ConverterPage() {
               </TabsList>
               
               <TabsContent value="audio" className="space-y-4">
+                {/* Search Bar */}
+                <div className="relative">
+                  <Input
+                    type="text"
+                    placeholder="Search by title, artist, or source..."
+                    value={audioSearch}
+                    onChange={(e) => setAudioSearch(e.target.value)}
+                    className="pl-10"
+                  />
+                  <Music className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  {audioSearch && (
+                    <button
+                      onClick={() => setAudioSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                
                 <div>
                   <Label className="text-sm font-medium">Your Music</Label>
+                  <p className="text-xs text-gray-500 mt-1 mb-2">
+                    {audioSearch 
+                      ? `Found ${totalFilteredAudio} matching items`
+                      : 'Only showing items with uploaded audio files'
+                    }
+                  </p>
+                  {(singles.length === 0 && albums.length === 0 && tracks.length === 0) && (
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800 mb-2">
+                      No audio files found. Please upload a custom audio file below or add audio files to your library first.
+                    </div>
+                  )}
                   <div className="space-y-2 mt-2 max-h-60 overflow-y-auto">
-                    {singles.map(single => (
+                    {filteredSingles.length === 0 && filteredAlbums.length === 0 && filteredTracks.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        {audioSearch ? 'No matching audio files found' : 'No audio files available'}
+                      </p>
+                    )}
+                    {filteredSingles.map(single => (
                       <div
                         key={single.id}
                         className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -971,7 +1276,7 @@ export default function MP4ConverterPage() {
                       </div>
                     ))}
                                         
-                    {albums.map(track => (
+                    {filteredAlbums.map(track => (
                       <div
                         key={track.id}
                         className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -999,7 +1304,7 @@ export default function MP4ConverterPage() {
                       </div>
                     ))}
                                         
-                    {tracks.map(track => (
+                    {filteredTracks.map(track => (
                       <div
                         key={track.id}
                         className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -1055,10 +1360,41 @@ export default function MP4ConverterPage() {
               </TabsContent>
               
               <TabsContent value="covers" className="space-y-4">
+                {/* Search Bar */}
+                <div className="relative">
+                  <Input
+                    type="text"
+                    placeholder="Search by name or type..."
+                    value={coverSearch}
+                    onChange={(e) => setCoverSearch(e.target.value)}
+                    className="pl-10"
+                  />
+                  <Image className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  {coverSearch && (
+                    <button
+                      onClick={() => setCoverSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                
                 <div>
                   <Label className="text-sm font-medium">Your Covers</Label>
+                  <p className="text-xs text-gray-500 mt-1 mb-2">
+                    {coverSearch 
+                      ? `Found ${filteredCovers.length} matching covers`
+                      : `${covers.length} covers available`
+                    }
+                  </p>
                   <div className="space-y-2 mt-2 max-h-60 overflow-y-auto">
-                    {covers.map(cover => (
+                    {filteredCovers.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        {coverSearch ? 'No matching covers found' : 'No covers available'}
+                      </p>
+                    )}
+                    {filteredCovers.map(cover => (
                       <div
                         key={cover.id}
                         className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -1109,7 +1445,7 @@ export default function MP4ConverterPage() {
         </div>
 
         {/* Video Settings Panel */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2" data-video-settings>
           <Card className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">Video Settings</h2>
@@ -1131,7 +1467,7 @@ export default function MP4ConverterPage() {
                       name="format"
                       value="youtube"
                       checked={videoFormat === 'youtube'}
-                      onChange={(e) => setVideoFormat(e.target.value as 'youtube' | 'reels')}
+                      onChange={(e) => setVideoFormat(e.target.value as 'youtube' | 'reels' | 'both')}
                       className="w-4 h-4"
                     />
                     <Label htmlFor="youtube" className="flex items-center gap-2 cursor-pointer">
@@ -1146,7 +1482,7 @@ export default function MP4ConverterPage() {
                       name="format"
                       value="reels"
                       checked={videoFormat === 'reels'}
-                      onChange={(e) => setVideoFormat(e.target.value as 'youtube' | 'reels')}
+                      onChange={(e) => setVideoFormat(e.target.value as 'youtube' | 'reels' | 'both')}
                       className="w-4 h-4"
                     />
                     <Label htmlFor="reels" className="flex items-center gap-2 cursor-pointer">
@@ -1154,6 +1490,27 @@ export default function MP4ConverterPage() {
                       Reels (9:16)
                     </Label>
                   </div>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      id="both"
+                      name="format"
+                      value="both"
+                      checked={videoFormat === 'both'}
+                      onChange={(e) => setVideoFormat(e.target.value as 'youtube' | 'reels' | 'both')}
+                      className="w-4 h-4"
+                    />
+                    <Label htmlFor="both" className="flex items-center gap-2 cursor-pointer">
+                      <Video className="h-4 w-4 text-blue-600" />
+                      Both Formats
+                    </Label>
+                  </div>
+                  {videoFormat === 'both' && (
+                    <p className="text-xs text-blue-600 mt-2 flex items-start gap-1">
+                      <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                      <span>Both YouTube (16:9) and Reels (9:16) videos will be generated and downloaded automatically.</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1291,6 +1648,7 @@ export default function MP4ConverterPage() {
                 
                                 <div className="flex flex-col lg:flex-row gap-6">
                   {/* YouTube Preview (16:9) */}
+                  {(videoFormat === 'youtube' || videoFormat === 'both') && (
                   <div className="flex-1">
                     <h4 className="text-sm font-medium mb-2 text-gray-700 flex items-center gap-2">
                       <Youtube className="h-4 w-4 text-red-600" />
@@ -1430,8 +1788,10 @@ export default function MP4ConverterPage() {
                       </div>
                     </div>
                   </div>
+                  )}
                   
                   {/* Reels Preview (9:16) */}
+                  {(videoFormat === 'reels' || videoFormat === 'both') && (
                   <div className="flex-1">
                     <h4 className="text-sm font-medium mb-2 text-gray-700 flex items-center gap-2">
                       <Instagram className="h-4 w-4 text-purple-600" />
@@ -1572,6 +1932,7 @@ export default function MP4ConverterPage() {
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
                 
                 {/* Preview Controls & Info */}
@@ -1667,33 +2028,49 @@ export default function MP4ConverterPage() {
               )}
             </div>
 
+            {/* Live Preview Toggle */}
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-blue-900">Fast Offline Processing with FFmpeg</p>
+                    <p className="text-blue-700 mt-1">
+                      Video generation uses FFmpeg for ultra-fast offline processing. No real-time playback needed!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Generate Button */}
-            <div className="mt-6">
+            <div className="mt-4">
               <Button
                 onClick={() => {
-                  console.log('Button clicked!')
-                  console.log('hasCompleteSelection():', hasCompleteSelection())
-                  console.log('generating:', generating)
-                  console.log('selectedAudio:', selectedAudio)
-                  console.log('customAudio:', customAudio)
-                  console.log('selectedCover:', selectedCover)
-                  console.log('customCover:', customCover)
+                  console.log('[DEBUG] Button clicked!')
+                  console.log('[DEBUG] hasCompleteSelection():', hasCompleteSelection())
+                  console.log('[DEBUG] ffmpegLoaded:', ffmpegLoaded)
+                  console.log('[DEBUG] generating:', generating)
                   generateVideo()
                 }}
-                disabled={generating || !hasCompleteSelection()}
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+                disabled={generating || !hasCompleteSelection() || !ffmpegLoaded}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white disabled:opacity-50"
                 size="lg"
-                style={{ cursor: 'pointer' }}
               >
-                {generating ? (
+                {!ffmpegLoaded ? (
                   <>
                     <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                    Generating Video... {generationProgress}%
+                    Loading FFmpeg...
+                  </>
+                ) : generating ? (
+                  <>
+                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                    Generating Video... {Math.round(generationProgress)}%
                   </>
                 ) : (
                   <>
                     <Video className="h-5 w-5 mr-2" />
-                    Generate MP4 Video
+                    {videoFormat === 'both' ? 'Generate Both Videos (Fast!)' : 'Generate MP4 Video (Fast!)'}
                   </>
                 )}
               </Button>
@@ -1701,62 +2078,26 @@ export default function MP4ConverterPage() {
 
             {/* Progress Bar */}
             {generating && (
-              <div className="mt-4">
-                <div className="w-full bg-gray-200 rounded-full h-3">
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">{generationStatus}</span>
+                  <span className="font-semibold text-gray-800">{Math.round(generationProgress)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                   <div
                     className="bg-gradient-to-r from-blue-600 to-purple-600 h-3 rounded-full transition-all duration-300"
                     style={{ width: `${generationProgress}%` }}
                   />
                 </div>
+                <p className="text-xs text-gray-500 text-center">
+                  Processing with FFmpeg... This is much faster than real-time!
+                </p>
               </div>
             )}
           </Card>
         </div>
       </div>
 
-      {/* Saved Projects */}
-      {projects.length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-2xl font-bold mb-6">Saved Projects</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map(project => (
-              <Card key={project.id} className="p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold">{project.name}</h3>
-                    <p className="text-sm text-gray-500">
-                      {project.format === 'youtube' ? 'YouTube (16:9)' : 'Reels (9:16)'}
-                    </p>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openProject(project)}
-                    >
-                      <Edit3 className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => deleteProject(project.id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="space-y-2 text-sm">
-                  <p><span className="font-medium">Audio:</span> {project.audio?.title || 'Custom'}</p>
-                  <p><span className="font-medium">Cover:</span> {project.cover?.name || 'Custom'}</p>
-                  <p><span className="font-medium">Duration:</span> {formatTime(project.duration)}</p>
-                  <p><span className="font-medium">Created:</span> {project.createdAt.toLocaleDateString()}</p>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Project Dialog */}
       <Dialog open={showProjectDialog} onOpenChange={setShowProjectDialog}>
