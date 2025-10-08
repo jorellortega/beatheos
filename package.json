@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.9.0",
     "@emotion/is-prop-valid": "latest",
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -55,12 +56,16 @@
     "embla-carousel-react": "8.5.1",
     "ffmpeg-static": "^5.2.0",
     "framer-motion": "latest",
+    "html2pdf.js": "^0.12.1",
     "input-otp": "1.4.1",
     "jose": "^6.0.11",
-    "jspdf": "^2.5.1",
+    "jspdf": "^2.5.2",
     "lucide-react": "^0.454.0",
+    "mammoth": "^1.6.0",
     "next": "15.2.4",
     "next-themes": "latest",
+    "openai": "^4.0.0",
+    "pdfjs-dist": "^3.0.0",
     "pg": "^8.16.0",
     "react": "^19",
     "react-day-picker": "8.10.1",
@@ -78,11 +83,7 @@
     "tone": "^15.1.22",
     "vaul": "^0.9.6",
     "wavesurfer.js": "^7.9.5",
-    "zod": "^3.24.1",
-    "openai": "^4.0.0",
-    "@anthropic-ai/sdk": "^0.9.0",
-    "pdfjs-dist": "^3.0.0",
-    "mammoth": "^1.6.0"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22",

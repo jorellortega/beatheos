@@ -37,10 +37,14 @@ import {
   Zap,
   Play,
   Square,
-  Edit3
+  Edit3,
+  FileDown
 } from 'lucide-react'
 import { SimpleLyricsSession, CreateLyricsData, UpdateLyricsData } from '@/lib/lyrics-simple-service'
+
+type ContentType = 'script' | 'lyrics' | 'poetry' | 'prose'
 import { useToast } from '@/hooks/use-toast'
+import jsPDF from 'jspdf'
 
 export default function LyricsAIPage() {
   const { user, getAccessToken } = useAuth()
@@ -107,6 +111,7 @@ export default function LyricsAIPage() {
     anthropic: '',
     elevenlabs: ''
   })
+  const [isAddingSection, setIsAddingSection] = useState(false)
 
   // Load user's content on mount
   useEffect(() => {
@@ -115,6 +120,11 @@ export default function LyricsAIPage() {
       loadAPIKeys()
     }
   }, [user])
+
+  // Debug dialog state changes
+  useEffect(() => {
+    console.log('Dialog state changed:', showNewLyricsDialog)
+  }, [showNewLyricsDialog])
 
   const loadAPIKeys = async () => {
     try {
@@ -182,12 +192,21 @@ export default function LyricsAIPage() {
   }
 
   const createNewAsset = async (data: CreateLyricsData) => {
-    if (!user) return
+    console.log('createNewAsset called with:', data)
+    console.log('Current user:', user)
+    
+    if (!user) {
+      console.log('No user found, returning early')
+      return
+    }
 
     try {
+      console.log('Getting access token...')
       const token = await getAccessToken()
       if (!token) throw new Error('No access token')
+      console.log('Access token received:', token.substring(0, 20) + '...')
 
+      console.log('Making API request to /api/lyrics-ai/assets')
       const response = await fetch('/api/lyrics-ai/assets', {
         method: 'POST',
         headers: {
@@ -197,16 +216,27 @@ export default function LyricsAIPage() {
         body: JSON.stringify(data)
       })
 
-      if (!response.ok) throw new Error('Failed to create asset')
+      console.log('API response status:', response.status)
+      console.log('API response ok:', response.ok)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('API error response:', errorText)
+        throw new Error(`Failed to create asset: ${response.status} ${errorText}`)
+      }
 
       const result = await response.json()
+      console.log('API response result:', result)
+      
       setLyrics(prev => [result.asset, ...prev])
       setSelectedLyrics(result.asset)
       
       toast({
         title: "Content created",
-        description: `"${data.title}" has been created successfully`
+        description: `"${data.name}" has been created successfully`
       })
+      
+      console.log('Asset created successfully')
     } catch (error) {
       console.error('Error creating asset:', error)
       toast({
@@ -374,12 +404,15 @@ export default function LyricsAIPage() {
   }
 
   const insertSongStructure = (element: string) => {
-    if (!selectedLyrics) return
+    if (!selectedLyrics || isAddingSection) return
 
-    const currentContent = selectedLyrics.lyrics || ''
-    
     console.log('=== INSERT SONG STRUCTURE DEBUG ===')
     console.log('Element:', element)
+    console.log('isAddingSection:', isAddingSection)
+    
+    setIsAddingSection(true)
+
+    const currentContent = selectedLyrics.lyrics || ''
     console.log('Current content:', currentContent)
     
     // First, clean up any duplicate sections
@@ -398,30 +431,39 @@ export default function LyricsAIPage() {
     const nextNumber = existingSections + 1
     console.log('Next number will be:', nextNumber)
     
-    // Create the section marker with number
+    // Create the section marker with proper spacing
     const sectionMarker = `[${element} ${nextNumber}]\n\n`
     
     let newContent: string
     if (element.toLowerCase() === 'intro') {
-      // For Intro sections, add at the very beginning
-      newContent = sectionMarker + cleanedContent
+      // For Intro sections, add at the very beginning with proper spacing
+      const trimmedContent = cleanedContent.trim()
+      newContent = sectionMarker + trimmedContent
     } else if (element.toLowerCase() === 'outro') {
-      // For Outro sections, add at the very end
-      newContent = cleanedContent + sectionMarker
+      // For Outro sections, add at the very end with proper spacing
+      const trimmedContent = cleanedContent.trim()
+      // Ensure there's a newline before adding outro if content exists
+      const separator = trimmedContent ? '\n\n' : ''
+      newContent = trimmedContent + separator + sectionMarker
     } else {
       // For other sections (Verse, Hook, Bridge), add before any existing Outro
       const outroPattern = /(\[Outro\s+\d+\][\s\S]*)$/
       const outroMatch = cleanedContent.match(outroPattern)
       
       if (outroMatch) {
-        // There's an existing outro, insert before it
-        const beforeOutro = cleanedContent.substring(0, outroMatch.index)
+        // There's an existing outro, insert before it with proper spacing
+        const beforeOutro = cleanedContent.substring(0, outroMatch.index).trim()
         const outroSection = outroMatch[1]
-        newContent = beforeOutro + sectionMarker + outroSection
+        // Ensure proper spacing between sections
+        const separator = beforeOutro ? '\n\n' : ''
+        newContent = beforeOutro + separator + sectionMarker + outroSection
         console.log('Inserting before existing Outro')
       } else {
-        // No existing outro, add at the end
-        newContent = cleanedContent + sectionMarker
+        // No existing outro, add at the end with proper spacing
+        const trimmedContent = cleanedContent.trim()
+        // Ensure there's proper spacing before adding new section
+        const separator = trimmedContent ? '\n\n' : ''
+        newContent = trimmedContent + separator + sectionMarker
         console.log('No existing Outro, adding at end')
       }
     }
@@ -434,12 +476,23 @@ export default function LyricsAIPage() {
     console.log('New content will be:', newContent)
     console.log('=== END DEBUG ===')
     
-    updateAsset(selectedLyrics.id, { lyrics: newContent })
-    
-    // Force arrangement update
-    setTimeout(() => {
-      setCurrentArrangement([])
-    }, 100)
+    try {
+      updateAsset(selectedLyrics.id, { lyrics: newContent })
+      
+      // Force arrangement update
+      setTimeout(() => {
+        setCurrentArrangement([])
+        setIsAddingSection(false) // Reset the flag after update
+      }, 100)
+    } catch (error) {
+      console.error('Error adding section:', error)
+      setIsAddingSection(false) // Reset flag even on error
+      toast({
+        title: "Error adding section",
+        description: "Failed to add section. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const cleanDuplicateSections = (content: string) => {
@@ -634,14 +687,15 @@ export default function LyricsAIPage() {
         currentContent: section.content
       })
       
-      const sectionPrompt = `Generate new ${section.type} content for this song. The ${section.type} should fit the style and theme of the full song.`
+      // Use custom prompt if provided, otherwise use default
+      const sectionPrompt = section.aiPrompt || `Generate new ${section.type} content for this song. The ${section.type} should fit the style and theme of the full song.`
       
       const contextPrompt = `${sectionPrompt}
 
 CONTEXT - Full song lyrics for reference:
 ${fullContent}
 
-TASK - Generate new content for this ${section.type} section.`
+TASK - Generate new content for this ${section.type} section. IMPORTANT: Do not include section markers like [${section.type} 1] or [${section.type} 2] in your response. Only provide the actual lyrics content that should replace the existing content within this section.`
 
       console.log('Context prompt length:', contextPrompt.length)
       console.log('API request payload:', {
@@ -687,21 +741,36 @@ TASK - Generate new content for this ${section.type} section.`
       console.log('Generated content preview:', generatedContent.substring(0, 200) + '...')
 
       if (generatedContent) {
+        // Clean the generated content to remove any section markers
+        const cleanedGeneratedContent = generatedContent
+          .split('\n')
+          .filter(line => !line.match(/^\[.*\]$/)) // Remove lines that are section markers like [Hook 1]
+          .join('\n')
+          .trim()
+        
+        console.log('Generated content before cleaning:', generatedContent)
+        console.log('Generated content after cleaning:', cleanedGeneratedContent)
+        
         // Replace the section content with the generated text
         const lines = fullContent.split('\n')
         console.log('Original lines count:', lines.length)
         console.log('Section lines before replacement:', lines.slice(section.startLine, section.endLine + 1))
         
         const newLines = [...lines]
-        const sectionLines = generatedContent.split('\n')
+        const sectionLines = cleanedGeneratedContent.split('\n')
         console.log('New section lines:', sectionLines)
         
-        // Replace the section content (keep the section marker)
-        const linesToReplace = section.endLine - section.startLine
-        console.log('Lines to replace:', linesToReplace)
-        console.log('Replacing from line', section.startLine + 1, 'to', section.endLine)
+        // Calculate the correct range to replace (content only, not the section marker)
+        const startReplaceLine = section.startLine + 1 // Start after the section marker
+        const endReplaceLine = section.endLine // End at the section end
         
-        newLines.splice(section.startLine + 1, linesToReplace, ...sectionLines)
+        // Replace the section content (keep the section marker)
+        const linesToReplace = endReplaceLine - startReplaceLine + 1
+        console.log('Lines to replace:', linesToReplace)
+        console.log('Replacing from line', startReplaceLine, 'to', endReplaceLine)
+        console.log('Content to replace:', lines.slice(startReplaceLine, endReplaceLine + 1))
+        
+        newLines.splice(startReplaceLine, linesToReplace, ...sectionLines)
         console.log('New lines count after replacement:', newLines.length)
         console.log('New section lines after replacement:', newLines.slice(section.startLine, section.startLine + sectionLines.length + 1))
         
@@ -785,8 +854,211 @@ TASK - Generate new content for this ${section.type} section.`
     setShowAITextEditor(false)
   }
 
+  const handleCopySongStructure = async () => {
+    if (!selectedLyrics) return
+
+    try {
+      // Get the current lyrics content
+      const lyricsContent = selectedLyrics.lyrics || ''
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(lyricsContent)
+      
+      toast({
+        title: "Copied to clipboard",
+        description: "Song lyrics have been copied to your clipboard.",
+      })
+    } catch (error) {
+      console.error('Failed to copy:', error)
+      toast({
+        title: "Copy failed",
+        description: "Failed to copy song lyrics. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleExportAsPDF = async () => {
+    if (!selectedLyrics) {
+      console.log('DEBUG: No selectedLyrics')
+      return
+    }
+
+    try {
+      console.log('=== PDF EXPORT DEBUG START ===')
+      console.log('DEBUG: selectedLyrics object:', selectedLyrics)
+      console.log('DEBUG: selectedLyrics.lyrics:', selectedLyrics.lyrics)
+      console.log('DEBUG: selectedLyrics.lyrics type:', typeof selectedLyrics.lyrics)
+      console.log('DEBUG: selectedLyrics.lyrics length:', selectedLyrics.lyrics?.length)
+
+      // Check if lyrics content exists
+      if (!selectedLyrics.lyrics || selectedLyrics.lyrics.trim() === '') {
+        console.log('DEBUG: Lyrics content is empty or missing')
+        toast({
+          title: "No content to export",
+          description: "The lyrics are empty. Please add some content before exporting.",
+          variant: "destructive"
+        })
+        return
+      }
+
+      console.log('DEBUG: Lyrics content validation passed')
+
+      // Create a simple, clean HTML structure
+      const title = selectedLyrics.lyrics_title || selectedLyrics.name || 'Song Lyrics'
+      const lyrics = selectedLyrics.lyrics
+
+      console.log('DEBUG: Title:', title)
+      console.log('DEBUG: Lyrics content (first 200 chars):', lyrics.substring(0, 200))
+
+      // Create a blob with the lyrics content and download directly
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${title}</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 800px;
+              margin: 0 auto;
+              padding: 20px;
+              line-height: 1.6;
+              color: #333;
+            }
+            h1 {
+              text-align: center;
+              font-size: 28px;
+              margin-bottom: 30px;
+              color: #333;
+              font-weight: bold;
+              border-bottom: 2px solid #ddd;
+              padding-bottom: 10px;
+            }
+            .lyrics-content {
+              white-space: pre-wrap;
+              font-size: 16px;
+              line-height: 1.8;
+              color: #333;
+              background: white;
+              padding: 20px;
+              border: 1px solid #ddd;
+              border-radius: 8px;
+              min-height: 200px;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <div class="lyrics-content">${lyrics}</div>
+        </body>
+        </html>
+      `
+
+      console.log('DEBUG: Creating PDF with jsPDF...')
+
+      // Create new PDF document
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      })
+
+      // Set font
+      pdf.setFont('helvetica')
+
+      // Add title
+      pdf.setFontSize(20)
+      pdf.setFont('helvetica', 'bold')
+      const titleWidth = pdf.getTextWidth(title)
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const titleX = (pageWidth - titleWidth) / 2
+      pdf.text(title, titleX, 30)
+
+      // Add underline for title
+      pdf.setLineWidth(0.5)
+      pdf.line(titleX, 35, titleX + titleWidth, 35)
+
+      // Prepare lyrics content
+      const lyricsLines = lyrics.split('\n')
+      let yPosition = 50
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 20
+      const maxWidth = pageWidth - (margin * 2)
+
+      // Set font for lyrics
+      pdf.setFontSize(12)
+      pdf.setFont('helvetica', 'normal')
+
+      // Add lyrics line by line
+      for (let i = 0; i < lyricsLines.length; i++) {
+        const line = lyricsLines[i]
+        
+        // Check if we need a new page
+        if (yPosition > pageHeight - margin) {
+          pdf.addPage()
+          yPosition = margin
+        }
+
+        // Handle empty lines
+        if (line.trim() === '') {
+          yPosition += 6
+          continue
+        }
+
+        // Split long lines
+        const lines = pdf.splitTextToSize(line, maxWidth)
+        
+        for (let j = 0; j < lines.length; j++) {
+          if (yPosition > pageHeight - margin) {
+            pdf.addPage()
+            yPosition = margin
+          }
+          
+          pdf.text(lines[j], margin, yPosition)
+          yPosition += 6
+        }
+      }
+
+      console.log('DEBUG: PDF content added')
+
+      // Save the PDF
+      const fileName = `${title.replace(/[^a-z0-9]/gi, '_')}.pdf`
+      pdf.save(fileName)
+
+      console.log('DEBUG: PDF downloaded successfully')
+
+      toast({
+        title: "PDF exported",
+        description: "Song lyrics have been exported as PDF.",
+      })
+      
+      console.log('=== PDF EXPORT DEBUG END ===')
+    } catch (error) {
+      console.error('=== PDF EXPORT ERROR ===')
+      console.error('DEBUG: Error object:', error)
+      console.error('DEBUG: Error message:', error.message)
+      console.error('DEBUG: Error stack:', error.stack)
+      console.error('=== END ERROR DEBUG ===')
+      
+      toast({
+        title: "Export failed",
+        description: `Failed to export PDF: ${error.message}`,
+        variant: "destructive"
+      })
+    }
+  }
+
   const handleCreateNewLyrics = () => {
+    console.log('handleCreateNewLyrics called with:', {
+      newLyricsName,
+      newLyricsGenre,
+      newLyricsDescription
+    })
+    
     if (!newLyricsName.trim()) {
+      console.log('Validation failed: Name is required')
       toast({
         title: "Name required",
         description: "Please enter a name for your lyrics",
@@ -794,6 +1066,14 @@ TASK - Generate new content for this ${section.type} section.`
       })
       return
     }
+
+    console.log('Creating new asset with data:', {
+      name: newLyricsName.trim(),
+      lyrics_content_type: 'lyrics',
+      lyrics: '',
+      lyrics_genre: newLyricsGenre.trim() || undefined,
+      lyrics_description: newLyricsDescription.trim() || undefined
+    })
 
     createNewAsset({
       name: newLyricsName.trim(),
@@ -876,10 +1156,76 @@ TASK - Generate new content for this ${section.type} section.`
             </DialogContent>
           </Dialog>
 
-          <Button onClick={() => setShowNewLyricsDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Lyrics
-          </Button>
+          <Dialog open={showNewLyricsDialog} onOpenChange={setShowNewLyricsDialog}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                New Lyrics
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="mx-auto">
+              <DialogHeader>
+                <DialogTitle>Create New Lyrics</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="lyrics-name">Name *</Label>
+                  <Input
+                    id="lyrics-name"
+                    placeholder="Enter lyrics name..."
+                    value={newLyricsName}
+                    onChange={(e) => setNewLyricsName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleCreateNewLyrics()
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="lyrics-genre">Genre (optional)</Label>
+                  <Select value={newLyricsGenre} onValueChange={setNewLyricsGenre}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a genre..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {musicGenres.map((genre) => (
+                        <SelectItem key={genre} value={genre}>
+                          {genre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="lyrics-description">Description (optional)</Label>
+                  <Textarea
+                    id="lyrics-description"
+                    placeholder="Describe your lyrics..."
+                    value={newLyricsDescription}
+                    onChange={(e) => setNewLyricsDescription(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setNewLyricsName('')
+                      setNewLyricsGenre('')
+                      setNewLyricsDescription('')
+                      setShowNewLyricsDialog(false)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateNewLyrics}>
+                    Create Lyrics
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -1081,6 +1427,7 @@ TASK - Generate new content for this ${section.type} section.`
                         size="sm"
                         onClick={() => insertSongStructure('Intro')}
                         className="text-xs"
+                        disabled={isAddingSection}
                       >
                         <Play className="h-3 w-3 mr-1" />
                         Intro
@@ -1090,6 +1437,7 @@ TASK - Generate new content for this ${section.type} section.`
                         size="sm"
                         onClick={() => insertSongStructure('Verse')}
                         className="text-xs"
+                        disabled={isAddingSection}
                       >
                         <Music className="h-3 w-3 mr-1" />
                         Verse
@@ -1099,6 +1447,7 @@ TASK - Generate new content for this ${section.type} section.`
                         size="sm"
                         onClick={() => insertSongStructure('Hook')}
                         className="text-xs"
+                        disabled={isAddingSection}
                       >
                         <Zap className="h-3 w-3 mr-1" />
                         Hook
@@ -1108,6 +1457,7 @@ TASK - Generate new content for this ${section.type} section.`
                         size="sm"
                         onClick={() => insertSongStructure('Bridge')}
                         className="text-xs"
+                        disabled={isAddingSection}
                       >
                         <Mic className="h-3 w-3 mr-1" />
                         Bridge
@@ -1117,6 +1467,7 @@ TASK - Generate new content for this ${section.type} section.`
                         size="sm"
                         onClick={() => insertSongStructure('Outro')}
                         className="text-xs"
+                        disabled={isAddingSection}
                       >
                         <Square className="h-3 w-3 mr-1" />
                         Outro
@@ -1228,71 +1579,28 @@ TASK - Generate new content for this ${section.type} section.`
                       </DialogContent>
                     </Dialog>
 
-                    {/* New Lyrics Dialog */}
-                    <Dialog open={showNewLyricsDialog} onOpenChange={setShowNewLyricsDialog}>
-                      <DialogContent className="mx-auto">
-                        <DialogHeader>
-                          <DialogTitle>Create New Lyrics</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div>
-                            <Label htmlFor="lyrics-name">Name *</Label>
-                            <Input
-                              id="lyrics-name"
-                              placeholder="Enter lyrics name..."
-                              value={newLyricsName}
-                              onChange={(e) => setNewLyricsName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleCreateNewLyrics()
-                                }
-                              }}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="lyrics-genre">Genre (optional)</Label>
-                            <Select value={newLyricsGenre} onValueChange={setNewLyricsGenre}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a genre..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {musicGenres.map((genre) => (
-                                  <SelectItem key={genre} value={genre}>
-                                    {genre}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label htmlFor="lyrics-description">Description (optional)</Label>
-                            <Textarea
-                              id="lyrics-description"
-                              placeholder="Describe your lyrics..."
-                              value={newLyricsDescription}
-                              onChange={(e) => setNewLyricsDescription(e.target.value)}
-                              rows={3}
-                            />
-                          </div>
-                          <div className="flex gap-2 justify-end">
-                            <Button
-                              variant="outline"
-                              onClick={() => {
-                                setNewLyricsName('')
-                                setNewLyricsGenre('')
-                                setNewLyricsDescription('')
-                                setShowNewLyricsDialog(false)
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                            <Button onClick={handleCreateNewLyrics}>
-                              Create Lyrics
-                            </Button>
-                          </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={handleCopySongStructure}
+                      disabled={!selectedLyrics}
+                      className="text-green-600 border-green-600 hover:bg-green-50 hover:text-green-700 hover:border-green-700"
+                    >
+                      <Copy className="h-4 w-4 mr-1" />
+                      Copy
+                    </Button>
+
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={handleExportAsPDF}
+                      disabled={!selectedLyrics}
+                      className="text-red-600 border-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-700"
+                    >
+                      <FileDown className="h-4 w-4 mr-1" />
+                      Export PDF
+                    </Button>
+
 
                     <Button
                       variant="outline"
@@ -1397,7 +1705,10 @@ TASK - Generate new content for this ${section.type} section.`
                   <p className="text-muted-foreground mb-4">
                     Select an item from the sidebar or create new content to get started.
                   </p>
-                  <Button onClick={() => setShowNewLyricsDialog(true)}>
+                  <Button onClick={() => {
+                    console.log('Create New Lyrics button clicked (empty state)')
+                    setShowNewLyricsDialog(true)
+                  }}>
                     <Plus className="h-4 w-4 mr-2" />
                     Create New Lyrics
                   </Button>

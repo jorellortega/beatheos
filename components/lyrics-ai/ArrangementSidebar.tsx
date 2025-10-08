@@ -4,7 +4,10 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, ChevronRight, Music, Play, Zap, Mic, Square, GripVertical, Trash2, Sparkles, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Music, Play, Zap, Mic, Square, GripVertical, Trash2, Sparkles, X, Brain, Eye } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 
 interface ArrangementItem {
   type: 'intro' | 'verse' | 'hook' | 'bridge' | 'outro' | 'chorus'
@@ -53,6 +56,11 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [selectedSectionIndex, setSelectedSectionIndex] = useState<number | null>(null)
+  const [showAIPromptDialog, setShowAIPromptDialog] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [currentEditingSection, setCurrentEditingSection] = useState<ArrangementItem | null>(null)
+  const [showViewDialog, setShowViewDialog] = useState(false)
+  const [viewingSection, setViewingSection] = useState<ArrangementItem | null>(null)
 
   const parseLyricsToArrangement = (lyricsText: string): ArrangementItem[] => {
     if (!lyricsText) return []
@@ -243,6 +251,35 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
     }
     setSelectedSectionIndex(null)
     console.log('=== END ARRANGEMENT SIDEBAR AI GENERATE DEBUG ===')
+  }
+
+  const handleAIPromptGenerate = () => {
+    if (!currentEditingSection || !aiPrompt.trim()) return
+
+    console.log('=== AI PROMPT GENERATE ===')
+    console.log('Section:', currentEditingSection)
+    console.log('Prompt:', aiPrompt)
+
+    // Create a modified section with the custom prompt
+    const sectionWithPrompt = {
+      ...currentEditingSection,
+      aiPrompt: aiPrompt.trim()
+    }
+
+    if (onAIGenerateSection) {
+      onAIGenerateSection(sectionWithPrompt)
+    }
+
+    // Close dialog and reset state
+    setShowAIPromptDialog(false)
+    setAiPrompt('')
+    setCurrentEditingSection(null)
+    console.log('=== END AI PROMPT GENERATE ===')
+  }
+
+  const handleViewSection = (section: ArrangementItem) => {
+    setViewingSection(section)
+    setShowViewDialog(true)
   }
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -446,6 +483,18 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
                         <Sparkles className="h-3 w-3" />
                       </button>
                       <button
+                        className="bg-purple-500 hover:bg-purple-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setCurrentEditingSection(section)
+                          setAiPrompt('')
+                          setShowAIPromptDialog(true)
+                        }}
+                        title="AI prompt generation"
+                      >
+                        <Brain className="h-3 w-3" />
+                      </button>
+                      <button
                         className="bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
                         onClick={(e) => {
                           e.stopPropagation()
@@ -454,6 +503,27 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
                         title="Close actions"
                       >
                         <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Secondary Action Bar - Show when section is selected */}
+              {selectedSectionIndex === index && (
+                <div className="absolute bottom-2 right-2 bg-blue-400 text-blue-900 text-sm px-3 py-2 rounded-md shadow-lg font-medium z-30">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium">View</span>
+                    <div className="flex gap-1">
+                      <button
+                        className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleViewSection(section)
+                        }}
+                        title="View full section content"
+                      >
+                        <Eye className="h-3 w-3" />
                       </button>
                     </div>
                   </div>
@@ -488,6 +558,100 @@ export function ArrangementSidebar({ isOpen, onToggle, lyrics, onUpdateArrangeme
           </Card>
         )}
       </div>
+
+      {/* AI Prompt Dialog */}
+      <Dialog open={showAIPromptDialog} onOpenChange={setShowAIPromptDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>AI Prompt Generation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {currentEditingSection && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="text-sm font-medium text-blue-800 mb-1">
+                  Generating for: {currentEditingSection.type.charAt(0).toUpperCase() + currentEditingSection.type.slice(1)} {currentEditingSection.sectionNumber}
+                </div>
+                <div className="text-xs text-blue-600">
+                  Current content: {currentEditingSection.content.substring(0, 100)}{currentEditingSection.content.length > 100 ? '...' : ''}
+                </div>
+              </div>
+            )}
+            
+            <div>
+              <Label htmlFor="ai-prompt">Custom Prompt</Label>
+              <Textarea
+                id="ai-prompt"
+                placeholder="Enter your custom prompt for AI generation..."
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                rows={4}
+                className="mt-1"
+              />
+            </div>
+            
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowAIPromptDialog(false)
+                  setAiPrompt('')
+                  setCurrentEditingSection(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAIPromptGenerate}
+                disabled={!aiPrompt.trim()}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                <Brain className="h-4 w-4 mr-2" />
+                Generate
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Section Dialog */}
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto bg-[#141414] border-gray-700 text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-white">
+              {viewingSection && getTypeIcon(viewingSection.type)}
+              {viewingSection && `${viewingSection.type.charAt(0).toUpperCase() + viewingSection.type.slice(1)} ${viewingSection.sectionNumber}`}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {viewingSection && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-4 text-sm text-gray-400">
+                  <span>Lines: {viewingSection.lines}</span>
+                  <span>Start Line: {viewingSection.startLine + 1}</span>
+                  <span>End Line: {viewingSection.endLine + 1}</span>
+                </div>
+                
+                <div className="bg-black border border-gray-600 rounded-lg p-4">
+                  <div className="text-sm font-medium text-gray-300 mb-2">Full Content:</div>
+                  <div className="whitespace-pre-wrap text-sm text-white font-mono leading-relaxed">
+                    {viewingSection.content}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setShowViewDialog(false)}
+                className="border-gray-600 text-white hover:bg-gray-700"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
