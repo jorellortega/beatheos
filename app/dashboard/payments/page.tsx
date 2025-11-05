@@ -1,5 +1,8 @@
 "use client"
 import { useState } from "react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Library } from "lucide-react"
 
 const TABS = [
   { label: "Payment Methods" },
@@ -25,7 +28,15 @@ export default function PaymentsDashboard() {
 
   return (
     <div className="min-h-screen bg-[#141414] text-white p-8">
-      <h1 className="text-3xl font-bold mb-8">Manage Payments</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold">Manage Payments</h1>
+        <Link href="/mylibrary">
+          <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+            <Library className="h-4 w-4 mr-2" />
+            My Library
+          </Button>
+        </Link>
+      </div>
       {/* Tab Navigation */}
       <div className="flex space-x-4 mb-8">
         {TABS.map((t, i) => (

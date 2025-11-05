@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Edit, Trash2, Plus, Play, Pause, TrendingUp, Users, Music, Headphones, Check, X } from "lucide-react"
+import { Search, Edit, Trash2, Plus, Play, Pause, TrendingUp, Users, Music, Headphones, Check, X, Library } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import Link from "next/link"
 
 // Mock data - in a real app, this would come from your backend
 const mockBeats = [
@@ -158,7 +159,13 @@ export default function ContentManagementPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-4xl font-bold font-display tracking-wider text-primary">Content Management</h1>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
+          <Link href="/mylibrary">
+            <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+              <Library className="h-4 w-4 mr-2" />
+              My Library
+            </Button>
+          </Link>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <Input

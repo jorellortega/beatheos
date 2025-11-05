@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Music2, Users, Package } from "lucide-react"
+import { Music2, Users, Package, Library } from "lucide-react"
 import Link from "next/link"
 import { supabase } from '@/lib/supabaseClient'
 
@@ -48,7 +48,15 @@ export default function FreeProducerDashboard() {
   return (
     <div className="min-h-screen bg-[#141414]">
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Free Producer Dashboard</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-4xl font-bold font-display tracking-wider text-primary">Free Producer Dashboard</h1>
+        <Link href="/mylibrary">
+          <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+            <Library className="h-4 w-4 mr-2" />
+            My Library
+          </Button>
+        </Link>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <Link href="/playlist/edit">
           <Card className="hover:border-primary transition-all cursor-pointer">

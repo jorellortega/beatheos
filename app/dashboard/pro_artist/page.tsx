@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Music2, Users, User, Package } from "lucide-react"
+import { Music2, Users, User, Package, Library } from "lucide-react"
 
 export default function ProArtistDashboardPage() {
   const { user } = useAuth()
@@ -27,6 +27,12 @@ export default function ProArtistDashboardPage() {
           <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Pro Artist Dashboard</h1>
           <p className="text-xl text-gray-400">Welcome back, {user?.email?.split('@')[0]}</p>
         </div>
+        <Link href="/mylibrary">
+          <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+            <Library className="h-4 w-4 mr-2" />
+            My Library
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">

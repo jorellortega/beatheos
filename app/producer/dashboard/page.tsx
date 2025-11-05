@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import Header from '@/components/header'
+import Link from 'next/link'
+import { Library } from 'lucide-react'
 
 interface Producer {
   id: string
@@ -62,7 +64,15 @@ export default function ProducerDashboardPage() {
     <>
       <Header />
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8">Producer Dashboard</h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold">Producer Dashboard</h1>
+          <Link href="/mylibrary">
+            <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+              <Library className="h-4 w-4 mr-2" />
+              My Library
+            </Button>
+          </Link>
+        </div>
         <Card>
           <CardHeader>
             <CardTitle>Edit Profile</CardTitle>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,6 +42,7 @@ interface Album {
 export default function AlbumDetailsPage() {
   const params = useParams() || {}
   const albumId = params && 'albumId' in params ? (Array.isArray(params.albumId) ? params.albumId[0] : params.albumId) : ''
+  const router = useRouter()
   const { toast } = useToast()
   const [album, setAlbum] = useState<Album | null>(null)
   const [loading, setLoading] = useState(true)
@@ -77,6 +78,15 @@ export default function AlbumDetailsPage() {
   // Audio playback state
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  
+  // Stems/ZIP file availability state
+  const [trackStemsAvailability, setTrackStemsAvailability] = useState<Record<string, { available: boolean; paths: string[] }>>({});
+  const [trackWavAvailability, setTrackWavAvailability] = useState<Record<string, { available: boolean; paths: string[] }>>({});
+  const [checkingStems, setCheckingStems] = useState(false);
+  
+  // Track details dialog state
+  const [viewDetailsTrack, setViewDetailsTrack] = useState<any | null>(null);
+  const [showTrackDetailsDialog, setShowTrackDetailsDialog] = useState(false);
 
   // Album editing state
   const [showEditAlbum, setShowEditAlbum] = useState(false);
@@ -163,6 +173,13 @@ export default function AlbumDetailsPage() {
         setLoadingTracks(false);
       });
   }, [albumId, showAddTrack]);
+  
+  // Check for additional files (stems/WAV) when tracks or album are loaded
+  useEffect(() => {
+    if (album && tracks.length > 0) {
+      checkForAdditionalFiles();
+    }
+  }, [album, tracks.length]);
 
   // Cleanup audio when component unmounts
   useEffect(() => {
@@ -286,6 +303,135 @@ export default function AlbumDetailsPage() {
         variant: "destructive"
       });
     }
+  };
+
+  // Check for stems and WAV files for all tracks
+  const checkForAdditionalFiles = async () => {
+    if (!album || !tracks.length) return;
+    
+    setCheckingStems(true);
+    try {
+      const stemsAvailability: Record<string, { available: boolean; paths: string[] }> = {};
+      const wavAvailability: Record<string, { available: boolean; paths: string[] }> = {};
+      
+      // List all files in the album's folder
+      const albumPath = `albums/${album.user_id}/${albumId}/`;
+      const { data: files, error } = await supabase.storage
+        .from('beats')
+        .list(albumPath);
+      
+      if (error) {
+        console.error('Error listing files:', error);
+        return;
+      }
+      
+      // Check each track for stems and WAV files
+      for (const track of tracks) {
+        const trackStemsFiles: string[] = [];
+        const trackWavFiles: string[] = [];
+        
+        if (files) {
+          // Look for files containing the track title and _stems or _wav
+          const trackTitleClean = track.title.replace(/\.[^/.]+$/, ''); // Remove extension
+          
+          for (const file of files) {
+            const fileName = file.name.toLowerCase();
+            const trackLower = trackTitleClean.toLowerCase();
+            
+            // Check if this file belongs to this track
+            if (fileName.includes(trackLower)) {
+              if (fileName.includes('_stems') && fileName.endsWith('.zip')) {
+                trackStemsFiles.push(`${albumPath}${file.name}`);
+              } else if (fileName.includes('_wav') && fileName.endsWith('.wav')) {
+                trackWavFiles.push(`${albumPath}${file.name}`);
+              }
+            }
+          }
+        }
+        
+        stemsAvailability[track.id] = {
+          available: trackStemsFiles.length > 0,
+          paths: trackStemsFiles
+        };
+        
+        wavAvailability[track.id] = {
+          available: trackWavFiles.length > 0,
+          paths: trackWavFiles
+        };
+      }
+      
+      setTrackStemsAvailability(stemsAvailability);
+      setTrackWavAvailability(wavAvailability);
+    } catch (error) {
+      console.error('Error checking for additional files:', error);
+    } finally {
+      setCheckingStems(false);
+    }
+  };
+  
+  // Download a file from storage
+  const downloadFile = async (filePath: string, fileName: string) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('beats')
+        .download(filePath);
+      
+      if (error) throw error;
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Download Started",
+        description: `Downloading ${fileName}...`
+      });
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({
+        title: "Download Error",
+        description: "Failed to download file",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Delete a file from storage
+  const deleteFile = async (filePath: string, trackId: string, fileType: 'stems' | 'wav') => {
+    try {
+      const { error } = await supabase.storage
+        .from('beats')
+        .remove([filePath]);
+      
+      if (error) throw error;
+      
+      // Refresh the availability
+      await checkForAdditionalFiles();
+      
+      toast({
+        title: "File Deleted",
+        description: `${fileType === 'stems' ? 'Stems ZIP' : 'WAV'} file deleted successfully`
+      });
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      toast({
+        title: "Delete Error",
+        description: "Failed to delete file",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Open track details dialog
+  const openTrackDetailsDialog = (track: any) => {
+    setViewDetailsTrack(track);
+    setShowTrackDetailsDialog(true);
   };
 
   // Drag and drop reordering functions
@@ -1061,6 +1207,72 @@ export default function AlbumDetailsPage() {
     }
   };
 
+  // Delete album function
+  const handleDeleteAlbum = async () => {
+    if (!album) return;
+    
+    if (!confirm(`Are you sure you want to delete the album "${album.title}"? This will delete the album and all its tracks. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      // First, delete all tracks in the album
+      const { error: tracksError } = await supabase
+        .from('album_tracks')
+        .delete()
+        .eq('album_id', albumId);
+
+      if (tracksError) {
+        throw new Error(`Failed to delete tracks: ${tracksError.message}`);
+      }
+
+      // Then delete the album
+      const { error: albumError } = await supabase
+        .from('albums')
+        .delete()
+        .eq('id', albumId);
+
+      if (albumError) {
+        throw new Error(`Failed to delete album: ${albumError.message}`);
+      }
+
+      // Optionally delete album folder from storage (this won't fail the deletion if it errors)
+      if (album.user_id) {
+        try {
+          const albumPath = `albums/${album.user_id}/${albumId}/`;
+          const { data: files } = await supabase.storage
+            .from('beats')
+            .list(albumPath);
+          
+          if (files && files.length > 0) {
+            const filePaths = files.map(file => `${albumPath}${file.name}`);
+            await supabase.storage
+              .from('beats')
+              .remove(filePaths);
+          }
+        } catch (storageError) {
+          console.warn('Error deleting album files from storage:', storageError);
+          // Don't fail the deletion if storage cleanup fails
+        }
+      }
+
+      toast({
+        title: "Album Deleted",
+        description: `Album "${album.title}" has been deleted successfully.`,
+      });
+
+      // Navigate back to myalbums or mylibrary page
+      router.push('/mylibrary');
+    } catch (error) {
+      console.error('Error deleting album:', error);
+      toast({
+        title: "Delete Error",
+        description: error instanceof Error ? error.message : "Failed to delete album. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   // Upload track audio file for replacement
   const uploadTrackAudioForReplacement = async (file: File, trackId: string): Promise<string | null> => {
     try {
@@ -1390,7 +1602,7 @@ export default function AlbumDetailsPage() {
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={openEditAlbumDialog}><FileText className="h-4 w-4 mr-2" />Edit</Button>
 
-              <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
+              <Button variant="destructive" size="sm" onClick={handleDeleteAlbum}><Trash2 className="h-4 w-4 mr-2" />Delete</Button>
             </div>
           </div>
           <p className="text-xl text-gray-400 mb-2">{album.artist}</p>
@@ -1580,20 +1792,19 @@ export default function AlbumDetailsPage() {
                     <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
                     <span className="font-bold text-lg text-gray-300">{idx + 1}</span>
                     <div className="flex items-center gap-2 flex-1">
-                      <span>{track.title}</span>
+                      <span className="font-medium">{track.title}</span>
                       {recentlyReplacedTracks.has(track.id) && (
                         <Badge variant="secondary" className="bg-green-600 text-white text-xs px-2 py-1 animate-pulse">
                           File Replaced
                         </Badge>
                       )}
                     </div>
+                    
                     {/* Play Button - Always Show */}
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        console.log('Play button clicked for track:', track);
-                        console.log('Track audio_url:', track.audio_url);
                         if (track.audio_url) {
                           if (playingTrackId === track.id) {
                             stopCurrentAudio();
@@ -1624,137 +1835,26 @@ export default function AlbumDetailsPage() {
                         <Play className="h-4 w-4" />
                       )}
                     </Button>
-                    {/* Debug: Show if track has audio */}
-                    <span className="text-xs text-gray-500">
-                      {track.audio_url ? 'Has Audio' : 'No Audio'}
-                    </span>
-
-                    <span className="text-gray-400">{track.duration}</span>
-                    <span className="text-gray-400">ISRC: {track.isrc}</span>
-                    {track.audio_url && getAudioFileLabel(track.audio_url)}
-                    <div className="flex items-center gap-2">
-                      {track.audio_url && (
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          disabled={convertingTrack === track.id}
-                          onClick={() => showCompressionOptions(track.id, track.audio_url)}
-                        >
-                          {convertingTrack === track.id ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Converting...
-                            </>
-                          ) : (
-                            "MP3 Converter"
-                          )}
-                        </Button>
-                      )}
-                      {/* Status Dropdown */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className={`capitalize flex items-center gap-2 ${getStatusColor(track.status || 'draft')}`}
-                          >
-                            {getStatusIcon(track.status || 'draft')}
-                            {track.status || 'draft'}
-                          </Button>
-                        </DropdownMenuTrigger>
-                                                  <DropdownMenuContent>
-                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'production')}>
-                              Production
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'draft')}>
-                              Draft
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'distribute')}>
-                              Distribute
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'error')}>
-                              Error
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'published')}>
-                              Published
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'other')}>
-                              Other
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                      </DropdownMenu>
-                      {track.audio_url && (
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => downloadTrack(track.id, track.audio_url, track.title)}
-                          className="bg-green-600 hover:bg-green-700 text-white border-green-500"
-                          title="Download audio file"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      )}
-
-                      <Button size="sm" variant="outline" onClick={() => handleOpenEditTrack(track)}>Edit</Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => openMetadataDialog(track.id, 'album_track')}
-                        className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
-                      >
-                        <FileTextIcon className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => openNotesDialog(track.id, 'album_track', track.title)}
-                        className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
-                      >
-                        <StickyNote className="h-4 w-4" />
-                      </Button>
-                      {/* Upload Button */}
-                      <input
-                        type="file"
-                        id={`upload-track-${track.id}`}
-                        accept="audio/*"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => {
-                          const files = Array.from(e.target.files || []);
-                          if (files.length > 0) {
-                            files.forEach(file => {
-                              replaceTrackAudio(track.id, file);
-                            });
-                            e.target.value = ''; // Reset input
-                          }
-                        }}
-                      />
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => document.getElementById(`upload-track-${track.id}`)?.click()}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
-                        title="Upload new audio file"
-                        disabled={replacingTrackId === track.id}
-                      >
-                        {replacingTrackId === track.id ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Replacing...
-                          </>
-                        ) : (
-                          <Upload className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="destructive" 
-                        onClick={() => handleDeleteTrack(track.id, track.title)}
-                        className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    
+                    {/* Status Badge - Compact */}
+                    <Badge 
+                      variant="outline" 
+                      className={`capitalize ${getStatusColor(track.status || 'draft')} text-xs`}
+                    >
+                      {getStatusIcon(track.status || 'draft')}
+                      <span className="ml-1">{track.status || 'draft'}</span>
+                    </Badge>
+                    
+                    {/* View Details Button */}
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => openTrackDetailsDialog(track)}
+                      className="bg-gray-700 hover:bg-gray-600 text-white border-gray-600"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      View Details
+                    </Button>
                   </div>
                   {track.session_id && track.session_name && (
                     <div className="mt-2 ml-20">
@@ -2189,6 +2289,326 @@ export default function AlbumDetailsPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Track Details Dialog */}
+      <Dialog open={showTrackDetailsDialog} onOpenChange={setShowTrackDetailsDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Track Details: {viewDetailsTrack?.title}</DialogTitle>
+            <DialogDescription>
+              View and manage all track information and actions.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {viewDetailsTrack && (
+            <div className="space-y-6">
+              {/* Track Information */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-lg">Track Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm text-gray-400">Duration</Label>
+                    <p className="text-sm">{viewDetailsTrack.duration || '0:00'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm text-gray-400">ISRC</Label>
+                    <p className="text-sm">{viewDetailsTrack.isrc || 'Not set'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm text-gray-400">Status</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className={`capitalize ${getStatusColor(viewDetailsTrack.status || 'draft')}`}
+                        >
+                          {getStatusIcon(viewDetailsTrack.status || 'draft')}
+                          <span className="ml-2">{viewDetailsTrack.status || 'draft'}</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => {
+                          updateTrackStatus(viewDetailsTrack.id, 'production');
+                          setViewDetailsTrack({ ...viewDetailsTrack, status: 'production' });
+                        }}>
+                          Production
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateTrackStatus(viewDetailsTrack.id, 'draft');
+                          setViewDetailsTrack({ ...viewDetailsTrack, status: 'draft' });
+                        }}>
+                          Draft
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateTrackStatus(viewDetailsTrack.id, 'distribute');
+                          setViewDetailsTrack({ ...viewDetailsTrack, status: 'distribute' });
+                        }}>
+                          Distribute
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateTrackStatus(viewDetailsTrack.id, 'error');
+                          setViewDetailsTrack({ ...viewDetailsTrack, status: 'error' });
+                        }}>
+                          Error
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateTrackStatus(viewDetailsTrack.id, 'published');
+                          setViewDetailsTrack({ ...viewDetailsTrack, status: 'published' });
+                        }}>
+                          Published
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateTrackStatus(viewDetailsTrack.id, 'other');
+                          setViewDetailsTrack({ ...viewDetailsTrack, status: 'other' });
+                        }}>
+                          Other
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  {viewDetailsTrack.audio_url && (
+                    <div className="col-span-2">
+                      <Label className="text-sm text-gray-400">Audio File</Label>
+                      <div className="flex items-center gap-2 mt-1">
+                        {getAudioFileLabel(viewDetailsTrack.audio_url)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* File Actions */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-lg">File Actions</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {viewDetailsTrack.audio_url && (
+                    <>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => downloadTrack(viewDetailsTrack.id, viewDetailsTrack.audio_url, viewDetailsTrack.title)}
+                        className="bg-green-600 hover:bg-green-700 text-white border-green-500"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Audio
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        disabled={convertingTrack === viewDetailsTrack.id}
+                        onClick={() => {
+                          showCompressionOptions(viewDetailsTrack.id, viewDetailsTrack.audio_url);
+                          setShowTrackDetailsDialog(false);
+                        }}
+                      >
+                        {convertingTrack === viewDetailsTrack.id ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Converting...
+                          </>
+                        ) : (
+                          <>
+                            <FileAudio className="h-4 w-4 mr-2" />
+                            MP3 Converter
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    id={`upload-track-details-${viewDetailsTrack.id}`}
+                    accept="audio/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (files.length > 0) {
+                        files.forEach(file => {
+                          replaceTrackAudio(viewDetailsTrack.id, file);
+                        });
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => document.getElementById(`upload-track-details-${viewDetailsTrack.id}`)?.click()}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-500"
+                    disabled={replacingTrackId === viewDetailsTrack.id}
+                  >
+                    {replacingTrackId === viewDetailsTrack.id ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Replacing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Replace Audio
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Stems & WAV Files */}
+              {(trackStemsAvailability[viewDetailsTrack.id]?.available || trackWavAvailability[viewDetailsTrack.id]?.available) && (
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-lg">Additional Files</h3>
+                  <div className="space-y-3">
+                    {trackStemsAvailability[viewDetailsTrack.id]?.available && (
+                      <div className="flex items-center justify-between p-3 bg-purple-600/10 border border-purple-500/30 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Archive className="h-5 w-5 text-purple-400" />
+                          <span className="font-medium">Stems (ZIP)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const filePath = trackStemsAvailability[viewDetailsTrack.id].paths[0];
+                              const fileName = filePath.split('/').pop() || 'stems.zip';
+                              downloadFile(filePath, fileName);
+                            }}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Download
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete the stems file?')) {
+                                deleteFile(trackStemsAvailability[viewDetailsTrack.id].paths[0], viewDetailsTrack.id, 'stems');
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {trackWavAvailability[viewDetailsTrack.id]?.available && (
+                      <div className="flex items-center justify-between p-3 bg-blue-600/10 border border-blue-500/30 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <FileAudio className="h-5 w-5 text-blue-400" />
+                          <span className="font-medium">WAV File</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const filePath = trackWavAvailability[viewDetailsTrack.id].paths[0];
+                              const fileName = filePath.split('/').pop() || 'audio.wav';
+                              downloadFile(filePath, fileName);
+                            }}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Download
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete the WAV file?')) {
+                                deleteFile(trackWavAvailability[viewDetailsTrack.id].paths[0], viewDetailsTrack.id, 'wav');
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Track Management */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-lg">Track Management</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => {
+                      handleOpenEditTrack(viewDetailsTrack);
+                      setShowTrackDetailsDialog(false);
+                    }}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Edit Track
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => {
+                      openMetadataDialog(viewDetailsTrack.id, 'album_track');
+                      setShowTrackDetailsDialog(false);
+                    }}
+                    className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                  >
+                    <FileTextIcon className="h-4 w-4 mr-2" />
+                    Metadata
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => {
+                      openNotesDialog(viewDetailsTrack.id, 'album_track', viewDetailsTrack.title);
+                      setShowTrackDetailsDialog(false);
+                    }}
+                    className="bg-orange-600 hover:bg-orange-700 text-white border-orange-500"
+                  >
+                    <StickyNote className="h-4 w-4 mr-2" />
+                    Notes
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="destructive" 
+                    onClick={() => {
+                      if (confirm(`Are you sure you want to delete "${viewDetailsTrack.title}"? This action cannot be undone.`)) {
+                        handleDeleteTrack(viewDetailsTrack.id, viewDetailsTrack.title);
+                        setShowTrackDetailsDialog(false);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Track
+                  </Button>
+                </div>
+              </div>
+
+              {/* Session Link */}
+              {viewDetailsTrack.session_id && viewDetailsTrack.session_name && (
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-lg">Session Link</h3>
+                  <div 
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
+                    onClick={() => window.open(`/beat-maker?session=${viewDetailsTrack.session_id}`, '_blank')}
+                  >
+                    <LinkIcon className="h-4 w-4 text-blue-400" />
+                    <span className="text-sm font-medium text-blue-300">
+                      Open Session: {viewDetailsTrack.session_name}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Close</Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

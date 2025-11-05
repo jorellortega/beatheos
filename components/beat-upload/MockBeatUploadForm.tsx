@@ -135,6 +135,15 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [pairedBeat, setPairedBeat] = useState<any | null>(null);
   const [publishStatus, setPublishStatus] = useState<{ [fileId: string]: 'pending' | 'success' | 'error' }>({});
   const [expandedLicensingId, setExpandedLicensingId] = useState<string | null>(null);
+  
+  // Album creation state
+  const [createAsAlbum, setCreateAsAlbum] = useState(false);
+  const [albumMetadata, setAlbumMetadata] = useState({
+    title: '',
+    artist: '',
+    releaseDate: '',
+    description: ''
+  });
 
   useEffect(() => {
     async function fetchDrafts() {
@@ -778,6 +787,197 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
     console.log('[DEBUG handleApplyCoverToSelected] ========== APPLY COVER TO SELECTED FINISHED ==========');
   };
 
+  // Handle album creation with multiple tracks
+  const handlePublishAsAlbum = async () => {
+    console.log('[DEBUG handlePublishAsAlbum] ========== ALBUM CREATION STARTED ==========');
+    console.log('[DEBUG handlePublishAsAlbum] Selected files count:', selectedFileIds.length);
+    console.log('[DEBUG handlePublishAsAlbum] Album metadata:', albumMetadata);
+
+    if (!user || selectedFileIds.length === 0) {
+      console.log('[DEBUG handlePublishAsAlbum] Aborted:', !user ? 'No user' : 'No files selected');
+      toast({ 
+        title: 'Cannot Create Album', 
+        description: !user ? 'You must be logged in' : 'Please select at least one file',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    if (!albumMetadata.title.trim()) {
+      toast({ 
+        title: 'Album Title Required', 
+        description: 'Please enter an album title',
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    setIsUploading(true);
+    setPublishStatus({});
+
+    try {
+      // Step 1: Upload cover art if available
+      let coverArtUrl = '';
+      if (coverArt) {
+        console.log('[DEBUG handlePublishAsAlbum] Uploading cover art...');
+        const fileExt = coverArt.name.split('.').pop();
+        const filePath = `albums/${user.id}/${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('beats')
+          .upload(filePath, coverArt, { upsert: true });
+        
+        if (uploadError) {
+          console.error('[DEBUG handlePublishAsAlbum] Cover art upload error:', uploadError);
+          throw new Error('Failed to upload cover art: ' + uploadError.message);
+        }
+        
+        const { data: urlData } = supabase.storage.from('beats').getPublicUrl(filePath);
+        coverArtUrl = urlData.publicUrl;
+        console.log('[DEBUG handlePublishAsAlbum] Cover art uploaded:', coverArtUrl);
+      }
+
+      // Step 2: Create the album
+      console.log('[DEBUG handlePublishAsAlbum] Creating album...');
+      const albumData = {
+        user_id: user.id,
+        title: albumMetadata.title,
+        artist: albumMetadata.artist || user.email?.split('@')[0] || 'Unknown Artist',
+        release_date: albumMetadata.releaseDate || new Date().toISOString().split('T')[0],
+        description: albumMetadata.description || '',
+        cover_art_url: coverArtUrl,
+        status: 'draft',
+        production_status: 'production'
+      };
+
+      const { data: album, error: albumError } = await supabase
+        .from('albums')
+        .insert([albumData])
+        .select()
+        .single();
+
+      if (albumError) {
+        console.error('[DEBUG handlePublishAsAlbum] Album creation error:', albumError);
+        throw new Error('Failed to create album: ' + albumError.message);
+      }
+
+      console.log('[DEBUG handlePublishAsAlbum] Album created:', album.id);
+
+      // Step 3: Upload each file as a track in the album
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < selectedFileIds.length; i++) {
+        const fileId = selectedFileIds[i];
+        const fileObj = audioFiles.find(f => f.id === fileId);
+        
+        if (!fileObj || !fileObj.file) {
+          console.log(`[DEBUG handlePublishAsAlbum] Skipping file ${fileId}: no file object`);
+          continue;
+        }
+
+        console.log(`[DEBUG handlePublishAsAlbum] Processing track ${i + 1}/${selectedFileIds.length}: ${fileObj.title}`);
+        setPublishStatus(prev => ({ ...prev, [fileId]: 'pending' }));
+
+        try {
+          // Upload audio file
+          const audioFileExt = fileObj.file.name.split('.').pop();
+          const audioFilePath = `albums/${user.id}/${album.id}/${Date.now()}_${fileObj.title}.${audioFileExt}`;
+          const { error: audioUploadError } = await supabase.storage
+            .from('beats')
+            .upload(audioFilePath, fileObj.file, { upsert: true });
+
+          if (audioUploadError) {
+            throw new Error('Failed to upload audio: ' + audioUploadError.message);
+          }
+
+          const { data: audioUrlData } = supabase.storage.from('beats').getPublicUrl(audioFilePath);
+          const audioUrl = audioUrlData.publicUrl;
+
+          // Note: WAV and stems files are uploaded to storage but not directly linked in album_tracks
+          // They are stored in the storage bucket for future use/download
+          if (fileObj.wavFile) {
+            const wavFileExt = fileObj.wavFile.name.split('.').pop();
+            const wavFilePath = `albums/${user.id}/${album.id}/${Date.now()}_${fileObj.title}_wav.${wavFileExt}`;
+            await supabase.storage
+              .from('beats')
+              .upload(wavFilePath, fileObj.wavFile, { upsert: true });
+            console.log(`[DEBUG handlePublishAsAlbum] WAV file uploaded for ${fileObj.title}`);
+          }
+
+          if (fileObj.stemsFile) {
+            const stemsFileExt = fileObj.stemsFile.name.split('.').pop();
+            const stemsFilePath = `albums/${user.id}/${album.id}/${Date.now()}_${fileObj.title}_stems.${stemsFileExt}`;
+            await supabase.storage
+              .from('beats')
+              .upload(stemsFilePath, fileObj.stemsFile, { upsert: true });
+            console.log(`[DEBUG handlePublishAsAlbum] Stems file uploaded for ${fileObj.title}`);
+          }
+
+          // Create track in album_tracks table
+          const trackData = {
+            album_id: album.id,
+            title: fileObj.title,
+            audio_url: audioUrl,
+            track_order: i + 1,
+            duration: '0:00', // You can calculate this if needed
+            status: 'draft'
+          };
+
+          const { error: trackError } = await supabase
+            .from('album_tracks')
+            .insert([trackData]);
+
+          if (trackError) {
+            throw new Error('Failed to create track: ' + trackError.message);
+          }
+
+          console.log(`[DEBUG handlePublishAsAlbum] Track ${i + 1} created successfully`);
+          setPublishStatus(prev => ({ ...prev, [fileId]: 'success' }));
+          successCount++;
+
+        } catch (error) {
+          console.error(`[DEBUG handlePublishAsAlbum] Error processing track ${fileObj.title}:`, error);
+          setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
+          errorCount++;
+        }
+      }
+
+      console.log('[DEBUG handlePublishAsAlbum] ========== ALBUM CREATION FINISHED ==========');
+      console.log('[DEBUG handlePublishAsAlbum] Results:', {
+        albumId: album.id,
+        totalTracks: selectedFileIds.length,
+        successful: successCount,
+        failed: errorCount
+      });
+
+      toast({
+        title: 'Album Created',
+        description: `Album "${albumMetadata.title}" created with ${successCount} track(s)`,
+      });
+
+      // Clean up
+      setAudioFiles(prev => prev.filter(f => !selectedFileIds.includes(f.id)));
+      setSelectedFileIds([]);
+      setCreateAsAlbum(false);
+      setAlbumMetadata({ title: '', artist: '', releaseDate: '', description: '' });
+
+      // Navigate to the album
+      setTimeout(() => {
+        router.push(`/myalbums/${album.id}`);
+      }, 1000);
+
+    } catch (error) {
+      console.error('[DEBUG handlePublishAsAlbum] Album creation error:', error);
+      toast({
+        title: 'Album Creation Error',
+        description: error instanceof Error ? error.message : 'Failed to create album',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // Update the handleBatchPublish function to properly handle licensing
   const handleBatchPublish = async () => {
     console.log('[DEBUG handleBatchPublish] ========== BATCH UPLOAD STARTED ==========');
@@ -1270,6 +1470,79 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
             )}
           </div>
         </div>
+
+        {/* Album Creation Section */}
+        {audioFiles.length > 0 && (
+          <div className="mb-4 p-4 border border-primary/30 rounded-lg bg-primary/5">
+            <div className="flex items-center space-x-2 mb-3">
+              <Switch
+                id="create-album-mode"
+                checked={createAsAlbum}
+                onCheckedChange={setCreateAsAlbum}
+              />
+              <Label htmlFor="create-album-mode" className="text-base font-medium cursor-pointer">
+                Create as Album
+              </Label>
+            </div>
+            
+            {createAsAlbum && (
+              <div className="space-y-3 mt-4 p-4 bg-card rounded-lg border border-primary/20">
+                <h3 className="text-sm font-semibold text-primary mb-2">Album Information</h3>
+                <div>
+                  <Label htmlFor="album-title" className="text-sm">Album Title *</Label>
+                  <Input
+                    id="album-title"
+                    value={albumMetadata.title}
+                    onChange={(e) => setAlbumMetadata({ ...albumMetadata, title: e.target.value })}
+                    placeholder="Enter album title"
+                    className="bg-secondary text-white"
+                    required={createAsAlbum}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="album-artist" className="text-sm">Artist</Label>
+                  <Input
+                    id="album-artist"
+                    value={albumMetadata.artist}
+                    onChange={(e) => setAlbumMetadata({ ...albumMetadata, artist: e.target.value })}
+                    placeholder="Enter artist name (optional)"
+                    className="bg-secondary text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="album-release-date" className="text-sm">Release Date</Label>
+                  <Input
+                    id="album-release-date"
+                    type="date"
+                    value={albumMetadata.releaseDate}
+                    onChange={(e) => setAlbumMetadata({ ...albumMetadata, releaseDate: e.target.value })}
+                    className="bg-secondary text-white"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="album-description" className="text-sm">Description</Label>
+                  <Textarea
+                    id="album-description"
+                    value={albumMetadata.description}
+                    onChange={(e) => setAlbumMetadata({ ...albumMetadata, description: e.target.value })}
+                    placeholder="Enter album description (optional)"
+                    className="bg-secondary text-white"
+                    rows={3}
+                  />
+                </div>
+                {coverArt && (
+                  <div className="flex items-center space-x-2 text-sm text-green-400">
+                    <ImageIcon className="h-4 w-4" />
+                    <span>Cover art: {coverArt.name}</span>
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mt-2">
+                  Select tracks below and click "Create Album" to publish them as an album.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
         {audioFiles.length > 0 && (
           <div className="flex gap-2 mb-2">
             <Button 
@@ -1317,13 +1590,24 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
             >
               Pair
             </Button>
-            <Button
-              onClick={e => { e.stopPropagation(); handleBatchPublish(); }}
-              variant="outline"
-              disabled={isUploading || selectedFileIds.length === 0}
-            >
-              {isUploading ? 'Publishing...' : 'Publish'}
-            </Button>
+            {createAsAlbum ? (
+              <Button
+                onClick={e => { e.stopPropagation(); handlePublishAsAlbum(); }}
+                variant="default"
+                className="bg-primary text-black hover:bg-primary/90"
+                disabled={isUploading || selectedFileIds.length === 0 || !albumMetadata.title.trim()}
+              >
+                {isUploading ? 'Creating Album...' : 'Create Album'}
+              </Button>
+            ) : (
+              <Button
+                onClick={e => { e.stopPropagation(); handleBatchPublish(); }}
+                variant="outline"
+                disabled={isUploading || selectedFileIds.length === 0}
+              >
+                {isUploading ? 'Publishing...' : 'Publish'}
+              </Button>
+            )}
             <Button
               onClick={(e) => {
                 e.stopPropagation();

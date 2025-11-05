@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive, Info } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive, Info, Library } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -1518,6 +1518,12 @@ export default function BusinessProducerDashboard() {
           <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Business Producer Dashboard</h1>
             <p className="text-xl text-gray-400">Welcome back, {displayName || ('username' in user ? (user as any).username : user?.email?.split('@')[0])}</p>
         </div>
+        <Link href="/mylibrary">
+          <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+            <Library className="h-4 w-4 mr-2" />
+            My Library
+          </Button>
+        </Link>
       </div>
       
         <Suspense fallback={null}>

@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Search, Edit, Trash2, Shield } from "lucide-react"
+import { Search, Edit, Trash2, Shield, Library } from "lucide-react"
+import Link from "next/link"
 
 // Mock data - in a real app, this would come from your backend
 const mockUsers = [
@@ -56,7 +57,13 @@ export default function UserManagementPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-4xl font-bold font-display tracking-wider text-primary">User Management</h1>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
+          <Link href="/mylibrary">
+            <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+              <Library className="h-4 w-4 mr-2" />
+              My Library
+            </Button>
+          </Link>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <Input

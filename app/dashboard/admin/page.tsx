@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Users, Music, BarChart, Settings, Music2, Timer, Package } from "lucide-react"
+import { Users, Music, BarChart, Settings, Music2, Timer, Package, Library } from "lucide-react"
 import Link from "next/link"
 import { supabase } from '@/lib/supabaseClient'
 
@@ -48,7 +48,15 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-[#141414]">
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold mb-8 font-display tracking-wider text-primary">Admin Dashboard</h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-4xl font-bold font-display tracking-wider text-primary">Admin Dashboard</h1>
+          <Link href="/mylibrary">
+            <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+              <Library className="h-4 w-4 mr-2" />
+              My Library
+            </Button>
+          </Link>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Card className="bg-black border-primary hover:border-primary transition-all">
             <CardHeader>
