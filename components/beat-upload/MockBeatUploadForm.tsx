@@ -1,5 +1,28 @@
 "use client"
 
+/**
+ * DEBUG LOGGING ENABLED FOR UPLOAD-BEAT PAGE
+ * 
+ * This file contains comprehensive debug logging to track upload issues.
+ * All debug logs are prefixed with [DEBUG <function>] for easy filtering.
+ * 
+ * Debug Categories:
+ * - Component Lifecycle: MockBeatUploadForm mount, user authentication
+ * - File Drops: smartOnDrop, filesTabOnDrop - tracks all file operations
+ * - Single Uploads: handleSubmit - tracks metadata, files, API calls
+ * - Batch Uploads: handleBatchPublish - tracks multiple file uploads with status
+ * - File Management: handleDeleteAudioFile, handleEditFile, handleSaveFileTitle
+ * - File Selection: handleCheckboxChange - tracks selection state
+ * - File Pairing: handlePair - tracks MP3+WAV+ZIP+Cover combinations
+ * - Cover Art: Set as Cover button, handleApplyCoverToSelected
+ * - Batch Editing: handleBatchEditAll, handleBatchSave, handleBatchCancel
+ * - Licensing: useEffect licensing - tracks default license initialization
+ * - Drafts: fetchDrafts - tracks draft loading
+ * - Tab Changes: Tracks navigation between Upload/Drafts/Files tabs
+ * 
+ * To view logs in browser console, filter by: "[DEBUG"
+ */
+
 import type React from "react"
 
 import { useState, useCallback, useEffect, useRef } from "react"
@@ -51,7 +74,15 @@ interface Draft {
 }
 
 export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
+  console.log('[DEBUG MockBeatUploadForm] ========== COMPONENT MOUNTED ==========');
+  console.log('[DEBUG MockBeatUploadForm] Initial data provided:', !!initialData);
+  
   const { user } = useAuth();
+  console.log('[DEBUG MockBeatUploadForm] User logged in:', !!user);
+  if (user) {
+    console.log('[DEBUG MockBeatUploadForm] User ID:', user.id);
+  }
+  
   const [activeTab, setActiveTab] = useState("upload")
   const [title, setTitle] = useState(initialData?.title || "")
   const [description, setDescription] = useState(initialData?.description || "")
@@ -60,10 +91,31 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   const [key, setKey] = useState(initialData?.key || "")
   const [genre, setGenre] = useState(initialData?.genre || "")
   const [customGenre, setCustomGenre] = useState<string | null>(null)
-  const [mp3File, setMp3File] = useState<File | null>(null)
-  const [wavFile, setWavFile] = useState<File | null>(initialData?.wavFile || null)
-  const [stemsFile, setStemsFile] = useState<File | null>(initialData?.stemsFile || null)
-  const [coverArt, setCoverArt] = useState<File | null>(initialData?.coverArt || null)
+  
+  // File state with debugging wrappers
+  const [mp3File, setMp3FileRaw] = useState<File | null>(null)
+  const setMp3File = (file: File | null) => {
+    console.log('[DEBUG setMp3File] Setting MP3 file:', file ? { name: file.name, size: file.size } : 'null');
+    setMp3FileRaw(file);
+  };
+  
+  const [wavFile, setWavFileRaw] = useState<File | null>(initialData?.wavFile || null)
+  const setWavFile = (file: File | null) => {
+    console.log('[DEBUG setWavFile] Setting WAV file:', file ? { name: file.name, size: file.size } : 'null');
+    setWavFileRaw(file);
+  };
+  
+  const [stemsFile, setStemsFileRaw] = useState<File | null>(initialData?.stemsFile || null)
+  const setStemsFile = (file: File | null) => {
+    console.log('[DEBUG setStemsFile] Setting Stems file:', file ? { name: file.name, size: file.size } : 'null');
+    setStemsFileRaw(file);
+  };
+  
+  const [coverArt, setCoverArtRaw] = useState<File | null>(initialData?.coverArt || null)
+  const setCoverArt = (file: File | null) => {
+    console.log('[DEBUG setCoverArt] Setting Cover Art:', file ? { name: file.name, size: file.size } : 'null');
+    setCoverArtRaw(file);
+  };
   const [licensing, setLicensing] = useState<Record<string, number>>(initialData?.licensing || {})
   const [isDraft, setIsDraft] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -86,54 +138,104 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
   useEffect(() => {
     async function fetchDrafts() {
-      if (!user) return;
+      console.log('[DEBUG useEffect fetchDrafts] Fetching drafts for user...');
+      if (!user) {
+        console.log('[DEBUG useEffect fetchDrafts] No user, skipping fetch');
+        return;
+      }
+      console.log('[DEBUG useEffect fetchDrafts] User ID:', user.id);
+      
       const { data, error } = await supabase
         .from('beats')
         .select('*')
         .eq('producer_id', user.id)
         .eq('is_draft', true);
-      if (data) setDrafts(data);
+      
+      if (error) {
+        console.error('[DEBUG useEffect fetchDrafts] Error fetching drafts:', error);
+      } else {
+        console.log('[DEBUG useEffect fetchDrafts] Drafts fetched:', data?.length || 0);
+        if (data) setDrafts(data);
+      }
     }
     fetchDrafts();
   }, [user]);
 
   // Smart assignment for global dropzone (Upload Beat tab)
   const smartOnDrop = useCallback((acceptedFiles: File[]) => {
+    console.log('[DEBUG smartOnDrop] Files dropped:', acceptedFiles.length);
+    acceptedFiles.forEach((file, idx) => {
+      console.log(`[DEBUG smartOnDrop] File ${idx + 1}:`, {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: new Date(file.lastModified).toISOString()
+      });
+    });
+
     const mp3s = acceptedFiles.filter(f => f.type === "audio/mpeg" || f.name.toLowerCase().endsWith('.mp3'));
     const wavs = acceptedFiles.filter(f => f.type === "audio/wav" || f.name.toLowerCase().endsWith('.wav'));
     const zips = acceptedFiles.filter(f => f.type === "application/zip" || f.name.toLowerCase().endsWith('.zip'));
     const images = acceptedFiles.filter(f => f.type.startsWith("image/") || [".png", ".jpg", ".jpeg", ".gif"].some(ext => f.name.toLowerCase().endsWith(ext)));
+    
+    console.log('[DEBUG smartOnDrop] File classification:', {
+      mp3Count: mp3s.length,
+      wavCount: wavs.length,
+      zipCount: zips.length,
+      imageCount: images.length
+    });
     if (mp3s.length === 1 && wavs.length === 0 && zips.length === 0 && acceptedFiles.length === 1) {
+      console.log('[DEBUG smartOnDrop] Case: Single MP3 only');
+      console.log('[DEBUG smartOnDrop] Setting MP3, keeping existing WAV and Stems');
       setMp3File(mp3s[0]);
-      setWavFile(null);
-      setStemsFile(null);
+      // Don't clear other files - allow building up MP3 + WAV + Stems one at a time
     } else if (mp3s.length === 0 && wavs.length === 1 && zips.length === 0 && acceptedFiles.length === 1) {
-      setMp3File(null);
+      console.log('[DEBUG smartOnDrop] Case: Single WAV only');
+      console.log('[DEBUG smartOnDrop] Setting WAV, keeping existing MP3 and Stems');
       setWavFile(wavs[0]);
-      setStemsFile(null);
+      // Don't clear other files - allow building up MP3 + WAV + Stems one at a time
     } else if (mp3s.length === 0 && wavs.length === 0 && zips.length === 1 && acceptedFiles.length === 1) {
-      setMp3File(null);
-      setWavFile(null);
+      console.log('[DEBUG smartOnDrop] Case: Single ZIP only');
+      console.log('[DEBUG smartOnDrop] Setting Stems, keeping existing MP3 and WAV');
       setStemsFile(zips[0]);
+      // Don't clear other files - allow building up MP3 + WAV + Stems one at a time
     } else if (mp3s.length === 1 && wavs.length === 1 && zips.length === 0 && acceptedFiles.length === 2) {
+      console.log('[DEBUG smartOnDrop] Case: MP3 + WAV pair');
       setMp3File(mp3s[0]);
       setWavFile(wavs[0]);
       setStemsFile(null);
     } else if (mp3s.length === 1 && wavs.length === 0 && zips.length === 1 && acceptedFiles.length === 2) {
+      console.log('[DEBUG smartOnDrop] Case: MP3 + ZIP pair');
       setMp3File(mp3s[0]);
       setWavFile(null);
       setStemsFile(zips[0]);
     } else if (mp3s.length === 0 && wavs.length === 1 && zips.length === 1 && acceptedFiles.length === 2) {
+      console.log('[DEBUG smartOnDrop] Case: WAV + ZIP pair');
       setMp3File(null);
       setWavFile(wavs[0]);
       setStemsFile(zips[0]);
     } else if (mp3s.length === 1 && wavs.length === 1 && zips.length === 1 && acceptedFiles.length === 3) {
+      console.log('[DEBUG smartOnDrop] Case: MP3 + WAV + ZIP complete set');
       setMp3File(mp3s[0]);
       setWavFile(wavs[0]);
       setStemsFile(zips[0]);
     } else if (images.length === 1 && acceptedFiles.length === 1) {
+      console.log('[DEBUG smartOnDrop] Case: Single image for cover art');
+      console.log('[DEBUG smartOnDrop] Setting cover art, keeping existing audio files');
       setCoverArt(images[0]);
     } else {
+      console.log('[DEBUG smartOnDrop] Case: Multiple files -> Adding to Files tab');
+      const newFiles = acceptedFiles.map(file => ({
+        id: `af${prev => prev.length + Math.random()}`,
+        title: file.name,
+        file: file.type.startsWith('image/') ? file : (file.type.startsWith('audio/') ? file : null),
+        wavFile: file.name.toLowerCase().endsWith('.wav') ? file : null,
+        stemsFile: file.name.toLowerCase().endsWith('.zip') ? file : null,
+        coverArt: file.type.startsWith('image/') ? file : null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }));
+      console.log('[DEBUG smartOnDrop] New files to be added:', newFiles.length);
       setAudioFiles(prev => [
         ...prev,
         ...acceptedFiles.map(file => ({
@@ -147,21 +249,36 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
           updatedAt: new Date()
         }))
       ]);
-      if (acceptedFiles.length > 1) setActiveTab('audio');
+      if (acceptedFiles.length > 1) {
+        console.log('[DEBUG smartOnDrop] Switching to audio tab (multiple files)');
+        setActiveTab('audio');
+      }
     }
   }, [setMp3File, setWavFile, setStemsFile, setCoverArt, setAudioFiles, setActiveTab]);
 
   // Update the filesTabOnDrop function to initialize licensing
   const filesTabOnDrop = useCallback((acceptedFiles: File[]) => {
+    console.log('[DEBUG filesTabOnDrop] Files dropped in Files tab:', acceptedFiles.length);
+    acceptedFiles.forEach((file, idx) => {
+      console.log(`[DEBUG filesTabOnDrop] File ${idx + 1}:`, {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: new Date(file.lastModified).toISOString()
+      });
+    });
+
     const defaultLicensing = {
       'template-lease': 20.00,
       'template-premium-lease': 100.00,
       'template-exclusive': 300.00,
       'template-buy-out': 1000.00
     };
-    setAudioFiles(prev => [
-      ...prev,
-      ...acceptedFiles.map(file => ({
+    
+    console.log('[DEBUG filesTabOnDrop] Applying default licensing to all files:', defaultLicensing);
+    
+    setAudioFiles(prev => {
+      const newFiles = acceptedFiles.map(file => ({
         id: `af${prev.length + Math.random()}`,
         title: file.name,
         file: file.type.startsWith('image/') ? file : (file.type.startsWith('audio/') ? file : null),
@@ -171,8 +288,10 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         licensing: { ...defaultLicensing }, // Initialize with default licensing
         createdAt: new Date(),
         updatedAt: new Date()
-      }))
-    ]);
+      }));
+      console.log('[DEBUG filesTabOnDrop] New audio files created:', newFiles.length);
+      return [...prev, ...newFiles];
+    });
   }, [setAudioFiles]);
 
   const dropzoneConfig = {
@@ -197,11 +316,25 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    
+    console.log('[DEBUG handleSubmit] ========== FORM SUBMIT TRIGGERED ==========');
+    console.log('[DEBUG handleSubmit] Event type:', e.type);
+    console.log('[DEBUG handleSubmit] Event target:', e.target);
+    console.log('[DEBUG handleSubmit] Current files state:', {
+      mp3File: mp3File ? { name: mp3File.name, size: mp3File.size, type: mp3File.type } : null,
+      wavFile: wavFile ? { name: wavFile.name, size: wavFile.size, type: wavFile.type } : null,
+      stemsFile: stemsFile ? { name: stemsFile.name, size: stemsFile.size, type: stemsFile.type } : null,
+      coverArt: coverArt ? { name: coverArt.name, size: coverArt.size, type: coverArt.type } : null
+    });
+    
     setIsUploading(true);
-    console.log('[DEBUG] Starting beat upload process');
+    console.log('[DEBUG handleSubmit] ========== SINGLE BEAT UPLOAD STARTED ==========');
+    console.log('[DEBUG handleSubmit] Upload type: SINGLE');
+    console.log('[DEBUG handleSubmit] Is Draft:', isDraft);
 
     if (!mp3File) {
-      console.log('[DEBUG] Upload failed: No MP3 file selected');
+      console.log('[DEBUG handleSubmit] Upload failed: No MP3 file selected');
       toast({
         title: "Missing Required File",
         description: "Please upload an MP3 file for your beat",
@@ -213,17 +346,35 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
     try {
       if (!user) {
-        console.log('[DEBUG] Upload failed: No user logged in');
+        console.log('[DEBUG handleSubmit] Upload failed: No user logged in');
         throw new Error('You must be logged in to upload beats');
       }
+
+      console.log('[DEBUG handleSubmit] User ID:', user.id);
 
       // Get session for API call
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
+        console.log('[DEBUG handleSubmit] No session found');
         throw new Error('You must be logged in to upload beats');
       }
 
+      console.log('[DEBUG handleSubmit] Session token obtained');
+
       // Prepare form data for API call
+      console.log('[DEBUG handleSubmit] Preparing form data with metadata:');
+      console.log('[DEBUG handleSubmit]   - Title:', title);
+      console.log('[DEBUG handleSubmit]   - Description:', description);
+      console.log('[DEBUG handleSubmit]   - Genre:', customGenre || genre);
+      console.log('[DEBUG handleSubmit]   - BPM:', bpm);
+      console.log('[DEBUG handleSubmit]   - Key:', key);
+      console.log('[DEBUG handleSubmit]   - Tags:', tags);
+      console.log('[DEBUG handleSubmit]   - Licensing:', licensing);
+      console.log('[DEBUG handleSubmit]   - MP3 File:', mp3File.name, '(' + (mp3File.size / 1024 / 1024).toFixed(2) + ' MB)');
+      console.log('[DEBUG handleSubmit]   - WAV File:', wavFile ? wavFile.name + ' (' + (wavFile.size / 1024 / 1024).toFixed(2) + ' MB)' : 'None');
+      console.log('[DEBUG handleSubmit]   - Stems File:', stemsFile ? stemsFile.name + ' (' + (stemsFile.size / 1024 / 1024).toFixed(2) + ' MB)' : 'None');
+      console.log('[DEBUG handleSubmit]   - Cover Art:', coverArt ? coverArt.name + ' (' + (coverArt.size / 1024).toFixed(2) + ' KB)' : 'None');
+
       const formData = new FormData();
       formData.append('title', title);
       formData.append('description', description);
@@ -233,33 +384,59 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       formData.append('tags', JSON.stringify(tags));
       formData.append('licensing', JSON.stringify(licensing));
       formData.append('isDraft', isDraft.toString());
+      
+      console.log('[DEBUG handleSubmit] Adding files to FormData:');
+      console.log('[DEBUG handleSubmit]   - MP3:', mp3File.name);
       formData.append('mp3File', mp3File);
       
-      if (wavFile) formData.append('wavFile', wavFile);
-      if (stemsFile) formData.append('stemsFile', stemsFile);
-      if (coverArt) formData.append('coverArt', coverArt);
+      if (wavFile) {
+        console.log('[DEBUG handleSubmit]   - WAV:', wavFile.name);
+        formData.append('wavFile', wavFile);
+      } else {
+        console.log('[DEBUG handleSubmit]   - WAV: SKIPPED (wavFile is null or undefined)');
+      }
+      
+      if (stemsFile) {
+        console.log('[DEBUG handleSubmit]   - Stems:', stemsFile.name);
+        formData.append('stemsFile', stemsFile);
+      } else {
+        console.log('[DEBUG handleSubmit]   - Stems: SKIPPED (stemsFile is null or undefined)');
+      }
+      
+      if (coverArt) {
+        console.log('[DEBUG handleSubmit]   - Cover Art:', coverArt.name);
+        formData.append('coverArt', coverArt);
+      } else {
+        console.log('[DEBUG handleSubmit]   - Cover Art: SKIPPED (coverArt is null or undefined)');
+      }
+      
+      console.log('[DEBUG handleSubmit] FormData prepared. Total entries:', Array.from(formData.entries()).length);
 
-      console.log('[DEBUG] Calling /api/beats endpoint');
+      console.log('[DEBUG handleSubmit] Calling /api/beats endpoint...');
       const response = await fetch('/api/beats', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${session.access_token}` },
         body: formData,
       });
 
+      console.log('[DEBUG handleSubmit] API Response status:', response.status);
+
       if (!response.ok) {
         const error = await response.json();
-        console.error('[DEBUG] API response error:', error);
+        console.error('[DEBUG handleSubmit] API response error:', error);
         throw new Error(error.error || 'Failed to upload beat');
       }
 
       const beat = await response.json();
-      console.log('[DEBUG] Beat uploaded successfully:', beat);
+      console.log('[DEBUG handleSubmit] Beat uploaded successfully:', beat);
+      console.log('[DEBUG handleSubmit] Beat ID:', beat.id);
 
       toast({
         title: isDraft ? "Draft Saved" : "Beat Uploaded",
         description: isDraft ? "Your beat draft has been saved successfully." : "Your beat has been successfully uploaded and is now live.",
       });
-      console.log('[DEBUG] Upload process completed successfully');
+      console.log('[DEBUG handleSubmit] Upload process completed successfully');
+      console.log('[DEBUG handleSubmit] ========== SINGLE BEAT UPLOAD FINISHED ==========');
       
       router.push('/dashboard/business_producer?tab=mybeats');
       // Reset form after submission
@@ -277,7 +454,8 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       setLicensing({});
       setIsDraft(false);
     } catch (error) {
-      console.error("Error uploading beat:", error);
+      console.error("[DEBUG handleSubmit] Error uploading beat:", error);
+      console.error("[DEBUG handleSubmit] Error stack:", error instanceof Error ? error.stack : 'N/A');
       toast({
         title: "Upload Error",
         description: error instanceof Error ? error.message : "An error occurred during the upload process. Please try again.",
@@ -325,7 +503,19 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   }
 
   const handleDeleteAudioFile = (id: string) => {
+    const fileToDelete = audioFiles.find(f => f.id === id);
+    console.log('[DEBUG handleDeleteAudioFile] Deleting file:', {
+      id,
+      title: fileToDelete?.title,
+      hasFile: !!fileToDelete?.file,
+      hasWav: !!fileToDelete?.wavFile,
+      hasStems: !!fileToDelete?.stemsFile,
+      hasCover: !!fileToDelete?.coverArt
+    });
+    
     setAudioFiles(audioFiles.filter(file => file.id !== id))
+    console.log('[DEBUG handleDeleteAudioFile] File deleted. Remaining files:', audioFiles.length - 1);
+    
     toast({
       title: "Audio file deleted",
       description: "The audio file has been removed from your list.",
@@ -333,9 +523,12 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   }
 
   const handleCheckboxChange = (fileId: string, checked: boolean) => {
-    setSelectedFileIds(prev =>
-      checked ? [...prev, fileId] : prev.filter(id => id !== fileId)
-    );
+    console.log(`[DEBUG handleCheckboxChange] File ${fileId} checkbox:`, checked ? 'CHECKED' : 'UNCHECKED');
+    setSelectedFileIds(prev => {
+      const newSelection = checked ? [...prev, fileId] : prev.filter(id => id !== fileId);
+      console.log('[DEBUG handleCheckboxChange] Updated selection:', newSelection);
+      return newSelection;
+    });
   };
 
   const handlePlayPause = (draft: any) => {
@@ -388,14 +581,27 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
   }
 
   const handleEditFile = (file: AudioFile) => {
+    console.log('[DEBUG handleEditFile] Editing file:', {
+      id: file.id,
+      currentTitle: file.title
+    });
     setEditingFileId(file.id);
     setEditingFileTitle(file.title);
   };
 
   const handleSaveFileTitle = (fileId: string) => {
+    const oldTitle = audioFiles.find(f => f.id === fileId)?.title;
+    console.log('[DEBUG handleSaveFileTitle] Saving title for file:', {
+      fileId,
+      oldTitle,
+      newTitle: editingFileTitle
+    });
+    
     setAudioFiles(prev => prev.map(f => f.id === fileId ? { ...f, title: editingFileTitle } : f));
     setEditingFileId(null);
     setEditingFileTitle("");
+    
+    console.log('[DEBUG handleSaveFileTitle] Title updated successfully');
     toast({ title: "Title Updated", description: "Beat name updated successfully." });
   };
 
@@ -406,27 +612,46 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
   // Batch edit handlers
   const handleBatchEditAll = () => {
+    console.log('[DEBUG handleBatchEditAll] Starting batch edit for selected files:', selectedFileIds);
+    const filesToEdit = audioFiles.filter(f => selectedFileIds.includes(f.id));
+    console.log('[DEBUG handleBatchEditAll] Files to edit:', filesToEdit.map(f => ({
+      id: f.id,
+      title: f.title
+    })));
+    
     setBatchEditingIds(selectedFileIds);
     setBatchEditingTitles(
       Object.fromEntries(
-        audioFiles.filter(f => selectedFileIds.includes(f.id)).map(f => [f.id, f.title])
+        filesToEdit.map(f => [f.id, f.title])
       )
     );
     setSelectedFileIds([]);
+    console.log('[DEBUG handleBatchEditAll] Batch edit mode activated');
   };
 
   const handleBatchEditTitleChange = (id: string, value: string) => {
+    console.log(`[DEBUG handleBatchEditTitleChange] Updating title for ${id}:`, value);
     setBatchEditingTitles(prev => ({ ...prev, [id]: value }));
   };
 
   const handleBatchSave = (id: string) => {
+    const oldTitle = audioFiles.find(f => f.id === id)?.title;
+    const newTitle = batchEditingTitles[id];
+    console.log('[DEBUG handleBatchSave] Saving batch edited title:', {
+      fileId: id,
+      oldTitle,
+      newTitle
+    });
+    
     setAudioFiles(prev => prev.map(f => f.id === id ? { ...f, title: batchEditingTitles[id] } : f));
     setBatchEditingIds(prev => prev.filter(i => i !== id));
     setBatchEditingTitles(prev => { const t = { ...prev }; delete t[id]; return t; });
+    console.log('[DEBUG handleBatchSave] Batch save completed for file:', id);
     toast({ title: "Title Updated", description: "Beat name updated successfully." });
   };
 
   const handleBatchCancel = (id: string) => {
+    console.log('[DEBUG handleBatchCancel] Canceling batch edit for file:', id);
     setBatchEditingIds(prev => prev.filter(i => i !== id));
     setBatchEditingTitles(prev => { const t = { ...prev }; delete t[id]; return t; });
   };
@@ -456,12 +681,29 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
   // Pair action
   const handlePair = () => {
+    console.log('[DEBUG handlePair] ========== FILE PAIRING STARTED ==========');
+    console.log('[DEBUG handlePair] Selected file IDs for pairing:', selectedFileIds);
+    
     const files = selectedFileIds.map(id => audioFiles.find(f => f.id === id)).filter(Boolean);
+    console.log('[DEBUG handlePair] Files to pair:', files.map(f => ({
+      id: f?.id,
+      title: f?.title,
+      type: f ? getFileType(f) : 'unknown'
+    })));
+    
     const mp3 = files.find(f => getFileType(f!) === 'mp3');
     const wav = files.find(f => getFileType(f!) === 'wav');
     const zip = files.find(f => getFileType(f!) === 'zip');
     const cover = files.find(f => getFileType(f!) === 'cover');
-    setPairedBeat({
+    
+    console.log('[DEBUG handlePair] Paired components:', {
+      mp3: mp3?.title || 'None',
+      wav: wav?.title || 'None',
+      zip: zip?.title || 'None',
+      cover: cover?.title || 'None'
+    });
+    
+    const pairedBeatData = {
       id: `paired-${Date.now()}`,
       title: '',
       description: '',
@@ -469,10 +711,23 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       wavFile: wav?.wavFile,
       stemsFile: zip?.stemsFile,
       coverArt: cover?.coverArt,
+    };
+    
+    console.log('[DEBUG handlePair] Created paired beat:', {
+      id: pairedBeatData.id,
+      hasMp3: !!pairedBeatData.mp3File,
+      hasWav: !!pairedBeatData.wavFile,
+      hasStems: !!pairedBeatData.stemsFile,
+      hasCover: !!pairedBeatData.coverArt
     });
+    
+    setPairedBeat(pairedBeatData);
+    
     // Remove paired files from loose files
     setAudioFiles(prev => prev.filter(f => !selectedFileIds.includes(f.id)));
+    console.log('[DEBUG handlePair] Removed paired files from audio files list');
     setSelectedFileIds([]);
+    console.log('[DEBUG handlePair] ========== FILE PAIRING FINISHED ==========');
   };
 
   // Helper to get coverArt debug info
@@ -487,26 +742,89 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
   // Apply selected coverArt to selected files (not paired)
   const handleApplyCoverToSelected = () => {
-    if (!coverArt || selectedFileIds.length === 0) return;
-    setAudioFiles(prev => prev.map(f =>
-      selectedFileIds.includes(f.id) && getFileType(f) !== 'cover'
-        ? { ...f, coverArt }
-        : f
-    ));
-    toast({ title: "Cover Applied", description: `Cover image applied to ${selectedFileIds.length} file(s).` });
-    toast({ title: "DEBUG", description: `handleApplyCoverToSelected fired. coverArt: ${coverArtDebug}, selected: ${selectedFileIds.length}` });
+    console.log('[DEBUG handleApplyCoverToSelected] ========== APPLY COVER TO SELECTED STARTED ==========');
+    console.log('[DEBUG handleApplyCoverToSelected] Cover art:', coverArt ? {
+      name: coverArt.name,
+      type: coverArt.type,
+      size: coverArt.size
+    } : 'None');
+    console.log('[DEBUG handleApplyCoverToSelected] Selected file IDs:', selectedFileIds);
+    
+    if (!coverArt || selectedFileIds.length === 0) {
+      console.log('[DEBUG handleApplyCoverToSelected] Aborted:', !coverArt ? 'No cover art' : 'No files selected');
+      return;
+    }
+    
+    const filesBeforeUpdate = audioFiles.filter(f => selectedFileIds.includes(f.id));
+    console.log('[DEBUG handleApplyCoverToSelected] Files to update:', filesBeforeUpdate.map(f => ({
+      id: f.id,
+      title: f.title,
+      type: getFileType(f),
+      hadCoverBefore: !!f.coverArt
+    })));
+    
+    setAudioFiles(prev => prev.map(f => {
+      if (selectedFileIds.includes(f.id) && getFileType(f) !== 'cover') {
+        console.log(`[DEBUG handleApplyCoverToSelected] Applying cover to: ${f.title}`);
+        return { ...f, coverArt };
+      }
+      return f;
+    }));
+    
+    const countUpdated = filesBeforeUpdate.filter(f => getFileType(f) !== 'cover').length;
+    console.log('[DEBUG handleApplyCoverToSelected] Cover applied to', countUpdated, 'file(s)');
+    
+    toast({ title: "Cover Applied", description: `Cover image applied to ${countUpdated} file(s).` });
+    console.log('[DEBUG handleApplyCoverToSelected] ========== APPLY COVER TO SELECTED FINISHED ==========');
   };
 
   // Update the handleBatchPublish function to properly handle licensing
   const handleBatchPublish = async () => {
-    if (!user || selectedFileIds.length === 0) return;
+    console.log('[DEBUG handleBatchPublish] ========== BATCH UPLOAD STARTED ==========');
+    console.log('[DEBUG handleBatchPublish] Upload type: BATCH/MULTIPLE');
+    console.log('[DEBUG handleBatchPublish] Selected files count:', selectedFileIds.length);
+    console.log('[DEBUG handleBatchPublish] Selected file IDs:', selectedFileIds);
+
+    if (!user || selectedFileIds.length === 0) {
+      console.log('[DEBUG handleBatchPublish] Batch upload aborted:', !user ? 'No user' : 'No files selected');
+      return;
+    }
+
     setIsUploading(true);
     setPublishStatus({});
-    for (const fileId of selectedFileIds) {
+    
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < selectedFileIds.length; i++) {
+      const fileId = selectedFileIds[i];
+      console.log(`[DEBUG handleBatchPublish] ========== Processing file ${i + 1}/${selectedFileIds.length} ==========`);
+      console.log(`[DEBUG handleBatchPublish] File ID: ${fileId}`);
+      
       setPublishStatus(prev => ({ ...prev, [fileId]: 'pending' }));
       const fileObj = audioFiles.find(f => f.id === fileId);
-      if (!fileObj || !fileObj.file) continue;
+      
+      if (!fileObj) {
+        console.log(`[DEBUG handleBatchPublish] File object not found for ID: ${fileId}`);
+        continue;
+      }
+      
+      if (!fileObj.file) {
+        console.log(`[DEBUG handleBatchPublish] No file attached to file object: ${fileId}`);
+        continue;
+      }
+
+      console.log(`[DEBUG handleBatchPublish] File object found:`, {
+        title: fileObj.title,
+        hasFile: !!fileObj.file,
+        hasWav: !!fileObj.wavFile,
+        hasStems: !!fileObj.stemsFile,
+        hasCoverArt: !!fileObj.coverArt,
+        licensing: fileObj.licensing
+      });
+
       try {
+        console.log(`[DEBUG handleBatchPublish] Preparing metadata for: ${fileObj.title}`);
         const formData = new FormData();
         formData.append('title', fileObj.title);
         formData.append('description', '');
@@ -514,35 +832,64 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         formData.append('bpm', '');
         formData.append('key', '');
         formData.append('tags', JSON.stringify([]));
+        
         // Get licensing info from the file object
         const licensingInfo = fileObj.licensing || {};
+        console.log(`[DEBUG handleBatchPublish] Licensing info for ${fileObj.title}:`, licensingInfo);
         formData.append('licensing', JSON.stringify(licensingInfo));
         formData.append('isDraft', 'false');
         formData.append('mp3File', fileObj.file);
-        if (fileObj.coverArt) formData.append('coverArt', fileObj.coverArt);
-        if (fileObj.wavFile) formData.append('wavFile', fileObj.wavFile);
-        if (fileObj.stemsFile) formData.append('stemsFile', fileObj.stemsFile);
+        
+        if (fileObj.coverArt) {
+          console.log(`[DEBUG handleBatchPublish] Adding cover art: ${fileObj.coverArt.name}`);
+          formData.append('coverArt', fileObj.coverArt);
+        }
+        if (fileObj.wavFile) {
+          console.log(`[DEBUG handleBatchPublish] Adding WAV file: ${fileObj.wavFile.name}`);
+          formData.append('wavFile', fileObj.wavFile);
+        }
+        if (fileObj.stemsFile) {
+          console.log(`[DEBUG handleBatchPublish] Adding stems file: ${fileObj.stemsFile.name}`);
+          formData.append('stemsFile', fileObj.stemsFile);
+        }
 
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw new Error('You must be logged in to upload beats');
+        if (!session) {
+          console.log(`[DEBUG handleBatchPublish] No session found for file: ${fileObj.title}`);
+          throw new Error('You must be logged in to upload beats');
+        }
 
+        console.log(`[DEBUG handleBatchPublish] Uploading ${fileObj.title} to /api/beats...`);
         const response = await fetch('/api/beats', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${session.access_token}` },
           body: formData,
         });
 
+        console.log(`[DEBUG handleBatchPublish] API Response status for ${fileObj.title}:`, response.status);
+
         if (!response.ok) {
           const error = await response.json();
+          console.error(`[DEBUG handleBatchPublish] API error for ${fileObj.title}:`, error);
           setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
+          errorCount++;
           throw new Error(error.error || 'Failed to upload beat');
         }
 
+        const beat = await response.json();
+        console.log(`[DEBUG handleBatchPublish] Beat uploaded successfully:`, {
+          id: beat.id,
+          title: beat.title
+        });
+        
         setPublishStatus(prev => ({ ...prev, [fileId]: 'success' }));
+        successCount++;
         toast({ title: 'Beat Uploaded', description: `${fileObj.title} uploaded successfully!` });
       } catch (error) {
-        console.error('Error uploading beat:', error);
+        console.error(`[DEBUG handleBatchPublish] Error uploading ${fileObj.title}:`, error);
+        console.error(`[DEBUG handleBatchPublish] Error stack:`, error instanceof Error ? error.stack : 'N/A');
         setPublishStatus(prev => ({ ...prev, [fileId]: 'error' }));
+        errorCount++;
         toast({ 
           title: 'Upload Error', 
           description: error instanceof Error ? error.message : 'An error occurred during upload', 
@@ -550,6 +897,14 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
         });
       }
     }
+    
+    console.log('[DEBUG handleBatchPublish] ========== BATCH UPLOAD FINISHED ==========');
+    console.log('[DEBUG handleBatchPublish] Results:', {
+      total: selectedFileIds.length,
+      successful: successCount,
+      failed: errorCount
+    });
+
     setIsUploading(false);
     setSelectedFileIds([]);
     setTimeout(() => {
@@ -566,20 +921,31 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       'template-buy-out': 1000.00
     };
     let changed = false;
+    const filesToUpdate: string[] = [];
+    
     const updatedFiles = audioFiles.map(file => {
       const newLicensing = { ...defaultLicensing, ...(file.licensing || {}) };
       // Only update if something is missing
       if (Object.keys(defaultLicensing).some(key => !(key in (file.licensing || {})))) {
         changed = true;
+        filesToUpdate.push(file.title);
         return { ...file, licensing: newLicensing };
       }
       return file;
     });
-    if (changed) setAudioFiles(updatedFiles);
+    
+    if (changed) {
+      console.log('[DEBUG useEffect licensing] Initializing default licensing for files:', filesToUpdate);
+      console.log('[DEBUG useEffect licensing] Default licensing values:', defaultLicensing);
+      setAudioFiles(updatedFiles);
+    }
   }, [audioFiles]);
 
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+    <Tabs value={activeTab} onValueChange={(tab) => {
+      console.log('[DEBUG Tab Change] Switching to tab:', tab);
+      setActiveTab(tab);
+    }} className="w-full">
       <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="upload">
           <Upload className="mr-2 h-4 w-4" />
@@ -596,7 +962,17 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
       </TabsList>
 
       <TabsContent value="upload" className="space-y-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form 
+          onSubmit={handleSubmit} 
+          onKeyDown={(e) => {
+            // Prevent form submission on Enter key press
+            if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+              console.log('[DEBUG Form] Enter key pressed in input field - PREVENTED auto-submit');
+              e.preventDefault();
+            }
+          }}
+          className="space-y-6"
+        >
           <div
             {...globalDropzone.getRootProps()}
             className={`p-10 border-2 border-dashed rounded-lg text-center cursor-pointer transition-colors ${
@@ -751,8 +1127,13 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
           <div className="flex items-center space-x-2">
             <Button
+              type="button"
               variant="outline"
-              onClick={() => setIsDraft(!isDraft)}
+              onClick={(e) => {
+                e.preventDefault();
+                console.log('[DEBUG Draft Toggle] Draft mode toggled:', !isDraft);
+                setIsDraft(!isDraft);
+              }}
               className="ml-4"
             >
               {isDraft ? "Unmark as Draft" : "Save as Draft"}
@@ -761,6 +1142,10 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
 
           <Button
             type="submit"
+            disabled={isUploading}
+            onClick={() => {
+              console.log('[DEBUG Submit Button] Upload button clicked');
+            }}
             className="w-full gradient-button text-black font-medium hover:text-white"
           >
             {isUploading ? (
@@ -1149,11 +1534,22 @@ export function MockBeatUploadForm({ initialData }: MockBeatUploadFormProps) {
                     className="h-8 px-3 text-green-400 border-green-400 hover:bg-green-100 hover:text-black"
                     onClick={e => {
                       e.stopPropagation();
+                      console.log('[DEBUG Set as Cover] ========== SET AS COVER CLICKED ==========');
+                      console.log('[DEBUG Set as Cover] File:', {
+                        id: file.id,
+                        title: file.title,
+                        name: file.file?.name,
+                        type: file.file?.type,
+                        size: file.file?.size
+                      });
                       if (file.file) {
                         setCoverArt(file.file);
-                        toast({ title: 'DEBUG', description: `Set as Cover: ${file.file.name} (${file.file.type})` });
+                        console.log('[DEBUG Set as Cover] Cover art set successfully');
                         toast({ title: 'Cover Selected', description: `${file.title} set as cover.` });
+                      } else {
+                        console.log('[DEBUG Set as Cover] ERROR: No file object found');
                       }
+                      console.log('[DEBUG Set as Cover] ========== SET AS COVER FINISHED ==========');
                     }}
                   >
                     Set as Cover

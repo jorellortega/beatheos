@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive, Info } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -18,6 +18,7 @@ import { Suspense } from "react"
 import Image from "next/image"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 
 // Mock marketplace items
 const mockItems = [
@@ -25,6 +26,14 @@ const mockItems = [
   { id: 2, title: "Lo-Fi Melodies", type: "loops", price: 19.99, sales: 75, rating: 4.5, promo: true },
   { id: 3, title: "808 Collection Pro", type: "soundkit", price: 34.99, sales: 210, rating: 4.9, promo: false },
 ]
+
+// Default pricing structure
+const DEFAULT_PRICES = {
+  lease: 20.00,
+  premium: 100.00,
+  exclusive: 300.00,
+  buyout: 1000.00
+}
 
 interface Beat {
   id: string | number;
@@ -140,6 +149,16 @@ function MyBeatsManager({ userId }: { userId: string }) {
   const [vaultKey, setVaultKey] = useState<string>("");
   const [vaultKeyLoading, setVaultKeyLoading] = useState(false);
   const [vaultKeyEdit, setVaultKeyEdit] = useState(false);
+  const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false);
+  const [selectedBeatDetails, setSelectedBeatDetails] = useState<Beat | null>(null);
+  const [showDefaultPricing, setShowDefaultPricing] = useState(true);
+  const [editingPrices, setEditingPrices] = useState(false);
+  const [editPriceForm, setEditPriceForm] = useState({
+    price_lease: 0,
+    price_premium_lease: 0,
+    price_exclusive: 0,
+    price_buyout: 0
+  });
 
   useEffect(() => {
     async function fetchBeats() {
@@ -161,6 +180,8 @@ function MyBeatsManager({ userId }: { userId: string }) {
             play_count,
             mp3_url,
             mp3_path,
+            wav_url,
+            stems_url,
             cover_art_url,
             tags,
             price_lease,
@@ -190,6 +211,14 @@ function MyBeatsManager({ userId }: { userId: string }) {
           ...beat,
           producer: { display_name: producer?.display_name || 'Unknown' }
         }));
+
+        console.log('[DEBUG MyBeatsManager] Fetched beats with files:', beatsWithProducer.map(b => ({
+          title: b.title,
+          mp3_url: b.mp3_url ? 'SET' : 'NULL',
+          wav_url: b.wav_url ? 'SET' : 'NULL',
+          stems_url: b.stems_url ? 'SET' : 'NULL',
+          cover_art_url: b.cover_art_url ? 'SET' : 'NULL'
+        })));
 
         setBeats(beatsWithProducer);
       } catch (err) {
@@ -395,6 +424,76 @@ function MyBeatsManager({ userId }: { userId: string }) {
     } else {
       toast({ title: 'Error', description: error.message, variant: 'destructive' })
     }
+  }
+
+  // Handler to open view details dialog
+  const handleViewDetails = (beat: Beat) => {
+    setSelectedBeatDetails(beat);
+    setEditPriceForm({
+      price_lease: beat.price_lease || 0,
+      price_premium_lease: beat.price_premium_lease || 0,
+      price_exclusive: beat.price_exclusive || 0,
+      price_buyout: beat.price_buyout || 0
+    });
+    setEditingPrices(false);
+    setViewDetailsDialogOpen(true);
+  }
+
+  // Handler to save edited prices
+  const handleSavePrices = async () => {
+    if (!selectedBeatDetails) return;
+    
+    try {
+      const { error } = await supabase
+        .from('beats')
+        .update({
+          price_lease: editPriceForm.price_lease > 0 ? editPriceForm.price_lease : null,
+          price_premium_lease: editPriceForm.price_premium_lease > 0 ? editPriceForm.price_premium_lease : null,
+          price_exclusive: editPriceForm.price_exclusive > 0 ? editPriceForm.price_exclusive : null,
+          price_buyout: editPriceForm.price_buyout > 0 ? editPriceForm.price_buyout : null
+        })
+        .eq('id', selectedBeatDetails.id);
+
+      if (error) throw error;
+
+      // Update local state
+      const updatedBeat = {
+        ...selectedBeatDetails,
+        price_lease: editPriceForm.price_lease > 0 ? editPriceForm.price_lease : null,
+        price_premium_lease: editPriceForm.price_premium_lease > 0 ? editPriceForm.price_premium_lease : null,
+        price_exclusive: editPriceForm.price_exclusive > 0 ? editPriceForm.price_exclusive : null,
+        price_buyout: editPriceForm.price_buyout > 0 ? editPriceForm.price_buyout : null
+      };
+      
+      setBeats(beats.map(b => b.id === selectedBeatDetails.id ? updatedBeat : b));
+      setSelectedBeatDetails(updatedBeat);
+      setEditingPrices(false);
+      
+      toast({
+        title: 'Prices Updated',
+        description: 'Beat prices have been updated successfully.'
+      });
+    } catch (error) {
+      console.error('Error updating prices:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update prices. Please try again.',
+        variant: 'destructive'
+      });
+    }
+  }
+
+  // Handler to cancel price editing
+  const handleCancelPriceEdit = () => {
+    if (selectedBeatDetails) {
+      setEditPriceForm({
+        price_lease: selectedBeatDetails.price_lease || 0,
+        price_premium_lease: selectedBeatDetails.price_premium_lease || 0,
+        price_exclusive: selectedBeatDetails.price_exclusive || 0,
+        price_buyout: selectedBeatDetails.price_buyout || 0
+      });
+    }
+    setEditingPrices(false);
   }
 
   // Filtered beats based on search
@@ -866,20 +965,370 @@ function MyBeatsManager({ userId }: { userId: string }) {
                   </Select>
                 </td>
                 <td className="px-4 py-2 border-r border-[#232323] last:border-r-0 bg-secondary">
-                  <BeatActions
-                    beat={beat}
-                    onEdit={handleEdit}
-                    onDelete={handleDelete}
-                    isPlaying={playingId === beat.id}
-                    onPlayPause={handlePlayPause}
-                    setAudioRef={setAudioRef ? (el: HTMLAudioElement | null) => setAudioRef(beat.id, el) : undefined}
-                  />
+                  <div className="flex flex-col gap-2">
+                    <BeatActions
+                      beat={beat}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      isPlaying={playingId === beat.id}
+                      onPlayPause={handlePlayPause}
+                      setAudioRef={setAudioRef ? (el: HTMLAudioElement | null) => setAudioRef(beat.id, el) : undefined}
+                    />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleViewDetails(beat)}
+                      className="w-full"
+                    >
+                      <Info className="h-4 w-4 mr-2" />
+                      View Details
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* View Details Dialog */}
+      <Dialog open={viewDetailsDialogOpen} onOpenChange={setViewDetailsDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto bg-black border-primary">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-primary flex items-center gap-2">
+              <Info className="h-6 w-6" />
+              Beat Details
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Complete information about this beat including files, pricing, and metadata
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedBeatDetails && (
+            <div className="space-y-6 mt-4">
+              {/* Cover Art and Basic Info */}
+              <div className="flex gap-4 items-start">
+                <div className="relative w-32 h-32 flex-shrink-0">
+                  <Image
+                    src={selectedBeatDetails.cover_art_url || "/placeholder.svg"}
+                    alt={selectedBeatDetails.title}
+                    width={128}
+                    height={128}
+                    className="rounded object-cover w-full h-full border-2 border-primary"
+                  />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <h3 className="text-xl font-bold text-white">{selectedBeatDetails.title}</h3>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-gray-400">Genre:</span> <span className="text-white">{selectedBeatDetails.genre || 'N/A'}</span></div>
+                    <div><span className="text-gray-400">BPM:</span> <span className="text-white">{selectedBeatDetails.bpm || 'N/A'}</span></div>
+                    <div><span className="text-gray-400">Key:</span> <span className="text-white">{selectedBeatDetails.key || 'N/A'}</span></div>
+                    <div><span className="text-gray-400">Status:</span> <span className={selectedBeatDetails.is_draft ? 'text-yellow-500' : 'text-green-500'}>{selectedBeatDetails.is_draft ? 'Draft' : 'Published'}</span></div>
+                    <div><span className="text-gray-400">Plays:</span> <span className="text-white">{selectedBeatDetails.play_count || 0}</span></div>
+                    <div><span className="text-gray-400">Slug:</span> <span className="text-white text-xs">{selectedBeatDetails.slug}</span></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div className="border-t border-gray-700 pt-4">
+                <h4 className="text-lg font-semibold text-primary mb-2">Tags</h4>
+                <div className="flex flex-wrap gap-2">
+                  {Array.isArray(selectedBeatDetails.tags) && selectedBeatDetails.tags.length > 0 ? (
+                    selectedBeatDetails.tags.map((tag, idx) => (
+                      <span key={idx} className="bg-primary/20 text-primary px-3 py-1 rounded-full text-sm font-medium">
+                        {tag}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-gray-400">No tags assigned</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Pricing Information */}
+              <div className="border-t border-gray-700 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-lg font-semibold text-primary">Pricing</h4>
+                  <div className="flex gap-2">
+                    {!editingPrices && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowDefaultPricing(!showDefaultPricing)}
+                        className="text-xs"
+                      >
+                        Show {showDefaultPricing ? 'Custom' : 'Default'} Prices
+                      </Button>
+                    )}
+                    {editingPrices ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={handleSavePrices}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCancelPriceEdit}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setEditingPrices(true);
+                          setShowDefaultPricing(false);
+                        }}
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit Prices
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="text-sm text-gray-400 mb-1">Lease</div>
+                    {editingPrices ? (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editPriceForm.price_lease}
+                        onChange={(e) => setEditPriceForm({ ...editPriceForm, price_lease: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        placeholder="0.00"
+                      />
+                    ) : (
+                      <div className="text-lg font-bold text-white">
+                        {showDefaultPricing ? (
+                          <span>${DEFAULT_PRICES.lease.toFixed(2)} <span className="text-xs text-gray-400">(default)</span></span>
+                        ) : (
+                          selectedBeatDetails.price_lease && selectedBeatDetails.price_lease > 0 
+                            ? `$${selectedBeatDetails.price_lease}` 
+                            : <span className="text-gray-500">Not set</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="text-sm text-gray-400 mb-1">Premium Lease</div>
+                    {editingPrices ? (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editPriceForm.price_premium_lease}
+                        onChange={(e) => setEditPriceForm({ ...editPriceForm, price_premium_lease: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        placeholder="0.00"
+                      />
+                    ) : (
+                      <div className="text-lg font-bold text-white">
+                        {showDefaultPricing ? (
+                          <span>${DEFAULT_PRICES.premium.toFixed(2)} <span className="text-xs text-gray-400">(default)</span></span>
+                        ) : (
+                          selectedBeatDetails.price_premium_lease && selectedBeatDetails.price_premium_lease > 0 
+                            ? `$${selectedBeatDetails.price_premium_lease}` 
+                            : <span className="text-gray-500">Not set</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="text-sm text-gray-400 mb-1">Exclusive</div>
+                    {editingPrices ? (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editPriceForm.price_exclusive}
+                        onChange={(e) => setEditPriceForm({ ...editPriceForm, price_exclusive: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        placeholder="0.00"
+                      />
+                    ) : (
+                      <div className="text-lg font-bold text-white">
+                        {showDefaultPricing ? (
+                          <span>${DEFAULT_PRICES.exclusive.toFixed(2)} <span className="text-xs text-gray-400">(default)</span></span>
+                        ) : (
+                          selectedBeatDetails.price_exclusive && selectedBeatDetails.price_exclusive > 0 
+                            ? `$${selectedBeatDetails.price_exclusive}` 
+                            : <span className="text-gray-500">Not set</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="text-sm text-gray-400 mb-1">Buy Out</div>
+                    {editingPrices ? (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editPriceForm.price_buyout}
+                        onChange={(e) => setEditPriceForm({ ...editPriceForm, price_buyout: parseFloat(e.target.value) || 0 })}
+                        className="mt-1"
+                        placeholder="0.00"
+                      />
+                    ) : (
+                      <div className="text-lg font-bold text-white">
+                        {showDefaultPricing ? (
+                          <span>${DEFAULT_PRICES.buyout.toFixed(2)} <span className="text-xs text-gray-400">(default)</span></span>
+                        ) : (
+                          selectedBeatDetails.price_buyout && selectedBeatDetails.price_buyout > 0 
+                            ? `$${selectedBeatDetails.price_buyout}` 
+                            : <span className="text-gray-500">Not set</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Files Information */}
+              <div className="border-t border-gray-700 pt-4">
+                <h4 className="text-lg font-semibold text-primary mb-3">Files</h4>
+                <div className="space-y-3">
+                  {/* MP3 File */}
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Music2 className="h-5 w-5 text-primary" />
+                        <span className="font-semibold text-white">MP3 File</span>
+                      </div>
+                      {selectedBeatDetails.mp3_url ? (
+                        <div className="flex gap-2">
+                          <span className="text-green-500 text-sm">✓ Uploaded</span>
+                          <a 
+                            href={selectedBeatDetails.mp3_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-yellow-400 underline text-sm"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 text-sm">Not uploaded</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* WAV File */}
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Music2 className="h-5 w-5 text-primary" />
+                        <span className="font-semibold text-white">WAV File</span>
+                      </div>
+                      {selectedBeatDetails.wav_url ? (
+                        <div className="flex gap-2">
+                          <span className="text-green-500 text-sm">✓ Uploaded</span>
+                          <a 
+                            href={selectedBeatDetails.wav_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-yellow-400 underline text-sm"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 text-sm">Not uploaded</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Stems File */}
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-5 w-5 text-primary" />
+                        <span className="font-semibold text-white">Stems (ZIP)</span>
+                      </div>
+                      {selectedBeatDetails.stems_url ? (
+                        <div className="flex gap-2">
+                          <span className="text-green-500 text-sm">✓ Uploaded</span>
+                          <a 
+                            href={selectedBeatDetails.stems_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-yellow-400 underline text-sm"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 text-sm">Not uploaded</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Cover Art */}
+                  <div className="bg-secondary p-3 rounded border border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Upload className="h-5 w-5 text-primary" />
+                        <span className="font-semibold text-white">Cover Art</span>
+                      </div>
+                      {selectedBeatDetails.cover_art_url ? (
+                        <div className="flex gap-2">
+                          <span className="text-green-500 text-sm">✓ Uploaded</span>
+                          <a 
+                            href={selectedBeatDetails.cover_art_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-yellow-400 underline text-sm"
+                          >
+                            View
+                          </a>
+                          <a 
+                            href={selectedBeatDetails.cover_art_url} 
+                            download
+                            className="text-primary hover:text-yellow-400 underline text-sm"
+                          >
+                            Download
+                          </a>
+                        </div>
+                      ) : (
+                        <span className="text-gray-500 text-sm">Not uploaded</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="border-t border-gray-700 pt-4 flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setViewDetailsDialogOpen(false)}
+                >
+                  Close
+                </Button>
+                <a
+                  href={`/beat/${selectedBeatDetails.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="default">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    View Public Page
+                  </Button>
+                </a>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

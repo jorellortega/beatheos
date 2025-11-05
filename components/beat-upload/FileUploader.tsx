@@ -38,19 +38,24 @@ export function FileUploader({ label, accept, file, onFileChange, icon }: FileUp
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
+    e.stopPropagation() // Prevent parent dropzone from also handling this
     setIsDragActive(false)
-    console.log('[FileUploader] drop event fired')
+    console.log(`[DEBUG FileUploader ${label}] drop event fired`)
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0]
-      console.log('[FileUploader] Dropped file:', droppedFile.name, droppedFile.type)
+      console.log(`[DEBUG FileUploader ${label}] Dropped file:`, droppedFile.name, droppedFile.type)
       setLastDroppedFile({ name: droppedFile.name, type: droppedFile.type })
       // Always accept .wav extension regardless of MIME type
       if (accept.toLowerCase().includes('wav') && droppedFile.name.toLowerCase().endsWith('.wav')) {
+        console.log(`[DEBUG FileUploader ${label}] Accepting WAV file by extension`);
         onFileChange(droppedFile)
         return
       }
       if (isFileAccepted(droppedFile)) {
+        console.log(`[DEBUG FileUploader ${label}] File accepted, calling onFileChange`);
         onFileChange(droppedFile)
+      } else {
+        console.log(`[DEBUG FileUploader ${label}] File REJECTED - not accepted`);
       }
     }
   }

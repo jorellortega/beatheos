@@ -31,12 +31,20 @@ export async function POST(request: Request) {
     const slug = await generateUniqueSlug(title)
     
     // Handle file uploads
+    console.log('[DEBUG API] ========== EXTRACTING FILES FROM FORMDATA ==========');
     const mp3File = formData.get('mp3File') as File
     const wavFile = formData.get('wavFile') as File | null
     const stemsFile = formData.get('stemsFile') as File | null
     const coverArt = formData.get('coverArt') as File | null
 
+    console.log('[DEBUG API] Files received from FormData:');
+    console.log('[DEBUG API]   - mp3File:', mp3File ? { name: mp3File.name, size: mp3File.size, type: mp3File.type } : 'NULL');
+    console.log('[DEBUG API]   - wavFile:', wavFile ? { name: wavFile.name, size: wavFile.size, type: wavFile.type } : 'NULL');
+    console.log('[DEBUG API]   - stemsFile:', stemsFile ? { name: stemsFile.name, size: stemsFile.size, type: stemsFile.type } : 'NULL');
+    console.log('[DEBUG API]   - coverArt:', coverArt ? { name: coverArt.name, size: coverArt.size, type: coverArt.type } : 'NULL');
+
     if (!mp3File) {
+      console.log('[DEBUG API] ERROR: MP3 file is required but not provided');
       return NextResponse.json({ error: 'MP3 file is required' }, { status: 400 })
     }
 
@@ -58,50 +66,84 @@ export async function POST(request: Request) {
 
     let wavUrl = null
     if (wavFile) {
+      console.log('[DEBUG API] ========== UPLOADING WAV FILE ==========');
+      console.log('[DEBUG API] WAV file details:', { name: wavFile.name, size: wavFile.size, type: wavFile.type });
       const wavExt = wavFile.name.split('.').pop();
       const wavBase = wavFile.name.replace(/\.[^/.]+$/, '');
       const wavUnique = `${wavBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${wavExt}`;
       const wavPath = `profiles/${user.id}/${slug}/wav/${wavUnique}`;
+      console.log('[DEBUG API] WAV upload path:', wavPath);
+      
       const { data: wavData, error: wavError } = await supabase.storage
         .from('beats')
         .upload(wavPath, wavFile)
       
-      if (!wavError) {
+      if (wavError) {
+        console.error('[DEBUG API] WAV upload ERROR:', wavError);
+      } else {
         wavUrl = supabase.storage.from('beats').getPublicUrl(wavPath).data.publicUrl
+        console.log('[DEBUG API] WAV uploaded successfully:', wavUrl);
       }
+    } else {
+      console.log('[DEBUG API] WAV file is NULL - skipping upload');
     }
 
     let stemsUrl = null
     if (stemsFile) {
+      console.log('[DEBUG API] ========== UPLOADING STEMS FILE ==========');
+      console.log('[DEBUG API] Stems file details:', { name: stemsFile.name, size: stemsFile.size, type: stemsFile.type });
       const stemsExt = stemsFile.name.split('.').pop();
       const stemsBase = stemsFile.name.replace(/\.[^/.]+$/, '');
       const stemsUnique = `${stemsBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${stemsExt}`;
       const stemsPath = `profiles/${user.id}/${slug}/stems/${stemsUnique}`;
+      console.log('[DEBUG API] Stems upload path:', stemsPath);
+      
       const { data: stemsData, error: stemsError } = await supabase.storage
         .from('beats')
         .upload(stemsPath, stemsFile)
       
-      if (!stemsError) {
+      if (stemsError) {
+        console.error('[DEBUG API] Stems upload ERROR:', stemsError);
+      } else {
         stemsUrl = supabase.storage.from('beats').getPublicUrl(stemsPath).data.publicUrl
+        console.log('[DEBUG API] Stems uploaded successfully:', stemsUrl);
       }
+    } else {
+      console.log('[DEBUG API] Stems file is NULL - skipping upload');
     }
 
     let coverArtUrl = null
     if (coverArt) {
+      console.log('[DEBUG API] ========== UPLOADING COVER ART ==========');
+      console.log('[DEBUG API] Cover art details:', { name: coverArt.name, size: coverArt.size, type: coverArt.type });
       const coverExt = coverArt.name.split('.').pop();
       const coverBase = coverArt.name.replace(/\.[^/.]+$/, '');
       const coverUnique = `${coverBase}_${Date.now()}-${Math.round(Math.random() * 1e9)}.${coverExt}`;
       const coverPath = `profiles/${user.id}/${slug}/cover/${coverUnique}`;
+      console.log('[DEBUG API] Cover art upload path:', coverPath);
+      
       const { data: coverData, error: coverError } = await supabase.storage
         .from('beats')
         .upload(coverPath, coverArt)
       
-      if (!coverError) {
+      if (coverError) {
+        console.error('[DEBUG API] Cover art upload ERROR:', coverError);
+      } else {
         coverArtUrl = supabase.storage.from('beats').getPublicUrl(coverPath).data.publicUrl
+        console.log('[DEBUG API] Cover art uploaded successfully:', coverArtUrl);
       }
+    } else {
+      console.log('[DEBUG API] Cover art is NULL - skipping upload');
     }
 
     // Prepare beat data
+    console.log('[DEBUG API] ========== PREPARING BEAT DATA ==========');
+    console.log('[DEBUG API] Final URLs:');
+    console.log('[DEBUG API]   - mp3_url:', mp3Url ? 'SET' : 'NULL');
+    console.log('[DEBUG API]   - wav_url:', wavUrl ? 'SET' : 'NULL');
+    console.log('[DEBUG API]   - stems_url:', stemsUrl ? 'SET' : 'NULL');
+    console.log('[DEBUG API]   - cover_art_url:', coverArtUrl ? 'SET' : 'NULL');
+    
     const beatData = {
       producer_id: user.id,
       title,
