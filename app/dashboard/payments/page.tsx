@@ -37,6 +37,10 @@ export default function PaymentsDashboard() {
           </Button>
         </Link>
       </div>
+      {/* Under Development Banner */}
+      <div className="mb-6 p-4 bg-yellow-900/20 border border-yellow-600 rounded-lg">
+        <p className="text-yellow-400 font-medium text-center">This page is under development</p>
+      </div>
       {/* Tab Navigation */}
       <div className="flex space-x-4 mb-8">
         {TABS.map((t, i) => (

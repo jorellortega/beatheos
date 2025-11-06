@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw, Video } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw, Video, Eye, EyeOff, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -43,6 +43,7 @@ interface Album {
   distributor?: string
   distributor_notes?: string
   notes?: string
+  visibility?: 'private' | 'public' | 'pause' | 'upcoming'
 }
 interface Single {
   id: string
@@ -1659,6 +1660,36 @@ export default function MyLibrary() {
     }
   }
 
+  const getVisibilityColor = (visibility: string) => {
+    switch (visibility) {
+      case 'public':
+        return 'bg-green-600 hover:bg-green-700 text-white border-green-500';
+      case 'private':
+        return 'bg-gray-600 hover:bg-gray-700 text-white border-gray-500';
+      case 'pause':
+        return 'bg-orange-600 hover:bg-orange-700 text-white border-orange-500';
+      case 'upcoming':
+        return 'bg-blue-600 hover:bg-blue-700 text-white border-blue-500';
+      default:
+        return 'bg-gray-600 hover:bg-gray-700 text-white border-gray-500';
+    }
+  }
+
+  const getVisibilityIcon = (visibility: string) => {
+    switch (visibility) {
+      case 'public':
+        return <Eye className="h-3 w-3" />;
+      case 'private':
+        return <Lock className="h-3 w-3" />;
+      case 'pause':
+        return <Pause className="h-3 w-3" />;
+      case 'upcoming':
+        return <Clock className="h-3 w-3" />;
+      default:
+        return <Lock className="h-3 w-3" />;
+    }
+  }
+
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'urgent': return 'bg-red-600 hover:bg-red-700 text-white'
@@ -1777,6 +1808,32 @@ export default function MyLibrary() {
     toast({
       title: "Success",
       description: `Album production status updated to ${newStatus}`,
+    });
+  };
+
+  const updateAlbumVisibility = async (albumId: string, newVisibility: 'private' | 'public' | 'pause' | 'upcoming') => {
+    const { error } = await supabase
+      .from('albums')
+      .update({ visibility: newVisibility })
+      .eq('id', albumId);
+    
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update album visibility: " + error.message,
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Update local state
+    setAlbums(albums.map(album => 
+      album.id === albumId ? { ...album, visibility: newVisibility } : album
+    ));
+    
+    toast({
+      title: "Success",
+      description: `Album visibility updated to ${newVisibility}`,
     });
   };
 
@@ -2074,6 +2131,7 @@ export default function MyLibrary() {
     const albumData = {
       title: newAlbum.title,
       user_id: user.id,
+      visibility: 'private', // Default to private
       ...(newAlbum.artist && { artist: newAlbum.artist }),
       ...(newAlbum.release_date && { release_date: newAlbum.release_date }),
       ...(newAlbum.cover_art_url && { cover_art_url: newAlbum.cover_art_url }),
@@ -6045,6 +6103,33 @@ export default function MyLibrary() {
                               <DropdownMenuItem onClick={() => updateAlbumProductionStatus(album.id, 'ready_for_distribution')}>
                                 <CheckCircle2 className="h-3 w-3 mr-2" />
                                 Ready for Distribution
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          {/* Visibility Dropdown */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge className={`text-xs cursor-pointer hover:opacity-80 ${getVisibilityColor(album.visibility || 'private')}`}>
+                                {getVisibilityIcon(album.visibility || 'private')}
+                                {album.visibility || 'private'}
+                              </Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuItem onClick={() => updateAlbumVisibility(album.id, 'private')}>
+                                <Lock className="h-3 w-3 mr-2" />
+                                Private
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumVisibility(album.id, 'public')}>
+                                <Eye className="h-3 w-3 mr-2" />
+                                Public
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumVisibility(album.id, 'pause')}>
+                                <Pause className="h-3 w-3 mr-2" />
+                                Pause
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => updateAlbumVisibility(album.id, 'upcoming')}>
+                                <Clock className="h-3 w-3 mr-2" />
+                                Upcoming
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

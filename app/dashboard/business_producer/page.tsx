@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive, Info, Library } from "lucide-react"
+import { Plus, Edit, Trash2, BarChart2, Package, Activity, Users, Upload, HelpCircle, Star, Percent, Mic, Play, Wand2, Music2, Layers, Shuffle, User, Pause, ExternalLink, ShoppingCart, Receipt, FileText, Eye, EyeOff, Archive, Info, Library, CreditCard, Sparkles } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/components/ui/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -1518,12 +1518,20 @@ export default function BusinessProducerDashboard() {
           <h1 className="text-4xl font-bold mb-2 font-display tracking-wider text-primary">Business Producer Dashboard</h1>
             <p className="text-xl text-gray-400">Welcome back, {displayName || ('username' in user ? (user as any).username : user?.email?.split('@')[0])}</p>
         </div>
-        <Link href="/mylibrary">
-          <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
-            <Library className="h-4 w-4 mr-2" />
-            My Library
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/dashboard/payments">
+            <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+              <CreditCard className="h-4 w-4 mr-2" />
+              Payments
+            </Button>
+          </Link>
+          <Link href="/mylibrary">
+            <Button variant="outline" className="bg-primary text-black hover:bg-primary/90">
+              <Library className="h-4 w-4 mr-2" />
+              My Library
+            </Button>
+          </Link>
+        </div>
       </div>
       
         <Suspense fallback={null}>
@@ -1752,6 +1760,23 @@ export default function BusinessProducerDashboard() {
                 </CardHeader>
                 <CardContent>
                   <p>See what the community is posting and join the conversation.</p>
+                </CardContent>
+              </Card>
+            </Link>
+            {/* Lyrics AI Card */}
+            <Link href="/lyrics-ai" className="block">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Sparkles className="mr-2 h-5 w-5" />
+                    Lyrics AI
+                  </CardTitle>
+                  <CardDescription>Create, edit, and enhance your lyrics with AI-powered tools.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                    Go to Lyrics AI
+                  </Button>
                 </CardContent>
               </Card>
             </Link>
