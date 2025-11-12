@@ -1780,6 +1780,23 @@ export default function BusinessProducerDashboard() {
                 </CardContent>
               </Card>
             </Link>
+            {/* Payments Card */}
+            <Link href="/dashboard/payments" className="block">
+              <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <CreditCard className="mr-2 h-5 w-5" />
+                    Payments
+                  </CardTitle>
+                  <CardDescription>Manage payment methods, transactions, and enable Stripe onboarding for payouts.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                    Manage Payments
+                  </Button>
+                </CardContent>
+              </Card>
+            </Link>
           </div>
           {playlistId && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">

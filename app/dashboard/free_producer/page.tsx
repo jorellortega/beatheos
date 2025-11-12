@@ -145,6 +145,23 @@ export default function FreeProducerDashboard() {
             </Link>
           </CardContent>
         </Card>
+        <Link href="/dashboard/payments">
+          <Card className="bg-black border-primary hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <CreditCard className="mr-2 h-5 w-5" />
+                Payments
+              </CardTitle>
+              <CardDescription>Manage payment methods, transactions, and enable Stripe onboarding for payouts.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-8 w-8 text-primary" />
+                <span className="font-semibold text-lg">Manage Payments</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
         </div>
       </div>
     </div>

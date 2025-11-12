@@ -168,6 +168,23 @@ export default function ProArtistDashboardPage() {
             </Link>
           </CardContent>
         </Card>
+
+        <Link href="/dashboard/payments">
+          <Card className="bg-card border-primary hover:border-primary transition-all cursor-pointer">
+            <CardHeader>
+              <CardTitle className="text-2xl font-bold text-primary flex items-center">
+                <CreditCard className="mr-2 h-5 w-5" />
+                Payments
+              </CardTitle>
+              <CardDescription>Manage payment methods, transactions, and enable Stripe onboarding for payouts.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                Manage Payments
+              </Button>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
     </div>
   )

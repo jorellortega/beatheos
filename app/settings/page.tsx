@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { User, Lock, Bell, CreditCard, Shield, Webhook } from "lucide-react"
+import { User, Lock, Bell, CreditCard, Shield, Webhook, Settings, Sparkles } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { supabase } from '@/lib/supabaseClient'
 import { StripeWebhookSetupModal } from "@/components/StripeWebhookSetupModal"
@@ -87,6 +87,8 @@ export default function SettingsPage() {
 
   if (!user) return null
 
+  const isAdminOrCEO = user.role === 'admin' || user.role === 'ceo'
+
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setProfileData({ ...profileData, [e.target.name]: e.target.value })
   }
@@ -143,7 +145,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className={`grid w-full ${isAdminOrCEO ? 'grid-cols-5' : 'grid-cols-3'}`}>
           <TabsTrigger value="profile">
             <User className="h-4 w-4 mr-2" />
             Profile
@@ -156,6 +158,18 @@ export default function SettingsPage() {
             <CreditCard className="h-4 w-4 mr-2" />
             Subscription
           </TabsTrigger>
+          {isAdminOrCEO && (
+            <>
+              <TabsTrigger value="ai-settings">
+                <Settings className="h-4 w-4 mr-2" />
+                AI Settings
+              </TabsTrigger>
+              <TabsTrigger value="ai-info">
+                <Sparkles className="h-4 w-4 mr-2" />
+                AI Prompt
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="profile" className="mt-6">
@@ -273,6 +287,56 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {isAdminOrCEO && (
+          <>
+            <TabsContent value="ai-settings" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>AI Settings</CardTitle>
+                  <CardDescription>Configure AI provider API keys and model settings</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <p className="text-gray-400">
+                      Manage AI provider configurations, API keys, and model preferences.
+                    </p>
+                    <Button
+                      onClick={() => router.push('/ai-settings')}
+                      className="bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black font-semibold hover:scale-105 transition-all duration-300"
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      Open AI Settings
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="ai-info" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>AI System Prompt Builder</CardTitle>
+                  <CardDescription>Configure the system prompt that defines how the AI assistant behaves</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <p className="text-gray-400">
+                      Build and manage the system prompt that controls the AI chatbot's behavior and responses.
+                    </p>
+                    <Button
+                      onClick={() => router.push('/ai-info')}
+                      className="bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black font-semibold hover:scale-105 transition-all duration-300"
+                    >
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Open AI Prompt Builder
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </>
+        )}
       </Tabs>
 
       <StripeWebhookSetupModal
