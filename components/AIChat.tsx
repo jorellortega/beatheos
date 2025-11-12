@@ -15,7 +15,7 @@ interface Message {
 }
 
 export function AIChat() {
-  const { user, getAccessToken } = useAuth()
+  const { getAccessToken } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -45,12 +45,6 @@ export function AIChat() {
   const handleSubmit = async () => {
     if (!input.trim() || isLoading) return
 
-    // Check if user is authenticated
-    if (!user) {
-      setError('Please log in to use the AI chat')
-      return
-    }
-
     // Mark that we've sent a message - this will expand the chat
     if (!hasSentMessage) {
       setHasSentMessage(true)
@@ -76,7 +70,7 @@ export function AIChat() {
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
-      // Get access token
+      // Get access token (optional for public access)
       const token = await getAccessToken()
 
       // Call API
@@ -281,13 +275,13 @@ export function AIChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder={user ? "Type your message..." : "Please log in to use the AI chat"}
+              placeholder="Type your message..."
               className="min-h-[60px] max-h-[120px] bg-gray-900 border-yellow-400/50 text-white resize-none focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400 flex-1 rounded-lg"
-              disabled={isLoading || !user}
+              disabled={isLoading}
             />
             <Button
               onClick={handleSubmit}
-              disabled={!input.trim() || isLoading || !user}
+              disabled={!input.trim() || isLoading}
               className="bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black font-semibold hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 px-4 h-[60px] w-[60px] rounded-lg flex-shrink-0"
             >
               <Send className="w-5 h-5" />
@@ -412,9 +406,9 @@ export function AIChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder={user ? "Type your message..." : "Please log in to use the AI chat"}
+              placeholder="Type your message..."
               className="min-h-[60px] max-h-[120px] bg-gray-900 border-yellow-400/50 text-white resize-none focus:border-yellow-400 flex-1 rounded-lg"
-              disabled={isLoading || !user}
+              disabled={isLoading}
             />
             <Button
               onClick={handleSubmit}

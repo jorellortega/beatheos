@@ -10,14 +10,8 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
+    // Authentication is optional - allow public access
     const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
 
     const body = await request.json()
     const { message, conversationHistory = [] } = body
