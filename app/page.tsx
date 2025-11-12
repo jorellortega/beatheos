@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { TopLists } from "@/components/home/TopLists"
+import { AIChat } from "@/components/AIChat"
 import Link from "next/link"
 import { Instagram } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
@@ -112,7 +113,13 @@ export default function Home() {
           />
         )}
       </div>
-      <div className="text-center mb-8 mt-0">
+      
+      {/* AI Chat Component */}
+      <div className="mb-8">
+        <AIChat />
+      </div>
+      
+      <div className="text-center mb-8 mt-8">
         <Button
           className="mt-0 bg-transparent text-white font-medium py-2 px-6 rounded-full shadow-lg hover:bg-gradient-to-r hover:from-[#F4C430] hover:to-[#E8E8E8] hover:text-black transition-all duration-300 border-2 border-transparent bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] bg-clip-padding-box"
           style={{

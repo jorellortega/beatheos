@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { isAdminOrCEO } from '@/lib/ai-api-helpers'
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,6 +31,12 @@ export async function GET(request: NextRequest) {
     if (authError || !user) {
       console.error('Auth error:', authError)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Check if user is admin or ceo
+    const hasAccess = await isAdminOrCEO(user.id)
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Admin or CEO access required' }, { status: 403 })
     }
 
     // Get user's API keys
@@ -90,6 +97,12 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       console.error('Auth error:', authError)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Check if user is admin or ceo
+    const hasAccess = await isAdminOrCEO(user.id)
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Admin or CEO access required' }, { status: 403 })
     }
 
     const { serviceId, apiKey } = await request.json()
@@ -186,6 +199,12 @@ export async function DELETE(request: NextRequest) {
     if (authError || !user) {
       console.error('Auth error:', authError)
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Check if user is admin or ceo
+    const hasAccess = await isAdminOrCEO(user.id)
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Admin or CEO access required' }, { status: 403 })
     }
 
     const { serviceId } = await request.json()

@@ -242,12 +242,12 @@ export default function SetupAIPage() {
     )
   }
 
-  if (user.role !== "ceo") {
+  if (user.role !== "admin" && user.role !== "ceo") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Access Denied</h1>
-          <p className="text-muted-foreground">This page is only accessible to CEO role.</p>
+          <p className="text-muted-foreground">This page is only accessible to Admin or CEO roles.</p>
         </div>
       </div>
     )

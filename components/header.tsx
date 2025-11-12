@@ -130,7 +130,7 @@ export default function Header() {
           >
             Settings
           </Link>
-          {user?.role === "ceo" && (
+          {(user?.role === "admin" || user?.role === "ceo") && (
             <Link
               href="/setup-ai"
               className="text-2xl font-semibold text-gray-300 hover:text-white"
@@ -209,7 +209,7 @@ export default function Header() {
                         Settings
                       </Link>
                     </DropdownMenuItem>
-                    {user?.role === "ceo" && (
+                    {(user?.role === "admin" || user?.role === "ceo") && (
                       <DropdownMenuItem>
                         <Link href="/setup-ai" className="w-full">
                           AI Setup

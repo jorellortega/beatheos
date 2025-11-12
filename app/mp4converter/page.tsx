@@ -141,6 +141,11 @@ export default function MP4ConverterPage() {
   const ffmpegRef = useRef(new FFmpeg())
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false)
 
+  // State for cover upload
+  const [uploadingCoverId, setUploadingCoverId] = useState<string | null>(null)
+  const [coverPreview, setCoverPreview] = useState<string | null>(null)
+  const coverUploadInputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     if (user) {
       loadContent()
@@ -409,7 +414,7 @@ export default function MP4ConverterPage() {
       const { data: albumTracksData, error: albumTracksError } = await supabase
         .from('album_tracks')
         .select(`
-          id, title, duration, audio_url, session_id,
+          id, title, duration, audio_url, session_id, cover_art_url,
           albums!inner(id, title, artist, cover_art_url)
         `)
         .eq('albums.user_id', user?.id)
@@ -457,7 +462,7 @@ export default function MP4ConverterPage() {
           artist: track.albums?.artist || '',
           audio_url: track.audio_url,
           duration: track.duration,
-          cover_art_url: track.albums?.cover_art_url,
+          cover_art_url: track.cover_art_url || track.albums?.cover_art_url, // Prefer track's own cover, fallback to album cover
           type: 'album_track' as const,
           source: 'albums' as const
         })) : []
@@ -511,6 +516,20 @@ export default function MP4ConverterPage() {
               name: `${single.title} Cover`,
               url: single.cover_art_url,
               type: 'single'
+            })
+          }
+        })
+      }
+      
+      // Add track covers
+      if (Array.isArray(tracksData)) {
+        tracksData.forEach(track => {
+          if (track && track.cover_art_url) {
+            allCovers.push({
+              id: `track-${track.id}`,
+              name: `${track.title} Cover`,
+              url: track.cover_art_url,
+              type: 'custom'
             })
           }
         })
@@ -1084,6 +1103,135 @@ export default function MP4ConverterPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  const uploadCoverArt = async (itemId: string, file: File, type: 'single' | 'album_track' | 'track') => {
+    try {
+      setUploadingCoverId(itemId)
+      
+      // Upload to Supabase storage
+      const fileExt = file.name.split('.').pop()
+      const filePath = `${type === 'album_track' ? 'track' : type}_covers/${itemId}_${Date.now()}.${fileExt}`
+      
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file, { upsert: true })
+      
+      if (uploadError) {
+        console.error('Error uploading cover art:', uploadError)
+        toast({
+          title: "Error",
+          description: "Failed to upload cover art: " + uploadError.message,
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Get public URL
+      const { data } = supabase.storage.from('beats').getPublicUrl(filePath)
+      const coverUrl = data?.publicUrl || null
+
+      if (!coverUrl) {
+        toast({
+          title: "Error",
+          description: "Failed to get cover art URL",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Determine the correct table and update
+      let table: string
+      if (type === 'single') {
+        table = 'singles'
+      } else if (type === 'album_track') {
+        table = 'album_tracks'
+      } else {
+        table = 'tracks'
+      }
+
+      const { error: updateError } = await supabase
+        .from(table)
+        .update({ cover_art_url: coverUrl })
+        .eq('id', itemId)
+
+      if (updateError) {
+        toast({
+          title: "Error",
+          description: "Failed to update cover art: " + updateError.message,
+          variant: "destructive"
+        })
+        return
+      }
+
+      toast({
+        title: "Success",
+        description: "Cover art uploaded successfully!",
+      })
+
+      // Update selectedAudio if it's the current item
+      if (selectedAudio && selectedAudio.id === itemId) {
+        setSelectedAudio({
+          ...selectedAudio,
+          cover_art_url: coverUrl
+        })
+        
+        // Automatically select the new cover
+        const newCover: CoverItem = {
+          id: `${type === 'album_track' ? 'track' : type}-${itemId}`,
+          name: `${selectedAudio.title} Cover`,
+          url: coverUrl,
+          type: type === 'single' ? 'single' : type === 'album_track' ? 'album' : 'custom'
+        }
+        setSelectedCover(newCover)
+        setCustomCover(null)
+      }
+
+      // Reload content to show the new cover in the list
+      await loadContent()
+      
+    } catch (error) {
+      console.error('Error uploading cover art:', error)
+      toast({
+        title: "Error",
+        description: "Failed to upload cover art",
+        variant: "destructive"
+      })
+    } finally {
+      setUploadingCoverId(null)
+    }
+  }
+
+  const handleCoverFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // Create preview
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setCoverPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleUploadCoverFromCard = async () => {
+    if (!selectedAudio || !coverUploadInputRef.current?.files?.[0]) {
+      toast({
+        title: "Error",
+        description: "Please select a track first and choose a cover image",
+        variant: "destructive"
+      })
+      return
+    }
+
+    const file = coverUploadInputRef.current.files[0]
+    await uploadCoverArt(selectedAudio.id, file, selectedAudio.type)
+    
+    // Reset state
+    setCoverPreview(null)
+    if (coverUploadInputRef.current) {
+      coverUploadInputRef.current.value = ''
+    }
+  }
+
   if (loading) {
     return (
       <div className="container mx-auto py-8">
@@ -1357,6 +1505,85 @@ export default function MP4ConverterPage() {
                     </Button>
                   </div>
                 </div>
+                
+                {/* Upload Cover Art Card */}
+                {selectedAudio && !selectedAudio.cover_art_url && (
+                  <div className="border-t pt-4 mt-4">
+                    <Card className="p-4 bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+                      <div className="space-y-4">
+                        <div>
+                          <Label className="text-sm font-medium mb-2 block">Upload Cover Art</Label>
+                          <p className="text-sm text-gray-700 mb-2">
+                            Upload cover for: <span className="font-semibold">{selectedAudio.title}</span>
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label className="text-xs text-gray-600 mb-2 block">Upload Cover Image</Label>
+                          <input
+                            ref={coverUploadInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleCoverFileSelect}
+                          />
+                          <Button
+                            variant="outline"
+                            onClick={() => coverUploadInputRef.current?.click()}
+                            className="w-full"
+                            disabled={uploadingCoverId === selectedAudio.id}
+                          >
+                            {uploadingCoverId === selectedAudio.id ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
+                                <Image className="h-4 w-4 mr-2" />
+                                Choose Cover Image
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        {coverPreview && (
+                          <div className="space-y-2">
+                            <Label className="text-xs text-gray-600">Preview</Label>
+                            <div className="relative w-full aspect-square rounded-lg overflow-hidden border-2 border-gray-300 bg-gray-100">
+                              <img
+                                src={coverPreview}
+                                alt="Cover preview"
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              {selectedAudio.title} - {selectedAudio.artist}
+                            </p>
+                            {/* Cropping tools will be added here later */}
+                            <Button
+                              onClick={handleUploadCoverFromCard}
+                              className="w-full"
+                              disabled={uploadingCoverId === selectedAudio.id}
+                            >
+                              {uploadingCoverId === selectedAudio.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Upload Cover Art
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  </div>
+                )}
               </TabsContent>
               
               <TabsContent value="covers" className="space-y-4">

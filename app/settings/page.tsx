@@ -19,9 +19,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { User, Lock, Bell, CreditCard, Shield } from "lucide-react"
+import { User, Lock, Bell, CreditCard, Shield, Webhook } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { supabase } from '@/lib/supabaseClient'
+import { StripeWebhookSetupModal } from "@/components/StripeWebhookSetupModal"
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -60,6 +61,7 @@ export default function SettingsPage() {
     accountNumber: '',
     routingNumber: '',
   })
+  const [showWebhookModal, setShowWebhookModal] = useState(false)
 
   useEffect(() => {
     if (!user) {
@@ -236,6 +238,16 @@ export default function SettingsPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+                <div className="pt-4 border-t border-gray-700">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowWebhookModal(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <Webhook className="h-4 w-4" />
+                    Set up webhook testing
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -262,6 +274,11 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <StripeWebhookSetupModal
+        isOpen={showWebhookModal}
+        onClose={() => setShowWebhookModal(false)}
+      />
     </div>
   )
 }

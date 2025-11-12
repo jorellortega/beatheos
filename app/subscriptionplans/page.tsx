@@ -18,7 +18,7 @@ const tiers = [
       "Purchase beats",
       "Save purchased beats",
     ],
-    buttonText: "Get Started",
+    buttonText: "Signup Free",
     buttonVariant: "outline",
     popular: false,
     subtext: "free to sign up",
@@ -104,6 +104,11 @@ export default function SubscriptionPlansPage() {
               <Card
                 className={`bg-black border-primary hover:border-yellow-400 transition-all relative ${tier.popular ? 'border-2' : ''} ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
               >
+                {isDisabled && (
+                  <div className="absolute top-2 right-2 bg-primary text-black px-3 py-1 rounded-full text-xs font-semibold z-10">
+                    Coming Soon
+                  </div>
+                )}
                 {tier.popular && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-primary text-black px-4 py-1 rounded-full text-sm font-semibold">
                     Most Popular
