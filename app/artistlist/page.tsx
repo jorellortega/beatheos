@@ -981,6 +981,35 @@ export default function ArtistList() {
     bio: ''
   })
 
+  // Image upload state (for Add Artist)
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [uploadingImages, setUploadingImages] = useState(false)
+
+  // Edit artist form state
+  const [editArtistForm, setEditArtistForm] = useState({
+    name: '',
+    stage_name: '',
+    email: '',
+    phone: '',
+    genre: '',
+    location: '',
+    bio: ''
+  })
+
+  // Image upload state (for Edit Artist)
+  const [editThumbnailFile, setEditThumbnailFile] = useState<File | null>(null)
+  const [editThumbnailPreview, setEditThumbnailPreview] = useState<string | null>(null)
+  const [editLogoFile, setEditLogoFile] = useState<File | null>(null)
+  const [editLogoPreview, setEditLogoPreview] = useState<string | null>(null)
+  const [editImageFile, setEditImageFile] = useState<File | null>(null)
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null)
+  const [uploadingEditImages, setUploadingEditImages] = useState(false)
+
   // Streaming platforms visibility state
   const [showStreamingPlatforms, setShowStreamingPlatforms] = useState<{[key: string]: boolean}>({})
 
@@ -989,6 +1018,58 @@ export default function ArtistList() {
       ...prev,
       [artistId]: !prev[artistId]
     }))
+  }
+
+  // Image upload handlers
+  const handleThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setThumbnailFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setThumbnailPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setLogoFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setLogoPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setImageFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const removeThumbnail = () => {
+    setThumbnailFile(null)
+    setThumbnailPreview(null)
+  }
+
+  const removeLogo = () => {
+    setLogoFile(null)
+    setLogoPreview(null)
+  }
+
+  const removeImage = () => {
+    setImageFile(null)
+    setImagePreview(null)
   }
 
   // Fetch artists from database
@@ -1245,6 +1326,27 @@ export default function ArtistList() {
     }
   }, [user, searchQuery, genreFilter, statusFilter, priorityFilter, classFilter])
 
+  // Populate edit form when artist is selected
+  useEffect(() => {
+    if (selectedArtist && showEditArtistDialog) {
+      setEditArtistForm({
+        name: selectedArtist.name || '',
+        stage_name: selectedArtist.stage_name || '',
+        email: selectedArtist.email || '',
+        phone: selectedArtist.phone || '',
+        genre: selectedArtist.genre || '',
+        location: selectedArtist.location || '',
+        bio: selectedArtist.bio || ''
+      })
+      // Set previews to current images if they exist
+      setEditThumbnailPreview(selectedArtist.image_url || null)
+      setEditImagePreview(selectedArtist.image_url || null)
+      // Get logo from social_media if it exists
+      const logoUrl = (selectedArtist.social_media as any)?.logo_url
+      setEditLogoPreview(logoUrl || null)
+    }
+  }, [selectedArtist, showEditArtistDialog])
+
   // Load streaming platforms when streaming sections are expanded
   useEffect(() => {
     artists.forEach(artist => {
@@ -1431,10 +1533,104 @@ export default function ArtistList() {
     }
   }
 
+  // Helper function to upload image to Supabase
+  const uploadImageToSupabase = async (file: File, folder: string, fileName: string): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop()
+      const uniqueFileName = `${fileName}_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
+      const filePath = `artist-profiles/${folder}/${uniqueFileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, file, { upsert: true })
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError)
+        throw uploadError
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('beats')
+        .getPublicUrl(filePath)
+
+      return publicUrl
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      return null
+    }
+  }
+
   const handleAddArtist = async () => {
     try {
-      const artistData = {
-        user_id: user?.id, // For API authentication
+      if (!user?.id) {
+        toast({
+          title: "Error",
+          description: "Please log in to add an artist",
+          variant: "destructive"
+        })
+        return
+      }
+
+      if (!newArtistForm.name.trim()) {
+        toast({
+          title: "Error",
+          description: "Artist name is required!",
+          variant: "destructive"
+        })
+        return
+      }
+
+      setUploadingImages(true)
+
+      // Upload images first
+      let thumbnailUrl: string | null = null
+      let logoUrl: string | null = null
+      let imageUrl: string | null = null
+
+      if (thumbnailFile) {
+        thumbnailUrl = await uploadImageToSupabase(thumbnailFile, user.id, 'thumbnail')
+        if (!thumbnailUrl) {
+          toast({
+            title: "Error",
+            description: "Failed to upload thumbnail. Please try again.",
+            variant: "destructive"
+          })
+          setUploadingImages(false)
+          return
+        }
+      }
+
+      if (logoFile) {
+        logoUrl = await uploadImageToSupabase(logoFile, user.id, 'logo')
+        if (!logoUrl) {
+          toast({
+            title: "Error",
+            description: "Failed to upload logo. Please try again.",
+            variant: "destructive"
+          })
+          setUploadingImages(false)
+          return
+        }
+      }
+
+      if (imageFile) {
+        imageUrl = await uploadImageToSupabase(imageFile, user.id, 'image')
+        if (!imageUrl) {
+          toast({
+            title: "Error",
+            description: "Failed to upload image. Please try again.",
+            variant: "destructive"
+          })
+          setUploadingImages(false)
+          return
+        }
+      }
+
+      // Use imageUrl for the main image (thumbnail if no main image, logo if no thumbnail)
+      const finalImageUrl = imageUrl || thumbnailUrl || logoUrl
+
+      const artistData: any = {
+        user_id: user.id, // For API authentication
         name: newArtistForm.name,
         stage_name: newArtistForm.stage_name,
         email: newArtistForm.email,
@@ -1448,13 +1644,14 @@ export default function ArtistList() {
         rank: 'C'
       }
 
-      if (!artistData.name.trim()) {
-        toast({
-          title: "Error",
-          description: "Artist name is required!",
-          variant: "destructive"
-        })
-        return
+      // Add image URLs - store logo in social_media JSONB for now, image_url for main image
+      if (finalImageUrl) {
+        artistData.image_url = finalImageUrl
+      }
+      
+      // Store logo URL in social_media JSONB field (we can add a dedicated column later if needed)
+      if (logoUrl) {
+        artistData.social_media = { ...artistData.social_media, logo_url: logoUrl }
       }
 
       console.log('🚀 [ADD ARTIST] Making request to /api/label-artists with data:', artistData)
@@ -1492,12 +1689,22 @@ export default function ArtistList() {
         bio: ''
       })
       
+      // Reset image uploads
+      setThumbnailFile(null)
+      setThumbnailPreview(null)
+      setLogoFile(null)
+      setLogoPreview(null)
+      setImageFile(null)
+      setImagePreview(null)
+      
       setShowAddArtistDialog(false)
+      setUploadingImages(false)
       
       // Refresh the artists list
       fetchArtists()
     } catch (error) {
       console.error('Error adding artist:', error)
+      setUploadingImages(false)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to add artist. Please try again.",
@@ -1506,23 +1713,243 @@ export default function ArtistList() {
     }
   }
 
-  const handleEditArtist = () => {
-    // Mock implementation
-    toast({
-      title: "Success",
-      description: "Artist updated successfully!",
-    })
-    setShowEditArtistDialog(false)
-    setSelectedArtist(null)
+  // Edit image upload handlers
+  const handleEditThumbnailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setEditThumbnailFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setEditThumbnailPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
   }
 
-  const handleDeleteArtist = (artistId: string) => {
-    // Mock implementation
-    setArtists(prev => prev.filter(a => a.id !== artistId))
-    toast({
-      title: "Success",
-      description: "Artist deleted successfully!",
-    })
+  const handleEditLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setEditLogoFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setEditLogoPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleEditImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setEditImageFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setEditImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const removeEditThumbnail = () => {
+    setEditThumbnailFile(null)
+    setEditThumbnailPreview(null)
+  }
+
+  const removeEditLogo = () => {
+    setEditLogoFile(null)
+    setEditLogoPreview(null)
+  }
+
+  const removeEditImage = () => {
+    setEditImageFile(null)
+    setEditImagePreview(null)
+  }
+
+  const handleEditArtist = async () => {
+    if (!selectedArtist || !user?.id) {
+      toast({
+        title: "Error",
+        description: "Please select an artist and ensure you're logged in",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      setUploadingEditImages(true)
+
+      // Upload images first if any are selected
+      let thumbnailUrl: string | null = null
+      let logoUrl: string | null = null
+      let imageUrl: string | null = null
+
+      if (editThumbnailFile) {
+        thumbnailUrl = await uploadImageToSupabase(editThumbnailFile, user.id, 'thumbnail')
+        if (!thumbnailUrl) {
+          toast({
+            title: "Error",
+            description: "Failed to upload thumbnail. Please try again.",
+            variant: "destructive"
+          })
+          setUploadingEditImages(false)
+          return
+        }
+      }
+
+      if (editLogoFile) {
+        logoUrl = await uploadImageToSupabase(editLogoFile, user.id, 'logo')
+        if (!logoUrl) {
+          toast({
+            title: "Error",
+            description: "Failed to upload logo. Please try again.",
+            variant: "destructive"
+          })
+          setUploadingEditImages(false)
+          return
+        }
+      }
+
+      if (editImageFile) {
+        imageUrl = await uploadImageToSupabase(editImageFile, user.id, 'image')
+        if (!imageUrl) {
+          toast({
+            title: "Error",
+            description: "Failed to upload image. Please try again.",
+            variant: "destructive"
+          })
+          setUploadingEditImages(false)
+          return
+        }
+      }
+
+      // Use imageUrl for the main image (thumbnail if no main image, keep existing if no new uploads)
+      const finalImageUrl = imageUrl || thumbnailUrl
+
+      const updateData: any = {
+        user_id: user.id,
+        id: selectedArtist.id,
+        name: editArtistForm.name || selectedArtist.name,
+        stage_name: editArtistForm.stage_name !== undefined ? editArtistForm.stage_name : selectedArtist.stage_name,
+        email: editArtistForm.email !== undefined ? editArtistForm.email : selectedArtist.email,
+        phone: editArtistForm.phone !== undefined ? editArtistForm.phone : selectedArtist.phone,
+        genre: editArtistForm.genre || selectedArtist.genre,
+        location: editArtistForm.location !== undefined ? editArtistForm.location : selectedArtist.location,
+        bio: editArtistForm.bio !== undefined ? editArtistForm.bio : selectedArtist.bio,
+      }
+
+      // Update image URLs if new images were uploaded
+      if (finalImageUrl) {
+        updateData.image_url = finalImageUrl
+      }
+
+      // Update logo in social_media if uploaded, otherwise keep existing
+      const currentSocialMedia = selectedArtist.social_media || {}
+      if (logoUrl) {
+        updateData.social_media = { ...currentSocialMedia, logo_url: logoUrl }
+      } else if (currentSocialMedia && Object.keys(currentSocialMedia).length > 0) {
+        updateData.social_media = currentSocialMedia
+      }
+
+      console.log('🚀 [EDIT ARTIST] Making request to /api/label-artists with data:', updateData)
+
+      const response = await fetch('/api/label-artists', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData)
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update artist')
+      }
+
+      toast({
+        title: "Success",
+        description: "Artist updated successfully!",
+      })
+
+      // Reset edit form and image uploads
+      setEditArtistForm({
+        name: '',
+        stage_name: '',
+        email: '',
+        phone: '',
+        genre: '',
+        location: '',
+        bio: ''
+      })
+      setEditThumbnailFile(null)
+      setEditThumbnailPreview(null)
+      setEditLogoFile(null)
+      setEditLogoPreview(null)
+      setEditImageFile(null)
+      setEditImagePreview(null)
+
+      setShowEditArtistDialog(false)
+      setSelectedArtist(null)
+      setUploadingEditImages(false)
+
+      // Refresh the artists list
+      fetchArtists()
+    } catch (error) {
+      console.error('Error updating artist:', error)
+      setUploadingEditImages(false)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update artist. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleDeleteArtist = async (artistId: string) => {
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "Please log in to delete an artist",
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Confirm deletion
+    if (!confirm('Are you sure you want to delete this artist? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const params = new URLSearchParams()
+      params.append('id', artistId)
+      params.append('user_id', user.id)
+
+      const response = await fetch(`/api/label-artists?${params.toString()}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete artist')
+      }
+
+      toast({
+        title: "Success",
+        description: "Artist deleted successfully!",
+      })
+
+      // Refresh the artists list
+      fetchArtists()
+    } catch (error) {
+      console.error('Error deleting artist:', error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete artist. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const openChecklistModal = (artist: Artist) => {
@@ -1876,8 +2303,77 @@ export default function ArtistList() {
             <SelectItem value="Electronic">Electronic</SelectItem>
             <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
             <SelectItem value="Pop">Pop</SelectItem>
-            <SelectItem value="Country">Country</SelectItem>
+            <SelectItem value="Rock">Rock</SelectItem>
             <SelectItem value="R&B">R&B</SelectItem>
+            <SelectItem value="Country">Country</SelectItem>
+            <SelectItem value="Jazz">Jazz</SelectItem>
+            <SelectItem value="Blues">Blues</SelectItem>
+            <SelectItem value="Classical">Classical</SelectItem>
+            <SelectItem value="Folk">Folk</SelectItem>
+            <SelectItem value="Latin">Latin</SelectItem>
+            <SelectItem value="Reggae">Reggae</SelectItem>
+            <SelectItem value="Metal">Metal</SelectItem>
+            <SelectItem value="Punk">Punk</SelectItem>
+            <SelectItem value="Indie">Indie</SelectItem>
+            <SelectItem value="Alternative">Alternative</SelectItem>
+            <SelectItem value="Soul">Soul</SelectItem>
+            <SelectItem value="Funk">Funk</SelectItem>
+            <SelectItem value="Gospel">Gospel</SelectItem>
+            <SelectItem value="World Music">World Music</SelectItem>
+            <SelectItem value="Ambient">Ambient</SelectItem>
+            <SelectItem value="Techno">Techno</SelectItem>
+            <SelectItem value="House">House</SelectItem>
+            <SelectItem value="Trap">Trap</SelectItem>
+            <SelectItem value="Drill">Drill</SelectItem>
+            <SelectItem value="Afrobeats">Afrobeats</SelectItem>
+            <SelectItem value="K-Pop">K-Pop</SelectItem>
+            <SelectItem value="J-Pop">J-Pop</SelectItem>
+            <SelectItem value="Dancehall">Dancehall</SelectItem>
+            <SelectItem value="Soca">Soca</SelectItem>
+            <SelectItem value="Christian">Christian</SelectItem>
+            <SelectItem value="Grunge">Grunge</SelectItem>
+            <SelectItem value="Progressive Rock">Progressive Rock</SelectItem>
+            <SelectItem value="Hard Rock">Hard Rock</SelectItem>
+            <SelectItem value="Soft Rock">Soft Rock</SelectItem>
+            <SelectItem value="Country Rock">Country Rock</SelectItem>
+            <SelectItem value="Rap">Rap</SelectItem>
+            <SelectItem value="Trap">Trap</SelectItem>
+            <SelectItem value="Drill">Drill</SelectItem>
+            <SelectItem value="Mumble Rap">Mumble Rap</SelectItem>
+            <SelectItem value="Conscious Hip-Hop">Conscious Hip-Hop</SelectItem>
+            <SelectItem value="EDM">EDM</SelectItem>
+            <SelectItem value="Dubstep">Dubstep</SelectItem>
+            <SelectItem value="Trance">Trance</SelectItem>
+            <SelectItem value="Drum & Bass">Drum & Bass</SelectItem>
+            <SelectItem value="Garage">Garage</SelectItem>
+            <SelectItem value="Disco">Disco</SelectItem>
+            <SelectItem value="Swing">Swing</SelectItem>
+            <SelectItem value="Bossa Nova">Bossa Nova</SelectItem>
+            <SelectItem value="Salsa">Salsa</SelectItem>
+            <SelectItem value="Bachata">Bachata</SelectItem>
+            <SelectItem value="Reggaeton">Reggaeton</SelectItem>
+            <SelectItem value="Cumbia">Cumbia</SelectItem>
+            <SelectItem value="Flamenco">Flamenco</SelectItem>
+            <SelectItem value="Bluegrass">Bluegrass</SelectItem>
+            <SelectItem value="Americana">Americana</SelectItem>
+            <SelectItem value="New Age">New Age</SelectItem>
+            <SelectItem value="Experimental">Experimental</SelectItem>
+            <SelectItem value="Industrial">Industrial</SelectItem>
+            <SelectItem value="Goth">Goth</SelectItem>
+            <SelectItem value="Emo">Emo</SelectItem>
+            <SelectItem value="Screamo">Screamo</SelectItem>
+            <SelectItem value="Post-Rock">Post-Rock</SelectItem>
+            <SelectItem value="Shoegaze">Shoegaze</SelectItem>
+            <SelectItem value="Synthwave">Synthwave</SelectItem>
+            <SelectItem value="Vaporwave">Vaporwave</SelectItem>
+            <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
+            <SelectItem value="Chillhop">Chillhop</SelectItem>
+            <SelectItem value="Lofi Hip-Hop">Lofi Hip-Hop</SelectItem>
+            <SelectItem value="Instrumental">Instrumental</SelectItem>
+            <SelectItem value="Orchestral">Orchestral</SelectItem>
+            <SelectItem value="Film Score">Film Score</SelectItem>
+            <SelectItem value="Video Game Music">Video Game Music</SelectItem>
+            <SelectItem value="Other">Other</SelectItem>
           </SelectContent>
         </Select>
         
@@ -1929,7 +2425,7 @@ export default function ArtistList() {
                 <div className="flex items-start gap-4">
                   <div className="relative">
                     <img
-                      src={artist.image_url || '/placeholder-artist.jpg'}
+                      src={artist.image_url || '/placeholder-user.jpg'}
                       alt={artist.name}
                       className="w-20 h-20 rounded-full object-cover"
                     />
@@ -2178,7 +2674,27 @@ export default function ArtistList() {
       </div>
 
       {/* Add Artist Dialog */}
-      <Dialog open={showAddArtistDialog} onOpenChange={setShowAddArtistDialog}>
+      <Dialog open={showAddArtistDialog} onOpenChange={(open) => {
+        setShowAddArtistDialog(open)
+        if (!open) {
+          // Reset form and image uploads when dialog closes
+          setNewArtistForm({
+            name: '',
+            stage_name: '',
+            email: '',
+            phone: '',
+            genre: '',
+            location: '',
+            bio: ''
+          })
+          setThumbnailFile(null)
+          setThumbnailPreview(null)
+          setLogoFile(null)
+          setLogoPreview(null)
+          setImageFile(null)
+          setImagePreview(null)
+        }
+      }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add New Artist</DialogTitle>
@@ -2238,8 +2754,75 @@ export default function ArtistList() {
                   <SelectItem value="Electronic">Electronic</SelectItem>
                   <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
                   <SelectItem value="Pop">Pop</SelectItem>
-                  <SelectItem value="Country">Country</SelectItem>
+                  <SelectItem value="Rock">Rock</SelectItem>
                   <SelectItem value="R&B">R&B</SelectItem>
+                  <SelectItem value="Country">Country</SelectItem>
+                  <SelectItem value="Jazz">Jazz</SelectItem>
+                  <SelectItem value="Blues">Blues</SelectItem>
+                  <SelectItem value="Classical">Classical</SelectItem>
+                  <SelectItem value="Folk">Folk</SelectItem>
+                  <SelectItem value="Latin">Latin</SelectItem>
+                  <SelectItem value="Reggae">Reggae</SelectItem>
+                  <SelectItem value="Metal">Metal</SelectItem>
+                  <SelectItem value="Punk">Punk</SelectItem>
+                  <SelectItem value="Indie">Indie</SelectItem>
+                  <SelectItem value="Alternative">Alternative</SelectItem>
+                  <SelectItem value="Soul">Soul</SelectItem>
+                  <SelectItem value="Funk">Funk</SelectItem>
+                  <SelectItem value="Gospel">Gospel</SelectItem>
+                  <SelectItem value="World Music">World Music</SelectItem>
+                  <SelectItem value="Ambient">Ambient</SelectItem>
+                  <SelectItem value="Techno">Techno</SelectItem>
+                  <SelectItem value="House">House</SelectItem>
+                  <SelectItem value="Trap">Trap</SelectItem>
+                  <SelectItem value="Drill">Drill</SelectItem>
+                  <SelectItem value="Afrobeats">Afrobeats</SelectItem>
+                  <SelectItem value="K-Pop">K-Pop</SelectItem>
+                  <SelectItem value="J-Pop">J-Pop</SelectItem>
+                  <SelectItem value="Dancehall">Dancehall</SelectItem>
+                  <SelectItem value="Soca">Soca</SelectItem>
+                  <SelectItem value="Christian">Christian</SelectItem>
+                  <SelectItem value="Grunge">Grunge</SelectItem>
+                  <SelectItem value="Progressive Rock">Progressive Rock</SelectItem>
+                  <SelectItem value="Hard Rock">Hard Rock</SelectItem>
+                  <SelectItem value="Soft Rock">Soft Rock</SelectItem>
+                  <SelectItem value="Country Rock">Country Rock</SelectItem>
+                  <SelectItem value="Rap">Rap</SelectItem>
+                  <SelectItem value="Mumble Rap">Mumble Rap</SelectItem>
+                  <SelectItem value="Conscious Hip-Hop">Conscious Hip-Hop</SelectItem>
+                  <SelectItem value="EDM">EDM</SelectItem>
+                  <SelectItem value="Dubstep">Dubstep</SelectItem>
+                  <SelectItem value="Trance">Trance</SelectItem>
+                  <SelectItem value="Drum & Bass">Drum & Bass</SelectItem>
+                  <SelectItem value="Garage">Garage</SelectItem>
+                  <SelectItem value="Disco">Disco</SelectItem>
+                  <SelectItem value="Swing">Swing</SelectItem>
+                  <SelectItem value="Bossa Nova">Bossa Nova</SelectItem>
+                  <SelectItem value="Salsa">Salsa</SelectItem>
+                  <SelectItem value="Bachata">Bachata</SelectItem>
+                  <SelectItem value="Reggaeton">Reggaeton</SelectItem>
+                  <SelectItem value="Cumbia">Cumbia</SelectItem>
+                  <SelectItem value="Flamenco">Flamenco</SelectItem>
+                  <SelectItem value="Bluegrass">Bluegrass</SelectItem>
+                  <SelectItem value="Americana">Americana</SelectItem>
+                  <SelectItem value="New Age">New Age</SelectItem>
+                  <SelectItem value="Experimental">Experimental</SelectItem>
+                  <SelectItem value="Industrial">Industrial</SelectItem>
+                  <SelectItem value="Goth">Goth</SelectItem>
+                  <SelectItem value="Emo">Emo</SelectItem>
+                  <SelectItem value="Screamo">Screamo</SelectItem>
+                  <SelectItem value="Post-Rock">Post-Rock</SelectItem>
+                  <SelectItem value="Shoegaze">Shoegaze</SelectItem>
+                  <SelectItem value="Synthwave">Synthwave</SelectItem>
+                  <SelectItem value="Vaporwave">Vaporwave</SelectItem>
+                  <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
+                  <SelectItem value="Chillhop">Chillhop</SelectItem>
+                  <SelectItem value="Lofi Hip-Hop">Lofi Hip-Hop</SelectItem>
+                  <SelectItem value="Instrumental">Instrumental</SelectItem>
+                  <SelectItem value="Orchestral">Orchestral</SelectItem>
+                  <SelectItem value="Film Score">Film Score</SelectItem>
+                  <SelectItem value="Video Game Music">Video Game Music</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2261,20 +2844,163 @@ export default function ArtistList() {
                 placeholder="Enter artist bio" 
               />
             </div>
+            
+            {/* Image Uploads */}
+            <div className="sm:col-span-2 border-t pt-4 mt-2">
+              <h3 className="text-sm font-semibold mb-4">Images</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Thumbnail/Logo Upload */}
+                <div>
+                  <Label htmlFor="thumbnail">Thumbnail/Logo</Label>
+                  <div className="mt-2">
+                    {thumbnailPreview ? (
+                      <div className="relative">
+                        <img 
+                          src={thumbnailPreview} 
+                          alt="Thumbnail preview" 
+                          className="w-full h-32 object-cover rounded-md border"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute top-1 right-1"
+                          onClick={removeThumbnail}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed rounded-md p-4 text-center">
+                        <img 
+                          src="/placeholder-user.jpg" 
+                          alt="Placeholder" 
+                          className="w-full h-32 object-cover rounded-md opacity-50"
+                        />
+                        <Input
+                          id="thumbnail"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleThumbnailChange}
+                          className="mt-2"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Logo Upload */}
+                <div>
+                  <Label htmlFor="logo">Logo</Label>
+                  <div className="mt-2">
+                    {logoPreview ? (
+                      <div className="relative">
+                        <img 
+                          src={logoPreview} 
+                          alt="Logo preview" 
+                          className="w-full h-32 object-cover rounded-md border"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute top-1 right-1"
+                          onClick={removeLogo}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed rounded-md p-4 text-center">
+                        <div className="w-full h-32 bg-gray-100 rounded-md flex items-center justify-center text-gray-400 text-sm">
+                          No logo
+                        </div>
+                        <Input
+                          id="logo"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoChange}
+                          className="mt-2"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Main Image Upload */}
+                <div>
+                  <Label htmlFor="image">Main Image</Label>
+                  <div className="mt-2">
+                    {imagePreview ? (
+                      <div className="relative">
+                        <img 
+                          src={imagePreview} 
+                          alt="Image preview" 
+                          className="w-full h-32 object-cover rounded-md border"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute top-1 right-1"
+                          onClick={removeImage}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed rounded-md p-4 text-center">
+                        <div className="w-full h-32 bg-gray-100 rounded-md flex items-center justify-center text-gray-400 text-sm">
+                          No image
+                        </div>
+                        <Input
+                          id="image"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageChange}
+                          className="mt-2"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddArtistDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddArtist}>
-              Add Artist
+            <Button onClick={handleAddArtist} disabled={uploadingImages}>
+              {uploadingImages ? "Uploading..." : "Add Artist"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Edit Artist Dialog */}
-      <Dialog open={showEditArtistDialog} onOpenChange={setShowEditArtistDialog}>
+      <Dialog open={showEditArtistDialog} onOpenChange={(open) => {
+        setShowEditArtistDialog(open)
+        if (!open) {
+          // Reset edit form and image uploads when dialog closes
+          setEditArtistForm({
+            name: '',
+            stage_name: '',
+            email: '',
+            phone: '',
+            genre: '',
+            location: '',
+            bio: ''
+          })
+          setEditThumbnailFile(null)
+          setEditThumbnailPreview(null)
+          setEditLogoFile(null)
+          setEditLogoPreview(null)
+          setEditImageFile(null)
+          setEditImagePreview(null)
+          setSelectedArtist(null)
+        }
+      }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Artist</DialogTitle>
@@ -2286,23 +3012,43 @@ export default function ArtistList() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="edit-name">Artist Name</Label>
-                <Input id="edit-name" defaultValue={selectedArtist.name} />
+                <Input 
+                  id="edit-name" 
+                  value={editArtistForm.name}
+                  onChange={(e) => setEditArtistForm({...editArtistForm, name: e.target.value})}
+                />
               </div>
               <div>
                 <Label htmlFor="edit-stage-name">Stage Name</Label>
-                <Input id="edit-stage-name" defaultValue={selectedArtist.stage_name} />
+                <Input 
+                  id="edit-stage-name" 
+                  value={editArtistForm.stage_name}
+                  onChange={(e) => setEditArtistForm({...editArtistForm, stage_name: e.target.value})}
+                />
               </div>
               <div>
                 <Label htmlFor="edit-email">Email</Label>
-                <Input id="edit-email" type="email" defaultValue={selectedArtist.email} />
+                <Input 
+                  id="edit-email" 
+                  type="email" 
+                  value={editArtistForm.email}
+                  onChange={(e) => setEditArtistForm({...editArtistForm, email: e.target.value})}
+                />
               </div>
               <div>
                 <Label htmlFor="edit-phone">Phone</Label>
-                <Input id="edit-phone" defaultValue={selectedArtist.phone} />
+                <Input 
+                  id="edit-phone" 
+                  value={editArtistForm.phone}
+                  onChange={(e) => setEditArtistForm({...editArtistForm, phone: e.target.value})}
+                />
               </div>
               <div>
                 <Label htmlFor="edit-genre">Genre</Label>
-                <Select defaultValue={selectedArtist.genre}>
+                <Select 
+                  value={editArtistForm.genre}
+                  onValueChange={(value) => setEditArtistForm({...editArtistForm, genre: value})}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -2310,18 +3056,231 @@ export default function ArtistList() {
                     <SelectItem value="Electronic">Electronic</SelectItem>
                     <SelectItem value="Hip-Hop">Hip-Hop</SelectItem>
                     <SelectItem value="Pop">Pop</SelectItem>
-                    <SelectItem value="Country">Country</SelectItem>
+                    <SelectItem value="Rock">Rock</SelectItem>
                     <SelectItem value="R&B">R&B</SelectItem>
+                    <SelectItem value="Country">Country</SelectItem>
+                    <SelectItem value="Jazz">Jazz</SelectItem>
+                    <SelectItem value="Blues">Blues</SelectItem>
+                    <SelectItem value="Classical">Classical</SelectItem>
+                    <SelectItem value="Folk">Folk</SelectItem>
+                    <SelectItem value="Latin">Latin</SelectItem>
+                    <SelectItem value="Reggae">Reggae</SelectItem>
+                    <SelectItem value="Metal">Metal</SelectItem>
+                    <SelectItem value="Punk">Punk</SelectItem>
+                    <SelectItem value="Indie">Indie</SelectItem>
+                    <SelectItem value="Alternative">Alternative</SelectItem>
+                    <SelectItem value="Soul">Soul</SelectItem>
+                    <SelectItem value="Funk">Funk</SelectItem>
+                    <SelectItem value="Gospel">Gospel</SelectItem>
+                    <SelectItem value="World Music">World Music</SelectItem>
+                    <SelectItem value="Ambient">Ambient</SelectItem>
+                    <SelectItem value="Techno">Techno</SelectItem>
+                    <SelectItem value="House">House</SelectItem>
+                    <SelectItem value="Trap">Trap</SelectItem>
+                    <SelectItem value="Drill">Drill</SelectItem>
+                    <SelectItem value="Afrobeats">Afrobeats</SelectItem>
+                    <SelectItem value="K-Pop">K-Pop</SelectItem>
+                    <SelectItem value="J-Pop">J-Pop</SelectItem>
+                    <SelectItem value="Dancehall">Dancehall</SelectItem>
+                    <SelectItem value="Soca">Soca</SelectItem>
+                    <SelectItem value="Christian">Christian</SelectItem>
+                    <SelectItem value="Grunge">Grunge</SelectItem>
+                    <SelectItem value="Progressive Rock">Progressive Rock</SelectItem>
+                    <SelectItem value="Hard Rock">Hard Rock</SelectItem>
+                    <SelectItem value="Soft Rock">Soft Rock</SelectItem>
+                    <SelectItem value="Country Rock">Country Rock</SelectItem>
+                    <SelectItem value="Rap">Rap</SelectItem>
+                    <SelectItem value="Mumble Rap">Mumble Rap</SelectItem>
+                    <SelectItem value="Conscious Hip-Hop">Conscious Hip-Hop</SelectItem>
+                    <SelectItem value="EDM">EDM</SelectItem>
+                    <SelectItem value="Dubstep">Dubstep</SelectItem>
+                    <SelectItem value="Trance">Trance</SelectItem>
+                    <SelectItem value="Drum & Bass">Drum & Bass</SelectItem>
+                    <SelectItem value="Garage">Garage</SelectItem>
+                    <SelectItem value="Disco">Disco</SelectItem>
+                    <SelectItem value="Swing">Swing</SelectItem>
+                    <SelectItem value="Bossa Nova">Bossa Nova</SelectItem>
+                    <SelectItem value="Salsa">Salsa</SelectItem>
+                    <SelectItem value="Bachata">Bachata</SelectItem>
+                    <SelectItem value="Reggaeton">Reggaeton</SelectItem>
+                    <SelectItem value="Cumbia">Cumbia</SelectItem>
+                    <SelectItem value="Flamenco">Flamenco</SelectItem>
+                    <SelectItem value="Bluegrass">Bluegrass</SelectItem>
+                    <SelectItem value="Americana">Americana</SelectItem>
+                    <SelectItem value="New Age">New Age</SelectItem>
+                    <SelectItem value="Experimental">Experimental</SelectItem>
+                    <SelectItem value="Industrial">Industrial</SelectItem>
+                    <SelectItem value="Goth">Goth</SelectItem>
+                    <SelectItem value="Emo">Emo</SelectItem>
+                    <SelectItem value="Screamo">Screamo</SelectItem>
+                    <SelectItem value="Post-Rock">Post-Rock</SelectItem>
+                    <SelectItem value="Shoegaze">Shoegaze</SelectItem>
+                    <SelectItem value="Synthwave">Synthwave</SelectItem>
+                    <SelectItem value="Vaporwave">Vaporwave</SelectItem>
+                    <SelectItem value="Lo-Fi">Lo-Fi</SelectItem>
+                    <SelectItem value="Chillhop">Chillhop</SelectItem>
+                    <SelectItem value="Lofi Hip-Hop">Lofi Hip-Hop</SelectItem>
+                    <SelectItem value="Instrumental">Instrumental</SelectItem>
+                    <SelectItem value="Orchestral">Orchestral</SelectItem>
+                    <SelectItem value="Film Score">Film Score</SelectItem>
+                    <SelectItem value="Video Game Music">Video Game Music</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label htmlFor="edit-location">Location</Label>
-                <Input id="edit-location" defaultValue={selectedArtist.location} />
+                <Input 
+                  id="edit-location" 
+                  value={editArtistForm.location}
+                  onChange={(e) => setEditArtistForm({...editArtistForm, location: e.target.value})}
+                />
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="edit-bio">Bio</Label>
-                <Textarea id="edit-bio" defaultValue={selectedArtist.bio} />
+                <Textarea 
+                  id="edit-bio" 
+                  value={editArtistForm.bio}
+                  onChange={(e) => setEditArtistForm({...editArtistForm, bio: e.target.value})}
+                />
+              </div>
+
+              {/* Image Uploads for Edit */}
+              <div className="sm:col-span-2 border-t pt-4 mt-2">
+                <h3 className="text-sm font-semibold mb-4">Images</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Thumbnail/Logo Upload */}
+                  <div>
+                    <Label htmlFor="edit-thumbnail">Thumbnail/Logo</Label>
+                    <div className="mt-2">
+                      {editThumbnailPreview ? (
+                        <div className="relative">
+                          <img 
+                            src={editThumbnailPreview} 
+                            alt="Thumbnail preview" 
+                            className="w-full h-32 object-cover rounded-md border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1"
+                            onClick={removeEditThumbnail}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed rounded-md p-4 text-center">
+                          <img 
+                            src={selectedArtist.image_url || '/placeholder-user.jpg'} 
+                            alt="Current thumbnail" 
+                            className="w-full h-32 object-cover rounded-md opacity-50"
+                          />
+                          <Input
+                            id="edit-thumbnail"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleEditThumbnailChange}
+                            className="mt-2"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Logo Upload */}
+                  <div>
+                    <Label htmlFor="edit-logo">Logo</Label>
+                    <div className="mt-2">
+                      {editLogoPreview ? (
+                        <div className="relative">
+                          <img 
+                            src={editLogoPreview} 
+                            alt="Logo preview" 
+                            className="w-full h-32 object-cover rounded-md border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1"
+                            onClick={removeEditLogo}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed rounded-md p-4 text-center">
+                          {(selectedArtist.social_media as any)?.logo_url ? (
+                            <img 
+                              src={(selectedArtist.social_media as any).logo_url} 
+                              alt="Current logo" 
+                              className="w-full h-32 object-cover rounded-md opacity-50"
+                            />
+                          ) : (
+                            <div className="w-full h-32 bg-gray-100 rounded-md flex items-center justify-center text-gray-400 text-sm">
+                              No logo
+                            </div>
+                          )}
+                          <Input
+                            id="edit-logo"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleEditLogoChange}
+                            className="mt-2"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Main Image Upload */}
+                  <div>
+                    <Label htmlFor="edit-image">Main Image</Label>
+                    <div className="mt-2">
+                      {editImagePreview ? (
+                        <div className="relative">
+                          <img 
+                            src={editImagePreview} 
+                            alt="Image preview" 
+                            className="w-full h-32 object-cover rounded-md border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1"
+                            onClick={removeEditImage}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed rounded-md p-4 text-center">
+                          {selectedArtist.image_url ? (
+                            <img 
+                              src={selectedArtist.image_url} 
+                              alt="Current image" 
+                              className="w-full h-32 object-cover rounded-md opacity-50"
+                            />
+                          ) : (
+                            <div className="w-full h-32 bg-gray-100 rounded-md flex items-center justify-center text-gray-400 text-sm">
+                              No image
+                            </div>
+                          )}
+                          <Input
+                            id="edit-image"
+                            type="file"
+                            accept="image/*"
+                            onChange={handleEditImageChange}
+                            className="mt-2"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -2329,8 +3288,8 @@ export default function ArtistList() {
             <Button variant="outline" onClick={() => setShowEditArtistDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleEditArtist}>
-              Update Artist
+            <Button onClick={handleEditArtist} disabled={uploadingEditImages}>
+              {uploadingEditImages ? "Uploading..." : "Update Artist"}
             </Button>
           </DialogFooter>
         </DialogContent>

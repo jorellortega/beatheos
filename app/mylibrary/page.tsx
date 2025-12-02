@@ -314,8 +314,41 @@ export default function MyLibrary() {
     audio_url: '',
     duration: ''
   });
+  const [selectedLabelArtistIdForSingle, setSelectedLabelArtistIdForSingle] = useState<string>('');
   const [creatingSingle, setCreatingSingle] = useState(false);
   const [createSingleError, setCreateSingleError] = useState<string | null>(null);
+
+  // Label artists state (for artist selection)
+  const [labelArtists, setLabelArtists] = useState<{ id: string; name: string; stage_name?: string }[]>([]);
+  const [loadingLabelArtists, setLoadingLabelArtists] = useState(false);
+
+  // Fetch label artists
+  useEffect(() => {
+    async function fetchLabelArtists() {
+      if (!user?.id) return;
+      
+      setLoadingLabelArtists(true);
+      try {
+        const params = new URLSearchParams();
+        params.append('user_id', user.id);
+        
+        const response = await fetch(`/api/label-artists?${params.toString()}`);
+        const data = await response.json();
+        
+        if (response.ok && data.artists) {
+          setLabelArtists(data.artists);
+        }
+      } catch (error) {
+        console.error('Error fetching label artists:', error);
+      } finally {
+        setLoadingLabelArtists(false);
+      }
+    }
+    
+    if (user?.id) {
+      fetchLabelArtists();
+    }
+  }, [user?.id]);
   
   // Edit track state
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
@@ -612,6 +645,7 @@ export default function MyLibrary() {
     cover_art_url: '',
     description: '',
   });
+  const [selectedLabelArtistIdForAlbum, setSelectedLabelArtistIdForAlbum] = useState<string>('');
   const [creatingAlbum, setCreatingAlbum] = useState(false);
   const [createAlbumError, setCreateAlbumError] = useState<string | null>(null);
 
@@ -846,23 +880,40 @@ export default function MyLibrary() {
 
     setCreatingSingle(true);
     try {
+      // Get the selected artist's name if label_artist_id is set
+      const selectedArtist = selectedLabelArtistIdForSingle 
+        ? labelArtists.find(a => a.id === selectedLabelArtistIdForSingle)
+        : null;
+      const artistName = selectedArtist 
+        ? (selectedArtist.stage_name || selectedArtist.name)
+        : newSingle.artist;
+
+      console.log('🔍 [LIBRARY CREATE SINGLE] Creating single:', {
+        title: newSingle.title,
+        artist: artistName,
+        label_artist_id: selectedLabelArtistIdForSingle || null
+      });
+
       const { data, error } = await supabase
         .from('singles')
         .insert([{
           title: newSingle.title,
-          artist: newSingle.artist,
+          artist: artistName,
           description: newSingle.description,
           release_date: newSingle.release_date,
           cover_art_url: newSingle.cover_art_url,
           audio_url: newSingle.audio_url,
           duration: newSingle.duration,
           user_id: user?.id,
-          status: 'draft'
+          status: 'draft',
+          label_artist_id: selectedLabelArtistIdForSingle || null
         }])
         .select()
         .single();
 
       if (error) throw error;
+
+      console.log('🔍 [LIBRARY CREATE SINGLE] Single created:', data);
 
       // Update local state
       if (data) {
@@ -878,6 +929,7 @@ export default function MyLibrary() {
         audio_url: '',
         duration: ''
       });
+      setSelectedLabelArtistIdForSingle('');
     } catch (error) {
       console.error('Error creating single:', error);
       setCreateSingleError('Failed to create single. Please try again.');
@@ -2127,27 +2179,46 @@ export default function MyLibrary() {
     }
     setCreatingAlbum(true);
     setCreateAlbumError(null);
+    
+    // Get the selected artist's name if label_artist_id is set
+    const selectedArtist = selectedLabelArtistIdForAlbum 
+      ? labelArtists.find(a => a.id === selectedLabelArtistIdForAlbum)
+      : null;
+    const artistName = selectedArtist 
+      ? (selectedArtist.stage_name || selectedArtist.name)
+      : newAlbum.artist;
+
+    console.log('🔍 [LIBRARY CREATE ALBUM] Creating album:', {
+      title: newAlbum.title,
+      artist: artistName,
+      label_artist_id: selectedLabelArtistIdForAlbum || null
+    });
+
     // Filter out empty values to avoid database errors
     const albumData = {
       title: newAlbum.title,
       user_id: user.id,
       visibility: 'private', // Default to private
-      ...(newAlbum.artist && { artist: newAlbum.artist }),
+      ...(artistName && { artist: artistName }),
       ...(newAlbum.release_date && { release_date: newAlbum.release_date }),
       ...(newAlbum.cover_art_url && { cover_art_url: newAlbum.cover_art_url }),
       ...(newAlbum.description && { description: newAlbum.description }),
       additional_covers: newAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })),
+      ...(selectedLabelArtistIdForAlbum && { label_artist_id: selectedLabelArtistIdForAlbum }),
     };
 
     const { data, error } = await supabase.from('albums').insert([albumData]).select('*').single();
     setCreatingAlbum(false);
     if (error) {
+      console.error('🔍 [LIBRARY CREATE ALBUM] Error:', error);
       setCreateAlbumError(error.message);
       return;
     }
+    console.log('🔍 [LIBRARY CREATE ALBUM] Album created:', data);
     setAlbums([data, ...albums]);
     setShowAlbumModal(false);
     setNewAlbum({ title: '', artist: '', release_date: '', cover_art_url: '', description: '' });
+    setSelectedLabelArtistIdForAlbum('');
     setNewAdditionalCovers([]);
   }
 
@@ -5112,11 +5183,40 @@ export default function MyLibrary() {
               onChange={e => setNewAlbum({ ...newAlbum, title: e.target.value })}
               required
             />
-            <Input
-              placeholder="Artist Name"
-              value={newAlbum.artist}
-              onChange={e => setNewAlbum({ ...newAlbum, artist: e.target.value })}
-            />
+            <div>
+              <Label htmlFor="album-artist">Artist</Label>
+              <Select
+                value={selectedLabelArtistIdForAlbum || "none"}
+                onValueChange={(value) => {
+                  console.log('🔍 [LIBRARY ALBUM SELECT] Value changed:', value);
+                  const artistId = value === "none" ? "" : value;
+                  console.log('🔍 [LIBRARY ALBUM SELECT] Setting selectedLabelArtistIdForAlbum to:', artistId);
+                  setSelectedLabelArtistIdForAlbum(artistId);
+                  // Also set the artist name for display
+                  if (artistId) {
+                    const selectedArtist = labelArtists.find(a => a.id === artistId);
+                    if (selectedArtist) {
+                      setNewAlbum({ ...newAlbum, artist: selectedArtist.stage_name || selectedArtist.name });
+                    }
+                  } else {
+                    setNewAlbum({ ...newAlbum, artist: '' });
+                  }
+                }}
+                disabled={loadingLabelArtists}
+              >
+                <SelectTrigger id="album-artist">
+                  <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Select an artist"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {labelArtists.map((artist) => (
+                    <SelectItem key={artist.id} value={artist.id}>
+                      {artist.stage_name || artist.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Input
               type="date"
               placeholder="Release Date"
@@ -10190,13 +10290,38 @@ export default function MyLibrary() {
             </div>
             <div>
               <Label htmlFor="single-artist">Artist *</Label>
-              <Input
-                id="single-artist"
-                placeholder="Artist Name"
-                value={newSingle.artist}
-                onChange={e => setNewSingle({ ...newSingle, artist: e.target.value })}
+              <Select
+                value={selectedLabelArtistIdForSingle || "none"}
+                onValueChange={(value) => {
+                  console.log('🔍 [LIBRARY SINGLE SELECT] Value changed:', value);
+                  const artistId = value === "none" ? "" : value;
+                  console.log('🔍 [LIBRARY SINGLE SELECT] Setting selectedLabelArtistIdForSingle to:', artistId);
+                  setSelectedLabelArtistIdForSingle(artistId);
+                  // Also set the artist name for display
+                  if (artistId) {
+                    const selectedArtist = labelArtists.find(a => a.id === artistId);
+                    if (selectedArtist) {
+                      setNewSingle({ ...newSingle, artist: selectedArtist.stage_name || selectedArtist.name });
+                    }
+                  } else {
+                    setNewSingle({ ...newSingle, artist: '' });
+                  }
+                }}
+                disabled={loadingLabelArtists}
                 required
-              />
+              >
+                <SelectTrigger id="single-artist">
+                  <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Select an artist"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {labelArtists.map((artist) => (
+                    <SelectItem key={artist.id} value={artist.id}>
+                      {artist.stage_name || artist.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="single-release-date">Release Date</Label>

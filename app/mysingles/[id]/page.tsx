@@ -30,6 +30,14 @@ interface Single {
   session_name?: string | null
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
+  label_artist_id?: string
+}
+
+interface LabelArtist {
+  id: string
+  name: string
+  stage_name?: string
+  image_url?: string
 }
 
 export default function SingleDetailsPage() {
@@ -62,7 +70,40 @@ export default function SingleDetailsPage() {
     duration: ''
   })
 
+  // Label artists state (for publishing to artist pages)
+  const [labelArtists, setLabelArtists] = useState<LabelArtist[]>([]);
+  const [loadingLabelArtists, setLoadingLabelArtists] = useState(false);
+  const [selectedLabelArtistId, setSelectedLabelArtistId] = useState<string>('');
+
   const singleId = params.id as string
+
+  // Fetch label artists
+  useEffect(() => {
+    async function fetchLabelArtists() {
+      if (!user?.id) return;
+      
+      setLoadingLabelArtists(true);
+      try {
+        const params = new URLSearchParams();
+        params.append('user_id', user.id);
+        
+        const response = await fetch(`/api/label-artists?${params.toString()}`);
+        const data = await response.json();
+        
+        if (response.ok && data.artists) {
+          setLabelArtists(data.artists);
+        }
+      } catch (error) {
+        console.error('Error fetching label artists:', error);
+      } finally {
+        setLoadingLabelArtists(false);
+      }
+    }
+    
+    if (user?.id) {
+      fetchLabelArtists();
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     if (user && singleId) {
@@ -82,6 +123,10 @@ export default function SingleDetailsPage() {
 
       if (error) throw error
       setSingle(data)
+      // Set selected label artist if single is already published
+      if (data.label_artist_id) {
+        setSelectedLabelArtistId(data.label_artist_id)
+      }
     } catch (error) {
       console.error('Error fetching single:', error)
       setError('Single not found')
@@ -134,12 +179,24 @@ export default function SingleDetailsPage() {
       audio_url: single.audio_url || '',
       duration: single.duration || ''
     })
+    // Set selected label artist if single is already published
+    setSelectedLabelArtistId(single.label_artist_id || '')
     setShowEditDialog(true)
   }
 
   const handleUpdateSingle = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      // Convert empty string to null for label_artist_id
+      const labelArtistId = selectedLabelArtistId && selectedLabelArtistId.trim() !== '' ? selectedLabelArtistId : null;
+      
+      console.log('🔍 [SINGLE EDIT] Saving single:', {
+        singleId,
+        selectedLabelArtistId,
+        labelArtistId,
+        willSave: labelArtistId
+      });
+      
       const { error } = await supabase
         .from('singles')
         .update({
@@ -148,16 +205,31 @@ export default function SingleDetailsPage() {
           description: editForm.description,
           release_date: editForm.release_date,
           audio_url: editForm.audio_url,
-          duration: editForm.duration
+          duration: editForm.duration,
+          label_artist_id: labelArtistId
         })
         .eq('id', singleId)
 
       if (error) throw error
 
-      toast({
-        title: "Success",
-        description: "Single updated successfully",
-      })
+      // Show success message with publish status
+      if (selectedLabelArtistId) {
+        const selectedArtist = labelArtists.find(a => a.id === selectedLabelArtistId);
+        toast({
+          title: "Success",
+          description: `Single updated and published to ${selectedArtist?.stage_name || selectedArtist?.name || 'artist'}'s page`,
+        });
+      } else if (single?.label_artist_id) {
+        toast({
+          title: "Success",
+          description: "Single updated and unpublished from artist page",
+        });
+      } else {
+        toast({
+          title: "Success",
+          description: "Single updated successfully",
+        });
+      }
 
       setShowEditDialog(false)
       fetchSingle()
@@ -993,6 +1065,36 @@ export default function SingleDetailsPage() {
                 placeholder="e.g., 3:45"
                 className="bg-[#2a2a2a] border-gray-600 text-white"
               />
+            </div>
+            <div>
+              <Label htmlFor="label_artist">Publish to Artist Page</Label>
+              <Select
+                value={selectedLabelArtistId || "none"}
+                onValueChange={(value) => {
+                  console.log('🔍 [SINGLE SELECT] Value changed:', value);
+                  const newValue = value === "none" ? "" : value;
+                  console.log('🔍 [SINGLE SELECT] Setting selectedLabelArtistId to:', newValue);
+                  setSelectedLabelArtistId(newValue);
+                }}
+                disabled={loadingLabelArtists}
+              >
+                <SelectTrigger className="bg-[#2a2a2a] border-gray-600 text-white">
+                  <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Select an artist to publish this single"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None (Unpublish)</SelectItem>
+                  {labelArtists.map((artist) => (
+                    <SelectItem key={artist.id} value={artist.id}>
+                      {artist.stage_name || artist.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-400 mt-1">
+                {selectedLabelArtistId 
+                  ? "This single will appear on the selected artist's page" 
+                  : "Select an artist to publish this single to their artist page"}
+              </p>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowEditDialog(false)}>

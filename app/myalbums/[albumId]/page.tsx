@@ -22,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { TrackMetadataDialog } from '@/components/TrackMetadataDialog'
 import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Album {
   id: string
@@ -37,6 +38,14 @@ interface Album {
   distributor_notes?: string
   notes?: string
   user_id?: string
+  label_artist_id?: string
+}
+
+interface LabelArtist {
+  id: string
+  name: string
+  stage_name?: string
+  image_url?: string
 }
 
 export default function AlbumDetailsPage() {
@@ -44,6 +53,7 @@ export default function AlbumDetailsPage() {
   const albumId = params && 'albumId' in params ? (Array.isArray(params.albumId) ? params.albumId[0] : params.albumId) : ''
   const router = useRouter()
   const { toast } = useToast()
+  const { user } = useAuth()
   const [album, setAlbum] = useState<Album | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -100,6 +110,12 @@ export default function AlbumDetailsPage() {
   const [editAlbumArtists, setEditAlbumArtists] = useState<string[]>([]);
   const [newArtistInput, setNewArtistInput] = useState('');
 
+  // Label artists state (for publishing to artist pages)
+  const [labelArtists, setLabelArtists] = useState<LabelArtist[]>([]);
+  const [loadingLabelArtists, setLoadingLabelArtists] = useState(false);
+  const [selectedLabelArtistId, setSelectedLabelArtistId] = useState<string>('');
+  const [publishingAlbum, setPublishingAlbum] = useState(false);
+
   // Move track state
   const [showMoveTrackDialog, setShowMoveTrackDialog] = useState(false);
   const [moveTrackId, setMoveTrackId] = useState<string | null>(null);
@@ -128,6 +144,34 @@ export default function AlbumDetailsPage() {
   const [editingNotesTitle, setEditingNotesTitle] = useState('');
 
 
+  // Fetch label artists
+  useEffect(() => {
+    async function fetchLabelArtists() {
+      if (!user?.id) return;
+      
+      setLoadingLabelArtists(true);
+      try {
+        const params = new URLSearchParams();
+        params.append('user_id', user.id);
+        
+        const response = await fetch(`/api/label-artists?${params.toString()}`);
+        const data = await response.json();
+        
+        if (response.ok && data.artists) {
+          setLabelArtists(data.artists);
+        }
+      } catch (error) {
+        console.error('Error fetching label artists:', error);
+      } finally {
+        setLoadingLabelArtists(false);
+      }
+    }
+    
+    if (user?.id) {
+      fetchLabelArtists();
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     async function fetchAlbum() {
       setLoading(true)
@@ -138,6 +182,10 @@ export default function AlbumDetailsPage() {
         setAlbum(null)
       } else {
         setAlbum(data)
+        // Set selected label artist if album is already published
+        if (data.label_artist_id) {
+          setSelectedLabelArtistId(data.label_artist_id)
+        }
       }
       setLoading(false)
     }
@@ -723,6 +771,8 @@ export default function AlbumDetailsPage() {
       const artists = album.artist ? album.artist.split(',').map(a => a.trim()).filter(a => a) : [];
       setEditAlbumArtists(artists);
       setNewArtistInput('');
+      // Set selected label artist if album is published
+      setSelectedLabelArtistId(album.label_artist_id || '');
       setShowEditAlbum(true);
     }
   };
@@ -740,16 +790,41 @@ export default function AlbumDetailsPage() {
     // Combine artists array into a single string for the database
     const artistString = editAlbumArtists.join(', ');
     
+    // Convert empty string to null for label_artist_id
+    const labelArtistId = selectedLabelArtistId && selectedLabelArtistId.trim() !== '' ? selectedLabelArtistId : null;
+    
+    console.log('🔍 [ALBUM EDIT] Saving album:', {
+      albumId: album.id,
+      selectedLabelArtistId,
+      labelArtistId,
+      willSave: labelArtistId
+    });
+    
     const { error } = await supabase.from('albums').update({
       ...editAlbumForm,
-      artist: artistString
+      artist: artistString,
+      label_artist_id: labelArtistId
     }).eq('id', album.id);
     setEditAlbumSaving(false);
     if (error) {
       setEditAlbumError(error.message);
       return;
     }
-    setAlbum({ ...album, ...editAlbumForm, artist: artistString });
+    setAlbum({ ...album, ...editAlbumForm, artist: artistString, label_artist_id: selectedLabelArtistId || undefined });
+    
+    // Show success message
+    if (selectedLabelArtistId) {
+      const selectedArtist = labelArtists.find(a => a.id === selectedLabelArtistId);
+      toast({
+        title: "Album Published",
+        description: `Album has been published to ${selectedArtist?.stage_name || selectedArtist?.name || 'artist'}'s page`,
+      });
+    } else if (album.label_artist_id) {
+      toast({
+        title: "Album Unpublished",
+        description: "Album has been removed from the artist page",
+      });
+    }
     setShowEditAlbum(false);
     toast({
       title: "Success",
@@ -2627,7 +2702,7 @@ export default function AlbumDetailsPage() {
               <div>
                 <label className="text-sm font-medium">Title</label>
                 <Input
-                  value={editAlbumForm.title}
+                  value={editAlbumForm.title || ''}
                   onChange={(e) => setEditAlbumForm(prev => ({ ...prev, title: e.target.value }))}
                   required
                 />
@@ -2683,7 +2758,7 @@ export default function AlbumDetailsPage() {
               <label className="text-sm font-medium">Release Date</label>
               <Input
                 type="date"
-                value={editAlbumForm.release_date}
+                value={editAlbumForm.release_date || ''}
                 onChange={(e) => setEditAlbumForm(prev => ({ ...prev, release_date: e.target.value }))}
                 required
               />
@@ -2692,7 +2767,7 @@ export default function AlbumDetailsPage() {
             <div>
               <label className="text-sm font-medium">Description</label>
               <Textarea
-                value={editAlbumForm.description}
+                value={editAlbumForm.description || ''}
                 onChange={(e) => setEditAlbumForm(prev => ({ ...prev, description: e.target.value }))}
                 rows={3}
               />
@@ -2702,7 +2777,7 @@ export default function AlbumDetailsPage() {
               <div>
                 <label className="text-sm font-medium">Distributor</label>
                 <Input
-                  value={editAlbumForm.distributor}
+                  value={editAlbumForm.distributor || ''}
                   onChange={(e) => setEditAlbumForm(prev => ({ ...prev, distributor: e.target.value }))}
                   placeholder="e.g., DistroKid, TuneCore, CD Baby"
                 />
@@ -2710,7 +2785,7 @@ export default function AlbumDetailsPage() {
               <div>
                 <label className="text-sm font-medium">Distributor Notes</label>
                 <Input
-                  value={editAlbumForm.distributor_notes}
+                  value={editAlbumForm.distributor_notes || ''}
                   onChange={(e) => setEditAlbumForm(prev => ({ ...prev, distributor_notes: e.target.value }))}
                   placeholder="Account details, submission notes..."
                 />
@@ -2725,6 +2800,37 @@ export default function AlbumDetailsPage() {
                 placeholder="General album notes..."
                 rows={3}
               />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Publish to Artist Page</label>
+              <Select
+                value={selectedLabelArtistId || "none"}
+                onValueChange={(value) => {
+                  console.log('🔍 [ALBUM SELECT] Value changed:', value);
+                  const newValue = value === "none" ? "" : value;
+                  console.log('🔍 [ALBUM SELECT] Setting selectedLabelArtistId to:', newValue);
+                  setSelectedLabelArtistId(newValue);
+                }}
+                disabled={loadingLabelArtists}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Select an artist to publish this album"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None (Unpublish)</SelectItem>
+                  {labelArtists.map((artist) => (
+                    <SelectItem key={artist.id} value={artist.id}>
+                      {artist.stage_name || artist.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-400 mt-1">
+                {selectedLabelArtistId 
+                  ? "This album will appear on the selected artist's page" 
+                  : "Select an artist to publish this album to their artist page"}
+              </p>
             </div>
             
             <div>

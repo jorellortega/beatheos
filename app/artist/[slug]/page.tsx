@@ -59,95 +59,163 @@ export default async function ArtistProfilePage({ params }: ArtistProfilePagePro
   const supabase = createServerComponentClient({ 
     cookies: () => cookieStore 
   })
+  
+  // Use admin client for public queries (bypasses RLS)
+  const queryClient = supabaseAdmin || supabase
 
-  // Fetch artist by slug
-  const { data: artist } = await supabase
+  // Try to fetch from artists table first
+  let { data: artist } = await queryClient
     .from('artists')
     .select('*')
     .eq('slug', slug)
     .single()
 
+  let isLabelArtist = false
+  let labelArtist = null
+
+  // If not found in artists table, try label_artists
+  if (!artist) {
+    const { data: labelArtistData } = await queryClient
+      .from('label_artists')
+      .select('*')
+      .eq('slug', slug)
+      .single()
+    
+    if (labelArtistData) {
+      labelArtist = labelArtistData
+      isLabelArtist = true
+      // Transform label_artist to match artist structure for compatibility
+      artist = {
+        id: labelArtist.id,
+        display_name: labelArtist.stage_name || labelArtist.name,
+        slug: labelArtist.slug!,
+        avatar_url: labelArtist.image_url,
+        bio: labelArtist.bio,
+        user_id: labelArtist.managed_by || null,
+        spotify_url: (labelArtist.social_media as any)?.spotify_url,
+        apple_url: (labelArtist.social_media as any)?.apple_url,
+        instagram_url: (labelArtist.social_media as any)?.instagram_url,
+        soundcloud_url: (labelArtist.social_media as any)?.soundcloud_url,
+        website_url: labelArtist.website
+      } as any
+    }
+  }
+
   if (!artist) return notFound()
 
-  // Fetch songs for this artist
-  const { data: songs } = await supabase
-    .from('songs')
-    .select('*')
-    .eq('artist_id', artist.id)
-    .order('created_at', { ascending: false })
+  // Fetch songs for this artist (only for regular artists, not label_artists)
+  let songs: Song[] | null = null
+  if (!isLabelArtist) {
+    const { data: songsData } = await queryClient
+      .from('songs')
+      .select('*')
+      .eq('artist_id', artist.id)
+      .order('created_at', { ascending: false })
+    songs = songsData
+  }
 
-  // Fetch public albums for this artist
-  // Use admin client to bypass RLS since public albums should be viewable by anyone
+  // Fetch albums for this artist
   let albums: Album[] | null = null
   let albumsError: any = null
   let debugInfo: any = {
     artistUserId: artist.user_id,
     slug: slug,
+    isLabelArtist: isLabelArtist,
+    labelArtistId: isLabelArtist ? labelArtist?.id : null,
     queryMethod: 'direct',
-    allAlbumsForUser: null,
-    publicAlbumsFromQuery: null,
-    filteredAlbums: null,
-    usingAdminClient: false
+    usingAdminClient: !!supabaseAdmin
   }
-  
-  // Use admin client if available (bypasses RLS), otherwise use regular client
-  const albumsClient = supabaseAdmin || supabase
-  debugInfo.usingAdminClient = !!supabaseAdmin
-  
-  // First, let's get ALL albums for this user to see what we're working with
-  const { data: allAlbumsForUser, error: allAlbumsError } = await albumsClient
-    .from('albums')
-    .select('*')
-    .eq('user_id', artist.user_id)
-    .order('created_at', { ascending: false })
 
-  debugInfo.allAlbumsForUser = allAlbumsForUser || []
-  debugInfo.allAlbumsError = allAlbumsError
-  console.log('🔍 [DEBUG] Artist user_id:', artist.user_id)
-  console.log('🔍 [DEBUG] Using admin client:', !!supabaseAdmin)
-  console.log('🔍 [DEBUG] All albums for user:', JSON.stringify(allAlbumsForUser, null, 2))
-  console.log('🔍 [DEBUG] All albums error:', allAlbumsError)
-  
-  // Now try the public query
-  const { data: albumsData, error: albumsQueryError } = await albumsClient
-    .from('albums')
-    .select('*')
-    .eq('user_id', artist.user_id)
-    .eq('visibility', 'public')
-    .order('created_at', { ascending: false })
-
-  debugInfo.publicAlbumsFromQuery = albumsData || []
-  console.log('🔍 [DEBUG] Query filter: visibility = "public"')
-  console.log('🔍 [DEBUG] Public albums from query:', JSON.stringify(albumsData, null, 2))
-  console.log('🔍 [DEBUG] Query error:', albumsQueryError)
-
-  if (albumsQueryError) {
+  if (isLabelArtist && labelArtist) {
+    // For label_artists, fetch albums/singles by label_artist_id
+    console.log('🔍 [DEBUG] Fetching albums for label artist:', labelArtist.id)
+    
+    // First, check ALL albums with this label_artist_id (without visibility filter)
+    const { data: allAlbumsData, error: allAlbumsError } = await queryClient
+      .from('albums')
+      .select('id, title, label_artist_id, visibility, user_id')
+      .eq('label_artist_id', labelArtist.id)
+      .order('created_at', { ascending: false })
+    
+    console.log('🔍 [DEBUG] All albums with label_artist_id:', { 
+      count: allAlbumsData?.length || 0, 
+      error: allAlbumsError?.message,
+      albums: allAlbumsData
+    })
+    
+    // Now fetch only public albums
+    const { data: albumsData, error: albumsQueryError } = await queryClient
+      .from('albums')
+      .select('*')
+      .eq('label_artist_id', labelArtist.id)
+      .eq('visibility', 'public')
+      .order('created_at', { ascending: false })
+    
+    console.log('🔍 [DEBUG] Public albums query result:', { 
+      count: albumsData?.length || 0, 
+      error: albumsQueryError?.message,
+      albums: albumsData?.map(a => ({ id: a.id, title: a.title, label_artist_id: a.label_artist_id, visibility: a.visibility }))
+    })
+    
+    albums = albumsData as Album[] || []
     albumsError = albumsQueryError
-    console.log('🔍 [DEBUG] Query error occurred:', albumsQueryError.message)
-    // If the error is about the column not existing, try fetching all albums
-    // and we'll filter client-side (as a fallback)
-    if (albumsQueryError.message?.includes('column') || albumsQueryError.message?.includes('visibility')) {
-      debugInfo.queryMethod = 'fallback_filter'
-      console.log('🔍 [DEBUG] Using fallback filter method')
-      
-      // Filter for public albums only (NULL visibility is treated as private)
-      albums = (allAlbumsForUser || []).filter((album: any) => {
-        const isPublic = album.visibility === 'public'
-        console.log(`🔍 [DEBUG] Album "${album.title}": visibility="${album.visibility}", isPublic=${isPublic}`)
-        return isPublic
-      }) as Album[]
-      
-      debugInfo.filteredAlbums = albums
-      console.log('🔍 [DEBUG] Filtered albums result:', JSON.stringify(albums, null, 2))
-    } else {
-      // For other errors, set albums to empty array
-      albums = []
-      debugInfo.filteredAlbums = []
+    
+    // Also fetch singles for label_artists
+    console.log('🔍 [DEBUG] Fetching singles for label artist:', labelArtist.id)
+    const { data: singlesData, error: singlesError } = await queryClient
+      .from('singles')
+      .select('*')
+      .eq('label_artist_id', labelArtist.id)
+      .order('created_at', { ascending: false })
+    
+    console.log('🔍 [DEBUG] Singles query result:', { 
+      count: singlesData?.length || 0, 
+      error: singlesError?.message,
+      singles: singlesData?.map(s => ({ id: s.id, title: s.title, label_artist_id: s.label_artist_id }))
+    })
+    
+    // Transform singles to match songs format for display
+    if (singlesData) {
+      songs = singlesData.map(s => ({
+        id: s.id,
+        title: s.title,
+        genre: undefined,
+        price: undefined,
+        cover_image_url: s.cover_art_url,
+        audio_url: s.audio_url || '',
+        created_at: s.created_at
+      })) as Song[]
     }
   } else {
-    albums = albumsData as Album[]
-    debugInfo.filteredAlbums = albums
-    console.log('🔍 [DEBUG] Direct query successful, albums:', JSON.stringify(albums, null, 2))
+    // For regular artists, use the existing logic
+    const { data: allAlbumsForUser, error: allAlbumsError } = await queryClient
+      .from('albums')
+      .select('*')
+      .eq('user_id', artist.user_id)
+      .order('created_at', { ascending: false })
+
+    debugInfo.allAlbumsForUser = allAlbumsForUser || []
+    debugInfo.allAlbumsError = allAlbumsError
+    
+    // Now try the public query
+    const { data: albumsData, error: albumsQueryError } = await queryClient
+      .from('albums')
+      .select('*')
+      .eq('user_id', artist.user_id)
+      .eq('visibility', 'public')
+      .order('created_at', { ascending: false })
+
+    if (albumsQueryError) {
+      albumsError = albumsQueryError
+      if (albumsQueryError.message?.includes('column') || albumsQueryError.message?.includes('visibility')) {
+        debugInfo.queryMethod = 'fallback_filter'
+        albums = (allAlbumsForUser || []).filter((album: any) => album.visibility === 'public') as Album[]
+      } else {
+        albums = []
+      }
+    } else {
+      albums = albumsData as Album[] || []
+    }
   }
   
   console.log('🔍 [DEBUG] Final albums count:', albums?.length || 0)
@@ -156,7 +224,7 @@ export default async function ArtistProfilePage({ params }: ArtistProfilePagePro
   if (albums && albums.length > 0) {
     const albumsWithTracks = await Promise.all(
       albums.map(async (album) => {
-        const { data: tracks, error: tracksError } = await albumsClient
+        const { data: tracks, error: tracksError } = await queryClient
           .from('album_tracks')
           .select('id, title, audio_url, duration, track_order')
           .eq('album_id', album.id)
@@ -177,7 +245,9 @@ export default async function ArtistProfilePage({ params }: ArtistProfilePagePro
 
   // Get the currently logged-in user (server-side)
   const user = await getUser();
-  const isOwner = user && user.id === artist.user_id;
+  const isOwner = isLabelArtist 
+    ? (user && labelArtist && user.id === labelArtist.managed_by)
+    : (user && user.id === artist.user_id);
 
   return (
     <div className="container mx-auto py-12">
