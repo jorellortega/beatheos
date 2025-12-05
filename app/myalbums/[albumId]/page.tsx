@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical } from 'lucide-react'
+import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -53,7 +53,7 @@ export default function AlbumDetailsPage() {
   const albumId = params && 'albumId' in params ? (Array.isArray(params.albumId) ? params.albumId[0] : params.albumId) : ''
   const router = useRouter()
   const { toast } = useToast()
-  const { user } = useAuth()
+  const { user, getAccessToken } = useAuth()
   const [album, setAlbum] = useState<Album | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -61,12 +61,16 @@ export default function AlbumDetailsPage() {
   const [loadingTracks, setLoadingTracks] = useState(true);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [showAddTrack, setShowAddTrack] = useState(false);
+  const [showAddTrackOptions, setShowAddTrackOptions] = useState(false);
   const [addingTrack, setAddingTrack] = useState(false);
   const [addTrackError, setAddTrackError] = useState<string | null>(null);
   const [newTrack, setNewTrack] = useState({ title: '', duration: '', isrc: '' });
   const [audioUploading, setAudioUploading] = useState(false);
   const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
+  const [addMultipleTracks, setAddMultipleTracks] = useState(false);
+  const [numberOfTracks, setNumberOfTracks] = useState<number>(2);
+  const [multipleTracks, setMultipleTracks] = useState<Array<{ title: string; duration: string; isrc: string; audio_url: string }>>([]);
 
   // Edit track modal state
   const [editTrackId, setEditTrackId] = useState<string | null>(null);
@@ -142,6 +146,17 @@ export default function AlbumDetailsPage() {
   const [editingNotesId, setEditingNotesId] = useState('');
   const [editingNotesType, setEditingNotesType] = useState<'album' | 'single' | 'album_track'>('album_track');
   const [editingNotesTitle, setEditingNotesTitle] = useState('');
+
+  // AI track title generation state
+  const [generatingTitles, setGeneratingTitles] = useState(false);
+  const [generatedTitles, setGeneratedTitles] = useState<string[]>([]);
+  const [showGeneratedTitlesDialog, setShowGeneratedTitlesDialog] = useState(false);
+  const [editingTitleIndex, setEditingTitleIndex] = useState<number | null>(null);
+  const [editingTitleValue, setEditingTitleValue] = useState<string>('');
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [regeneratingTrackId, setRegeneratingTrackId] = useState<string | null>(null);
+  const [editingTrackTitleId, setEditingTrackTitleId] = useState<string | null>(null);
+  const [editingTrackTitleValue, setEditingTrackTitleValue] = useState<string>('');
 
 
   // Fetch label artists
@@ -612,17 +627,163 @@ export default function AlbumDetailsPage() {
   // In the Add Track modal, add a file input for audio
   // When a file is selected, upload and set audioUrl
   // On submit, use audioUrl as audio_url
+  // Handle adding multiple tracks directly (no form)
+  async function handleAddMultipleTracksDirectly(count: number) {
+    if (!albumId || !album) {
+      toast({
+        title: "Error",
+        description: "Album not found",
+        variant: "destructive"
+      });
+      return;
+    }
+    if (addingTrack) return;
+    
+    setAddingTrack(true);
+    
+    try {
+      const nextTrackOrder = tracks.length + 1;
+      
+      // Create tracks with auto-generated names
+      const tracksToInsert = Array(count).fill(null).map((_, index) => ({
+        title: `Track ${nextTrackOrder + index}`,
+        duration: '',
+        isrc: '',
+        audio_url: '',
+        album_id: albumId,
+        track_order: nextTrackOrder + index,
+        status: 'draft'
+      }));
+      
+      const { data, error } = await supabase
+        .from('album_tracks')
+        .insert(tracksToInsert);
+        
+      if (error) {
+        console.error('Error inserting tracks:', error);
+        toast({
+          title: "Error",
+          description: error.message,
+          variant: "destructive"
+        });
+        setAddingTrack(false);
+        return;
+      }
+      
+      // Refresh tracks from database
+      const { data: refreshedTracks, error: refreshError } = await supabase
+        .from('album_tracks')
+        .select('*')
+        .eq('album_id', albumId)
+        .order('track_order', { ascending: true });
+        
+      if (!refreshError && refreshedTracks) {
+        const tracksWithSessionName = refreshedTracks.map(track => ({
+          ...track,
+          session_name: track.beat_sessions?.name || null
+        }));
+        setTracks(tracksWithSessionName);
+      }
+      
+      toast({
+        title: "Success",
+        description: `${count} track(s) have been added to the album.`,
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Unexpected error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add tracks",
+        variant: "destructive"
+      });
+    } finally {
+      setAddingTrack(false);
+    }
+  }
+
+  // Handle adding multiple tracks (with form - kept for backward compatibility)
+  async function handleAddMultipleTracks(e: React.FormEvent) {
+    e.preventDefault();
+    if (!albumId || !album) {
+      setAddTrackError('Album not found');
+      return;
+    }
+    if (addingTrack) return;
+    
+    setAddingTrack(true);
+    setAddTrackError(null);
+    
+    try {
+      const nextTrackOrder = tracks.length + 1;
+      
+      // Prepare tracks to insert - auto-generate titles based on order
+      const tracksToInsert = multipleTracks.map((track, index) => ({
+        ...track,
+        title: `Track ${nextTrackOrder + index}`, // Auto-name based on track order
+        album_id: albumId,
+        track_order: nextTrackOrder + index,
+        status: 'draft'
+      }));
+      
+      if (tracksToInsert.length === 0) {
+        setAddTrackError('No tracks to add');
+        setAddingTrack(false);
+        return;
+      }
+      
+      const { data, error } = await supabase
+        .from('album_tracks')
+        .insert(tracksToInsert);
+        
+      if (error) {
+        console.error('Error inserting tracks:', error);
+        setAddTrackError(error.message);
+        setAddingTrack(false);
+        return;
+      }
+      
+      // Refresh tracks from database
+      const { data: refreshedTracks, error: refreshError } = await supabase
+        .from('album_tracks')
+        .select('*')
+        .eq('album_id', albumId)
+        .order('track_order', { ascending: true });
+        
+      if (!refreshError && refreshedTracks) {
+        const tracksWithSessionName = refreshedTracks.map(track => ({
+          ...track,
+          session_name: track.beat_sessions?.name || null
+        }));
+        setTracks(tracksWithSessionName);
+      }
+      
+      toast({
+        title: "Tracks Added",
+        description: `${tracksToInsert.length} track(s) have been added to the album.`,
+        variant: "default",
+      });
+      
+      // Reset form and close dialog
+      setShowAddTrack(false);
+      setAddMultipleTracks(false);
+      setMultipleTracks([]);
+      setNumberOfTracks(2);
+      setAddTrackError(null);
+    } catch (error) {
+      console.error('Unexpected error:', error);
+      setAddTrackError('An unexpected error occurred');
+    } finally {
+      setAddingTrack(false);
+    }
+  }
+
   async function handleAddTrack(e: React.FormEvent) {
     e.preventDefault();
     console.log('=== ADD TRACK DEBUG ===');
     console.log('newTrack:', newTrack);
     console.log('albumId:', albumId);
     console.log('audioUrl:', audioUrl);
-    
-    if (!newTrack.title.trim()) {
-      setAddTrackError('Track title is required');
-      return;
-    }
     
     setAddingTrack(true);
     setAddTrackError(null);
@@ -637,6 +798,7 @@ export default function AlbumDetailsPage() {
       const nextTrackOrder = tracks.length + 1;
       const insertData = {
         ...newTrack,
+        title: newTrack.title.trim() || `Track ${nextTrackOrder}`, // Auto-name if empty
         album_id: albumId,
         audio_url: audioUrl,
         track_order: nextTrackOrder,
@@ -855,6 +1017,287 @@ export default function AlbumDetailsPage() {
     const url = await uploadCoverArt(file);
     if (url) {
       setEditAlbumForm(prev => ({ ...prev, cover_art_url: url }));
+    }
+  };
+
+  // Generate track titles using AI
+  const handleGenerateTrackTitles = async () => {
+    if (!album || !album.cover_art_url) {
+      toast({
+        title: "Error",
+        description: "Album cover art is required to generate track titles.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (tracks.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please add tracks to the album first.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setGeneratingTitles(true);
+    try {
+      // Get access token for authentication
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+
+      const response = await fetch('/api/albums/generate-track-titles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          albumId: album.id,
+          coverArtUrl: album.cover_art_url,
+          numTracks: tracks.length
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate track titles');
+      }
+
+      if (data.titles && data.titles.length > 0) {
+        setGeneratedTitles(data.titles);
+        setShowGeneratedTitlesDialog(true);
+      } else {
+        throw new Error('No titles generated');
+      }
+    } catch (error: any) {
+      console.error('Error generating track titles:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate track titles. Please ensure AI API keys are configured in /ai-settings",
+        variant: "destructive"
+      });
+    } finally {
+      setGeneratingTitles(false);
+    }
+  };
+
+  // Start editing a title
+  const handleStartEditTitle = (index: number) => {
+    setEditingTitleIndex(index);
+    setEditingTitleValue(generatedTitles[index]);
+  };
+
+  // Save edited title
+  const handleSaveEditTitle = (index: number) => {
+    if (editingTitleValue.trim()) {
+      const updated = [...generatedTitles];
+      updated[index] = editingTitleValue.trim();
+      setGeneratedTitles(updated);
+    }
+    setEditingTitleIndex(null);
+    setEditingTitleValue('');
+  };
+
+  // Cancel editing
+  const handleCancelEditTitle = () => {
+    setEditingTitleIndex(null);
+    setEditingTitleValue('');
+  };
+
+  // Delete a title
+  const handleDeleteTitle = (index: number) => {
+    const updated = generatedTitles.filter((_, i) => i !== index);
+    setGeneratedTitles(updated);
+    if (editingTitleIndex === index) {
+      setEditingTitleIndex(null);
+      setEditingTitleValue('');
+    }
+  };
+
+  // Regenerate a single title
+  const handleRegenerateTitle = async (index: number) => {
+    if (!album || !album.cover_art_url) return;
+
+    setRegeneratingIndex(index);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+
+      const response = await fetch('/api/albums/generate-track-titles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          albumId: album.id,
+          coverArtUrl: album.cover_art_url,
+          numTracks: 1
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to regenerate title');
+      }
+
+      if (data.titles && data.titles.length > 0) {
+        const updated = [...generatedTitles];
+        updated[index] = data.titles[0];
+        setGeneratedTitles(updated);
+        toast({
+          title: "Success",
+          description: "Title regenerated successfully.",
+          variant: "default"
+        });
+      } else {
+        throw new Error('No title generated');
+      }
+    } catch (error: any) {
+      console.error('Error regenerating title:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to regenerate title.",
+        variant: "destructive"
+      });
+    } finally {
+      setRegeneratingIndex(null);
+    }
+  };
+
+  // Regenerate a single track title from the track list
+  const handleRegenerateSingleTrackTitle = async (trackId: string, currentTitle: string) => {
+    if (!album || !album.cover_art_url) return;
+
+    setRegeneratingTrackId(trackId);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+
+      // Get other track titles for context
+      const otherTracks = tracks
+        .filter(t => t.id !== trackId)
+        .map(t => t.title)
+        .slice(0, 10); // Limit to 10 other tracks for context
+
+      const response = await fetch('/api/albums/generate-track-titles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          albumId: album.id,
+          coverArtUrl: album.cover_art_url,
+          numTracks: 1,
+          context: {
+            currentTitle,
+            otherTracks,
+            albumTitle: album.title
+          }
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to regenerate title');
+      }
+
+      if (data.titles && data.titles.length > 0) {
+        const newTitle = data.titles[0];
+        
+        // Update the track in the database
+        const { error: updateError } = await supabase
+          .from('album_tracks')
+          .update({ title: newTitle })
+          .eq('id', trackId);
+
+        if (updateError) {
+          throw new Error(updateError.message);
+        }
+
+        // Update local state
+        setTracks(tracks.map(t => t.id === trackId ? { ...t, title: newTitle } : t));
+
+        toast({
+          title: "Success",
+          description: `Track title updated to "${newTitle}"`,
+          variant: "default"
+        });
+      } else {
+        throw new Error('No title generated');
+      }
+    } catch (error: any) {
+      console.error('Error regenerating track title:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to regenerate track title.",
+        variant: "destructive"
+      });
+    } finally {
+      setRegeneratingTrackId(null);
+    }
+  };
+
+  // Apply generated titles to tracks
+  const handleApplyGeneratedTitles = async () => {
+    if (generatedTitles.length === 0 || tracks.length === 0) return;
+
+    try {
+      // Only update tracks that have corresponding generated titles
+      // If a title was deleted, that track keeps its original title
+      const updates = tracks
+        .map((track, index) => {
+          if (generatedTitles[index]) {
+            return supabase
+              .from('album_tracks')
+              .update({ title: generatedTitles[index] })
+              .eq('id', track.id);
+          }
+          return null;
+        })
+        .filter(update => update !== null);
+
+      await Promise.all(updates);
+
+      // Refresh tracks
+      const { data: refreshedTracks, error: refreshError } = await supabase
+        .from('album_tracks')
+        .select('*')
+        .eq('album_id', albumId)
+        .order('track_order', { ascending: true });
+
+      if (!refreshError && refreshedTracks) {
+        setTracks(refreshedTracks);
+      }
+
+      toast({
+        title: "Success",
+        description: "Track titles have been updated.",
+        variant: "default"
+      });
+
+      setShowGeneratedTitlesDialog(false);
+      setGeneratedTitles([]);
+      setEditingTitleIndex(null);
+      setEditingTitleValue('');
+    } catch (error: any) {
+      console.error('Error applying titles:', error);
+      toast({
+        title: "Error",
+        description: "Failed to apply track titles.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -1813,7 +2256,27 @@ export default function AlbumDetailsPage() {
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Tracks</h2>
           <div className="flex gap-2">
-            <Button onClick={() => setShowAddTrack(true)} variant="default">Add Track</Button>
+            {album?.cover_art_url && tracks.length > 0 && (
+              <Button 
+                onClick={handleGenerateTrackTitles} 
+                variant="outline"
+                disabled={generatingTitles}
+                className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+              >
+                {generatingTitles ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    AI Generate Titles
+                  </>
+                )}
+              </Button>
+            )}
+            <Button onClick={() => setShowAddTrackOptions(true)} variant="default">Add Track</Button>
           </div>
         </div>
         {loadingTracks ? (
@@ -1849,13 +2312,15 @@ export default function AlbumDetailsPage() {
                               return (
                   <div 
                     key={track.id} 
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, track)}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, idx)}
-                    onDragEnd={handleDragEnd}
-                    className={`bg-zinc-800 rounded px-4 py-2 border-l-4 transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                    draggable={editingTrackTitleId !== track.id}
+                    onDragStart={editingTrackTitleId !== track.id ? (e) => handleDragStart(e, track) : undefined}
+                    onDragOver={editingTrackTitleId !== track.id ? (e) => handleDragOver(e, idx) : undefined}
+                    onDragLeave={editingTrackTitleId !== track.id ? handleDragLeave : undefined}
+                    onDrop={editingTrackTitleId !== track.id ? (e) => handleDrop(e, idx) : undefined}
+                    onDragEnd={editingTrackTitleId !== track.id ? handleDragEnd : undefined}
+                    className={`bg-zinc-800 rounded px-4 py-2 border-l-4 transition-all duration-200 ${
+                      editingTrackTitleId === track.id ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+                    } ${
                       getStatusBorderColor(track.status || 'draft')
                     } ${
                       draggedTrack?.id === track.id ? 'opacity-50 scale-95' : ''
@@ -1864,14 +2329,88 @@ export default function AlbumDetailsPage() {
                     }`}
                   >
                   <div className="flex items-center gap-4">
-                    <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
+                    {editingTrackTitleId !== track.id && (
+                      <GripVertical className="w-4 h-4 text-gray-400 cursor-grab" />
+                    )}
                     <span className="font-bold text-lg text-gray-300">{idx + 1}</span>
                     <div className="flex items-center gap-2 flex-1">
-                      <span className="font-medium">{track.title}</span>
-                      {recentlyReplacedTracks.has(track.id) && (
-                        <Badge variant="secondary" className="bg-green-600 text-white text-xs px-2 py-1 animate-pulse">
-                          File Replaced
-                        </Badge>
+                      {editingTrackTitleId === track.id ? (
+                        <Input
+                          value={editingTrackTitleValue}
+                          onChange={(e) => setEditingTrackTitleValue(e.target.value)}
+                          onBlur={async () => {
+                            if (editingTrackTitleValue.trim() && editingTrackTitleValue !== track.title) {
+                              // Save the new title
+                              const { error } = await supabase
+                                .from('album_tracks')
+                                .update({ title: editingTrackTitleValue.trim() })
+                                .eq('id', track.id);
+                              
+                              if (!error) {
+                                // Update local state
+                                setTracks(tracks.map(t => t.id === track.id ? { ...t, title: editingTrackTitleValue.trim() } : t));
+                                toast({
+                                  title: "Success",
+                                  description: "Track title updated",
+                                  variant: "default"
+                                });
+                              } else {
+                                toast({
+                                  title: "Error",
+                                  description: "Failed to update track title",
+                                  variant: "destructive"
+                                });
+                              }
+                            }
+                            setEditingTrackTitleId(null);
+                            setEditingTrackTitleValue('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur();
+                            } else if (e.key === 'Escape') {
+                              setEditingTrackTitleId(null);
+                              setEditingTrackTitleValue('');
+                            }
+                          }}
+                          className="h-7 px-2 text-sm font-medium bg-gray-700 border-gray-600 text-white"
+                          autoFocus
+                        />
+                      ) : (
+                        <>
+                          <span 
+                            className="font-medium cursor-pointer hover:text-yellow-400 transition-colors"
+                            onClick={() => {
+                              setEditingTrackTitleId(track.id);
+                              setEditingTrackTitleValue(track.title);
+                            }}
+                            title="Click to edit"
+                          >
+                            {track.title}
+                          </span>
+                          {recentlyReplacedTracks.has(track.id) && (
+                            <Badge variant="secondary" className="bg-green-600 text-white text-xs px-2 py-1 animate-pulse">
+                              File Replaced
+                            </Badge>
+                          )}
+                          {/* AI Regenerate Title Button */}
+                          {album?.cover_art_url && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleRegenerateSingleTrackTitle(track.id, track.title)}
+                              disabled={regeneratingTrackId === track.id}
+                              className="h-6 w-6 p-0 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                              title="AI Regenerate Title"
+                            >
+                              {regeneratingTrackId === track.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3 h-3" />
+                              )}
+                            </Button>
+                          )}
+                        </>
                       )}
                     </div>
                     
@@ -2065,54 +2604,233 @@ export default function AlbumDetailsPage() {
           </div>
         )}
       </div>
-      <Dialog open={showAddTrack} onOpenChange={setShowAddTrack}>
+      
+      {/* Add Track Options Dialog */}
+      <Dialog open={showAddTrackOptions} onOpenChange={setShowAddTrackOptions}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Track</DialogTitle>
+            <DialogDescription>
+              Choose how you want to add tracks to this album.
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleAddTrack} className="space-y-4">
-            <Input
-              placeholder="Track Title"
-              value={newTrack.title}
-              onChange={e => setNewTrack({ ...newTrack, title: e.target.value })}
-              required
-            />
-            <Input
-              placeholder="Duration (e.g. 3:45)"
-              value={newTrack.duration}
-              onChange={e => setNewTrack({ ...newTrack, duration: e.target.value })}
-            />
-            <Input
-              placeholder="ISRC"
-              value={newTrack.isrc}
-              onChange={e => setNewTrack({ ...newTrack, isrc: e.target.value })}
-            />
-            <Input
-              type="file"
-              accept="audio/*"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const url = await uploadTrackAudio(file);
-                  if (url) setAudioUrl(url);
-                }
+          <div className="space-y-4 py-4">
+            <Button
+              type="button"
+              onClick={async () => {
+                setShowAddTrackOptions(false);
+                // Immediately add 1 track without showing form
+                await handleAddMultipleTracksDirectly(1);
               }}
-            />
-            {audioUploading && <div className="text-sm text-gray-500">Uploading audio...</div>}
-            {audioUploadError && <div className="text-red-500 text-sm">{audioUploadError}</div>}
-            {audioUrl && (
-              <audio controls src={audioUrl} className="h-8 mt-2" />
-            )}
-            {addTrackError && <div className="text-red-500 text-sm">{addTrackError}</div>}
-            <DialogFooter>
-              <Button type="submit" disabled={addingTrack || audioUploading} className="bg-yellow-400 hover:bg-yellow-500 text-black">
-                {addingTrack ? 'Adding...' : audioUploading ? 'Uploading audio...' : 'Add Track'}
+              className="w-full bg-yellow-400 hover:bg-yellow-500 text-black"
+            >
+              Add 1 Track
+            </Button>
+            <div className="space-y-2">
+              <Button
+                type="button"
+                onClick={async () => {
+                  setShowAddTrackOptions(false);
+                  // Immediately add the tracks without showing form
+                  await handleAddMultipleTracksDirectly(numberOfTracks);
+                }}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                Add Multiple Tracks
               </Button>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
-            </DialogFooter>
-          </form>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="numberOfTracks" className="text-sm">Number of tracks:</Label>
+                <Input
+                  id="numberOfTracks"
+                  type="number"
+                  min="2"
+                  max="100"
+                  value={numberOfTracks}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 2;
+                    const clampedValue = Math.min(Math.max(value, 2), 100);
+                    setNumberOfTracks(clampedValue);
+                    // Update multiple tracks array if it exists
+                    if (multipleTracks.length > 0) {
+                      if (clampedValue > multipleTracks.length) {
+                        // Add more tracks
+                        const newTracks = Array(clampedValue - multipleTracks.length).fill(null).map(() => ({
+                          title: '',
+                          duration: '',
+                          isrc: '',
+                          audio_url: ''
+                        }));
+                        setMultipleTracks([...multipleTracks, ...newTracks]);
+                      } else if (clampedValue < multipleTracks.length) {
+                        // Remove tracks
+                        setMultipleTracks(multipleTracks.slice(0, clampedValue));
+                      }
+                    }
+                  }}
+                  className="w-20"
+                />
+                <span className="text-sm text-gray-500">(max 100)</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowAddTrackOptions(false)}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAddTrack} onOpenChange={(open) => {
+        setShowAddTrack(open);
+        if (!open) {
+          setAddMultipleTracks(false);
+          setMultipleTracks([]);
+          setNumberOfTracks(2);
+          setNewTrack({ title: '', duration: '', isrc: '' });
+          setAudioUrl('');
+        }
+      }}>
+        <DialogContent className={addMultipleTracks ? "max-w-4xl max-h-[90vh] overflow-y-auto" : ""}>
+          <DialogHeader>
+            <DialogTitle>{addMultipleTracks ? `Add ${numberOfTracks} Tracks` : 'Add Track'}</DialogTitle>
+          </DialogHeader>
+          {addMultipleTracks ? (
+            <form onSubmit={handleAddMultipleTracks} className="space-y-4">
+              <div className="flex items-center gap-2 pb-2 border-b border-gray-700">
+                <Label htmlFor="numberOfTracksDialog" className="text-sm">Number of tracks:</Label>
+                <Input
+                  id="numberOfTracksDialog"
+                  type="number"
+                  min="2"
+                  max="100"
+                  value={numberOfTracks}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 2;
+                    const clampedValue = Math.min(Math.max(value, 2), 100);
+                    setNumberOfTracks(clampedValue);
+                    // Update multiple tracks array
+                    if (clampedValue > multipleTracks.length) {
+                      // Add more tracks
+                      const newTracks = Array(clampedValue - multipleTracks.length).fill(null).map(() => ({
+                        title: '',
+                        duration: '',
+                        isrc: '',
+                        audio_url: ''
+                      }));
+                      setMultipleTracks([...multipleTracks, ...newTracks]);
+                    } else if (clampedValue < multipleTracks.length) {
+                      // Remove tracks
+                      setMultipleTracks(multipleTracks.slice(0, clampedValue));
+                    }
+                  }}
+                  className="w-20"
+                />
+                <span className="text-sm text-gray-500">(max 100)</span>
+              </div>
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                {multipleTracks.map((track, index) => {
+                  return (
+                    <div key={index} className="p-4 border border-gray-700 rounded-lg space-y-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-bold text-gray-400">Track {index + 1}</span>
+                      </div>
+                    <Input
+                      placeholder="Duration (e.g. 3:45)"
+                      value={track.duration}
+                      onChange={e => {
+                        const updated = [...multipleTracks];
+                        updated[index].duration = e.target.value;
+                        setMultipleTracks(updated);
+                      }}
+                    />
+                    <Input
+                      placeholder="ISRC"
+                      value={track.isrc}
+                      onChange={e => {
+                        const updated = [...multipleTracks];
+                        updated[index].isrc = e.target.value;
+                        setMultipleTracks(updated);
+                      }}
+                    />
+                    <Input
+                      type="file"
+                      accept="audio/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const url = await uploadTrackAudio(file);
+                          if (url) {
+                            const updated = [...multipleTracks];
+                            updated[index].audio_url = url;
+                            setMultipleTracks(updated);
+                          }
+                        }
+                      }}
+                    />
+                    {track.audio_url && (
+                      <audio controls src={track.audio_url} className="h-8 mt-2" />
+                    )}
+                  </div>
+                  );
+                })}
+              </div>
+              {addTrackError && <div className="text-red-500 text-sm">{addTrackError}</div>}
+              <DialogFooter>
+                <Button type="submit" disabled={addingTrack || audioUploading} className="bg-yellow-400 hover:bg-yellow-500 text-black">
+                  {addingTrack ? 'Adding...' : audioUploading ? 'Uploading audio...' : `Add ${numberOfTracks} Track(s)`}
+                </Button>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+              </DialogFooter>
+            </form>
+          ) : (
+            <form onSubmit={handleAddTrack} className="space-y-4">
+              <div className="text-sm text-gray-400 mb-2">
+                Track will be auto-named as "Track {tracks.length + 1}"
+              </div>
+              <Input
+                placeholder="Duration (e.g. 3:45)"
+                value={newTrack.duration}
+                onChange={e => setNewTrack({ ...newTrack, duration: e.target.value })}
+              />
+              <Input
+                placeholder="ISRC"
+                value={newTrack.isrc}
+                onChange={e => setNewTrack({ ...newTrack, isrc: e.target.value })}
+              />
+              <Input
+                type="file"
+                accept="audio/*"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const url = await uploadTrackAudio(file);
+                    if (url) setAudioUrl(url);
+                  }
+                }}
+              />
+              {audioUploading && <div className="text-sm text-gray-500">Uploading audio...</div>}
+              {audioUploadError && <div className="text-red-500 text-sm">{audioUploadError}</div>}
+              {audioUrl && (
+                <audio controls src={audioUrl} className="h-8 mt-2" />
+              )}
+              {addTrackError && <div className="text-red-500 text-sm">{addTrackError}</div>}
+              <DialogFooter>
+                <Button type="submit" disabled={addingTrack || audioUploading} className="bg-yellow-400 hover:bg-yellow-500 text-black">
+                  {addingTrack ? 'Adding...' : audioUploading ? 'Uploading audio...' : 'Add Track'}
+                </Button>
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
       <Dialog open={!!editTrackId} onOpenChange={open => { if (!open) setEditTrackId(null); }}>
@@ -2889,15 +3607,8 @@ export default function AlbumDetailsPage() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddTrack} className="space-y-4">
-            <div>
-              <Label htmlFor="track-title">Track Title *</Label>
-              <Input
-                id="track-title"
-                placeholder="Track Title"
-                value={newTrack.title}
-                onChange={e => setNewTrack({ ...newTrack, title: e.target.value })}
-                required
-              />
+            <div className="text-sm text-gray-400 mb-2">
+              Track will be auto-named as "Track {tracks.length + 1}"
             </div>
             <div>
               <Label htmlFor="track-duration">Duration</Label>
@@ -2986,6 +3697,133 @@ export default function AlbumDetailsPage() {
         itemTitle={editingNotesTitle}
         onSave={saveNotes}
       />
+
+      {/* Generated Track Titles Dialog */}
+      <Dialog open={showGeneratedTitlesDialog} onOpenChange={setShowGeneratedTitlesDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              AI Generated Track Titles
+            </DialogTitle>
+            <DialogDescription>
+              Review the generated track titles based on your album cover art. Click "Apply Titles" to update all tracks.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {generatedTitles.map((title, index) => {
+              const track = tracks[index];
+              const isEditing = editingTitleIndex === index;
+              const isRegenerating = regeneratingIndex === index;
+              
+              return (
+                <div key={index} className="flex items-start gap-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                  <span className="font-bold text-gray-400 w-8 pt-1">{index + 1}</span>
+                  <div className="flex-1 space-y-2">
+                    {track && (
+                      <div className="text-sm text-gray-500">
+                        Current: <span className="line-through">{track.title}</span>
+                      </div>
+                    )}
+                    {isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={editingTitleValue}
+                          onChange={(e) => setEditingTitleValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleSaveEditTitle(index);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEditTitle();
+                            }
+                          }}
+                          className="bg-gray-900 border-gray-600 text-white"
+                          autoFocus
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveEditTitle(index)}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCancelEditTitle}
+                          className="border-gray-600"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="text-white font-medium flex-1">{title}</div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleStartEditTitle(index)}
+                            className="h-8 w-8 p-0 text-gray-400 hover:text-white"
+                            title="Edit title"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRegenerateTitle(index)}
+                            disabled={isRegenerating}
+                            className="h-8 w-8 p-0 text-gray-400 hover:text-blue-400"
+                            title="Regenerate title"
+                          >
+                            {isRegenerating ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteTitle(index)}
+                            className="h-8 w-8 p-0 text-gray-400 hover:text-red-400"
+                            title="Delete title"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowGeneratedTitlesDialog(false);
+                setGeneratedTitles([]);
+                setEditingTitleIndex(null);
+                setEditingTitleValue('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleApplyGeneratedTitles}
+              disabled={generatedTitles.length === 0}
+              className="bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50"
+            >
+              Apply Titles ({generatedTitles.length} of {tracks.length})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Hidden Audio Element for Playback */}
       <audio

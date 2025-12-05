@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { User, Lock, Bell, CreditCard, Shield, Webhook, Settings, Sparkles } from "lucide-react"
+import { User, Lock, Bell, CreditCard, Shield, Webhook, Settings, Sparkles, Cloud } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { supabase } from '@/lib/supabaseClient'
 import { StripeWebhookSetupModal } from "@/components/StripeWebhookSetupModal"
@@ -145,7 +145,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="profile" value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className={`grid w-full ${isAdminOrCEO ? 'grid-cols-5' : 'grid-cols-3'}`}>
+        <TabsList className={`grid w-full ${isAdminOrCEO ? 'grid-cols-6' : 'grid-cols-4'}`}>
           <TabsTrigger value="profile">
             <User className="h-4 w-4 mr-2" />
             Profile
@@ -157,6 +157,10 @@ export default function SettingsPage() {
           <TabsTrigger value="subscription">
             <CreditCard className="h-4 w-4 mr-2" />
             Subscription
+          </TabsTrigger>
+          <TabsTrigger value="cloud-services">
+            <Cloud className="h-4 w-4 mr-2" />
+            Cloud Services
           </TabsTrigger>
           {isAdminOrCEO && (
             <>
@@ -284,6 +288,29 @@ export default function SettingsPage() {
               {(!user?.subscription_tier || user.subscription_tier === 'free') && (
                 <div className="text-green-500 mt-2">You are on a free plan.</div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="cloud-services" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Cloud Services</CardTitle>
+              <CardDescription>Manage your storage provider preferences</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-gray-400">
+                  Configure where your files are stored. Choose between Supabase storage, system-wide storage, or your own cloud storage.
+                </p>
+                <Button
+                  onClick={() => router.push('/cloud-services')}
+                  className="bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black font-semibold hover:scale-105 transition-all duration-300"
+                >
+                  <Cloud className="h-4 w-4 mr-2" />
+                  Open Cloud Services
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
