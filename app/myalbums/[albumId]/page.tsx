@@ -23,6 +23,7 @@ import { TrackMetadataDialog } from '@/components/TrackMetadataDialog'
 import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { OpenAIService } from '@/lib/ai-services'
 
 interface Album {
   id: string
@@ -32,7 +33,7 @@ interface Album {
   cover_art_url: string
   description?: string
   additional_covers?: { label: string; url: string }[]
-  status?: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived'
+  status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
   distributor?: string
   distributor_notes?: string
@@ -109,6 +110,9 @@ export default function AlbumDetailsPage() {
   const [editAlbumError, setEditAlbumError] = useState<string | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [generatingCoverArt, setGeneratingCoverArt] = useState(false);
+  const [showCoverArtPromptDialog, setShowCoverArtPromptDialog] = useState(false);
+  const [coverArtPrompt, setCoverArtPrompt] = useState('');
   
   // Multiple artists state for edit album
   const [editAlbumArtists, setEditAlbumArtists] = useState<string[]>([]);
@@ -582,7 +586,7 @@ export default function AlbumDetailsPage() {
   };
 
   // Update album status function
-  const updateAlbumStatus = async (newStatus: 'draft' | 'active' | 'paused' | 'scheduled' | 'archived') => {
+  const updateAlbumStatus = async (newStatus: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other') => {
     if (!album) return;
     
     const { error } = await supabase
@@ -1017,6 +1021,251 @@ export default function AlbumDetailsPage() {
     const url = await uploadCoverArt(file);
     if (url) {
       setEditAlbumForm(prev => ({ ...prev, cover_art_url: url }));
+    }
+  };
+
+  // Open cover art generation dialog
+  const handleOpenCoverArtDialog = () => {
+    if (!album || !user?.id) {
+      toast({
+        title: "Error",
+        description: "Please ensure you're logged in and an album is selected.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Set default prompt with album context
+    const defaultPrompt = `Create a professional album cover art for "${album.title}" by ${album.artist || 'Unknown Artist'}${album.description ? `. ${album.description}` : ''}. The cover should be visually striking, suitable for a music release, and reflect the artistic style of the album.`;
+    setCoverArtPrompt(defaultPrompt);
+    setShowCoverArtPromptDialog(true);
+  };
+
+  // Generate cover art using GPT Image 1
+  const handleGenerateCoverArt = async (customPrompt?: string) => {
+    if (!album || !user?.id) {
+      toast({
+        title: "Error",
+        description: "Please ensure you're logged in and an album is selected.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const promptToUse = customPrompt || coverArtPrompt;
+    if (!promptToUse || !promptToUse.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a prompt for the cover art.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setGeneratingCoverArt(true);
+    setUploadError(null);
+    setShowCoverArtPromptDialog(false);
+
+    try {
+      // Get AI settings from database
+      const { data: settingsData, error: settingsError } = await supabase.rpc('get_ai_settings');
+      
+      if (settingsError) {
+        throw new Error('Failed to fetch AI settings');
+      }
+
+      // Map settings array to object
+      const settings: Record<string, string> = {};
+      if (settingsData) {
+        for (const setting of settingsData) {
+          settings[setting.setting_key] = setting.setting_value;
+        }
+      }
+
+      // Get image model from settings - look for common keys
+      // Try to find image-related settings
+      const imageModelKey = Object.keys(settings).find(key => 
+        key.toLowerCase().includes('image') && 
+        (key.toLowerCase().includes('model') || key.toLowerCase().includes('selected'))
+      );
+      
+      // Default to gpt-image-1 (as requested by user)
+      let model = 'gpt-image-1';
+      if (imageModelKey && settings[imageModelKey]) {
+        model = settings[imageModelKey];
+      } else if (settings['images_selected_model']) {
+        model = settings['images_selected_model'];
+      } else if (settings['images_locked_model']) {
+        model = settings['images_locked_model'];
+      }
+
+      // Get API key - try from settings first, then user table, then env
+      let apiKey = settings['openai_api_key']?.trim();
+      
+      if (!apiKey) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('openai_api_key')
+          .eq('id', user.id)
+          .single();
+
+        if (!userError && userData) {
+          apiKey = userData.openai_api_key;
+        }
+      }
+
+      if (!apiKey) {
+        apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+      }
+
+      if (!apiKey) {
+        toast({
+          title: "Missing API Key",
+          description: "Please configure your OpenAI API key in settings.",
+          variant: "destructive",
+        });
+        setGeneratingCoverArt(false);
+        return;
+      }
+
+      // Normalize model - ensure it's in the correct format
+      const normalizeImageModel = (modelValue: string) => {
+        if (modelValue === 'gpt-image-1' || modelValue?.startsWith('gpt-')) {
+          return modelValue;
+        }
+        // If it contains 'dall', use dall-e-3, otherwise default to gpt-image-1
+        if (modelValue?.toLowerCase().includes('dall')) {
+          return 'dall-e-3';
+        }
+        // Default to gpt-image-1 if not specified or empty
+        return modelValue || 'gpt-image-1';
+      };
+
+      const normalizedModel = normalizeImageModel(model);
+
+      console.log('🖼️ ALBUM COVER - Model selection:', {
+        originalModel: model,
+        normalizedModel: normalizedModel,
+        settingsKeys: Object.keys(settings),
+        imageModelKey: imageModelKey,
+        willUseGPTImage: normalizedModel === 'gpt-image-1' || normalizedModel.startsWith('gpt-'),
+        prompt: promptToUse.substring(0, 100) + '...'
+      });
+
+      // Generate image using OpenAIService
+      const response = await OpenAIService.generateImage({
+        prompt: promptToUse.trim(),
+        style: 'cinematic, professional album cover',
+        model: normalizedModel,
+        apiKey: apiKey,
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to generate cover art');
+      }
+
+      // Handle both URL (DALL-E) and base64 (GPT Image) responses
+      const imageData = response.data.data?.[0];
+      const imageUrl = imageData?.url || (imageData?.b64_json ? `data:image/png;base64,${imageData.b64_json}` : '');
+
+      if (!imageUrl) {
+        throw new Error('No image data received');
+      }
+
+      // Save the image to the bucket
+      setUploadingCover(true);
+      
+      let publicUrl: string;
+      
+      if (imageUrl.startsWith('data:')) {
+        // Base64 data URI (GPT Image) - can be handled client-side
+        const base64Data = imageUrl.split(',')[1];
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/png' });
+
+        // Upload to Supabase storage
+        const filePath = `albums/${album.id}/${Date.now()}_cover_art.png`;
+        const { error: uploadError } = await supabase.storage
+          .from('beats')
+          .upload(filePath, blob, {
+            contentType: 'image/png',
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          throw new Error('Failed to upload cover art to storage');
+        }
+
+        const { data: { publicUrl: url } } = supabase.storage
+          .from('beats')
+          .getPublicUrl(filePath);
+        
+        publicUrl = url;
+      } else {
+        // URL (DALL-E) - need to download server-side due to CORS
+        const token = await getAccessToken();
+        if (!token) {
+          throw new Error('Authentication required');
+        }
+
+        const downloadResponse = await fetch('/api/ai/download-and-store-image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageUrl: imageUrl,
+            fileName: 'cover_art',
+            userId: user.id,
+            albumId: album.id
+          })
+        });
+
+        const downloadResult = await downloadResponse.json();
+
+        if (!downloadResult.success) {
+          throw new Error(downloadResult.error || 'Failed to download and store image');
+        }
+
+        publicUrl = downloadResult.supabaseUrl;
+      }
+
+      // Update album with new cover art
+      const { error: updateError } = await supabase
+        .from('albums')
+        .update({ cover_art_url: publicUrl })
+        .eq('id', album.id);
+
+      if (updateError) {
+        throw new Error('Failed to update album cover art');
+      }
+
+      // Update local state
+      setAlbum(prev => prev ? { ...prev, cover_art_url: publicUrl } : null);
+      setEditAlbumForm(prev => ({ ...prev, cover_art_url: publicUrl }));
+
+      toast({
+        title: "Success",
+        description: "Album cover art generated and saved!",
+      });
+    } catch (error: any) {
+      console.error('Error generating cover art:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate cover art. Please ensure AI API keys are configured in /ai-settings",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingCoverArt(false);
+      setUploadingCover(false);
     }
   };
 
@@ -2107,6 +2356,25 @@ export default function AlbumDetailsPage() {
           <Button 
             variant="outline" 
             size="sm" 
+            onClick={handleOpenCoverArtDialog}
+            disabled={generatingCoverArt || uploadingCover}
+            className="w-full"
+          >
+            {generatingCoverArt ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Generate Cover Art
+              </>
+            )}
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
             onClick={downloadAlbum}
             className="bg-green-600 hover:bg-green-700 text-white border-green-500 w-full"
           >
@@ -2143,20 +2411,23 @@ export default function AlbumDetailsPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => updateAlbumStatus('production')}>
+                    Production
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => updateAlbumStatus('draft')}>
                     Draft
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => updateAlbumStatus('active')}>
-                    Active
+                  <DropdownMenuItem onClick={() => updateAlbumStatus('distribute')}>
+                    Distribute
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => updateAlbumStatus('paused')}>
-                    Paused
+                  <DropdownMenuItem onClick={() => updateAlbumStatus('error')}>
+                    Error
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => updateAlbumStatus('scheduled')}>
-                    Scheduled
+                  <DropdownMenuItem onClick={() => updateAlbumStatus('published')}>
+                    Published
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => updateAlbumStatus('archived')}>
-                    Archived
+                  <DropdownMenuItem onClick={() => updateAlbumStatus('other')}>
+                    Other
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -3561,15 +3832,38 @@ export default function AlbumDetailsPage() {
                     className="w-24 h-24 object-cover rounded-lg"
                   />
                 )}
-                <div>
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleCoverArtUpload}
-                    disabled={uploadingCover}
-                  />
-                  {uploadingCover && <p className="text-sm text-blue-500 mt-1">Uploading...</p>}
-                  {uploadError && <p className="text-sm text-red-500 mt-1">{uploadError}</p>}
+                <div className="flex-1 space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleCoverArtUpload}
+                      disabled={uploadingCover || generatingCoverArt}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleOpenCoverArtDialog}
+                      disabled={uploadingCover || generatingCoverArt}
+                      className="whitespace-nowrap"
+                    >
+                      {generatingCoverArt ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Generate with AI
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {uploadingCover && <p className="text-sm text-blue-500">Uploading...</p>}
+                  {generatingCoverArt && <p className="text-sm text-blue-500">Generating cover art with AI...</p>}
+                  {uploadError && <p className="text-sm text-red-500">{uploadError}</p>}
                 </div>
               </div>
             </div>
@@ -3594,6 +3888,63 @@ export default function AlbumDetailsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate Cover Art Prompt Dialog */}
+      <Dialog open={showCoverArtPromptDialog} onOpenChange={setShowCoverArtPromptDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Generate Album Cover Art</DialogTitle>
+            <DialogDescription>
+              Enter a description of the cover art you want to generate. The AI will create a professional album cover based on your prompt.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="cover-art-prompt">Cover Art Description</Label>
+              <Textarea
+                id="cover-art-prompt"
+                value={coverArtPrompt}
+                onChange={(e) => setCoverArtPrompt(e.target.value)}
+                placeholder="Describe the album cover art you want to generate..."
+                rows={6}
+                className="mt-2"
+              />
+              <p className="text-xs text-gray-400 mt-2">
+                Tip: Be specific about colors, mood, style, and any elements you want included in the cover art.
+              </p>
+            </div>
+            
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCoverArtPromptDialog(false)}
+                disabled={generatingCoverArt}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleGenerateCoverArt()}
+                disabled={generatingCoverArt || !coverArtPrompt.trim()}
+              >
+                {generatingCoverArt ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Generate Cover Art
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
