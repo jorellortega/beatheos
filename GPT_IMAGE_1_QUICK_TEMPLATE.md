@@ -361,3 +361,5 @@ SELECT id, cors_origins FROM storage.buckets WHERE id = 'your-bucket-name';
 ❌ **DALL-E** returns URL on OpenAI's CDN → CORS blocks client-side download → Use server-side download
 
 **Recommendation:** Always default to `gpt-image-1` unless you specifically need DALL-E features.
+
+

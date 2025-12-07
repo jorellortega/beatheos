@@ -368,3 +368,5 @@ if (response.success && response.data) {
 ✅ **GPT Image 1** (`gpt-image-1`) = Base64 response = No CORS issues = Client-side upload  
 ✅ **DALL-E 3** = URL response = CORS issues = Server-side download required  
 ✅ **Best Practice:** Use GPT Image 1 by default to avoid CORS complications
+
+
