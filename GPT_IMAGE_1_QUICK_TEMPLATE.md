@@ -363,3 +363,4 @@ SELECT id, cors_origins FROM storage.buckets WHERE id = 'your-bucket-name';
 **Recommendation:** Always default to `gpt-image-1` unless you specifically need DALL-E features.
 
 
+

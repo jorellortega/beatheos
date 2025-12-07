@@ -370,3 +370,4 @@ if (response.success && response.data) {
 ✅ **Best Practice:** Use GPT Image 1 by default to avoid CORS complications
 
 
+
