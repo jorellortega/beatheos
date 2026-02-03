@@ -106,10 +106,13 @@ export class OpenAIService {
       
       if (isGPTImageModel) {
         // Use Responses API for GPT Image models
+        // Note: GPT Image 1 generates at 1024x1024 by default (largest square size available)
+        // If you need 1600x1600, the generated image will need to be upscaled using the cropping tool
         console.log('🖼️ IMAGE GENERATION - Using GPT Image (Responses API)')
         console.log('🖼️ IMAGE GENERATION - Model:', request.model === 'gpt-image-1' ? 'gpt-4.1-mini (with image_generation tool)' : request.model)
         console.log('🖼️ IMAGE GENERATION - Prompt:', request.prompt)
         console.log('🖼️ IMAGE GENERATION - API Endpoint: /v1/responses')
+        console.log('🖼️ IMAGE GENERATION - Output Size: 1024x1024 (default square size)')
         
         const requestBody: any = {
           model: request.model === 'gpt-image-1' ? 'gpt-4.1-mini' : request.model,

@@ -17,7 +17,7 @@ async function getUserFromRequest(req: Request) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get current user
@@ -26,10 +26,11 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { id } = await params
     const { data: schedule, error } = await supabase
       .from('production_schedule')
       .select('*')
-      .eq('label_artist_id', params.id)
+      .eq('label_artist_id', id)
       .eq('user_id', user.id)
       .order('scheduled_date', { ascending: true })
 
@@ -47,7 +48,7 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get current user
@@ -56,6 +57,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { id } = await params
     const body = await request.json()
     
     const scheduleData = {
@@ -71,10 +73,11 @@ export async function POST(
       currency: body.currency || 'USD',
       location: body.location,
       notes: body.notes,
-      label_artist_id: params.id,
+      label_artist_id: id,
       collaborators: body.collaborators || [],
-      user_id: user.id,
-      created_by: user.id
+      project_type: body.project_type || 'single',
+      artist_name: body.artist_name,
+      user_id: user.id
     }
 
     const { data: item, error } = await supabase
@@ -97,7 +100,7 @@ export async function POST(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get current user
@@ -106,6 +109,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { id } = await params
     const body = await request.json()
     const { item_id, ...updateData } = body
 
@@ -113,7 +117,7 @@ export async function PUT(
       .from('production_schedule')
       .update(updateData)
       .eq('id', item_id)
-      .eq('label_artist_id', params.id)
+      .eq('label_artist_id', id)
       .eq('user_id', user.id)
       .select()
       .single()
@@ -132,7 +136,7 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get current user
@@ -141,6 +145,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { id } = await params
     const { searchParams } = new URL(request.url)
     const itemId = searchParams.get('item_id')
 
@@ -152,7 +157,7 @@ export async function DELETE(
       .from('production_schedule')
       .delete()
       .eq('id', itemId)
-      .eq('label_artist_id', params.id)
+      .eq('label_artist_id', id)
       .eq('user_id', user.id)
 
     if (error) {

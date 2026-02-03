@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { TopLists } from "@/components/home/TopLists"
 import { AIChat } from "@/components/AIChat"
 import Link from "next/link"
 import { Instagram } from 'lucide-react'
@@ -134,9 +133,83 @@ export default function Home() {
         </Button>
       </div>
 
-      <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
-        <TopLists />
+      {/* Platform Promo Section */}
+      <div className="max-w-4xl mx-auto mb-12 px-4">
+        <div className="bg-gradient-to-br from-[#1a1a1a] to-[#0f0f0f] rounded-2xl p-8 border border-[#2a2a2a] shadow-xl">
+          <h2 className="text-3xl md:text-4xl font-bold text-center mb-6 bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] bg-clip-text text-transparent">
+            The Complete Music Creation Platform
+          </h2>
+          <p className="text-lg text-gray-300 text-center mb-8 max-w-2xl mx-auto">
+            Beatheos is your all-in-one destination for creating, distributing, and monetizing music. Whether you're a producer, artist, or creator, we've got everything you need to bring your musical vision to life.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">🎵</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">Beat Marketplace</h3>
+                <p className="text-gray-400">Browse and purchase high-quality beats from talented producers worldwide</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">✂️</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">Editor</h3>
+                <p className="text-gray-400">Advanced audio editing with waveform visualization and precise manipulation</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">🔄</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">MP3/MP4 Converter</h3>
+                <p className="text-gray-400">Convert audio and video files between formats with professional quality</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">✨</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">AI Lyrics</h3>
+                <p className="text-gray-400">Generate creative lyrics, edit with AI assistance, and bring your songs to life</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">🎨</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">AI Cover Maker</h3>
+                <p className="text-gray-400">Create stunning album covers and artwork with AI-powered design tools</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">💿</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">Albums & Singles</h3>
+                <p className="text-gray-400">Create and release your music with professional album creation tools</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">👥</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">Thriving Community</h3>
+                <p className="text-gray-400">Connect with creators, share your work, and discover new talent</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">🎤</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">Artist Page</h3>
+                <p className="text-gray-400">Create professional artist profiles to showcase your music and connect with fans</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">🏢</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2">Label Management</h3>
+                <p className="text-gray-400">Manage your music label, artists, releases, and distribution all in one place</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
       <div className="w-full flex justify-center mt-16 mb-8">
         <Link href="/feed" className="block w-full max-w-xl">
           <div className="rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-200 shadow-lg p-6 flex flex-col items-center justify-center hover:scale-105 transition-transform cursor-pointer border-2 border-yellow-400">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw, Video, Eye, EyeOff, Lock } from 'lucide-react'
+import { Plus, Music, Upload, Calendar, Globe, FileText, CheckCircle2, XCircle, AlertCircle, ExternalLink, Info, FileMusic, FileArchive, FileAudio, File, Music2, Piano, Drum, Trash2, Save, Pencil, Folder, Grid, List, Package, Search, Play, Pause, Loader2, Link as LinkIcon, Circle, Clock, Archive, Download, FileText as FileTextIcon, StickyNote, MoreHorizontal, Image, Edit3, Unlink, RefreshCw, Video, Eye, EyeOff, Lock, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 // Types for DB tables
 interface Album {
@@ -930,6 +931,11 @@ export default function MyLibrary() {
         duration: ''
       });
       setSelectedLabelArtistIdForSingle('');
+      
+      // Redirect to single detail page
+      if (data && data.id) {
+        router.push(`/mysingles/${data.id}`);
+      }
     } catch (error) {
       console.error('Error creating single:', error);
       setCreateSingleError('Failed to create single. Please try again.');
@@ -1106,11 +1112,11 @@ export default function MyLibrary() {
   };
 
   // Create track functions
-  const openCreateTrackDialog = () => {
-    setNewTrackTitle('');
+  const openCreateTrackDialog = (prefillTitle?: string, prefillArtist?: string, prefillReleaseDate?: string) => {
+    setNewTrackTitle(prefillTitle || '');
     setNewTrackDescription('');
-    setNewTrackArtist('');
-    setNewTrackReleaseDate('');
+    setNewTrackArtist(prefillArtist || '');
+    setNewTrackReleaseDate(prefillReleaseDate || '');
     setNewTrackDuration('');
     setNewTrackBpm('');
     setNewTrackKey('');
@@ -1183,6 +1189,11 @@ export default function MyLibrary() {
         title: "Track created successfully!",
         description: "Your new track has been added to the library.",
       });
+      
+      // Redirect to track detail page
+      if (data && data[0] && data[0].id) {
+        router.push(`/trackfiles/${data[0].id}`);
+      }
     } catch (error) {
       console.error('Error creating track:', error);
       alert('Failed to create track. Please try again.');
@@ -2220,6 +2231,11 @@ export default function MyLibrary() {
     setNewAlbum({ title: '', artist: '', release_date: '', cover_art_url: '', description: '' });
     setSelectedLabelArtistIdForAlbum('');
     setNewAdditionalCovers([]);
+    
+    // Redirect to album detail page
+    if (data && data.id) {
+      router.push(`/myalbums/${data.id}`);
+    }
   }
 
   async function handleEditAlbum(e: React.FormEvent) {
@@ -2400,6 +2416,14 @@ export default function MyLibrary() {
   const [loadingProductionSchedule, setLoadingProductionSchedule] = useState(false);
   const [productionScheduleError, setProductionScheduleError] = useState<string | null>(null);
   const [productionScheduleFilter, setProductionScheduleFilter] = useState<'all' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold'>('all');
+  const [expandedScheduleCards, setExpandedScheduleCards] = useState<{[key: string]: boolean}>({});
+
+  const toggleScheduleCard = (itemId: string) => {
+    setExpandedScheduleCards(prev => ({
+      ...prev,
+      [itemId]: !prev[itemId]
+    }));
+  };
   const [showCreateScheduleItemDialog, setShowCreateScheduleItemDialog] = useState(false);
   const [newScheduleItem, setNewScheduleItem] = useState({
     title: '',
@@ -2682,6 +2706,18 @@ export default function MyLibrary() {
     }
   };
 
+  // Get schedule status color
+  const getScheduleStatusColor = (status: string) => {
+    switch (status) {
+      case 'scheduled': return 'bg-blue-600 hover:bg-blue-700 text-white'
+      case 'in_progress': return 'bg-yellow-600 hover:bg-yellow-700 text-white'
+      case 'completed': return 'bg-green-600 hover:bg-green-700 text-white'
+      case 'cancelled': return 'bg-red-600 hover:bg-red-700 text-white'
+      case 'on_hold': return 'bg-gray-600 hover:bg-gray-700 text-white'
+      default: return 'bg-gray-600 hover:bg-gray-700 text-white'
+    }
+  }
+
   // Update schedule item status
   const updateScheduleItemStatus = async (itemId: string, newStatus: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold') => {
     try {
@@ -2709,6 +2745,38 @@ export default function MyLibrary() {
       toast({
         title: "Error",
         description: "Failed to update status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Update schedule item priority
+  const updateScheduleItemPriority = async (itemId: string, newPriority: 'low' | 'medium' | 'high' | 'urgent') => {
+    try {
+      const { error } = await supabase
+        .from('production_schedule')
+        .update({ 
+          priority: newPriority,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', itemId);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setProductionScheduleItems(productionScheduleItems.map(item => 
+        item.id === itemId ? { ...item, priority: newPriority } : item
+      ));
+      
+      toast({
+        title: "Priority Updated",
+        description: `Priority changed to ${newPriority}`,
+      });
+    } catch (error: any) {
+      console.error('Error updating priority:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update priority",
         variant: "destructive"
       });
     }
@@ -6583,8 +6651,7 @@ export default function MyLibrary() {
                           {track.session_id && track.session_name && (
                             <div className="mt-2 ml-4">
                               <div 
-                                className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
-                                onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
+                                className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md"
                               >
                                 <LinkIcon className="h-3 w-3 text-blue-400" />
                                 <span className="text-sm font-medium text-blue-300">
@@ -7348,8 +7415,7 @@ export default function MyLibrary() {
                         {single.session_id && single.session_name && (
                           <div className="mt-2 ml-4">
                             <div 
-                              className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
-                              onClick={() => window.open(`/beat-maker?session=${single.session_id}`, '_blank')}
+                              className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md"
                             >
                               <LinkIcon className="h-3 w-3 text-blue-400" />
                               <span className="text-sm font-medium text-blue-300">
@@ -8896,30 +8962,96 @@ export default function MyLibrary() {
               {productionScheduleItems
                 .filter(item => productionScheduleFilter === 'all' || item.status === productionScheduleFilter)
                 .map(item => (
-                  <Card key={item.id} className="p-4 sm:p-6 border-l-4 border-blue-500">
-                    <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-white">{item.title}</h3>
-                          <div className="flex gap-2">
-                            <Badge className={`text-xs ${getPriorityColor(item.priority)}`}>
-                              {item.priority}
-                            </Badge>
-                            <Badge className={`text-xs ${getStatusColor(item.status)}`}>
-                              {item.status.replace('_', ' ')}
-                            </Badge>
+                  <Collapsible 
+                    key={item.id} 
+                    open={expandedScheduleCards[item.id || ''] || false}
+                    onOpenChange={() => toggleScheduleCard(item.id || '')}
+                  >
+                    <Card className={`border-l-4 border-blue-500 ${expandedScheduleCards[item.id || ''] ? 'p-4 sm:p-6' : 'p-3'}`}>
+                      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <CollapsibleTrigger asChild>
+                              <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity flex-1 min-w-0">
+                                {expandedScheduleCards[item.id || ''] ? (
+                                  <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                                )}
+                                <h3 className={`font-semibold text-white truncate ${expandedScheduleCards[item.id || ''] ? 'text-lg' : 'text-base'}`}>{item.title}</h3>
+                              </div>
+                            </CollapsibleTrigger>
+                            <div className="flex gap-2 flex-shrink-0">
+                              {/* Priority Badge - Clickable */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <div className="cursor-pointer hover:opacity-80 transition-opacity inline-block">
+                                    <Badge className={`text-xs ${getPriorityColor(item.priority)}`}>
+                                      {item.priority}
+                                    </Badge>
+                                  </div>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent>
+                                  <DropdownMenuLabel>Change Priority</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  {['urgent', 'high', 'medium', 'low'].map((priority) => (
+                                    <DropdownMenuItem
+                                      key={priority}
+                                      onClick={() => updateScheduleItemPriority(item.id || '', priority as 'low' | 'medium' | 'high' | 'urgent')}
+                                      className={item.priority === priority ? 'bg-accent/50 font-medium' : ''}
+                                    >
+                                      <Badge className={getPriorityColor(priority)}>
+                                        {priority}
+                                      </Badge>
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+
+                              {/* Status Badge - Clickable */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <div className="cursor-pointer hover:opacity-80 transition-opacity inline-block">
+                                    <Badge className={`text-xs ${getScheduleStatusColor(item.status)}`}>
+                                      {item.status.replace('_', ' ')}
+                                    </Badge>
+                                  </div>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent>
+                                  <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  {['scheduled', 'in_progress', 'completed', 'cancelled', 'on_hold'].map((status) => (
+                                    <DropdownMenuItem
+                                      key={status}
+                                      onClick={() => updateScheduleItemStatus(item.id || '', status as 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'on_hold')}
+                                      className={item.status === status ? 'bg-accent/50 font-medium' : ''}
+                                    >
+                                      <Badge className={getScheduleStatusColor(status)}>
+                                        {status.replace('_', ' ')}
+                                      </Badge>
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </div>
-                        </div>
-                        
-                        {item.description && (
-                          <p className="text-gray-400 text-sm mb-3">{item.description}</p>
-                        )}
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                          
+                          <CollapsibleContent>
+                          {item.description && (
+                            <p className="text-gray-400 text-sm mb-3">{item.description}</p>
+                          )}
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                           <div>
                             <span className="text-gray-500">Type:</span>
                             <span className="text-white ml-2 capitalize">{item.type.replace('_', ' ')}</span>
                           </div>
+                          {item.project_type && (
+                            <div>
+                              <span className="text-gray-500">Project Type:</span>
+                              <span className="text-white ml-2 capitalize">{item.project_type}</span>
+                            </div>
+                          )}
                           <div>
                             <span className="text-gray-500">Scheduled:</span>
                             <span className="text-white ml-2">{new Date(item.scheduled_date).toLocaleDateString()}</span>
@@ -9033,59 +9165,119 @@ export default function MyLibrary() {
                             </div>
                           </div>
                         )}
-                      </div>
+                          </CollapsibleContent>
+                        </div>
                       
-                      <div className="flex flex-col gap-2">
+                      <div className={`flex ${expandedScheduleCards[item.id || ''] ? 'flex-col gap-2' : 'flex-row gap-1'} flex-shrink-0`}>
                         <Button 
                           variant="outline" 
-                          size="sm" 
-                          className="text-xs"
+                          size={expandedScheduleCards[item.id || ''] ? "sm" : "icon"}
+                          className={`${expandedScheduleCards[item.id || ''] ? 'text-xs' : 'h-7 w-7 p-0'}`}
                           onClick={() => openEditScheduleItemDialog(item)}
+                          title="Edit"
                         >
-                          <Edit3 className="h-3 w-3 mr-1" />
-                          Edit
+                          <Edit3 className={`${expandedScheduleCards[item.id || ''] ? 'h-3 w-3 mr-1' : 'h-3 w-3'}`} />
+                          {expandedScheduleCards[item.id || ''] && 'Edit'}
                         </Button>
                         
                         {/* Link Project Button */}
                         <Button 
                           variant="outline" 
-                          size="sm" 
-                          className="text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                          size={expandedScheduleCards[item.id || ''] ? "sm" : "icon"}
+                          className={`${expandedScheduleCards[item.id || ''] ? 'text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500' : 'h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700 text-white border-blue-500'}`}
                           onClick={() => openLinkProjectDialog(item)}
+                          title={item.project_id ? 'Change Link' : 'Link Project'}
                         >
-                          <LinkIcon className="h-3 w-3 mr-1" />
-                          {item.project_id ? 'Change Link' : 'Link Project'}
+                          <LinkIcon className={`${expandedScheduleCards[item.id || ''] ? 'h-3 w-3 mr-1' : 'h-3 w-3'}`} />
+                          {expandedScheduleCards[item.id || ''] && (item.project_id ? 'Change Link' : 'Link Project')}
                         </Button>
                         
+                        {/* Create Album/Track Button based on project_type */}
+                        {item.project_type === 'album' && (
+                          <Button 
+                            variant="outline" 
+                            size={expandedScheduleCards[item.id || ''] ? "sm" : "icon"}
+                            className={`${expandedScheduleCards[item.id || ''] ? 'text-xs bg-yellow-400 hover:bg-yellow-500 text-black border-yellow-400' : 'h-7 w-7 p-0 bg-yellow-400 hover:bg-yellow-500 text-black border-yellow-400'}`}
+                            onClick={() => {
+                              // Try to find matching artist in labelArtists
+                              const matchingArtist = item.artist_name 
+                                ? labelArtists.find(a => 
+                                    (a.name === item.artist_name || a.stage_name === item.artist_name)
+                                  )
+                                : null;
+                              
+                              // Use scheduled_date as release date, format it for the date input (YYYY-MM-DD)
+                              const releaseDate = item.scheduled_date ? new Date(item.scheduled_date).toISOString().split('T')[0] : '';
+                              
+                              setNewAlbum({
+                                title: item.title || '',
+                                artist: item.artist_name || '',
+                                release_date: releaseDate,
+                                cover_art_url: '',
+                                description: ''
+                              });
+                              
+                              // If artist matches, set the selected ID, otherwise leave it empty
+                              setSelectedLabelArtistIdForAlbum(matchingArtist?.id || '');
+                              
+                              setShowAlbumModal(true);
+                            }}
+                            title="Add New Album"
+                          >
+                            <Plus className={`${expandedScheduleCards[item.id || ''] ? 'h-3 w-3 mr-1' : 'h-3 w-3'}`} />
+                            {expandedScheduleCards[item.id || ''] && 'Add New Album'}
+                          </Button>
+                        )}
+                        {(item.project_type === 'single' || item.project_type === 'track') && (
+                          <Button 
+                            variant="outline" 
+                            size={expandedScheduleCards[item.id || ''] ? "sm" : "icon"}
+                            className={`${expandedScheduleCards[item.id || ''] ? 'text-xs bg-blue-600 hover:bg-blue-700 text-white border-blue-500' : 'h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700 text-white border-blue-500'}`}
+                            onClick={() => {
+                              // Use scheduled_date as release date, format it for the date input (YYYY-MM-DD)
+                              const releaseDate = item.scheduled_date ? new Date(item.scheduled_date).toISOString().split('T')[0] : '';
+                              openCreateTrackDialog(item.title, item.artist_name, releaseDate);
+                            }}
+                            title="Create Track"
+                          >
+                            <Plus className={`${expandedScheduleCards[item.id || ''] ? 'h-3 w-3 mr-1' : 'h-3 w-3'}`} />
+                            {expandedScheduleCards[item.id || ''] && 'Create Track'}
+                          </Button>
+                        )}
+                        
                         {/* Status Update Dropdown */}
-                        <Select 
-                          value={item.status} 
-                          onValueChange={(value: any) => updateScheduleItemStatus(item.id, value)}
-                        >
-                          <SelectTrigger className="text-xs h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="scheduled">Scheduled</SelectItem>
-                            <SelectItem value="in_progress">In Progress</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                            <SelectItem value="cancelled">Cancelled</SelectItem>
-                            <SelectItem value="on_hold">On Hold</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        {expandedScheduleCards[item.id || ''] && (
+                          <Select 
+                            value={item.status} 
+                            onValueChange={(value: any) => updateScheduleItemStatus(item.id, value)}
+                          >
+                            <SelectTrigger className="text-xs h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="scheduled">Scheduled</SelectItem>
+                              <SelectItem value="in_progress">In Progress</SelectItem>
+                              <SelectItem value="completed">Completed</SelectItem>
+                              <SelectItem value="cancelled">Cancelled</SelectItem>
+                              <SelectItem value="on_hold">On Hold</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
                         
                         <Button 
                           variant="outline" 
-                          size="sm" 
-                          className="text-xs text-red-500 hover:text-red-700"
+                          size={expandedScheduleCards[item.id || ''] ? "sm" : "icon"}
+                          className={`${expandedScheduleCards[item.id || ''] ? 'text-xs text-red-500 hover:text-red-700' : 'h-7 w-7 p-0 text-red-500 hover:text-red-700'}`}
                           onClick={() => deleteScheduleItem(item.id)}
+                          title="Delete"
                         >
-                          <Trash2 className="h-3 w-3 mr-1" />
-                          Delete
+                          <Trash2 className={`${expandedScheduleCards[item.id || ''] ? 'h-3 w-3 mr-1' : 'h-3 w-3'}`} />
+                          {expandedScheduleCards[item.id || ''] && 'Delete'}
                         </Button>
                       </div>
                     </div>
                   </Card>
+                  </Collapsible>
                 ))}
             </div>
           )}

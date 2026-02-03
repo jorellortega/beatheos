@@ -178,14 +178,8 @@
   }
 }
 
-/* Mobile-specific improvements for beat-maker page */
+/* Mobile-specific improvements */
 @media (max-width: 640px) {
-  /* Improve touch targets for beat maker controls */
-  .beat-maker-controls button {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  
   /* Better spacing for transport controls */
   .transport-controls {
     gap: 0.5rem;

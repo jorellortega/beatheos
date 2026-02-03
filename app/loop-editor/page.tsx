@@ -3001,34 +3001,6 @@ export default function LoopEditorPage() {
     return `${noteName}${octave}`
   }
 
-  // Export MIDI data to beat-maker
-  const exportToBeatMaker = () => {
-    if (!midiData) return
-
-    // Create enhanced MIDI data with tempo and grid information
-    const enhancedMidiData = {
-      ...midiData,
-      bpm: bpm,
-      gridDivision: midiGridDivision,
-      audioDuration: effectiveDuration,
-      estimatedBars: Math.ceil((effectiveDuration / (60 / bpm)) / 4),
-      stepDuration: (60 / bpm) / (midiGridDivision / 4),
-      exportTimestamp: new Date().toISOString()
-    }
-
-    // Create a URL with the enhanced MIDI data as parameters
-    const midiParams = encodeURIComponent(JSON.stringify(enhancedMidiData))
-    const beatMakerUrl = `/beat-maker?midi-data=${midiParams}`
-    
-    // Open in new tab
-    window.open(beatMakerUrl, '_blank')
-    
-    toast({
-      title: "Exported to Beat Maker",
-      description: `MIDI data exported with ${bpm} BPM, ${midiGridDivision}/4 grid`,
-      variant: "default",
-    })
-  }
 
   // Toggle MIDI step
   const toggleMidiStep = (trackId: number, stepIndex: number) => {
@@ -9918,12 +9890,6 @@ export default function LoopEditorPage() {
               </Button>
               {midiData && (
                 <>
-                  <Button
-                    onClick={exportToBeatMaker}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Export to Beat Maker
-                  </Button>
                   {currentMidiMarker && (
                     <Button
                       onClick={() => setShowSavePatternDialog(true)}

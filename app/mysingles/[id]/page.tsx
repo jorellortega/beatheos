@@ -993,8 +993,7 @@ export default function SingleDetailsPage() {
             <div className="mb-6">
               <h3 className="text-lg font-semibold mb-2">Session</h3>
               <div 
-                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
-                onClick={() => window.open(`/beat-maker?session=${single.session_id}`, '_blank')}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600/20 border border-blue-500/30 rounded-md"
               >
                 <LinkIcon className="h-4 w-4 text-blue-400" />
                 <span className="text-sm font-medium text-blue-300">

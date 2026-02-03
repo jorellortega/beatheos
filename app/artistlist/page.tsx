@@ -35,7 +35,9 @@ import {
   Settings,
   RefreshCw,
   ArrowUpDown,
-  Star as StarIcon
+  Star as StarIcon,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -54,9 +56,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useRouter } from 'next/navigation'
 
 // Types
 interface ChecklistItem {
@@ -946,6 +950,7 @@ export default function ArtistList() {
   // Auth
   const { user } = useAuth()
   const supabase = createClientComponentClient()
+  const router = useRouter()
   
   // Database Data
   const [artists, setArtists] = useState<Artist[]>([])
@@ -1015,6 +1020,16 @@ export default function ArtistList() {
 
   const toggleStreamingPlatforms = (artistId: string) => {
     setShowStreamingPlatforms(prev => ({
+      ...prev,
+      [artistId]: !prev[artistId]
+    }))
+  }
+
+  // Artist card expand/collapse state (default: all collapsed)
+  const [expandedCards, setExpandedCards] = useState<{[key: string]: boolean}>({})
+
+  const toggleCard = (artistId: string) => {
+    setExpandedCards(prev => ({
       ...prev,
       [artistId]: !prev[artistId]
     }))
@@ -1528,7 +1543,7 @@ export default function ArtistList() {
       case 'silver': return '🥈 Silver'
       case 'bronze': return '🥉 Bronze'
       case 'emerging': return '🌱 Emerging'
-      case 'indie': return '🎭 Indie'
+      case 'indie': return '🎸 Indie'
       default: return artistClass
     }
   }
@@ -1897,6 +1912,55 @@ export default function ArtistList() {
     } catch (error) {
       console.error('Error updating artist:', error)
       setUploadingEditImages(false)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update artist. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Quick update function for badge fields
+  const handleQuickUpdate = async (artistId: string, field: 'status' | 'priority' | 'artist_class' | 'genre', value: string) => {
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "Please log in to update an artist",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      const updateData: any = {
+        user_id: user.id,
+        id: artistId,
+      }
+      updateData[field] = value
+
+      const response = await fetch('/api/label-artists', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData)
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update artist')
+      }
+
+      toast({
+        title: "Success",
+        description: `${field === 'artist_class' ? 'Class' : field.charAt(0).toUpperCase() + field.slice(1)} updated successfully!`,
+      })
+
+      // Refresh the artists list
+      fetchArtists()
+    } catch (error) {
+      console.error('Error updating artist:', error)
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update artist. Please try again.",
@@ -2389,7 +2453,7 @@ export default function ArtistList() {
             <SelectItem value="silver">🥈 Silver</SelectItem>
             <SelectItem value="bronze">🥉 Bronze</SelectItem>
             <SelectItem value="emerging">🌱 Emerging</SelectItem>
-            <SelectItem value="indie">🎭 Indie</SelectItem>
+            <SelectItem value="indie">🎸 Indie</SelectItem>
           </SelectContent>
         </Select>
         
@@ -2418,145 +2482,288 @@ export default function ArtistList() {
       {/* Artist List */}
       <div className="grid gap-4">
         {filteredArtists.map((artist) => (
-          <Card key={artist.id} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-6">
-              <div className="flex flex-col lg:flex-row gap-6">
-                {/* Artist Image and Basic Info */}
+          <Collapsible 
+            key={artist.id} 
+            open={expandedCards[artist.id] || false}
+            onOpenChange={() => toggleCard(artist.id)}
+          >
+            <Card className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
                 <div className="flex items-start gap-4">
-                  <div className="relative">
-                    <img
-                      src={artist.image_url || '/placeholder-user.jpg'}
-                      alt={artist.name}
-                      className="w-20 h-20 rounded-full object-cover"
-                    />
-                    <div className="absolute -top-1 -right-1">
-                      <Badge className={getRankColor(artist.rank)}>
-                        {artist.rank}
-                      </Badge>
+                  {/* Artist Image and Basic Info */}
+                  <div className="flex items-start gap-4 flex-1">
+                    <div 
+                      className="relative cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => router.push(`/artistlist/${artist.id}`)}
+                    >
+                      <img
+                        src={artist.image_url || '/placeholder-user.jpg'}
+                        alt={artist.name}
+                        className="w-20 h-20 rounded-full object-cover"
+                      />
+                      <div className="absolute -top-1 -right-1">
+                        <Badge className={getRankColor(artist.rank)}>
+                          {artist.rank}
+                        </Badge>
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 
+                          className="text-xl font-semibold cursor-pointer hover:text-blue-600 transition-colors"
+                          onClick={() => router.push(`/artistlist/${artist.id}`)}
+                        >
+                          {artist.name}
+                        </h3>
+                        {artist.stage_name && artist.stage_name !== artist.name && (
+                          <span className="text-sm text-gray-500">({artist.stage_name})</span>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {/* Status Badge - Clickable */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <div className="cursor-pointer hover:opacity-80 transition-opacity inline-block">
+                              <Badge className={getStatusColor(artist.status)}>
+                                {artist.status}
+                              </Badge>
+                            </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {['active', 'inactive', 'pending', 'suspended', 'archived'].map((status) => (
+                              <DropdownMenuItem
+                                key={status}
+                                onClick={() => handleQuickUpdate(artist.id, 'status', status)}
+                                className={artist.status === status ? 'bg-accent/50 font-medium' : ''}
+                              >
+                                <Badge className={getStatusColor(status)}>
+                                  {status}
+                                </Badge>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        {/* Priority Badge - Clickable */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <div className="cursor-pointer hover:opacity-80 transition-opacity inline-block">
+                              <Badge className={getPriorityColor(artist.priority)}>
+                                {artist.priority} priority
+                              </Badge>
+                            </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel>Change Priority</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {['high', 'medium', 'low'].map((priority) => (
+                              <DropdownMenuItem
+                                key={priority}
+                                onClick={() => handleQuickUpdate(artist.id, 'priority', priority)}
+                                className={artist.priority === priority ? 'bg-accent/50 font-medium' : ''}
+                              >
+                                <Badge className={getPriorityColor(priority)}>
+                                  {priority} priority
+                                </Badge>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        {/* Artist Class Badge - Clickable */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <div className="cursor-pointer hover:opacity-80 transition-opacity inline-block">
+                              <Badge className={getArtistClassColor(artist.artist_class)}>
+                                {getArtistClassLabel(artist.artist_class)}
+                              </Badge>
+                            </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel>Change Class</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {['superstar', 'platinum', 'gold', 'silver', 'bronze', 'emerging', 'indie'].map((artistClass) => (
+                              <DropdownMenuItem
+                                key={artistClass}
+                                onClick={() => handleQuickUpdate(artist.id, 'artist_class', artistClass)}
+                                className={artist.artist_class === artistClass ? 'bg-accent/50 font-medium' : ''}
+                              >
+                                <Badge className={getArtistClassColor(artistClass)}>
+                                  {getArtistClassLabel(artistClass)}
+                                </Badge>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        {/* Genre Badge - Clickable */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <div className="cursor-pointer hover:opacity-80 transition-opacity inline-block">
+                              <Badge variant="outline">
+                                {artist.genre}
+                              </Badge>
+                            </div>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel>Change Genre</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {['Pop', 'Hip Hop', 'R&B', 'Rock', 'Electronic', 'Country', 'Jazz', 'Classical', 'Latin', 'Reggae', 'Blues', 'Folk', 'Metal', 'Punk', 'Indie'].map((genre) => (
+                              <DropdownMenuItem
+                                key={genre}
+                                onClick={() => handleQuickUpdate(artist.id, 'genre', genre)}
+                                className={artist.genre === genre ? 'bg-accent/50 font-medium' : ''}
+                              >
+                                {genre}
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => {
+                              const newGenre = prompt('Enter custom genre:', artist.genre)
+                              if (newGenre && newGenre.trim()) {
+                                handleQuickUpdate(artist.id, 'genre', newGenre.trim())
+                              }
+                            }}>
+                              + Custom Genre...
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   </div>
                   
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="text-xl font-semibold">{artist.name}</h3>
-                      {artist.stage_name && artist.stage_name !== artist.name && (
-                        <span className="text-sm text-gray-500">({artist.stage_name})</span>
-                      )}
-                    </div>
-                    
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <Badge className={getStatusColor(artist.status)}>
-                        {artist.status}
-                      </Badge>
-                      <Badge className={getPriorityColor(artist.priority)}>
-                        {artist.priority} priority
-                      </Badge>
-                      <Badge className={getArtistClassColor(artist.artist_class)}>
-                        {getArtistClassLabel(artist.artist_class)}
-                      </Badge>
-                      <Badge variant="outline">
-                        {artist.genre}
-                      </Badge>
-                    </div>
-                    
-                    <p className="text-sm text-gray-600 mb-3">{artist.bio}</p>
-                    
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4">
-                      <div>
-                        <span className="text-gray-500">Followers:</span>
-                        <div className="font-semibold">{artist.followers.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Monthly Listeners:</span>
-                        <div className="font-semibold">{artist.monthly_listeners.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Revenue:</span>
-                        <div className="font-semibold">${artist.revenue.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Performance:</span>
-                        <div className="font-semibold">{artist.performance_score}/100</div>
-                      </div>
-                    </div>
-                    
-                    {/* Streaming Platform Statistics */}
-                    {artist.streaming_platforms && Object.keys(artist.streaming_platforms).length > 0 && (
-                      <div className="border-t pt-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                            <Headphones className="h-4 w-4" />
-                            Top Streaming Platforms
-                          </h4>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleStreamingPlatforms(artist.id)}
-                            className="h-6 w-6 p-0 hover:bg-gray-100"
-                          >
-                            {showStreamingPlatforms[artist.id] ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
-                        {(showStreamingPlatforms[artist.id] !== false) && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {Object.entries(artist.streaming_platforms)
-                              .sort(([,a], [,b]) => {
-                                const aFollowers = 'monthly_listeners' in a ? a.monthly_listeners : 
-                                                 'followers' in a ? a.followers :
-                                                 'subscribers' in a ? a.subscribers : 0
-                                const bFollowers = 'monthly_listeners' in b ? b.monthly_listeners : 
-                                                 'followers' in b ? b.followers :
-                                                 'subscribers' in b ? b.subscribers : 0
-                                return bFollowers - aFollowers
-                              })
-                              .slice(0, 3)
-                              .map(([platform, stats]) => (
-                                <div key={platform} className="bg-black rounded-lg p-3 border border-gray-800">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-lg">{getPlatformIcon(platform)}</span>
-                                    <span className="font-medium text-sm text-white">{getPlatformName(platform)}</span>
-                                  </div>
-                                  <div className="space-y-1 text-xs">
-                                    {'monthly_listeners' in stats && (
-                                      <div className="flex justify-between">
-                                        <span className="text-gray-400">Monthly Listeners:</span>
-                                        <span className="font-semibold text-blue-400">{formatNumber(stats.monthly_listeners)}</span>
-                                      </div>
-                                    )}
-                                    {'followers' in stats && (
-                                      <div className="flex justify-between">
-                                        <span className="text-gray-400">Followers:</span>
-                                        <span className="font-semibold text-green-400">{formatNumber(stats.followers)}</span>
-                                      </div>
-                                    )}
-                                    {'subscribers' in stats && (
-                                      <div className="flex justify-between">
-                                        <span className="text-gray-400">Subscribers:</span>
-                                        <span className="font-semibold text-red-400">{formatNumber(stats.subscribers)}</span>
-                                      </div>
-                                    )}
-                                    {'plays' in stats && (
-                                      <div className="flex justify-between">
-                                        <span className="text-gray-400">Plays:</span>
-                                        <span className="font-semibold text-purple-400">{formatNumber(stats.plays)}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
+                  {/* View and Expand/Collapse Buttons */}
+                  <div className="flex gap-2 items-center self-start mt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push(`/artistlist/${artist.id}`)}
+                      className="h-8"
+                    >
+                      <Eye className="h-4 w-4 mr-1" />
+                      View
+                    </Button>
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 hover:bg-gray-100"
+                      >
+                        {expandedCards[artist.id] ? (
+                          <ChevronUp className="h-5 w-5" />
+                        ) : (
+                          <ChevronDown className="h-5 w-5" />
                         )}
-                      </div>
-                    )}
+                      </Button>
+                    </CollapsibleTrigger>
                   </div>
                 </div>
                 
-                {/* Action Buttons */}
-                <div className="flex flex-col gap-2 lg:ml-auto">
+                {/* Expanded Content */}
+                <CollapsibleContent>
+                  <div className="flex flex-col lg:flex-row gap-6 mt-4 pt-4 border-t">
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-600 mb-3">{artist.bio}</p>
+                      
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4">
+                        <div>
+                          <span className="text-gray-500">Followers:</span>
+                          <div className="font-semibold">{artist.followers.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Monthly Listeners:</span>
+                          <div className="font-semibold">{artist.monthly_listeners.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Revenue:</span>
+                          <div className="font-semibold">${artist.revenue.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Performance:</span>
+                          <div className="font-semibold">{artist.performance_score}/100</div>
+                        </div>
+                      </div>
+                      
+                      {/* Streaming Platform Statistics */}
+                      {artist.streaming_platforms && Object.keys(artist.streaming_platforms).length > 0 && (
+                        <div className="border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                              <Headphones className="h-4 w-4" />
+                              Top Streaming Platforms
+                            </h4>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleStreamingPlatforms(artist.id)}
+                              className="h-6 w-6 p-0 hover:bg-gray-100"
+                            >
+                              {showStreamingPlatforms[artist.id] ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                          {showStreamingPlatforms[artist.id] === true && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {Object.entries(artist.streaming_platforms)
+                                .sort(([,a], [,b]) => {
+                                  const aFollowers = 'monthly_listeners' in a ? a.monthly_listeners : 
+                                                   'followers' in a ? a.followers :
+                                                   'subscribers' in a ? a.subscribers : 0
+                                  const bFollowers = 'monthly_listeners' in b ? b.monthly_listeners : 
+                                                   'followers' in b ? b.followers :
+                                                   'subscribers' in b ? b.subscribers : 0
+                                  return bFollowers - aFollowers
+                                })
+                                .slice(0, 3)
+                                .map(([platform, stats]) => (
+                                  <div key={platform} className="bg-black rounded-lg p-3 border border-gray-800">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <span className="text-lg">{getPlatformIcon(platform)}</span>
+                                      <span className="font-medium text-sm text-white">{getPlatformName(platform)}</span>
+                                    </div>
+                                    <div className="space-y-1 text-xs">
+                                      {'monthly_listeners' in stats && (
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-400">Monthly Listeners:</span>
+                                          <span className="font-semibold text-blue-400">{formatNumber(stats.monthly_listeners)}</span>
+                                        </div>
+                                      )}
+                                      {'followers' in stats && (
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-400">Followers:</span>
+                                          <span className="font-semibold text-green-400">{formatNumber(stats.followers)}</span>
+                                        </div>
+                                      )}
+                                      {'subscribers' in stats && (
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-400">Subscribers:</span>
+                                          <span className="font-semibold text-red-400">{formatNumber(stats.subscribers)}</span>
+                                        </div>
+                                      )}
+                                      {'plays' in stats && (
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-400">Plays:</span>
+                                          <span className="font-semibold text-purple-400">{formatNumber(stats.plays)}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Action Buttons */}
+                    <div className="flex flex-col gap-2 lg:ml-auto">
                   {/* Checklist Progress Indicator */}
                   {(() => {
                     const progress = getChecklistProgress(artist.checklist)
@@ -2619,9 +2826,6 @@ export default function ArtistList() {
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button variant="outline" size="sm" title="View Details">
-                      <Eye className="h-4 w-4" />
-                    </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="outline" size="sm">
@@ -2655,21 +2859,23 @@ export default function ArtistList() {
                     </DropdownMenu>
                   </div>
                   
-                  {/* Distributors */}
-                  <div className="text-sm">
-                    <span className="text-gray-500">Distributors:</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {artist.distributors.map((distributor, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
-                          {distributor}
-                        </Badge>
-                      ))}
+                      {/* Distributors */}
+                      <div className="text-sm">
+                        <span className="text-gray-500">Distributors:</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {artist.distributors.map((distributor, index) => (
+                            <Badge key={index} variant="outline" className="text-xs">
+                              {distributor}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                </CollapsibleContent>
+              </CardContent>
+            </Card>
+          </Collapsible>
         ))}
       </div>
 

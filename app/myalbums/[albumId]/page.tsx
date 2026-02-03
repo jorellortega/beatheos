@@ -1,10 +1,10 @@
 "use client"
 
 import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X } from 'lucide-react'
+import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -113,6 +113,17 @@ export default function AlbumDetailsPage() {
   const [generatingCoverArt, setGeneratingCoverArt] = useState(false);
   const [showCoverArtPromptDialog, setShowCoverArtPromptDialog] = useState(false);
   const [coverArtPrompt, setCoverArtPrompt] = useState('');
+  
+  // Cover art cropping state
+  const [showCropDialog, setShowCropDialog] = useState(false);
+  const [cropImage, setCropImage] = useState<HTMLImageElement | null>(null);
+  const [cropBox, setCropBox] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const [cropSize, setCropSize] = useState<1600 | 3000>(1600);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const [cropCanvasRef, setCropCanvasRef] = useState<HTMLCanvasElement | null>(null);
+  const [canvasScale, setCanvasScale] = useState(1);
   
   // Multiple artists state for edit album
   const [editAlbumArtists, setEditAlbumArtists] = useState<string[]>([]);
@@ -2234,6 +2245,257 @@ export default function AlbumDetailsPage() {
     }
   }
 
+  // Initialize and redraw canvas with crop overlay
+  useEffect(() => {
+    if (!cropCanvasRef || !cropImage) return;
+    
+    const ctx = cropCanvasRef.getContext('2d', { willReadFrequently: false });
+    if (!ctx) return;
+    
+    // Calculate display size
+    const maxWidth = 800;
+    const maxHeight = 600;
+    const scale = Math.min(maxWidth / cropImage.width, maxHeight / cropImage.height, 1);
+    const displayWidth = cropImage.width * scale;
+    const displayHeight = cropImage.height * scale;
+    
+    // Only set canvas dimensions if they've changed (to avoid unnecessary clears)
+    if (cropCanvasRef.width !== displayWidth || cropCanvasRef.height !== displayHeight) {
+      cropCanvasRef.width = displayWidth;
+      cropCanvasRef.height = displayHeight;
+      setCanvasScale(scale);
+    }
+    
+    // Redraw the image
+    ctx.clearRect(0, 0, cropCanvasRef.width, cropCanvasRef.height);
+    ctx.drawImage(cropImage, 0, 0, cropCanvasRef.width, cropCanvasRef.height);
+    
+    // Only draw overlay if crop box is initialized
+    if (cropBox.width > 0 && cropBox.height > 0) {
+      // Draw dark overlay
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, cropCanvasRef.width, cropCanvasRef.height);
+      
+      // Calculate crop box position on canvas
+      const scaleX = cropCanvasRef.width / cropImage.width;
+      const scaleY = cropCanvasRef.height / cropImage.height;
+      const cropX = cropBox.x * scaleX;
+      const cropY = cropBox.y * scaleY;
+      const cropW = cropBox.width * scaleX;
+      const cropH = cropBox.height * scaleY;
+      
+      // Clear the crop area (show original image)
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillRect(cropX, cropY, cropW, cropH);
+      ctx.restore();
+      
+      // Draw crop box border
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(cropX, cropY, cropW, cropH);
+      
+      // Draw corner handles
+      const handleSize = 12;
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(cropX - handleSize/2, cropY - handleSize/2, handleSize, handleSize);
+      ctx.fillRect(cropX + cropW - handleSize/2, cropY - handleSize/2, handleSize, handleSize);
+      ctx.fillRect(cropX - handleSize/2, cropY + cropH - handleSize/2, handleSize, handleSize);
+      ctx.fillRect(cropX + cropW - handleSize/2, cropY + cropH - handleSize/2, handleSize, handleSize);
+    }
+  }, [cropCanvasRef, cropImage, cropBox]);
+
+  // Open crop dialog
+  const openCropDialog = async () => {
+    if (!album || !album.cover_art_url) {
+      toast({
+        title: "Error",
+        description: "No cover art available to crop.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = album.cover_art_url;
+      });
+
+      setCropImage(img);
+      
+      // Initialize crop box to center square (80% of smaller dimension)
+      const displaySize = Math.min(img.width, img.height);
+      const cropSize = displaySize * 0.8;
+      const cropX = (img.width - cropSize) / 2;
+      const cropY = (img.height - cropSize) / 2;
+      
+      setCropBox({ x: cropX, y: cropY, width: cropSize, height: cropSize });
+      setShowCropDialog(true);
+    } catch (error) {
+      console.error('Error loading image:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load cover art for cropping.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Handle mouse down on canvas
+  const handleCropMouseDown = (e: React.MouseEvent) => {
+    if (!cropImage || !cropCanvasRef) return;
+    
+    e.preventDefault();
+    const rect = cropCanvasRef.getBoundingClientRect();
+    const scaleX = cropImage.width / cropCanvasRef.width;
+    const scaleY = cropImage.height / cropCanvasRef.height;
+    
+    const mouseX = (e.clientX - rect.left) * scaleX;
+    const mouseY = (e.clientY - rect.top) * scaleY;
+    
+    // Check if clicking on crop box (for dragging) or outside (to create new)
+    const cropX = cropBox.x;
+    const cropY = cropBox.y;
+    const cropW = cropBox.width;
+    const cropH = cropBox.height;
+    
+    // Check if clicking near the bottom-right corner (for resizing)
+    const resizeHandleSize = 50 * scaleX; // Larger handle area
+    const nearBottomRight = 
+      mouseX > cropX + cropW - resizeHandleSize && 
+      mouseX < cropX + cropW + resizeHandleSize &&
+      mouseY > cropY + cropH - resizeHandleSize && 
+      mouseY < cropY + cropH + resizeHandleSize;
+    
+    if (nearBottomRight) {
+      setIsResizing(true);
+    } else if (mouseX >= cropX && mouseX <= cropX + cropW && mouseY >= cropY && mouseY <= cropY + cropH) {
+      // Clicking inside crop box - drag it
+      setIsDragging(true);
+    } else {
+      // Clicking outside - move crop box center to click position
+      const newSize = Math.min(cropW, cropImage.width - mouseX, cropImage.height - mouseY, mouseX, mouseY) * 1.8;
+      const clampedSize = Math.max(50, Math.min(newSize, Math.min(cropImage.width, cropImage.height)));
+      setCropBox({
+        x: Math.max(0, Math.min(cropImage.width - clampedSize, mouseX - clampedSize / 2)),
+        y: Math.max(0, Math.min(cropImage.height - clampedSize, mouseY - clampedSize / 2)),
+        width: clampedSize,
+        height: clampedSize
+      });
+      return;
+    }
+    
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+  };
+
+  // Global mouse event listeners for smooth dragging/resizing
+  useEffect(() => {
+    if (!isDragging && !isResizing) return;
+    if (!cropImage || !cropCanvasRef) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = cropCanvasRef.getBoundingClientRect();
+      const scaleX = cropImage.width / cropCanvasRef.width;
+      const scaleY = cropImage.height / cropCanvasRef.height;
+
+      const deltaX = (e.clientX - dragStartRef.current.x) * scaleX;
+      const deltaY = (e.clientY - dragStartRef.current.y) * scaleY;
+
+      if (isDragging) {
+        setCropBox(prevBox => ({
+          ...prevBox,
+          x: Math.max(0, Math.min(cropImage.width - prevBox.width, prevBox.x + deltaX)),
+          y: Math.max(0, Math.min(cropImage.height - prevBox.height, prevBox.y + deltaY))
+        }));
+      } else if (isResizing) {
+        setCropBox(prevBox => {
+          const newWidth = Math.max(50, Math.min(cropImage.width - prevBox.x, prevBox.width + deltaX));
+          const newHeight = newWidth; // Keep it square
+          return {
+            ...prevBox,
+            width: newWidth,
+            height: newHeight,
+            x: Math.max(0, Math.min(cropImage.width - newWidth, prevBox.x)),
+            y: Math.max(0, Math.min(cropImage.height - newHeight, prevBox.y))
+          };
+        });
+      }
+
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+    };
+    
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(false);
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, isResizing, cropImage, cropCanvasRef]);
+
+  // Apply crop and download
+  const applyCropAndDownload = () => {
+    if (!cropImage) return;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = cropSize;
+      canvas.height = cropSize;
+      const ctx = canvas.getContext('2d');
+      
+      if (!ctx) {
+        throw new Error('Failed to get canvas context');
+      }
+
+      // Draw the cropped and resized image
+      ctx.drawImage(
+        cropImage,
+        cropBox.x, cropBox.y, cropBox.width, cropBox.height, // Source rectangle
+        0, 0, cropSize, cropSize // Destination rectangle (resized to target size)
+      );
+
+      // Convert canvas to blob and download
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          throw new Error('Failed to create image blob');
+        }
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${album?.title.replace(/[^a-z0-9]/gi, '_')}_cover_${cropSize}x${cropSize}.png`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        toast({
+          title: "Success",
+          description: `Cover art cropped to ${cropSize}x${cropSize} and downloaded!`,
+        });
+
+        setShowCropDialog(false);
+      }, 'image/png');
+    } catch (error) {
+      console.error('Error applying crop:', error);
+      toast({
+        title: "Error",
+        description: "Failed to crop and download cover art.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const saveNotes = async (notes: string) => {
     try {
       const table = editingNotesType === 'album' ? 'albums' : editingNotesType === 'single' ? 'singles' : 'album_tracks';
@@ -2323,18 +2585,20 @@ export default function AlbumDetailsPage() {
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             {album.cover_art_url ? (
-              <img 
-                src={album.cover_art_url} 
-                alt={album.title} 
-                className="w-48 h-48 object-cover rounded-lg"
-                onLoad={(e) => {
-                  const img = e.target as HTMLImageElement;
-                  const sizeInfo = img.parentElement?.querySelector('.image-size');
-                  if (sizeInfo) {
-                    sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
-                  }
-                }}
-              />
+              <Link href={`/cover-edit/${albumId}`}>
+                <img 
+                  src={album.cover_art_url} 
+                  alt={album.title} 
+                  className="w-48 h-48 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                  onLoad={(e) => {
+                    const img = e.target as HTMLImageElement;
+                    const sizeInfo = img.parentElement?.parentElement?.querySelector('.image-size');
+                    if (sizeInfo) {
+                      sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+                    }
+                  }}
+                />
+              </Link>
             ) : (
               <img 
                 src="/placeholder.jpg" 
@@ -2353,6 +2617,27 @@ export default function AlbumDetailsPage() {
               <span className="image-size">Loading...</span>
             </div>
           </div>
+          <Link href={`/cover-edit/${albumId}`}>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Cover Settings
+            </Button>
+          </Link>
+          {album.cover_art_url && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={openCropDialog}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Crop & Download Cover Art
+            </Button>
+          )}
           <Button 
             variant="outline" 
             size="sm" 
@@ -2740,12 +3025,21 @@ export default function AlbumDetailsPage() {
                       <FileText className="h-4 w-4 mr-2" />
                       View Details
                     </Button>
+                    
+                    {/* Delete Button */}
+                    <Button 
+                      size="sm" 
+                      variant="destructive"
+                      onClick={() => handleDeleteTrack(track.id, track.title)}
+                      className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                   {track.session_id && track.session_name && (
                     <div className="mt-2 ml-20">
                       <div 
-                        className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
-                        onClick={() => window.open(`/beat-maker?session=${track.session_id}`, '_blank')}
+                        className="inline-flex items-center gap-2 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-md"
                       >
                         <LinkIcon className="h-3 w-3 text-blue-400" />
                         <span className="text-sm font-medium text-blue-300">
@@ -3655,12 +3949,11 @@ export default function AlbumDetailsPage() {
                 <div className="space-y-2">
                   <h3 className="font-semibold text-lg">Session Link</h3>
                   <div 
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-md cursor-pointer hover:bg-blue-600/30 transition-colors"
-                    onClick={() => window.open(`/beat-maker?session=${viewDetailsTrack.session_id}`, '_blank')}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-md"
                   >
                     <LinkIcon className="h-4 w-4 text-blue-400" />
                     <span className="text-sm font-medium text-blue-300">
-                      Open Session: {viewDetailsTrack.session_name}
+                      Session: {viewDetailsTrack.session_name}
                     </span>
                   </div>
                 </div>
@@ -4189,6 +4482,79 @@ export default function AlbumDetailsPage() {
           });
         }}
       />
+
+      {/* Cover Art Crop Dialog */}
+      <Dialog open={showCropDialog} onOpenChange={(open) => {
+        setShowCropDialog(open);
+        if (!open) {
+          // Reset canvas ref when dialog closes to allow proper re-initialization
+          setCropCanvasRef(null);
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Crop Cover Art</DialogTitle>
+            <DialogDescription>
+              Drag the crop box to select the area you want to keep. The crop box will be resized to a square.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {cropImage && (
+            <div className="space-y-4">
+              {/* Size Selection */}
+              <div className="flex items-center gap-4">
+                <Label>Output Size:</Label>
+                <Select value={cropSize.toString()} onValueChange={(value) => setCropSize(parseInt(value) as 1600 | 3000)}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1600">1600 × 1600 px</SelectItem>
+                    <SelectItem value="3000">3000 × 3000 px</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Canvas with crop overlay */}
+              <div className="border border-gray-700 rounded-lg overflow-hidden bg-gray-900 flex justify-center items-center" style={{ maxHeight: '70vh', minHeight: '400px' }}>
+                <div className="relative inline-block">
+                  <canvas
+                    ref={(el) => {
+                      if (el && !cropCanvasRef) {
+                        setCropCanvasRef(el);
+                      }
+                    }}
+                    className="max-w-full h-auto block"
+                    style={{ 
+                      cursor: isDragging ? 'move' : isResizing ? 'nwse-resize' : 'crosshair',
+                      touchAction: 'none',
+                      userSelect: 'none'
+                    }}
+                    onMouseDown={handleCropMouseDown}
+                  />
+                </div>
+              </div>
+
+              {/* Instructions */}
+              <div className="text-sm text-gray-400 space-y-1">
+                <p>• Drag the blue box to move the crop area</p>
+                <p>• Drag the bottom-right corner to resize</p>
+                <p>• The crop will be saved as a square at {cropSize}×{cropSize} pixels</p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCropDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={applyCropAndDownload} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Download className="h-4 w-4 mr-2" />
+              Download Cropped Image
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

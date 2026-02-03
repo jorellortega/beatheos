@@ -30,8 +30,19 @@ import {
   Settings,
   CheckCircle2
 } from 'lucide-react'
-import { Track } from '@/hooks/useBeatMaker'
 import { useAuth } from '@/contexts/AuthContext'
+
+// Track type for pattern editing
+interface Track {
+  id: number
+  name: string
+  audioUrl: string | null
+  color: string
+  midiNotes?: any[]
+  sequencerData?: any
+  audio_type?: string
+  tags?: string[]
+}
 
 interface PianoRollEditorProps {
   track: any
@@ -2637,12 +2648,9 @@ function EditPatternsPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                window.open(`/beat-maker?load-pattern=${pattern.id}`, '_blank')
-              }}
-              className="text-green-400 hover:text-green-300"
-              title="Load in Beat Maker"
+              className="text-gray-400 cursor-not-allowed"
+              title="Beat Maker no longer available"
+              disabled
             >
               <Play className="w-4 h-4" />
             </Button>
@@ -2758,14 +2766,6 @@ function EditPatternsPage() {
             <label htmlFor="import-midi" className="cursor-pointer">
               {importingMIDI ? 'Importing...' : 'Import MIDI'}
             </label>
-          </Button>
-          <Button 
-            variant="default" 
-            size="sm"
-            onClick={() => window.open('/beat-maker', '_blank')}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Pattern
           </Button>
           <Button 
             variant="outline" 
