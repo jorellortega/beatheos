@@ -2349,6 +2349,19 @@ export default function MyLibrary() {
   }
 
   const [selectedTab, setSelectedTab] = useState(searchParams?.get('tab') || 'albums');
+  
+  // Check for openAlbum URL parameter to auto-open album modal
+  useEffect(() => {
+    if (searchParams?.get('openAlbum') === 'true') {
+      setShowAlbumModal(true);
+      // Remove the parameter from URL without reload
+      const newSearchParams = new URLSearchParams(searchParams.toString());
+      newSearchParams.delete('openAlbum');
+      const newUrl = `${window.location.pathname}${newSearchParams.toString() ? `?${newSearchParams.toString()}` : ''}`;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [searchParams]);
+  
   const [albumPhaseTab, setAlbumPhaseTab] = useState('all');
   const [singlePhaseTab, setSinglePhaseTab] = useState('all');
   const [trackPhaseTab, setTrackPhaseTab] = useState('all');

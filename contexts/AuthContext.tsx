@@ -290,8 +290,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
+    try {
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut({ scope: 'local' })
+      
+      if (error) {
+        console.error('Logout error:', error)
+        // Continue with cleanup even if signOut fails
+      }
+
+      // Clear all auth-related localStorage items
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('beatheos-auth-token')
+          localStorage.removeItem('beatheos-auth-token-code-verifier')
+          // Clear any other auth-related items
+          const keysToRemove: string[] = []
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i)
+            if (key && (key.includes('beatheos-auth') || key.includes('supabase'))) {
+              keysToRemove.push(key)
+            }
+          }
+          keysToRemove.forEach(key => localStorage.removeItem(key))
+        } catch (storageError) {
+          console.error('Error clearing localStorage:', storageError)
+        }
+
+        // Clear sessionStorage
+        try {
+          sessionStorage.clear()
+        } catch (storageError) {
+          console.error('Error clearing sessionStorage:', storageError)
+        }
+      }
+
+      // Clear user state
+      setUser(null)
+
+      // Redirect to home page
+      if (typeof window !== 'undefined') {
+        window.location.href = '/'
+      }
+    } catch (error) {
+      console.error('Logout error:', error)
+      // Still clear user state and redirect even on error
+      setUser(null)
+      if (typeof window !== 'undefined') {
+        window.location.href = '/'
+      }
+    }
   }
 
   const getAccessToken = async (): Promise<string | null> => {

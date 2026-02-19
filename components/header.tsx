@@ -68,16 +68,12 @@ export default function Header() {
 
   const navItems = [
     { name: "Home", path: "/" },
-    { name: "Feed", path: "/feed" },
-    { name: "Producers", path: "/producers" },
-    { name: "Artists", path: "/artists" },
-    { name: "Beats", path: "/beats" },
     { name: "Subscription", path: "/subscriptionplans" },
     ...(user ? [{ name: "Upload Beat", path: "/upload-beat" }] : []),
   ]
 
-  // Only include nav items except Beats and Beat Vault for mobile dropdown
-  const mobileNavItems = navItems.filter(item => item.name !== "Beats")
+  // Mobile nav items (same as desktop)
+  const mobileNavItems = navItems
 
   // Modern Mobile Overlay Menu
   const MobileMenuOverlay = () => (
@@ -235,14 +231,8 @@ export default function Header() {
             )}
           </div>
 
-          {/* Mobile Menu: Beats and Login/Logout always visible */}
+          {/* Mobile Menu: Login/Logout always visible */}
           <div className="md:hidden flex items-center gap-2">
-            <Link
-              href="/beats"
-              className={`text-lg px-2 py-1 rounded transition-colors ${pathname === "/beats" ? "text-primary font-semibold" : "text-gray-300 hover:text-white"}`}
-            >
-              Beats
-            </Link>
             {user ? (
               <button
                 onClick={logout}

@@ -7,82 +7,38 @@ import Link from "next/link"
 
 const tiers = [
   {
-    name: "Artist Account",
+    name: "Free Account",
     id: "artist_free",
     role: "free_artist",
     price: "0",
     features: [
-      "Community access",
-      "Basic profile customization",
-      "Create sessions",
-      "Purchase beats",
-      "Save purchased beats",
+      "1 month free trial with 50 free credits",
+      "MP3/MP4 Converter",
+      "AI Lyrics",
+      "AI Cover Maker",
+      "AI Album Creation",
     ],
     buttonText: "Signup Free",
     buttonVariant: "outline",
     popular: false,
-    subtext: "free to sign up",
+    subtext: "1 month free trial with 50 free credits",
   },
   {
-    name: "Premium Producer",
-    id: "producer_premium",
-    role: "premium_producer",
-    price: "12",
-    description: "For growing producers",
-    features: [
-      "Upload up to 20 beats",
-      "Enhanced analytics",
-      "Priority support",
-      "Basic promotion tools",
-      "Royalty-free samples",
-      "Advanced profile customization",
-      "Premium beat licensing",
-      "Basic collaboration tools",
-    ],
-    buttonText: "Upgrade to Premium",
-    buttonVariant: "default",
-    popular: true,
-  },
-  {
-    name: "Pro Artist",
+    name: "Pro Account",
     id: "artist_pro",
     role: "pro_artist",
-    price: "15",
+    price: "20",
     description: "For professional artists",
     features: [
-      "Unlimited beat uploads",
-      "Advanced analytics",
-      "Priority support",
-      "Custom branding",
-      "Promotion tools",
-      "Royalty-free samples",
-      "Artist collaboration tools",
-      "Premium beat licensing",
-      "Custom domain support",
-      "API access",
+      "500 credits per month included",
+      "MP3/MP4 Converter",
+      "AI Lyrics",
+      "AI Cover Maker",
+      "AI Album Creation",
     ],
     buttonText: "Upgrade to Pro",
     buttonVariant: "default",
-    popular: false,
-  },
-  {
-    name: "Business Producer",
-    id: "producer_business",
-    role: "business_producer",
-    price: "25",
-    description: "For professional studios",
-    features: [
-      "Advanced analytics (Total Beats, Total Plays, Top Beats)",
-      "Quick upload (Upload new content)",
-      "Recording sessions management",
-      "Full beat management (edit, delete, bulk actions, cover art, pricing, tags)",
-      "Promo tools (enable/disable promo, item promo)",
-      "Priority support",
-      "Support tab access",
-    ],
-    buttonText: "Upgrade to Business",
-    buttonVariant: "default",
-    popular: false,
+    popular: true,
   },
 ]
 
@@ -97,18 +53,12 @@ export default function SubscriptionPlansPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {tiers.map((tier) => {
-            const isDisabled = tier.name === "Pro Artist" || tier.name === "Premium Producer" || tier.name === "Business Producer";
             const cardContent = (
               <Card
-                className={`bg-black border-primary hover:border-yellow-400 transition-all relative ${tier.popular ? 'border-2' : ''} ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
+                className={`bg-black border-primary hover:border-yellow-400 transition-all relative ${tier.popular ? 'border-2' : ''}`}
               >
-                {isDisabled && (
-                  <div className="absolute top-2 right-2 bg-primary text-black px-3 py-1 rounded-full text-xs font-semibold z-10">
-                    Coming Soon
-                  </div>
-                )}
                 {tier.popular && (
                   <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-primary text-black px-4 py-1 rounded-full text-sm font-semibold">
                     Most Popular
@@ -117,7 +67,7 @@ export default function SubscriptionPlansPage() {
                 <CardHeader>
                   <CardTitle className="text-2xl font-bold text-primary">{tier.name}</CardTitle>
                   <div className="mt-4">
-                    {tier.name === "Artist Account" ? null : (
+                    {tier.name === "Free Account" ? null : (
                       <span className="text-4xl font-bold">${tier.price}</span>
                     )}
                     <div className="text-gray-400 text-base font-medium mb-2">{tier.subtext}</div>
@@ -137,34 +87,18 @@ export default function SubscriptionPlansPage() {
                   <Button 
                     variant={tier.buttonVariant as "default" | "outline"} 
                     className={`w-full ${tier.popular ? 'gradient-button' : ''}`}
-                    disabled={isDisabled}
                   >
                     {tier.buttonText}
                   </Button>
                 </CardFooter>
               </Card>
             );
-            if (isDisabled) {
-              return <div key={tier.id}>{cardContent}</div>;
-            }
             return (
               <Link key={tier.id} href={`/signup?plan=${tier.id}`} className="block group">
                 {cardContent}
             </Link>
             );
           })}
-        </div>
-
-        <div className="mt-16 text-center">
-          <h2 className="text-2xl font-bold mb-4 text-primary">Need a Custom Plan?</h2>
-          <p className="text-gray-400 mb-6">
-            Contact us for custom enterprise solutions and special requirements.
-          </p>
-          <Link href="/contact">
-            <Button variant="outline" className="gradient-button">
-              Contact Sales
-            </Button>
-          </Link>
         </div>
       </div>
     </div>
