@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Sparkles, Download, Loader2, Image as ImageIcon } from 'lucide-react'
+import { ArrowLeft, Sparkles, Download, Loader2, Image as ImageIcon, Save } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,14 @@ import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 
 type CoverSize = '1600x1600' | '3000x3000' | '16:9' | '9:16'
 
@@ -30,6 +38,11 @@ export default function AICoverPage() {
   const [generatedCoverUrl, setGeneratedCoverUrl] = useState<string | null>(null)
   const [referenceImage, setReferenceImage] = useState<File | null>(null)
   const [referencePreview, setReferencePreview] = useState<string | null>(null)
+  const [savingCover, setSavingCover] = useState(false)
+  const [coverSaved, setCoverSaved] = useState(false)
+  const [currentStoragePath, setCurrentStoragePath] = useState<string | null>(null)
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [coverName, setCoverName] = useState('')
 
   useEffect(() => {
     if (!user) {
@@ -152,6 +165,7 @@ export default function AICoverPage() {
 
       // Save to storage
       let publicUrl: string
+      let storagePath: string | null = null
       if (imageUrl.startsWith('data:')) {
         const base64Data = imageUrl.split(',')[1]
         const byteCharacters = atob(base64Data)
@@ -163,6 +177,7 @@ export default function AICoverPage() {
         const blob = new Blob([byteArray], { type: 'image/png' })
 
         const filePath = `ai-covers/${user.id}/${Date.now()}_cover_${selectedSize}.png`
+        storagePath = filePath
         const { error: uploadError } = await supabase.storage
           .from('beats')
           .upload(filePath, blob, {
@@ -197,11 +212,14 @@ export default function AICoverPage() {
           throw new Error('Failed to download and store image')
         }
 
-        const { url } = await downloadResponse.json()
-        publicUrl = url
+        const result = await downloadResponse.json()
+        publicUrl = result.supabaseUrl || result.url
+        storagePath = result.filePath || null
       }
 
       setGeneratedCoverUrl(publicUrl)
+      setCurrentStoragePath(storagePath)
+      setCoverSaved(false) // Reset saved state when new cover is generated
 
       toast({
         title: "Success",
@@ -236,6 +254,57 @@ export default function AICoverPage() {
       title: "Success",
       description: "Cover art downloaded!",
     })
+  }
+
+  const handleSaveCover = () => {
+    if (!generatedCoverUrl || !user?.id) return
+    setShowSaveDialog(true)
+  }
+
+  const handleConfirmSave = async () => {
+    if (!generatedCoverUrl || !user?.id) return
+
+    setSavingCover(true)
+    try {
+      const token = await getAccessToken()
+      const response = await fetch('/api/ai/save-cover', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          coverUrl: generatedCoverUrl,
+          coverSize: selectedSize,
+          prompt: coverPrompt,
+          storagePath: currentStoragePath,
+          userId: user.id,
+          name: coverName.trim() || null
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to save cover')
+      }
+
+      setCoverSaved(true)
+      setShowSaveDialog(false)
+      setCoverName('')
+      toast({
+        title: "Success",
+        description: "Cover saved to your library! You can now access it on your dashboards.",
+      })
+    } catch (error: any) {
+      console.error('Error saving cover:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save cover.",
+        variant: "destructive"
+      })
+    } finally {
+      setSavingCover(false)
+    }
   }
 
   if (loading) {
@@ -382,13 +451,94 @@ export default function AICoverPage() {
                       className="w-full h-auto"
                     />
                   </div>
-                  <Button
-                    onClick={handleDownload}
-                    className="w-full bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black hover:from-[#E8E8E8] hover:to-[#F4C430] font-bold"
-                  >
-                    <Download className="mr-2 h-4 w-4" />
-                    Download Cover
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleDownload}
+                      className="flex-1 bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black hover:from-[#E8E8E8] hover:to-[#F4C430] font-bold"
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download Cover
+                    </Button>
+                    <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+                      <DialogTrigger asChild>
+                        <Button
+                          onClick={handleSaveCover}
+                          disabled={savingCover || coverSaved}
+                          className="flex-1 bg-gradient-to-r from-[#2a2a2a] to-[#1a1a1a] text-white hover:from-[#1a1a1a] hover:to-[#2a2a2a] font-bold border border-[#3a3a3a] disabled:opacity-50"
+                        >
+                          {savingCover ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : coverSaved ? (
+                            <>
+                              <Save className="mr-2 h-4 w-4" />
+                              Saved!
+                            </>
+                          ) : (
+                            <>
+                              <Save className="mr-2 h-4 w-4" />
+                              Save Cover
+                            </>
+                          )}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white">
+                        <DialogHeader>
+                          <DialogTitle>Save Cover</DialogTitle>
+                          <DialogDescription className="text-gray-400">
+                            Give your cover a name (optional) and save it to your library
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="cover-name" className="text-white mb-2 block">
+                              Cover Name
+                            </Label>
+                            <Input
+                              id="cover-name"
+                              value={coverName}
+                              onChange={(e) => setCoverName(e.target.value)}
+                              placeholder="Enter a name for this cover..."
+                              className="bg-[#0f0f0f] border-[#2a2a2a] text-white"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleConfirmSave()
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setShowSaveDialog(false)
+                                setCoverName('')
+                              }}
+                              className="border-[#2a2a2a] text-white hover:bg-[#2a2a2a]"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={handleConfirmSave}
+                              disabled={savingCover}
+                              className="bg-gradient-to-r from-[#F4C430] to-[#E8E8E8] text-black hover:from-[#E8E8E8] hover:to-[#F4C430] font-bold"
+                            >
+                              {savingCover ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Saving...
+                                </>
+                              ) : (
+                                'Save'
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-gray-400">

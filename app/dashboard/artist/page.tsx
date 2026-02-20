@@ -884,6 +884,27 @@ export default function FreeArtistDashboard() {
             </Link>
           </CardContent>
         </Card>
+        <Card className="bg-card border-primary hover:border-primary transition-all">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Sparkles className="mr-2 h-5 w-5 text-primary" />
+              AI Covers
+            </CardTitle>
+            <CardDescription>View and manage your AI-generated album covers.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Link href="/my-ai-covers" className="block">
+              <Button className="w-full gradient-button text-black font-medium transition-all duration-200 hover:bg-black hover:text-white hover:border hover:border-white">
+                View Covers
+              </Button>
+            </Link>
+            <Link href="/ai-cover" className="block">
+              <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary hover:text-black font-medium transition-all duration-200">
+                Create AI Cover
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
         <Link href="/sessions" className="block group">
           <Card className="bg-card border-primary hover:border-primary transition-all cursor-pointer group-hover:border-yellow-400">
             <CardHeader>

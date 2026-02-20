@@ -1725,6 +1725,24 @@ export default function BusinessProducerDashboard() {
                 </CardContent>
               </Card>
             </Link>
+            {/* AI Covers Card */}
+            <Card className="hover:border-primary transition-all">
+              <CardHeader>
+                <Sparkles className="h-8 w-8 mb-2 text-primary" />
+                <CardTitle>AI Covers</CardTitle>
+                <CardDescription>View and manage your AI-generated album covers.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Link href="/my-ai-covers" className="block">
+                  <Button className="w-full">View Covers</Button>
+                </Link>
+                <Link href="/ai-cover" className="block">
+                  <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary hover:text-black">
+                    Create AI Cover
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
             {/* Licenses Card */}
             <Link href="/mylicenses">
               <Card className="hover:border-primary transition-all cursor-pointer">

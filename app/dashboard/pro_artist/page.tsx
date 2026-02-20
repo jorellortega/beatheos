@@ -169,6 +169,29 @@ export default function ProArtistDashboardPage() {
           </CardContent>
         </Card>
 
+        <Link href="/my-ai-covers">
+          <Card className="bg-card border-primary hover:border-primary transition-all">
+            <CardHeader>
+              <CardTitle className="text-2xl font-bold text-primary flex items-center">
+                <Sparkles className="mr-2 h-5 w-5" />
+                AI Covers
+              </CardTitle>
+              <CardDescription>View and manage your AI-generated album covers.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Link href="/my-ai-covers" className="block">
+                <Button className="w-full gradient-button text-black font-medium hover:text-white">
+                  View Covers
+                </Button>
+              </Link>
+              <Link href="/ai-cover" className="block">
+                <Button variant="outline" className="w-full border-primary text-primary hover:bg-primary hover:text-black">
+                  Create AI Cover
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
         <Link href="/dashboard/payments">
           <Card className="bg-card border-primary hover:border-primary transition-all cursor-pointer">
             <CardHeader>
