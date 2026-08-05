@@ -574,6 +574,25 @@ export class OpenAIService {
   }
 }
 
+function formatElevenLabsErrorMessage(detail: unknown): string {
+  if (!detail) return ''
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (item && typeof item === 'object' && 'msg' in item) return String(item.msg)
+        if (item && typeof item === 'object' && 'message' in item) return String(item.message)
+        return JSON.stringify(item)
+      })
+      .join('; ')
+  }
+  if (typeof detail === 'object' && detail !== null && 'message' in detail) {
+    return String((detail as { message?: string }).message)
+  }
+  return JSON.stringify(detail)
+}
+
 export class AnthropicService {
   static async generateText(params: AIGenerationParams): Promise<string> {
     const { prompt, selectedText, fullContent, apiKey, contentType, lockedSections } = params
@@ -694,6 +713,7 @@ export class ElevenLabsService {
     musicLengthMs?: number
     modelId?: 'music_v1' | 'music_v2'
     forceInstrumental?: boolean
+    outputFormat?: string
   }): Promise<ArrayBuffer> {
     const {
       prompt,
@@ -701,27 +721,31 @@ export class ElevenLabsService {
       musicLengthMs = 120000,
       modelId = 'music_v2',
       forceInstrumental = true,
+      outputFormat = 'mp3_48000_192',
     } = params
 
-    const response = await fetch('https://api.elevenlabs.io/v1/music?output_format=mp3_48000_192', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        prompt,
-        music_length_ms: musicLengthMs,
-        model_id: modelId,
-        force_instrumental: forceInstrumental,
-      }),
-    })
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/music?output_format=${encodeURIComponent(outputFormat)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          prompt,
+          music_length_ms: musicLengthMs,
+          model_id: modelId,
+          force_instrumental: forceInstrumental,
+        }),
+      }
+    )
 
     if (!response.ok) {
       let errorMessage = 'ElevenLabs music generation failed'
       try {
         const error = await response.json()
-        errorMessage = error.detail?.message || error.detail || errorMessage
+        errorMessage = formatElevenLabsErrorMessage(error.detail) || error.message || errorMessage
       } catch {
         // response body may not be JSON
       }

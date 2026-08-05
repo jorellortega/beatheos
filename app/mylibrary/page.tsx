@@ -29,6 +29,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
+import { AlbumGenreFields } from '@/components/AlbumGenreFields'
 
 // Types for DB tables
 interface Album {
@@ -38,6 +39,8 @@ interface Album {
   release_date: string
   cover_art_url: string
   description?: string
+  genre?: string
+  subgenre?: string
   additional_covers?: { label: string; url: string }[]
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
@@ -645,6 +648,8 @@ export default function MyLibrary() {
     release_date: '',
     cover_art_url: '',
     description: '',
+    genre: '',
+    subgenre: '',
   });
   const [selectedLabelArtistIdForAlbum, setSelectedLabelArtistIdForAlbum] = useState<string>('');
   const [newAlbumArtists, setNewAlbumArtists] = useState<string[]>([]);
@@ -668,6 +673,8 @@ export default function MyLibrary() {
     release_date: '',
     cover_art_url: '',
     description: '',
+    genre: '',
+    subgenre: '',
     distributor: '',
     distributor_notes: '',
     notes: '',
@@ -693,6 +700,8 @@ export default function MyLibrary() {
           release_date: album.release_date || '',
           cover_art_url: album.cover_art_url || '',
           description: album.description || '',
+          genre: album.genre || '',
+          subgenre: album.subgenre || '',
           distributor: album.distributor || '',
           distributor_notes: album.distributor_notes || '',
           notes: album.notes || '',
@@ -703,7 +712,7 @@ export default function MyLibrary() {
       }
     } else {
       setEditAlbum(null);
-      setEditForm({ title: '', artist: '', release_date: '', cover_art_url: '', description: '', distributor: '', distributor_notes: '', notes: '' });
+      setEditForm({ title: '', artist: '', release_date: '', cover_art_url: '', description: '', genre: '', subgenre: '', distributor: '', distributor_notes: '', notes: '' });
       setEditAlbumArtists([]);
       setEditAlbumArtistInput('');
       setEditError(null);
@@ -2239,6 +2248,8 @@ export default function MyLibrary() {
       ...(newAlbum.release_date && { release_date: newAlbum.release_date }),
       ...(newAlbum.cover_art_url && { cover_art_url: newAlbum.cover_art_url }),
       ...(newAlbum.description && { description: newAlbum.description }),
+      ...(newAlbum.genre && { genre: newAlbum.genre }),
+      ...(newAlbum.subgenre && { subgenre: newAlbum.subgenre }),
       additional_covers: newAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })),
       ...(selectedLabelArtistIdForAlbum && { label_artist_id: selectedLabelArtistIdForAlbum }),
     };
@@ -2253,7 +2264,7 @@ export default function MyLibrary() {
     console.log('🔍 [LIBRARY CREATE ALBUM] Album created:', data);
     setAlbums([data, ...albums]);
     setShowAlbumModal(false);
-    setNewAlbum({ title: '', artist: '', release_date: '', cover_art_url: '', description: '' });
+    setNewAlbum({ title: '', artist: '', release_date: '', cover_art_url: '', description: '', genre: '', subgenre: '' });
     setSelectedLabelArtistIdForAlbum('');
     setNewAlbumArtists([]);
     setNewAlbumArtistInput('');
@@ -2287,6 +2298,11 @@ export default function MyLibrary() {
       ...(editForm.release_date && { release_date: editForm.release_date }),
       ...(editForm.cover_art_url && { cover_art_url: editForm.cover_art_url }),
       ...(editForm.description && { description: editForm.description }),
+      genre: editForm.genre || null,
+      subgenre: editForm.subgenre || null,
+      ...(editForm.distributor && { distributor: editForm.distributor }),
+      ...(editForm.distributor_notes && { distributor_notes: editForm.distributor_notes }),
+      ...(editForm.notes && { notes: editForm.notes }),
       additional_covers: editAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })),
     };
 
@@ -5389,6 +5405,12 @@ export default function MyLibrary() {
               value={newAlbum.release_date}
               onChange={e => setNewAlbum({ ...newAlbum, release_date: e.target.value })}
             />
+            <AlbumGenreFields
+              genre={newAlbum.genre}
+              subgenre={newAlbum.subgenre}
+              onGenreChange={(genre) => setNewAlbum({ ...newAlbum, genre })}
+              onSubgenreChange={(subgenre) => setNewAlbum({ ...newAlbum, subgenre })}
+            />
             <Input
               type="file"
               accept="image/*"
@@ -5560,6 +5582,12 @@ export default function MyLibrary() {
               placeholder="Release Date"
               value={editForm.release_date}
               onChange={e => setEditForm({ ...editForm, release_date: e.target.value })}
+            />
+            <AlbumGenreFields
+              genre={editForm.genre}
+              subgenre={editForm.subgenre}
+              onGenreChange={(genre) => setEditForm({ ...editForm, genre })}
+              onSubgenreChange={(subgenre) => setEditForm({ ...editForm, subgenre })}
             />
             <Input
               type="file"

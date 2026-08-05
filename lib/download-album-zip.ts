@@ -4,7 +4,7 @@ export function sanitizeDownloadFilename(name: string): string {
   return name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim() || 'untitled'
 }
 
-export function getFileExtension(url: string, fallback = 'mp3'): string {
+export function getFileExtension(url: string, fallback = 'wav'): string {
   const path = url.split('?')[0]
   const ext = path.split('.').pop()?.toLowerCase()
   return ext && ext.length <= 5 ? ext : fallback
@@ -50,7 +50,7 @@ export async function buildAlbumZip(params: {
       }
 
       const blob = await response.blob()
-      const ext = getFileExtension(track.audio_url, 'mp3')
+      const ext = getFileExtension(track.audio_url, 'wav')
       const baseName = sanitizeDownloadFilename(track.title)
       let fileName = `${baseName}.${ext}`
 

@@ -28,6 +28,7 @@ import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, 
 import { ELEVENLABS_MAX_CONCURRENT_MUSIC } from '@/lib/elevenlabs-config'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 import { formatCreditsError } from '@/lib/credit-utils'
+import { AlbumGenreFields } from '@/components/AlbumGenreFields'
 
 interface Album {
   id: string
@@ -36,6 +37,8 @@ interface Album {
   release_date: string
   cover_art_url: string
   description?: string
+  genre?: string
+  subgenre?: string
   additional_covers?: AdditionalCover[]
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
@@ -110,7 +113,7 @@ export default function AlbumDetailsPage() {
 
   // Album editing state
   const [showEditAlbum, setShowEditAlbum] = useState(false);
-  const [editAlbumForm, setEditAlbumForm] = useState({ title: '', artist: '', release_date: '', description: '', cover_art_url: '', distributor: '', distributor_notes: '', notes: '' });
+  const [editAlbumForm, setEditAlbumForm] = useState({ title: '', artist: '', release_date: '', description: '', genre: '', subgenre: '', cover_art_url: '', distributor: '', distributor_notes: '', notes: '' });
   const [editAlbumSaving, setEditAlbumSaving] = useState(false);
   const [editAlbumError, setEditAlbumError] = useState<string | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
@@ -993,6 +996,8 @@ export default function AlbumDetailsPage() {
         artist: album.artist,
         release_date: album.release_date,
         description: album.description || '',
+        genre: album.genre || '',
+        subgenre: album.subgenre || '',
         cover_art_url: album.cover_art_url || '',
         distributor: album.distributor || '',
         distributor_notes: album.distributor_notes || '',
@@ -1169,7 +1174,10 @@ export default function AlbumDetailsPage() {
     }
     
     // Set default prompt with album context (sanitized for content policy)
-    const styleHint = album.description ? sanitizeCoverPromptText(album.description) : ''
+    const styleHint = [album.genre, album.subgenre, album.description]
+      .filter(Boolean)
+      .map((part) => sanitizeCoverPromptText(String(part)))
+      .join(', ')
     const defaultPrompt = `Create a professional album cover art for "${sanitizeCoverPromptText(album.title)}" by ${album.artist || 'Unknown Artist'}${styleHint ? `. Style and mood: ${styleHint}` : ''}. The cover should be visually striking, suitable for a music release, and reflect the artistic style of the album. No explicit, sexual, or violent imagery. No extra text — only the album title and artist names.`;
     clearCoverReferenceImages();
     setCoverArtPrompt(defaultPrompt);
@@ -2429,7 +2437,7 @@ export default function AlbumDetailsPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${title}.${audioUrl.split('.').pop() || 'mp3'}`;
+      a.download = `${title}.${audioUrl.split('?')[0].split('.').pop() || 'wav'}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -3335,7 +3343,15 @@ export default function AlbumDetailsPage() {
             </div>
           </div>
           <h2 className="text-lg font-semibold mb-2">Description</h2>
-          <div className="mb-6 text-gray-400">{album.description || <span className="italic">No description.</span>}</div>
+          <div className="mb-4 text-gray-400">{album.description || <span className="italic">No description.</span>}</div>
+          {(album.genre || album.subgenre) && (
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold mb-2">Genre</h2>
+              <div className="text-gray-400">
+                {[album.genre, album.subgenre].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          )}
           
           <div className="grid grid-cols-2 gap-6 mb-6">
             <div>
@@ -3633,14 +3649,38 @@ export default function AlbumDetailsPage() {
                       )}
                     </Button>
                     
-                    {/* Status Badge - Compact */}
-                    <Badge 
-                      variant="outline" 
-                      className={`capitalize ${getStatusColor(track.status || 'draft')} text-xs`}
-                    >
-                      {getStatusIcon(track.status || 'draft')}
-                      <span className="ml-1">{track.status || 'draft'}</span>
-                    </Badge>
+                    {/* Status Badge - Click to change */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className={`capitalize cursor-pointer hover:opacity-80 ${getStatusColor(track.status || 'draft')} text-xs`}
+                        >
+                          {getStatusIcon(track.status || 'draft')}
+                          <span className="ml-1">{track.status || 'draft'}</span>
+                        </Badge>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'production')}>
+                          Production
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'draft')}>
+                          Draft
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'distribute')}>
+                          Distribute
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'error')}>
+                          Error
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'published')}>
+                          Published
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => updateTrackStatus(track.id, 'other')}>
+                          Other
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     
                     {/* View Details Button */}
                     <Button 
@@ -4687,6 +4727,13 @@ export default function AlbumDetailsPage() {
                 required
               />
             </div>
+            
+            <AlbumGenreFields
+              genre={editAlbumForm.genre || ''}
+              subgenre={editAlbumForm.subgenre || ''}
+              onGenreChange={(genre) => setEditAlbumForm(prev => ({ ...prev, genre }))}
+              onSubgenreChange={(subgenre) => setEditAlbumForm(prev => ({ ...prev, subgenre }))}
+            />
             
             <div>
               <label className="text-sm font-medium">Description</label>

@@ -148,7 +148,7 @@ export async function getAISettingsForUserWithSources(userId: string): Promise<A
     settings['anthropic_api_key'] = userKeys.anthropic_api_key.trim()
     keySources.anthropic = 'user_api_keys'
   }
-  if (userKeys?.elevenlabs_api_key?.trim()) {
+  if (!settings['elevenlabs_api_key']?.trim() && userKeys?.elevenlabs_api_key?.trim()) {
     settings['elevenlabs_api_key'] = userKeys.elevenlabs_api_key.trim()
     keySources.elevenlabs = 'user_api_keys'
   }
@@ -157,8 +157,41 @@ export async function getAISettingsForUserWithSources(userId: string): Promise<A
     settings['openai_api_key'] = process.env.OPENAI_API_KEY
     keySources.openai = 'env'
   }
+  if (!settings['elevenlabs_api_key']?.trim() && process.env.ELEVENLABS_API_KEY?.trim()) {
+    settings['elevenlabs_api_key'] = process.env.ELEVENLABS_API_KEY.trim()
+    keySources.elevenlabs = 'env'
+  }
 
   return { settings, keySources }
+}
+
+/** Reject keys that are clearly another provider (OpenAI/Stripe) pasted into ElevenLabs. */
+export function isPlausibleElevenLabsApiKey(key?: string | null): boolean {
+  const trimmed = key?.trim()
+  if (!trimmed || trimmed.length < 20) return false
+  if (/^sk[-_]/i.test(trimmed)) return false
+  if (/^pk_/i.test(trimmed)) return false
+  return true
+}
+
+export async function resolveElevenLabsApiKeyForUser(userId: string): Promise<{
+  apiKey: string | null
+  source: AIKeySource
+}> {
+  const { settings, keySources } = await getAISettingsForUserWithSources(userId)
+
+  const candidates: Array<{ key?: string; source: AIKeySource }> = [
+    { key: settings['elevenlabs_api_key'], source: keySources.elevenlabs },
+    { key: process.env.ELEVENLABS_API_KEY, source: 'env' },
+  ]
+
+  for (const candidate of candidates) {
+    if (isPlausibleElevenLabsApiKey(candidate.key)) {
+      return { apiKey: candidate.key!.trim(), source: candidate.source }
+    }
+  }
+
+  return { apiKey: null, source: 'none' }
 }
 
 /** True when the resolved settings will bill the user's own provider key (skip Beatheos credits). */

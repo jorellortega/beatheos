@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/ai-api-helpers'
+import { getUserFromRequest, resolveElevenLabsApiKeyForUser } from '@/lib/ai-api-helpers'
 import { ElevenLabsService } from '@/lib/ai-services'
+import { pcm16ToWav } from '@/lib/pcm-to-wav'
+import {
+  ELEVENLABS_MUSIC_OUTPUT_FORMAT,
+  ELEVENLABS_MUSIC_PCM_CHANNELS,
+  ELEVENLABS_MUSIC_PCM_SAMPLE_RATE,
+} from '@/lib/elevenlabs-config'
 
 export const maxDuration = 300
 
@@ -28,23 +34,25 @@ function sanitizeMusicText(text: string): string {
   return result.replace(/\s+/g, ' ').trim()
 }
 
-function extractStyleTags(description?: string | null): string {
-  if (!description?.trim()) return ''
+function extractStyleTags(album: { description?: string | null; genre?: string | null; subgenre?: string | null }): string {
+  const parts = [album.genre, album.subgenre, album.description]
+    .filter((value): value is string => !!value?.trim())
+    .flatMap((value) =>
+      value
+        .split(/[,;|]/)
+        .map((tag) => sanitizeMusicText(tag.trim()))
+        .filter((tag) => tag.length > 0 && tag.length < 40)
+    )
 
-  const tags = description
-    .split(/[,;|]/)
-    .map(tag => sanitizeMusicText(tag.trim()))
-    .filter(tag => tag.length > 0 && tag.length < 40)
-
-  return tags.slice(0, 8).join(', ')
+  return [...new Set(parts)].slice(0, 8).join(', ')
 }
 
 function buildMusicPrompt(
   trackTitle: string,
-  album: { title: string; description?: string | null }
+  album: { title: string; description?: string | null; genre?: string | null; subgenre?: string | null }
 ): string {
   const trackConcept = sanitizeMusicText(trackTitle)
-  const styleTags = extractStyleTags(album.description)
+  const styleTags = extractStyleTags(album)
 
   const parts = [
     'Instrumental only. No vocals. No singing. No lyrics.',
@@ -74,6 +82,29 @@ function buildFallbackMusicPrompt(styleTags: string): string {
   ].join(' ')
 }
 
+function formatElevenLabsErrorMessage(detail: unknown): string {
+  if (!detail) return 'ElevenLabs music generation failed'
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (item && typeof item === 'object' && 'msg' in item) return String(item.msg)
+        if (item && typeof item === 'object' && 'message' in item) return String(item.message)
+        return JSON.stringify(item)
+      })
+      .join('; ')
+  }
+  if (typeof detail === 'object' && detail !== null && 'message' in detail) {
+    return String((detail as { message?: string }).message)
+  }
+  return JSON.stringify(detail)
+}
+
+function isMisconfiguredApiKeyError(message: string): boolean {
+  return /must start with ['"]?sk_/i.test(message)
+}
+
 function isTermsOfServiceError(message: string): boolean {
   const lower = message.toLowerCase()
   return (
@@ -82,6 +113,40 @@ function isTermsOfServiceError(message: string): boolean {
     lower.includes('violated') ||
     lower.includes('not allowed')
   )
+}
+
+function prepareGeneratedAudioForStorage(audioBuffer: ArrayBuffer): {
+  fileBuffer: Buffer
+  extension: 'wav' | 'mp3'
+  contentType: string
+} {
+  if (ELEVENLABS_MUSIC_OUTPUT_FORMAT.startsWith('pcm_')) {
+    return {
+      fileBuffer: pcm16ToWav(audioBuffer, {
+        sampleRate: ELEVENLABS_MUSIC_PCM_SAMPLE_RATE,
+        channels: ELEVENLABS_MUSIC_PCM_CHANNELS,
+      }),
+      extension: 'wav',
+      contentType: 'audio/wav',
+    }
+  }
+
+  return {
+    fileBuffer: Buffer.from(audioBuffer),
+    extension: 'mp3',
+    contentType: 'audio/mpeg',
+  }
+}
+
+async function composeTrackMusic(prompt: string, apiKey: string): Promise<ArrayBuffer> {
+  return ElevenLabsService.composeMusic({
+    prompt,
+    apiKey,
+    modelId: 'music_v2',
+    musicLengthMs: 120000,
+    forceInstrumental: true,
+    outputFormat: ELEVENLABS_MUSIC_OUTPUT_FORMAT,
+  })
 }
 
 export async function POST(request: NextRequest) {
@@ -103,7 +168,7 @@ export async function POST(request: NextRequest) {
 
     const { data: album, error: albumError } = await supabase
       .from('albums')
-      .select('id, title, description, user_id')
+      .select('id, title, description, genre, subgenre, user_id')
       .eq('id', albumId)
       .single()
 
@@ -126,33 +191,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Track not found' }, { status: 404 })
     }
 
-    const { data: apiKeys } = await supabase
-      .from('user_api_keys')
-      .select('elevenlabs_api_key')
-      .eq('user_id', user.id)
-      .single()
-
-    const apiKey = apiKeys?.elevenlabs_api_key || process.env.ELEVENLABS_API_KEY
+    const { apiKey, source } = await resolveElevenLabsApiKeyForUser(user.id)
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'ElevenLabs API key not configured. Add your key in Setup AI.' },
+        {
+          error:
+            'ElevenLabs API key not configured. Add a valid key in Setup AI, or ask an admin to set the platform ElevenLabs key.',
+        },
         { status: 400 }
       )
     }
 
-    const styleTags = extractStyleTags(album.description)
+    console.log('[generate-track-music] Using ElevenLabs key from:', source)
+
+    const styleTags = extractStyleTags(album)
     let prompt = buildMusicPrompt(track.title, album)
     let audioBuffer: ArrayBuffer
 
     try {
-      audioBuffer = await ElevenLabsService.composeMusic({
-        prompt,
-        apiKey,
-        modelId: 'music_v2',
-        musicLengthMs: 120000,
-        forceInstrumental: true,
-      })
+      audioBuffer = await composeTrackMusic(prompt, apiKey)
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       if (!isTermsOfServiceError(message)) {
@@ -160,20 +218,15 @@ export async function POST(request: NextRequest) {
       }
 
       prompt = buildFallbackMusicPrompt(styleTags)
-      audioBuffer = await ElevenLabsService.composeMusic({
-        prompt,
-        apiKey,
-        modelId: 'music_v2',
-        musicLengthMs: 120000,
-        forceInstrumental: true,
-      })
+      audioBuffer = await composeTrackMusic(prompt, apiKey)
     }
 
-    const filePath = `album_tracks/${albumId}/${trackId}_elevenlabs_${Date.now()}.mp3`
+    const { fileBuffer, extension, contentType } = prepareGeneratedAudioForStorage(audioBuffer)
+    const filePath = `album_tracks/${albumId}/${trackId}_elevenlabs_${Date.now()}.${extension}`
     const { error: uploadError } = await supabase.storage
       .from('beats')
-      .upload(filePath, Buffer.from(audioBuffer), {
-        contentType: 'audio/mpeg',
+      .upload(filePath, fileBuffer, {
+        contentType,
         upsert: true,
       })
 
@@ -201,11 +254,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       audioUrl,
+      format: extension,
       prompt,
     })
   } catch (error) {
     console.error('Generate track music error:', error)
     const message = error instanceof Error ? error.message : 'Failed to generate music'
+
+    if (isMisconfiguredApiKeyError(message)) {
+      return NextResponse.json(
+        {
+          error:
+            'Invalid ElevenLabs API key. If you saved an OpenAI or Stripe key in Setup AI under ElevenLabs, remove it and add your ElevenLabs key (from elevenlabs.io → API Keys), or clear Setup AI to use the platform key.',
+        },
+        { status: 400 }
+      )
+    }
+
     const status = isTermsOfServiceError(message) ? 400 : 500
 
     return NextResponse.json(
