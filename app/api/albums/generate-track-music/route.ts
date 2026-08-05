@@ -9,7 +9,8 @@ import {
   ELEVENLABS_MUSIC_PCM_SAMPLE_RATE,
 } from '@/lib/elevenlabs-config'
 
-export const maxDuration = 300
+/** Vercel Hobby max is 60s; Pro allows up to 300s via vercel.json if needed. */
+export const maxDuration = 60
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
