@@ -1,10 +1,10 @@
 "use client"
 
 import { useParams, useRouter } from 'next/navigation'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X, Settings } from 'lucide-react'
+import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X, Settings, Image as ImageIcon } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,10 @@ import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
+import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, sanitizeCoverPromptText, appendCoverArtTextRule, buildEditCoverPrompt, MAX_COVER_REFERENCE_IMAGES, buildCoverReferencePromptHint } from '@/lib/cover-art-helpers'
+import { ELEVENLABS_MAX_CONCURRENT_MUSIC } from '@/lib/elevenlabs-config'
+import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
+import { formatCreditsError } from '@/lib/credit-utils'
 
 interface Album {
   id: string
@@ -32,7 +36,7 @@ interface Album {
   release_date: string
   cover_art_url: string
   description?: string
-  additional_covers?: { label: string; url: string }[]
+  additional_covers?: AdditionalCover[]
   status?: 'production' | 'draft' | 'distribute' | 'error' | 'published' | 'other'
   production_status?: 'marketing' | 'organization' | 'production' | 'quality_control' | 'ready_for_distribution'
   distributor?: string
@@ -71,6 +75,7 @@ export default function AlbumDetailsPage() {
   const [audioUrl, setAudioUrl] = useState('');
   const [addMultipleTracks, setAddMultipleTracks] = useState(false);
   const [numberOfTracks, setNumberOfTracks] = useState<number>(2);
+  const [numberOfTracksInput, setNumberOfTracksInput] = useState('2');
   const [multipleTracks, setMultipleTracks] = useState<Array<{ title: string; duration: string; isrc: string; audio_url: string }>>([]);
 
   // Edit track modal state
@@ -111,11 +116,17 @@ export default function AlbumDetailsPage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generatingCoverArt, setGeneratingCoverArt] = useState(false);
+  const [downloadingAlbum, setDownloadingAlbum] = useState(false);
   const [showCoverArtPromptDialog, setShowCoverArtPromptDialog] = useState(false);
+  const [showEditCoverDialog, setShowEditCoverDialog] = useState(false);
   const [coverArtPrompt, setCoverArtPrompt] = useState('');
+  const [coverReferenceImages, setCoverReferenceImages] = useState<{ file: File; preview: string }[]>([]);
+  const coverReferenceInputRef = useRef<HTMLInputElement>(null);
+  const [editCoverPrompt, setEditCoverPrompt] = useState('');
   
   // Cover art cropping state
   const [showCropDialog, setShowCropDialog] = useState(false);
+  const [showCoverPreview, setShowCoverPreview] = useState(false);
   const [cropImage, setCropImage] = useState<HTMLImageElement | null>(null);
   const [cropBox, setCropBox] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [cropSize, setCropSize] = useState<1600 | 3000>(1600);
@@ -128,6 +139,7 @@ export default function AlbumDetailsPage() {
   // Multiple artists state for edit album
   const [editAlbumArtists, setEditAlbumArtists] = useState<string[]>([]);
   const [newArtistInput, setNewArtistInput] = useState('');
+  const [showArtistSuggestions, setShowArtistSuggestions] = useState(false);
 
   // Label artists state (for publishing to artist pages)
   const [labelArtists, setLabelArtists] = useState<LabelArtist[]>([]);
@@ -170,6 +182,9 @@ export default function AlbumDetailsPage() {
   const [editingTitleValue, setEditingTitleValue] = useState<string>('');
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
   const [regeneratingTrackId, setRegeneratingTrackId] = useState<string | null>(null);
+  const [generatingMusicTrackIds, setGeneratingMusicTrackIds] = useState<Set<string>>(new Set());
+  const [generatingAllInstrumentals, setGeneratingAllInstrumentals] = useState(false);
+  const activeMusicGenerationsRef = useRef(0);
   const [editingTrackTitleId, setEditingTrackTitleId] = useState<string | null>(null);
   const [editingTrackTitleValue, setEditingTrackTitleValue] = useState<string>('');
 
@@ -643,6 +658,45 @@ export default function AlbumDetailsPage() {
   // When a file is selected, upload and set audioUrl
   // On submit, use audioUrl as audio_url
   // Handle adding multiple tracks directly (no form)
+  const syncMultipleTracksCount = (count: number) => {
+    setMultipleTracks(prev => {
+      if (prev.length === 0) return prev;
+      if (count > prev.length) {
+        const newTracks = Array(count - prev.length).fill(null).map(() => ({
+          title: '',
+          duration: '',
+          isrc: '',
+          audio_url: ''
+        }));
+        return [...prev, ...newTracks];
+      }
+      if (count < prev.length) {
+        return prev.slice(0, count);
+      }
+      return prev;
+    });
+  };
+
+  const handleNumberOfTracksChange = (raw: string) => {
+    if (raw !== '' && !/^\d+$/.test(raw)) return;
+    setNumberOfTracksInput(raw);
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed >= 2 && parsed <= 100) {
+      setNumberOfTracks(parsed);
+      syncMultipleTracksCount(parsed);
+    }
+  };
+
+  const commitNumberOfTracksInput = (): number => {
+    let value = parseInt(numberOfTracksInput, 10);
+    if (isNaN(value) || value < 2) value = 2;
+    if (value > 100) value = 100;
+    setNumberOfTracks(value);
+    setNumberOfTracksInput(String(value));
+    syncMultipleTracksCount(value);
+    return value;
+  };
+
   async function handleAddMultipleTracksDirectly(count: number) {
     if (!albumId || !album) {
       toast({
@@ -784,6 +838,7 @@ export default function AlbumDetailsPage() {
       setAddMultipleTracks(false);
       setMultipleTracks([]);
       setNumberOfTracks(2);
+      setNumberOfTracksInput('2');
       setAddTrackError(null);
     } catch (error) {
       console.error('Unexpected error:', error);
@@ -948,6 +1003,7 @@ export default function AlbumDetailsPage() {
       const artists = album.artist ? album.artist.split(',').map(a => a.trim()).filter(a => a) : [];
       setEditAlbumArtists(artists);
       setNewArtistInput('');
+      setShowArtistSuggestions(false);
       // Set selected label artist if album is published
       setSelectedLabelArtistId(album.label_artist_id || '');
       setShowEditAlbum(true);
@@ -1035,6 +1091,72 @@ export default function AlbumDetailsPage() {
     }
   };
 
+  const clearCoverReferenceImages = () => {
+    setCoverReferenceImages((prev) => {
+      prev.forEach((image) => URL.revokeObjectURL(image.preview));
+      return [];
+    });
+    if (coverReferenceInputRef.current) {
+      coverReferenceInputRef.current.value = '';
+    }
+  };
+
+  const handleCoverReferenceImagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      toast({
+        title: 'Invalid files',
+        description: 'Please upload image files only (PNG, JPG, or WebP).',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setCoverReferenceImages((prev) => {
+      const remainingSlots = MAX_COVER_REFERENCE_IMAGES - prev.length;
+      if (remainingSlots <= 0) {
+        toast({
+          title: 'Reference limit reached',
+          description: `You can add up to ${MAX_COVER_REFERENCE_IMAGES} reference images.`,
+          variant: 'destructive',
+        });
+        return prev;
+      }
+
+      const filesToAdd = imageFiles.slice(0, remainingSlots);
+      if (imageFiles.length > remainingSlots) {
+        toast({
+          title: 'Some images skipped',
+          description: `Only ${remainingSlots} more reference image(s) can be added (max ${MAX_COVER_REFERENCE_IMAGES}).`,
+        });
+      }
+
+      return [
+        ...prev,
+        ...filesToAdd.map((file) => ({
+          file,
+          preview: URL.createObjectURL(file),
+        })),
+      ];
+    });
+
+    e.target.value = '';
+  };
+
+  const removeCoverReferenceImage = (index: number) => {
+    setCoverReferenceImages((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(index, 1);
+      if (removed) {
+        URL.revokeObjectURL(removed.preview);
+      }
+      return next;
+    });
+  };
+
   // Open cover art generation dialog
   const handleOpenCoverArtDialog = () => {
     if (!album || !user?.id) {
@@ -1046,10 +1168,205 @@ export default function AlbumDetailsPage() {
       return;
     }
     
-    // Set default prompt with album context
-    const defaultPrompt = `Create a professional album cover art for "${album.title}" by ${album.artist || 'Unknown Artist'}${album.description ? `. ${album.description}` : ''}. The cover should be visually striking, suitable for a music release, and reflect the artistic style of the album.`;
+    // Set default prompt with album context (sanitized for content policy)
+    const styleHint = album.description ? sanitizeCoverPromptText(album.description) : ''
+    const defaultPrompt = `Create a professional album cover art for "${sanitizeCoverPromptText(album.title)}" by ${album.artist || 'Unknown Artist'}${styleHint ? `. Style and mood: ${styleHint}` : ''}. The cover should be visually striking, suitable for a music release, and reflect the artistic style of the album. No explicit, sexual, or violent imagery. No extra text — only the album title and artist names.`;
+    clearCoverReferenceImages();
     setCoverArtPrompt(defaultPrompt);
     setShowCoverArtPromptDialog(true);
+  };
+
+  const handleOpenEditCoverDialog = () => {
+    if (!album?.cover_art_url) {
+      toast({
+        title: "No cover to edit",
+        description: "Generate or upload cover art first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setEditCoverPrompt('');
+    setShowEditCoverDialog(true);
+  };
+
+  const downloadCoverArt = async () => {
+    if (!album?.cover_art_url) return;
+
+    try {
+      const response = await fetch(album.cover_art_url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch cover image');
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `${album.title.replace(/[^a-z0-9]/gi, '_')}_cover.png`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error('Error downloading cover art:', error);
+      window.open(album.cover_art_url, '_blank');
+    }
+  };
+
+  const resolveCoverArtConfig = async () => {
+    const { data: settingsData, error: settingsError } = await supabase.rpc('get_ai_settings');
+    if (settingsError) {
+      throw new Error('Failed to fetch AI settings');
+    }
+
+    const settings: Record<string, string> = {};
+    if (settingsData) {
+      for (const setting of settingsData) {
+        settings[setting.setting_key] = setting.setting_value;
+      }
+    }
+
+    const imageModelKey = Object.keys(settings).find(key =>
+      key.toLowerCase().includes('image') &&
+      (key.toLowerCase().includes('model') || key.toLowerCase().includes('selected'))
+    );
+
+    let model = 'gpt-image-2';
+    if (imageModelKey && settings[imageModelKey]) {
+      model = settings[imageModelKey];
+    } else if (settings['images_selected_model']) {
+      model = settings['images_selected_model'];
+    } else if (settings['images_locked_model']) {
+      model = settings['images_locked_model'];
+    }
+
+    let apiKey = settings['openai_api_key']?.trim();
+    if (!apiKey) {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('openai_api_key')
+        .eq('id', user!.id)
+        .single();
+      if (!userError && userData) {
+        apiKey = userData.openai_api_key;
+      }
+    }
+    if (!apiKey) {
+      apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+    }
+    if (!apiKey) {
+      throw new Error('Please configure your OpenAI API key in settings.');
+    }
+
+    const normalizeImageModel = (modelValue: string) => {
+      if (modelValue === 'gpt-image-2' || modelValue === 'gpt-image-1' || modelValue?.startsWith('gpt-image-')) {
+        return modelValue;
+      }
+      if (modelValue?.toLowerCase().includes('dall')) {
+        return 'dall-e-3';
+      }
+      return modelValue || 'gpt-image-2';
+    };
+
+    return { apiKey, normalizedModel: normalizeImageModel(model) };
+  };
+
+  const persistCoverArtImage = async (
+    imageUrl: string,
+    successDescription: string,
+    options?: { previousCoverLabel?: string }
+  ) => {
+    if (!album || !user?.id) return;
+
+    setUploadingCover(true);
+    let publicUrl: string;
+
+    if (imageUrl.startsWith('data:')) {
+      const base64Data = imageUrl.split(',')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+
+      const filePath = `albums/${album.id}/${Date.now()}_cover_art.png`;
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, blob, {
+          contentType: 'image/png',
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw new Error('Failed to upload cover art to storage');
+      }
+
+      const { data: { publicUrl: url } } = supabase.storage.from('beats').getPublicUrl(filePath);
+      publicUrl = url;
+    } else {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      const downloadResponse = await fetch('/api/ai/download-and-store-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          imageUrl,
+          fileName: 'cover_art',
+          userId: user.id,
+          albumId: album.id,
+        }),
+      });
+
+      const downloadResult = await downloadResponse.json();
+      if (!downloadResult.success) {
+        throw new Error(downloadResult.error || 'Failed to download and store image');
+      }
+      publicUrl = downloadResult.supabaseUrl;
+    }
+
+    let updatedAdditionalCovers = album.additional_covers || [];
+    if (album.cover_art_url) {
+      const preserved = await preserveCoverToHistory({
+        supabase,
+        albumId: album.id,
+        coverUrl: album.cover_art_url,
+        existingAdditionalCovers: updatedAdditionalCovers,
+        label: options?.previousCoverLabel,
+      });
+      updatedAdditionalCovers = preserved.additionalCovers;
+    }
+
+    const { error: updateError } = await supabase
+      .from('albums')
+      .update({
+        cover_art_url: publicUrl,
+        additional_covers: updatedAdditionalCovers,
+      })
+      .eq('id', album.id);
+
+    if (updateError) {
+      throw new Error('Failed to update album cover art');
+    }
+
+    setAlbum(prev => prev ? {
+      ...prev,
+      cover_art_url: publicUrl,
+      additional_covers: updatedAdditionalCovers,
+    } : null);
+    setEditAlbumForm(prev => ({ ...prev, cover_art_url: publicUrl }));
+
+    toast({
+      title: "Success",
+      description: successDescription,
+    });
   };
 
   // Generate cover art using GPT Image 1
@@ -1078,104 +1395,24 @@ export default function AlbumDetailsPage() {
     setShowCoverArtPromptDialog(false);
 
     try {
-      // Get AI settings from database
-      const { data: settingsData, error: settingsError } = await supabase.rpc('get_ai_settings');
-      
-      if (settingsError) {
-        throw new Error('Failed to fetch AI settings');
-      }
+      const { apiKey, normalizedModel } = await resolveCoverArtConfig();
+      const referenceHint = buildCoverReferencePromptHint(coverReferenceImages.length);
+      const promptWithReferences = referenceHint
+        ? `${appendCoverArtTextRule(promptToUse)} ${referenceHint}`
+        : appendCoverArtTextRule(promptToUse);
 
-      // Map settings array to object
-      const settings: Record<string, string> = {};
-      if (settingsData) {
-        for (const setting of settingsData) {
-          settings[setting.setting_key] = setting.setting_value;
-        }
-      }
-
-      // Get image model from settings - look for common keys
-      // Try to find image-related settings
-      const imageModelKey = Object.keys(settings).find(key => 
-        key.toLowerCase().includes('image') && 
-        (key.toLowerCase().includes('model') || key.toLowerCase().includes('selected'))
-      );
-      
-      // Default to gpt-image-1 (as requested by user)
-      let model = 'gpt-image-1';
-      if (imageModelKey && settings[imageModelKey]) {
-        model = settings[imageModelKey];
-      } else if (settings['images_selected_model']) {
-        model = settings['images_selected_model'];
-      } else if (settings['images_locked_model']) {
-        model = settings['images_locked_model'];
-      }
-
-      // Get API key - try from settings first, then user table, then env
-      let apiKey = settings['openai_api_key']?.trim();
-      
-      if (!apiKey) {
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('openai_api_key')
-          .eq('id', user.id)
-          .single();
-
-        if (!userError && userData) {
-          apiKey = userData.openai_api_key;
-        }
-      }
-
-      if (!apiKey) {
-        apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-      }
-
-      if (!apiKey) {
-        toast({
-          title: "Missing API Key",
-          description: "Please configure your OpenAI API key in settings.",
-          variant: "destructive",
-        });
-        setGeneratingCoverArt(false);
-        return;
-      }
-
-      // Normalize model - ensure it's in the correct format
-      const normalizeImageModel = (modelValue: string) => {
-        if (modelValue === 'gpt-image-1' || modelValue?.startsWith('gpt-')) {
-          return modelValue;
-        }
-        // If it contains 'dall', use dall-e-3, otherwise default to gpt-image-1
-        if (modelValue?.toLowerCase().includes('dall')) {
-          return 'dall-e-3';
-        }
-        // Default to gpt-image-1 if not specified or empty
-        return modelValue || 'gpt-image-1';
-      };
-
-      const normalizedModel = normalizeImageModel(model);
-
-      console.log('🖼️ ALBUM COVER - Model selection:', {
-        originalModel: model,
-        normalizedModel: normalizedModel,
-        settingsKeys: Object.keys(settings),
-        imageModelKey: imageModelKey,
-        willUseGPTImage: normalizedModel === 'gpt-image-1' || normalizedModel.startsWith('gpt-'),
-        prompt: promptToUse.substring(0, 100) + '...'
-      });
-
-      // Generate image using OpenAIService
       const response = await OpenAIService.generateImage({
-        prompt: promptToUse.trim(),
+        prompt: promptWithReferences,
         style: 'cinematic, professional album cover',
         model: normalizedModel,
         apiKey: apiKey,
+        referenceImages: coverReferenceImages.map((image) => image.file),
       });
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to generate cover art');
       }
 
-      // Handle both URL (DALL-E) and base64 (GPT Image) responses
       const imageData = response.data.data?.[0];
       const imageUrl = imageData?.url || (imageData?.b64_json ? `data:image/png;base64,${imageData.b64_json}` : '');
 
@@ -1183,100 +1420,248 @@ export default function AlbumDetailsPage() {
         throw new Error('No image data received');
       }
 
-      // Save the image to the bucket
-      setUploadingCover(true);
-      
-      let publicUrl: string;
-      
-      if (imageUrl.startsWith('data:')) {
-        // Base64 data URI (GPT Image) - can be handled client-side
-        const base64Data = imageUrl.split(',')[1];
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'image/png' });
-
-        // Upload to Supabase storage
-        const filePath = `albums/${album.id}/${Date.now()}_cover_art.png`;
-        const { error: uploadError } = await supabase.storage
-          .from('beats')
-          .upload(filePath, blob, {
-            contentType: 'image/png',
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (uploadError) {
-          console.error('Upload error:', uploadError);
-          throw new Error('Failed to upload cover art to storage');
-        }
-
-        const { data: { publicUrl: url } } = supabase.storage
-          .from('beats')
-          .getPublicUrl(filePath);
-        
-        publicUrl = url;
-      } else {
-        // URL (DALL-E) - need to download server-side due to CORS
-        const token = await getAccessToken();
-        if (!token) {
-          throw new Error('Authentication required');
-        }
-
-        const downloadResponse = await fetch('/api/ai/download-and-store-image', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            imageUrl: imageUrl,
-            fileName: 'cover_art',
-            userId: user.id,
-            albumId: album.id
-          })
-        });
-
-        const downloadResult = await downloadResponse.json();
-
-        if (!downloadResult.success) {
-          throw new Error(downloadResult.error || 'Failed to download and store image');
-        }
-
-        publicUrl = downloadResult.supabaseUrl;
-      }
-
-      // Update album with new cover art
-      const { error: updateError } = await supabase
-        .from('albums')
-        .update({ cover_art_url: publicUrl })
-        .eq('id', album.id);
-
-      if (updateError) {
-        throw new Error('Failed to update album cover art');
-      }
-
-      // Update local state
-      setAlbum(prev => prev ? { ...prev, cover_art_url: publicUrl } : null);
-      setEditAlbumForm(prev => ({ ...prev, cover_art_url: publicUrl }));
-
-      toast({
-        title: "Success",
-        description: "Album cover art generated and saved!",
-      });
+      await persistCoverArtImage(
+        imageUrl,
+        album.cover_art_url
+          ? 'New cover art generated! Your previous cover was saved as a thumbnail below.'
+          : 'Album cover art generated and saved!',
+        album.cover_art_url
+          ? { previousCoverLabel: `Previous cover · ${new Date().toLocaleDateString()}` }
+          : undefined
+      );
+      clearCoverReferenceImages();
     } catch (error: any) {
       console.error('Error generating cover art:', error);
+      const message = error.message || ''
+      const isSafetyBlock = /safety|rejected|sexual|violat/i.test(message)
       toast({
         title: "Error",
-        description: error.message || "Failed to generate cover art. Please ensure AI API keys are configured in /ai-settings",
+        description: isSafetyBlock
+          ? 'OpenAI blocked this cover prompt due to content policy. Try a more neutral description or edit the prompt before generating.'
+          : message || 'Failed to generate cover art. Add your OpenAI key in /setup-ai if needed.',
         variant: "destructive",
       });
     } finally {
       setGeneratingCoverArt(false);
       setUploadingCover(false);
+    }
+  };
+
+  const handleEditCoverArt = async () => {
+    if (!album || !user?.id || !album.cover_art_url) {
+      toast({
+        title: "Error",
+        description: "Please ensure you're logged in and have cover art to edit.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!editCoverPrompt.trim()) {
+      toast({
+        title: "Error",
+        description: "Describe what you want to change about the cover.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setGeneratingCoverArt(true);
+    setUploadError(null);
+    setShowEditCoverDialog(false);
+
+    try {
+      const { apiKey, normalizedModel } = await resolveCoverArtConfig();
+      const prompt = appendCoverArtTextRule(
+        buildEditCoverPrompt(editCoverPrompt, album.title, album.artist)
+      );
+
+      const response = await OpenAIService.editImage({
+        prompt,
+        referenceImageUrl: album.cover_art_url,
+        style: 'cinematic, professional album cover',
+        model: normalizedModel,
+        apiKey,
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to edit cover art');
+      }
+
+      const imageData = response.data.data?.[0];
+      const imageUrl = imageData?.url || (imageData?.b64_json ? `data:image/png;base64,${imageData.b64_json}` : '');
+
+      if (!imageUrl) {
+        throw new Error('No image data received');
+      }
+
+      await persistCoverArtImage(
+        imageUrl,
+        'Cover updated! Your previous cover was saved as a thumbnail below.',
+        { previousCoverLabel: `Before edit · ${new Date().toLocaleDateString()}` }
+      );
+    } catch (error: any) {
+      console.error('Error editing cover art:', error);
+      const message = error.message || ''
+      const isSafetyBlock = /safety|rejected|sexual|violat/i.test(message)
+      toast({
+        title: "Error",
+        description: isSafetyBlock
+          ? 'OpenAI blocked this edit due to content policy. Try a more neutral description.'
+          : message || 'Failed to edit cover art.',
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingCoverArt(false);
+      setUploadingCover(false);
+    }
+  };
+
+  const handleUseCoverFromHistory = async (coverIndex: number) => {
+    if (!album) return;
+
+    const selected = album.additional_covers?.[coverIndex];
+    if (!selected) return;
+
+    try {
+      let updatedAdditionalCovers = [...(album.additional_covers || [])];
+      updatedAdditionalCovers = updatedAdditionalCovers.filter((_, index) => index !== coverIndex);
+
+      if (album.cover_art_url && album.cover_art_url !== selected.url) {
+        const preserved = await preserveCoverToHistory({
+          supabase,
+          albumId: album.id,
+          coverUrl: album.cover_art_url,
+          existingAdditionalCovers: updatedAdditionalCovers,
+        });
+        updatedAdditionalCovers = preserved.additionalCovers;
+      }
+
+      const { error } = await supabase
+        .from('albums')
+        .update({
+          cover_art_url: selected.url,
+          additional_covers: updatedAdditionalCovers,
+        })
+        .eq('id', album.id);
+
+      if (error) throw error;
+
+      setAlbum(prev => prev ? {
+        ...prev,
+        cover_art_url: selected.url,
+        additional_covers: updatedAdditionalCovers,
+      } : null);
+      setEditAlbumForm(prev => ({ ...prev, cover_art_url: selected.url }));
+
+      toast({
+        title: 'Cover updated',
+        description: 'Selected cover is now the main album cover.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update cover art',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteCoverFromHistory = async (coverIndex: number) => {
+    if (!album) return;
+
+    const cover = album.additional_covers?.[coverIndex];
+    if (!cover) return;
+
+    if (!window.confirm(`Delete "${cover.label}"? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteCoverStorageFiles(supabase, cover);
+
+      const updatedAdditionalCovers = (album.additional_covers || []).filter((_, index) => index !== coverIndex);
+      const updates: { additional_covers: AdditionalCover[]; cover_art_url?: string | null } = {
+        additional_covers: updatedAdditionalCovers,
+      };
+
+      if (album.cover_art_url === cover.url) {
+        updates.cover_art_url = null;
+      }
+
+      const { error } = await supabase
+        .from('albums')
+        .update(updates)
+        .eq('id', album.id);
+
+      if (error) throw error;
+
+      setAlbum(prev => prev ? {
+        ...prev,
+        cover_art_url: updates.cover_art_url !== undefined ? updates.cover_art_url ?? undefined : prev.cover_art_url,
+        additional_covers: updatedAdditionalCovers,
+      } : null);
+
+      if (updates.cover_art_url === null) {
+        setEditAlbumForm(prev => ({ ...prev, cover_art_url: '' }));
+      }
+
+      toast({
+        title: 'Cover deleted',
+        description: album.cover_art_url === cover.url
+          ? 'Cover removed from history and cleared as the main cover.'
+          : 'Cover removed from history.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete cover',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteMainCover = async () => {
+    if (!album?.cover_art_url) return;
+
+    if (!window.confirm('Delete the main album cover? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const coverUrl = album.cover_art_url;
+      await deleteCoverStorageFiles(supabase, { url: coverUrl });
+
+      const updatedAdditionalCovers = (album.additional_covers || []).filter(c => c.url !== coverUrl);
+
+      const { error } = await supabase
+        .from('albums')
+        .update({
+          cover_art_url: null,
+          additional_covers: updatedAdditionalCovers,
+        })
+        .eq('id', album.id);
+
+      if (error) throw error;
+
+      setAlbum(prev => prev ? {
+        ...prev,
+        cover_art_url: undefined,
+        additional_covers: updatedAdditionalCovers,
+      } : null);
+      setEditAlbumForm(prev => ({ ...prev, cover_art_url: '' }));
+      setShowCoverPreview(false);
+
+      toast({
+        title: 'Cover deleted',
+        description: 'Main cover art has been removed.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete cover',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -1324,7 +1709,10 @@ export default function AlbumDetailsPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate track titles');
+        if (data.debug) {
+          console.error('[generate-track-titles] API debug:', data.debug)
+        }
+        throw new Error(formatCreditsError(data, 'Failed to generate track titles'));
       }
 
       if (data.titles && data.titles.length > 0) {
@@ -1337,7 +1725,7 @@ export default function AlbumDetailsPage() {
       console.error('Error generating track titles:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to generate track titles. Please ensure AI API keys are configured in /ai-settings",
+        description: error.message || "Failed to generate track titles. Add your OpenAI key in /setup-ai if needed.",
         variant: "destructive"
       });
     } finally {
@@ -1405,7 +1793,10 @@ export default function AlbumDetailsPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to regenerate title');
+        if (data.debug) {
+          console.error('[generate-track-titles] API debug:', data.debug)
+        }
+        throw new Error(formatCreditsError(data, 'Failed to regenerate title'));
       }
 
       if (data.titles && data.titles.length > 0) {
@@ -1470,7 +1861,10 @@ export default function AlbumDetailsPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to regenerate title');
+        if (data.debug) {
+          console.error('[generate-track-titles] API debug:', data.debug)
+        }
+        throw new Error(formatCreditsError(data, 'Failed to regenerate title'));
       }
 
       if (data.titles && data.titles.length > 0) {
@@ -1507,6 +1901,136 @@ export default function AlbumDetailsPage() {
     } finally {
       setRegeneratingTrackId(null);
     }
+  };
+
+  const startMusicGeneration = (trackId: string): boolean => {
+    if (activeMusicGenerationsRef.current >= ELEVENLABS_MAX_CONCURRENT_MUSIC) {
+      return false;
+    }
+    activeMusicGenerationsRef.current += 1;
+    setGeneratingMusicTrackIds(prev => new Set(prev).add(trackId));
+    return true;
+  };
+
+  const endMusicGeneration = (trackId: string) => {
+    activeMusicGenerationsRef.current = Math.max(0, activeMusicGenerationsRef.current - 1);
+    setGeneratingMusicTrackIds(prev => {
+      const next = new Set(prev);
+      next.delete(trackId);
+      return next;
+    });
+  };
+
+  const getMainTracks = () => tracks.filter(track => {
+    const isMp3Conversion = track.title.endsWith('.mp3');
+    if (!isMp3Conversion) return true;
+    const originalTitle = track.title.replace('.mp3', '');
+    const originalTrack = tracks.find(t => t.title === originalTitle && !t.title.endsWith('.mp3'));
+    return !originalTrack;
+  });
+
+  const generateTrackMusicInternal = async (trackId: string, trackTitle: string) => {
+    if (!album) return;
+
+    const hadAudio = tracks.some(t => t.id === trackId && !!t.audio_url);
+
+    const token = await getAccessToken();
+    if (!token) {
+      throw new Error('Authentication required. Please log in again.');
+    }
+
+    const response = await fetch('/api/albums/generate-track-music', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        albumId: album.id,
+        trackId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to generate music');
+    }
+
+    setTracks(prev => prev.map(t => t.id === trackId ? { ...t, audio_url: data.audioUrl } : t));
+
+    toast({
+      title: hadAudio ? 'Music Regenerated' : 'Music Generated',
+      description: `Audio for "${trackTitle}" has been ${hadAudio ? 'regenerated' : 'generated'} and attached to the track.`,
+    });
+  };
+
+  const handleGenerateTrackMusic = async (trackId: string, trackTitle: string) => {
+    if (!album || generatingMusicTrackIds.has(trackId)) return;
+
+    if (playingTrackId === trackId) {
+      stopCurrentAudio();
+    }
+
+    if (!startMusicGeneration(trackId)) {
+      toast({
+        title: 'Generation queue full',
+        description: `ElevenLabs allows up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} concurrent music generations on most plans. Wait for one to finish.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await generateTrackMusicInternal(trackId, trackTitle);
+    } catch (error: any) {
+      console.error('Error generating track music:', error);
+      const message = error.message || 'Failed to generate music. Ensure your ElevenLabs API key is configured in Setup AI.';
+      const isConcurrencyError = /429|concurrent|too many/i.test(message);
+      toast({
+        title: 'Generation Failed',
+        description: isConcurrencyError
+          ? `ElevenLabs concurrent limit reached (max ${ELEVENLABS_MAX_CONCURRENT_MUSIC} on most plans). Try again in a moment.`
+          : message,
+        variant: 'destructive',
+      });
+    } finally {
+      endMusicGeneration(trackId);
+    }
+  };
+
+  const handleGenerateAllInstrumentals = async () => {
+    const mainTracks = getMainTracks();
+    if (!album || mainTracks.length === 0) return;
+
+    setGeneratingAllInstrumentals(true);
+
+    const runTrack = async (trackId: string, trackTitle: string) => {
+      while (!startMusicGeneration(trackId)) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      try {
+        await generateTrackMusicInternal(trackId, trackTitle);
+      } catch (error: any) {
+        console.error('Error generating track music:', error);
+        toast({
+          title: `Failed: ${trackTitle}`,
+          description: error.message || 'Music generation failed',
+          variant: 'destructive',
+        });
+      } finally {
+        endMusicGeneration(trackId);
+      }
+    };
+
+    await Promise.all(mainTracks.map(track => runTrack(track.id, track.title)));
+
+    setGeneratingAllInstrumentals(false);
+    toast({
+      title: 'Batch complete',
+      description: `Finished generating instrumentals for ${mainTracks.length} track${mainTracks.length === 1 ? '' : 's'}.`,
+    });
   };
 
   // Apply generated titles to tracks
@@ -1856,12 +2380,28 @@ export default function AlbumDetailsPage() {
   };
 
   // Add artist to the edit album artists list
-  const addEditAlbumArtist = () => {
-    if (newArtistInput.trim() && !editAlbumArtists.includes(newArtistInput.trim())) {
-      setEditAlbumArtists([...editAlbumArtists, newArtistInput.trim()]);
+  const addEditAlbumArtist = (artistName?: string) => {
+    const name = (artistName ?? newArtistInput).trim();
+    if (name && !editAlbumArtists.includes(name)) {
+      setEditAlbumArtists([...editAlbumArtists, name]);
       setNewArtistInput('');
+      setShowArtistSuggestions(false);
     }
   };
+
+  const artistSuggestions = useMemo(() => {
+    const rosterNames = labelArtists
+      .map((artist) => artist.stage_name || artist.name)
+      .filter((name, index, self) => self.indexOf(name) === index)
+      .filter((name) => !editAlbumArtists.includes(name));
+
+    const query = newArtistInput.trim().toLowerCase();
+    const filtered = query
+      ? rosterNames.filter((name) => name.toLowerCase().includes(query))
+      : rosterNames;
+
+    return filtered.slice(0, 8);
+  }, [labelArtists, editAlbumArtists, newArtistInput]);
 
   // Remove artist from the edit album artists list
   const removeEditAlbumArtist = (artistToRemove: string) => {
@@ -1931,7 +2471,7 @@ export default function AlbumDetailsPage() {
       }
 
       const tracksWithAudio = tracks.filter(track => track.audio_url);
-      if (tracksWithAudio.length === 0) {
+      if (tracksWithAudio.length === 0 && !album.cover_art_url) {
         toast({
           title: "No audio files available",
           description: "This album has no audio files to download.",
@@ -1940,40 +2480,25 @@ export default function AlbumDetailsPage() {
         return;
       }
 
+      setDownloadingAlbum(true);
       toast({
-        title: "Download started",
-        description: `Downloading ${tracksWithAudio.length} tracks from ${album.title}...`,
+        title: "Preparing download",
+        description: `Packaging ${tracksWithAudio.length} track${tracksWithAudio.length === 1 ? '' : 's'}${album.cover_art_url ? ' and cover art' : ''}...`,
       });
 
-      // Download each track individually
-      for (const track of tracksWithAudio) {
-        try {
-          const response = await fetch(track.audio_url);
-          if (!response.ok) {
-            console.warn(`Failed to fetch track: ${track.title}`);
-            continue;
-          }
-          
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${album.title} - ${track.title}.${track.audio_url.split('.').pop() || 'mp3'}`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-          
-          // Small delay to prevent browser from blocking multiple downloads
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (error) {
-          console.error(`Error downloading track ${track.title}:`, error);
-        }
-      }
+      const zipBlob = await buildAlbumZip({
+        albumTitle: album.title,
+        coverArtUrl: album.cover_art_url,
+        tracks: tracksWithAudio,
+      });
+
+      triggerBlobDownload(zipBlob, `${sanitizeDownloadFilename(album.title)}.zip`);
 
       toast({
-        title: "Download completed",
-        description: `All tracks from ${album.title} have been downloaded.`,
+        title: "Download ready",
+        description: album.cover_art_url
+          ? `Saved ${album.title}.zip with tracks and cover art.`
+          : `Saved ${album.title}.zip with all tracks.`,
       });
     } catch (error) {
       console.error('Error downloading album:', error);
@@ -1982,6 +2507,8 @@ export default function AlbumDetailsPage() {
         description: "Failed to download the album. Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setDownloadingAlbum(false);
     }
   };
 
@@ -2585,7 +3112,12 @@ export default function AlbumDetailsPage() {
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             {album.cover_art_url ? (
-              <Link href={`/cover-edit/${albumId}`}>
+              <button
+                type="button"
+                onClick={() => setShowCoverPreview(true)}
+                className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                aria-label="View cover art"
+              >
                 <img 
                   src={album.cover_art_url} 
                   alt={album.title} 
@@ -2598,7 +3130,7 @@ export default function AlbumDetailsPage() {
                     }
                   }}
                 />
-              </Link>
+              </button>
             ) : (
               <img 
                 src="/placeholder.jpg" 
@@ -2638,6 +3170,22 @@ export default function AlbumDetailsPage() {
               Crop & Download Cover Art
             </Button>
           )}
+          {album.cover_art_url && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleOpenEditCoverDialog}
+              disabled={generatingCoverArt || uploadingCover}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white border-amber-500"
+            >
+              {generatingCoverArt ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Edit2 className="h-4 w-4 mr-2" />
+              )}
+              Edit Cover
+            </Button>
+          )}
           <Button 
             variant="outline" 
             size="sm" 
@@ -2657,14 +3205,50 @@ export default function AlbumDetailsPage() {
               </>
             )}
           </Button>
+          {album.additional_covers && album.additional_covers.length > 0 && (
+            <div className="w-48">
+              <p className="text-xs text-gray-400 mb-2 text-center">Previous covers</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {album.additional_covers.map((cover, idx) => (
+                  <div key={`${cover.url}-${idx}`} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => handleUseCoverFromHistory(idx)}
+                      className="rounded border border-zinc-700 hover:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400 overflow-hidden"
+                      title={`Use "${cover.label}" as main cover`}
+                    >
+                      <img
+                        src={cover.thumb_url || cover.url}
+                        alt={cover.label}
+                        className="w-12 h-12 object-cover"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCoverFromHistory(idx)}
+                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center border border-zinc-900"
+                      title={`Delete "${cover.label}"`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <Button 
             variant="outline" 
             size="sm" 
             onClick={downloadAlbum}
+            disabled={downloadingAlbum}
             className="bg-green-600 hover:bg-green-700 text-white border-green-500 w-full"
           >
-            <Download className="h-4 w-4 mr-2" />
-            Download Album
+            {downloadingAlbum ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 mr-2" />
+            )}
+            {downloadingAlbum ? 'Packaging...' : 'Download Album'}
           </Button>
         </div>
         <div className="flex-1">
@@ -2793,25 +3377,40 @@ export default function AlbumDetailsPage() {
               </div>
             </div>
           )}
-          {album.additional_covers && album.additional_covers.length > 0 && (
-            <div className="mt-4">
-              <h3 className="font-medium mb-2">Additional Covers</h3>
-              <div className="flex flex-wrap gap-4">
-                {album.additional_covers.map((cover, idx) => (
-                  <div key={idx} className="flex flex-col items-center">
-                    <img src={cover.url} alt={cover.label} className="w-20 h-20 object-cover rounded" />
-                    <span className="text-xs text-gray-400 mt-1">{cover.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
       <div className="mt-10">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Tracks</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold">Tracks</h2>
+            {generatingMusicTrackIds.size > 0 && (
+              <span className="text-xs text-purple-300">
+                Generating {generatingMusicTrackIds.size}/{ELEVENLABS_MAX_CONCURRENT_MUSIC}
+              </span>
+            )}
+          </div>
           <div className="flex gap-2">
+            {tracks.length > 0 && (
+              <Button
+                onClick={handleGenerateAllInstrumentals}
+                variant="outline"
+                disabled={generatingAllInstrumentals}
+                className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500"
+                title={`Generate instrumentals for all tracks (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`}
+              >
+                {generatingAllInstrumentals ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating All...
+                  </>
+                ) : (
+                  <>
+                    <Music className="w-4 h-4 mr-2" />
+                    Generate All Instrumentals
+                  </>
+                )}
+              </Button>
+            )}
             {album?.cover_art_url && tracks.length > 0 && (
               <Button 
                 onClick={handleGenerateTrackTitles} 
@@ -3005,6 +3604,34 @@ export default function AlbumDetailsPage() {
                         <Play className="h-4 w-4" />
                       )}
                     </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleGenerateTrackMusic(track.id, track.title)}
+                      disabled={
+                        generatingMusicTrackIds.has(track.id) ||
+                        (generatingMusicTrackIds.size >= ELEVENLABS_MAX_CONCURRENT_MUSIC && !generatingMusicTrackIds.has(track.id))
+                      }
+                      className={`h-7 w-7 p-0 ${
+                        track.audio_url
+                          ? 'bg-orange-600 hover:bg-orange-700 text-white border-orange-500'
+                          : 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500'
+                      }`}
+                      title={
+                        track.audio_url
+                          ? `Regenerate instrumental with ElevenLabs (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`
+                          : `Generate instrumental with ElevenLabs Music v2 (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`
+                      }
+                    >
+                      {generatingMusicTrackIds.has(track.id) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : track.audio_url ? (
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      ) : (
+                        <Music className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
                     
                     {/* Status Badge - Compact */}
                     <Badge 
@@ -3196,8 +3823,8 @@ export default function AlbumDetailsPage() {
                 type="button"
                 onClick={async () => {
                   setShowAddTrackOptions(false);
-                  // Immediately add the tracks without showing form
-                  await handleAddMultipleTracksDirectly(numberOfTracks);
+                  const count = commitNumberOfTracksInput();
+                  await handleAddMultipleTracksDirectly(count);
                 }}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white"
               >
@@ -3210,28 +3837,9 @@ export default function AlbumDetailsPage() {
                   type="number"
                   min="2"
                   max="100"
-                  value={numberOfTracks}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value) || 2;
-                    const clampedValue = Math.min(Math.max(value, 2), 100);
-                    setNumberOfTracks(clampedValue);
-                    // Update multiple tracks array if it exists
-                    if (multipleTracks.length > 0) {
-                      if (clampedValue > multipleTracks.length) {
-                        // Add more tracks
-                        const newTracks = Array(clampedValue - multipleTracks.length).fill(null).map(() => ({
-                          title: '',
-                          duration: '',
-                          isrc: '',
-                          audio_url: ''
-                        }));
-                        setMultipleTracks([...multipleTracks, ...newTracks]);
-                      } else if (clampedValue < multipleTracks.length) {
-                        // Remove tracks
-                        setMultipleTracks(multipleTracks.slice(0, clampedValue));
-                      }
-                    }
-                  }}
+                  value={numberOfTracksInput}
+                  onChange={(e) => handleNumberOfTracksChange(e.target.value)}
+                  onBlur={commitNumberOfTracksInput}
                   className="w-20"
                 />
                 <span className="text-sm text-gray-500">(max 100)</span>
@@ -3256,6 +3864,7 @@ export default function AlbumDetailsPage() {
           setAddMultipleTracks(false);
           setMultipleTracks([]);
           setNumberOfTracks(2);
+      setNumberOfTracksInput('2');
           setNewTrack({ title: '', duration: '', isrc: '' });
           setAudioUrl('');
         }
@@ -3273,26 +3882,9 @@ export default function AlbumDetailsPage() {
                   type="number"
                   min="2"
                   max="100"
-                  value={numberOfTracks}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value) || 2;
-                    const clampedValue = Math.min(Math.max(value, 2), 100);
-                    setNumberOfTracks(clampedValue);
-                    // Update multiple tracks array
-                    if (clampedValue > multipleTracks.length) {
-                      // Add more tracks
-                      const newTracks = Array(clampedValue - multipleTracks.length).fill(null).map(() => ({
-                        title: '',
-                        duration: '',
-                        isrc: '',
-                        audio_url: ''
-                      }));
-                      setMultipleTracks([...multipleTracks, ...newTracks]);
-                    } else if (clampedValue < multipleTracks.length) {
-                      // Remove tracks
-                      setMultipleTracks(multipleTracks.slice(0, clampedValue));
-                    }
-                  }}
+                  value={numberOfTracksInput}
+                  onChange={(e) => handleNumberOfTracksChange(e.target.value)}
+                  onBlur={commitNumberOfTracksInput}
                   className="w-20"
                 />
                 <span className="text-sm text-gray-500">(max 100)</span>
@@ -3992,24 +4584,74 @@ export default function AlbumDetailsPage() {
               <div>
                 <label className="text-sm font-medium">Artist(s)</label>
                 <div className="space-y-2">
+                  <Select
+                    value="none"
+                    onValueChange={(value) => {
+                      if (value === 'none') return;
+                      const selectedArtist = labelArtists.find((artist) => artist.id === value);
+                      if (selectedArtist) {
+                        addEditAlbumArtist(selectedArtist.stage_name || selectedArtist.name);
+                      }
+                    }}
+                    disabled={loadingLabelArtists}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={loadingLabelArtists ? 'Loading artists...' : 'Add from roster'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Add from roster...</SelectItem>
+                      {labelArtists.map((artist) => (
+                        <SelectItem key={artist.id} value={artist.id}>
+                          {artist.stage_name || artist.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                   {/* Artist input */}
-                  <div className="flex gap-2">
-                    <Input
-                      value={newArtistInput}
-                      onChange={(e) => setNewArtistInput(e.target.value)}
-                      onKeyDown={handleEditAlbumArtistInputKeyDown}
-                      placeholder="Enter artist name and press Enter or click +"
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      onClick={addEditAlbumArtist}
-                      disabled={!newArtistInput.trim() || editAlbumArtists.includes(newArtistInput.trim())}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-3"
-                      size="sm"
-                    >
-                      +
-                    </Button>
+                  <div className="relative">
+                    <div className="flex gap-2">
+                      <Input
+                        value={newArtistInput}
+                        onChange={(e) => {
+                          setNewArtistInput(e.target.value);
+                          setShowArtistSuggestions(true);
+                        }}
+                        onFocus={() => setShowArtistSuggestions(true)}
+                        onBlur={() => {
+                          window.setTimeout(() => setShowArtistSuggestions(false), 150);
+                        }}
+                        onKeyDown={handleEditAlbumArtistInputKeyDown}
+                        placeholder="Type to search artists or enter a new name"
+                        className="flex-1"
+                        autoComplete="off"
+                      />
+                      <Button
+                        type="button"
+                        onClick={() => addEditAlbumArtist()}
+                        disabled={!newArtistInput.trim() || editAlbumArtists.includes(newArtistInput.trim())}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-3"
+                        size="sm"
+                      >
+                        +
+                      </Button>
+                    </div>
+
+                    {showArtistSuggestions && artistSuggestions.length > 0 && (
+                      <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 shadow-lg">
+                        {artistSuggestions.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => addEditAlbumArtist(name)}
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-zinc-800"
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   
                   {/* Artist tags */}
@@ -4185,12 +4827,20 @@ export default function AlbumDetailsPage() {
       </Dialog>
 
       {/* Generate Cover Art Prompt Dialog */}
-      <Dialog open={showCoverArtPromptDialog} onOpenChange={setShowCoverArtPromptDialog}>
+      <Dialog
+        open={showCoverArtPromptDialog}
+        onOpenChange={(open) => {
+          setShowCoverArtPromptDialog(open);
+          if (!open) {
+            clearCoverReferenceImages();
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Generate Album Cover Art</DialogTitle>
             <DialogDescription>
-              Enter a description of the cover art you want to generate. The AI will create a professional album cover based on your prompt.
+              Describe the cover you want. Optionally add up to {MAX_COVER_REFERENCE_IMAGES} reference images for style, mood, or composition (GPT Image supports up to {MAX_COVER_REFERENCE_IMAGES}).
             </DialogDescription>
           </DialogHeader>
           
@@ -4209,12 +4859,68 @@ export default function AlbumDetailsPage() {
                 Tip: Be specific about colors, mood, style, and any elements you want included in the cover art.
               </p>
             </div>
+
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="cover-reference-images">Reference Images (optional)</Label>
+                <span className="text-xs text-gray-400">
+                  {coverReferenceImages.length}/{MAX_COVER_REFERENCE_IMAGES}
+                </span>
+              </div>
+              <input
+                ref={coverReferenceInputRef}
+                id="cover-reference-images"
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                multiple
+                className="hidden"
+                onChange={handleCoverReferenceImagesChange}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                {coverReferenceImages.map((image, index) => (
+                  <div key={`${image.preview}-${index}`} className="relative h-20 w-20 shrink-0">
+                    <img
+                      src={image.preview}
+                      alt={`Reference ${index + 1}`}
+                      className="h-full w-full rounded-lg border border-zinc-700 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeCoverReferenceImage(index)}
+                      className="absolute -right-1 -top-1 rounded-full bg-red-600 p-0.5 text-white hover:bg-red-700"
+                      aria-label={`Remove reference image ${index + 1}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                    <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white">
+                      {index + 1}
+                    </span>
+                  </div>
+                ))}
+                {coverReferenceImages.length < MAX_COVER_REFERENCE_IMAGES && (
+                  <button
+                    type="button"
+                    onClick={() => coverReferenceInputRef.current?.click()}
+                    className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-600 text-gray-400 hover:border-zinc-400 hover:text-gray-200"
+                  >
+                    <ImageIcon className="h-5 w-5" />
+                    <span className="mt-1 text-[10px]">Add</span>
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Add photos, artwork, or mood boards. Mention how to use them in your prompt (e.g. &quot;match the color palette from Image 1&quot;).
+              </p>
+            </div>
             
             <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setShowCoverArtPromptDialog(false)}
+                onClick={() => {
+                  setShowCoverArtPromptDialog(false);
+                  clearCoverReferenceImages();
+                }}
                 disabled={generatingCoverArt}
               >
                 Cancel
@@ -4233,6 +4939,72 @@ export default function AlbumDetailsPage() {
                   <>
                     <Sparkles className="h-4 w-4 mr-2" />
                     Generate Cover Art
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Cover Art Dialog */}
+      <Dialog open={showEditCoverDialog} onOpenChange={setShowEditCoverDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Album Cover</DialogTitle>
+            <DialogDescription>
+              Describe what you want to change. The current cover is used as a reference, and your original is kept in Previous covers below.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {album?.cover_art_url && (
+              <div className="flex items-start gap-4">
+                <img
+                  src={album.cover_art_url}
+                  alt="Current cover reference"
+                  className="w-24 h-24 object-cover rounded-lg border border-zinc-700 shrink-0"
+                />
+                <p className="text-sm text-gray-400 pt-1">
+                  Reference cover — your edit becomes the new main cover. This one stays saved under Previous covers.
+                </p>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="edit-cover-prompt">What to change</Label>
+              <Textarea
+                id="edit-cover-prompt"
+                value={editCoverPrompt}
+                onChange={(e) => setEditCoverPrompt(e.target.value)}
+                placeholder="e.g. Make the background darker, add more purple neon, remove the city skyline..."
+                rows={5}
+                className="mt-2"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowEditCoverDialog(false)}
+                disabled={generatingCoverArt}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleEditCoverArt}
+                disabled={generatingCoverArt || !editCoverPrompt.trim()}
+              >
+                {generatingCoverArt ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Editing...
+                  </>
+                ) : (
+                  <>
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Edit Cover
                   </>
                 )}
               </Button>
@@ -4482,6 +5254,66 @@ export default function AlbumDetailsPage() {
           });
         }}
       />
+
+      {/* Cover Art Preview Dialog */}
+      <Dialog open={showCoverPreview} onOpenChange={setShowCoverPreview}>
+        <DialogContent className="max-w-4xl max-h-[95vh] p-0 overflow-hidden bg-zinc-950 border-zinc-800">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>{album.title} — Cover Art</DialogTitle>
+            <DialogDescription className="sr-only">Full size cover art preview</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center p-4 pt-2">
+            <img
+              src={album.cover_art_url}
+              alt={`${album.title} cover art`}
+              className="max-w-full max-h-[75vh] w-auto h-auto object-contain rounded-lg"
+            />
+          </div>
+          <DialogFooter className="p-4 pt-0 flex flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white border-amber-500"
+                onClick={() => {
+                  setShowCoverPreview(false);
+                  handleOpenEditCoverDialog();
+                }}
+              >
+                <Edit2 className="h-4 w-4 mr-2" />
+                Edit Cover
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                onClick={() => void downloadCoverArt()}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download
+              </Button>
+              <Link href={`/cover-edit/${albumId}`} onClick={() => setShowCoverPreview(false)}>
+                <Button variant="outline" size="sm" className="bg-purple-600 hover:bg-purple-700 text-white border-purple-500">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Cover Settings
+                </Button>
+              </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white border-red-500"
+                onClick={() => void handleDeleteMainCover()}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Cover
+              </Button>
+            </div>
+            <DialogClose asChild>
+              <Button variant="outline">Close</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Cover Art Crop Dialog */}
       <Dialog open={showCropDialog} onOpenChange={(open) => {

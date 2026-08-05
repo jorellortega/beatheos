@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 
 // Types for DB tables
 interface Album {
@@ -647,6 +647,10 @@ export default function MyLibrary() {
     description: '',
   });
   const [selectedLabelArtistIdForAlbum, setSelectedLabelArtistIdForAlbum] = useState<string>('');
+  const [newAlbumArtists, setNewAlbumArtists] = useState<string[]>([]);
+  const [newAlbumArtistInput, setNewAlbumArtistInput] = useState('');
+  const [editAlbumArtists, setEditAlbumArtists] = useState<string[]>([]);
+  const [editAlbumArtistInput, setEditAlbumArtistInput] = useState('');
   const [creatingAlbum, setCreatingAlbum] = useState(false);
   const [createAlbumError, setCreateAlbumError] = useState<string | null>(null);
 
@@ -693,10 +697,15 @@ export default function MyLibrary() {
           distributor_notes: album.distributor_notes || '',
           notes: album.notes || '',
         });
+        const artists = album.artist ? album.artist.split(',').map(a => a.trim()).filter(a => a) : [];
+        setEditAlbumArtists(artists);
+        setEditAlbumArtistInput('');
       }
     } else {
       setEditAlbum(null);
       setEditForm({ title: '', artist: '', release_date: '', cover_art_url: '', description: '', distributor: '', distributor_notes: '', notes: '' });
+      setEditAlbumArtists([]);
+      setEditAlbumArtistInput('');
       setEditError(null);
     }
   }, [editAlbumId, albums]);
@@ -2176,6 +2185,28 @@ export default function MyLibrary() {
   }
   // ...repeat for singles, platformProfiles, audioItems
 
+  const addNewAlbumArtist = (name: string) => {
+    const trimmed = name.trim();
+    if (trimmed && !newAlbumArtists.includes(trimmed)) {
+      setNewAlbumArtists([...newAlbumArtists, trimmed]);
+    }
+  };
+
+  const removeNewAlbumArtist = (artistToRemove: string) => {
+    setNewAlbumArtists(newAlbumArtists.filter(artist => artist !== artistToRemove));
+  };
+
+  const addEditAlbumArtist = (name: string) => {
+    const trimmed = name.trim();
+    if (trimmed && !editAlbumArtists.includes(trimmed)) {
+      setEditAlbumArtists([...editAlbumArtists, trimmed]);
+    }
+  };
+
+  const removeEditAlbumArtist = (artistToRemove: string) => {
+    setEditAlbumArtists(editAlbumArtists.filter(artist => artist !== artistToRemove));
+  };
+
   async function handleCreateAlbum(e: React.FormEvent) {
     e.preventDefault();
     if (!user?.id) return;
@@ -2191,13 +2222,7 @@ export default function MyLibrary() {
     setCreatingAlbum(true);
     setCreateAlbumError(null);
     
-    // Get the selected artist's name if label_artist_id is set
-    const selectedArtist = selectedLabelArtistIdForAlbum 
-      ? labelArtists.find(a => a.id === selectedLabelArtistIdForAlbum)
-      : null;
-    const artistName = selectedArtist 
-      ? (selectedArtist.stage_name || selectedArtist.name)
-      : newAlbum.artist;
+    const artistName = newAlbumArtists.length > 0 ? newAlbumArtists.join(', ') : '';
 
     console.log('🔍 [LIBRARY CREATE ALBUM] Creating album:', {
       title: newAlbum.title,
@@ -2230,6 +2255,8 @@ export default function MyLibrary() {
     setShowAlbumModal(false);
     setNewAlbum({ title: '', artist: '', release_date: '', cover_art_url: '', description: '' });
     setSelectedLabelArtistIdForAlbum('');
+    setNewAlbumArtists([]);
+    setNewAlbumArtistInput('');
     setNewAdditionalCovers([]);
     
     // Redirect to album detail page
@@ -2252,10 +2279,11 @@ export default function MyLibrary() {
     }
     setEditSaving(true);
     setEditError(null);
+    const artistString = editAlbumArtists.join(', ');
     // Filter out empty values to avoid database errors
     const updateData = {
       ...(editForm.title && { title: editForm.title }),
-      ...(editForm.artist && { artist: editForm.artist }),
+      ...(artistString && { artist: artistString }),
       ...(editForm.release_date && { release_date: editForm.release_date }),
       ...(editForm.cover_art_url && { cover_art_url: editForm.cover_art_url }),
       ...(editForm.description && { description: editForm.description }),
@@ -2268,7 +2296,7 @@ export default function MyLibrary() {
       setEditError(error.message);
       return;
     }
-    setAlbums(albums.map(a => a.id === editAlbumId ? { ...a, ...editForm, additional_covers: editAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })) } : a));
+    setAlbums(albums.map(a => a.id === editAlbumId ? { ...a, ...editForm, artist: artistString, additional_covers: editAdditionalCovers.filter(c => c.label && c.url).map(({ label, url }) => ({ label, url })) } : a));
     setEditAlbumId(null);
     setEditAdditionalCovers([]);
   }
@@ -4584,7 +4612,7 @@ export default function MyLibrary() {
     }
   };
 
-  const downloadAlbum = async (albumId: string, albumTitle: string) => {
+  const downloadAlbum = async (albumId: string, albumTitle: string, coverArtUrl?: string | null) => {
     try {
       // Fetch album tracks
       const { data: tracks, error } = await supabase
@@ -4606,7 +4634,7 @@ export default function MyLibrary() {
       }
 
       const tracksWithAudio = tracks.filter(track => track.audio_url);
-      if (tracksWithAudio.length === 0) {
+      if (tracksWithAudio.length === 0 && !coverArtUrl) {
         toast({
           title: "No audio files available",
           description: "This album has no audio files to download.",
@@ -4616,39 +4644,23 @@ export default function MyLibrary() {
       }
 
       toast({
-        title: "Download started",
-        description: `Downloading ${tracksWithAudio.length} tracks from ${albumTitle}...`,
+        title: "Preparing download",
+        description: `Packaging ${tracksWithAudio.length} track${tracksWithAudio.length === 1 ? '' : 's'}${coverArtUrl ? ' and cover art' : ''}...`,
       });
 
-      // Download each track individually
-      for (const track of tracksWithAudio) {
-        try {
-          const response = await fetch(track.audio_url);
-          if (!response.ok) {
-            console.warn(`Failed to fetch track: ${track.title}`);
-            continue;
-          }
-          
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${albumTitle} - ${track.title}.${track.audio_url.split('.').pop() || 'mp3'}`;
-          document.body.appendChild(a);
-          a.click();
-          window.URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-          
-          // Small delay to prevent browser from blocking multiple downloads
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (error) {
-          console.error(`Error downloading track ${track.title}:`, error);
-        }
-      }
+      const zipBlob = await buildAlbumZip({
+        albumTitle,
+        coverArtUrl,
+        tracks: tracksWithAudio,
+      });
+
+      triggerBlobDownload(zipBlob, `${sanitizeDownloadFilename(albumTitle)}.zip`);
 
       toast({
-        title: "Download completed",
-        description: `All tracks from ${albumTitle} have been downloaded.`,
+        title: "Download ready",
+        description: coverArtUrl
+          ? `Saved ${albumTitle}.zip with tracks and cover art.`
+          : `Saved ${albumTitle}.zip with all tracks.`,
       });
     } catch (error) {
       console.error('Error downloading album:', error);
@@ -5265,28 +5277,98 @@ export default function MyLibrary() {
               required
             />
             <div>
-              <Label htmlFor="album-artist">Artist</Label>
+              <Label htmlFor="album-artist">Artist(s)</Label>
+              <div className="space-y-2 mt-1">
+                <Select
+                  value="none"
+                  onValueChange={(value) => {
+                    if (value === "none") return;
+                    const selectedArtist = labelArtists.find(a => a.id === value);
+                    if (selectedArtist) {
+                      const name = selectedArtist.stage_name || selectedArtist.name;
+                      addNewAlbumArtist(name);
+                      if (!selectedLabelArtistIdForAlbum) {
+                        setSelectedLabelArtistIdForAlbum(value);
+                      }
+                    }
+                  }}
+                  disabled={loadingLabelArtists}
+                >
+                  <SelectTrigger id="album-artist">
+                    <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Add from roster"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Add from roster...</SelectItem>
+                    {labelArtists.map((artist) => (
+                      <SelectItem key={artist.id} value={artist.id}>
+                        {artist.stage_name || artist.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex gap-2">
+                  <Input
+                    value={newAlbumArtistInput}
+                    onChange={e => setNewAlbumArtistInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newAlbumArtistInput.trim()) {
+                          addNewAlbumArtist(newAlbumArtistInput);
+                          setNewAlbumArtistInput('');
+                        }
+                      }
+                    }}
+                    placeholder="Enter artist name and press Enter or click +"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      if (newAlbumArtistInput.trim()) {
+                        addNewAlbumArtist(newAlbumArtistInput);
+                        setNewAlbumArtistInput('');
+                      }
+                    }}
+                    disabled={!newAlbumArtistInput.trim() || newAlbumArtists.includes(newAlbumArtistInput.trim())}
+                    className="bg-yellow-400 hover:bg-yellow-500 text-black px-3"
+                    size="sm"
+                  >
+                    +
+                  </Button>
+                </div>
+                {newAlbumArtists.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {newAlbumArtists.map((artist, index) => (
+                      <div
+                        key={index}
+                        className="bg-yellow-400 text-black px-3 py-1 rounded-full text-sm flex items-center gap-2"
+                      >
+                        <span>{artist}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeNewAlbumArtist(artist)}
+                          className="text-black hover:text-red-700 text-xs font-bold"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="album-publish-artist">Publish to Artist Page</Label>
               <Select
                 value={selectedLabelArtistIdForAlbum || "none"}
                 onValueChange={(value) => {
-                  console.log('🔍 [LIBRARY ALBUM SELECT] Value changed:', value);
-                  const artistId = value === "none" ? "" : value;
-                  console.log('🔍 [LIBRARY ALBUM SELECT] Setting selectedLabelArtistIdForAlbum to:', artistId);
-                  setSelectedLabelArtistIdForAlbum(artistId);
-                  // Also set the artist name for display
-                  if (artistId) {
-                    const selectedArtist = labelArtists.find(a => a.id === artistId);
-                    if (selectedArtist) {
-                      setNewAlbum({ ...newAlbum, artist: selectedArtist.stage_name || selectedArtist.name });
-                    }
-                  } else {
-                    setNewAlbum({ ...newAlbum, artist: '' });
-                  }
+                  setSelectedLabelArtistIdForAlbum(value === "none" ? "" : value);
                 }}
                 disabled={loadingLabelArtists}
               >
-                <SelectTrigger id="album-artist">
-                  <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Select an artist"} />
+                <SelectTrigger id="album-publish-artist">
+                  <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Select an artist (optional)"} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
@@ -5297,6 +5379,9 @@ export default function MyLibrary() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-gray-400 mt-1">
+                Optional — choose which artist page this album appears on
+              </p>
             </div>
             <Input
               type="date"
@@ -5392,12 +5477,84 @@ export default function MyLibrary() {
               onChange={e => setEditForm({ ...editForm, title: e.target.value })}
               required
             />
-            <Input
-              placeholder="Artist Name"
-              value={editForm.artist}
-              onChange={e => setEditForm({ ...editForm, artist: e.target.value })}
-              required
-            />
+            <div>
+              <Label>Artist(s)</Label>
+              <div className="space-y-2 mt-1">
+                <Select
+                  value="none"
+                  onValueChange={(value) => {
+                    if (value === "none") return;
+                    const selectedArtist = labelArtists.find(a => a.id === value);
+                    if (selectedArtist) {
+                      addEditAlbumArtist(selectedArtist.stage_name || selectedArtist.name);
+                    }
+                  }}
+                  disabled={loadingLabelArtists}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingLabelArtists ? "Loading artists..." : "Add from roster"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Add from roster...</SelectItem>
+                    {labelArtists.map((artist) => (
+                      <SelectItem key={artist.id} value={artist.id}>
+                        {artist.stage_name || artist.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex gap-2">
+                  <Input
+                    value={editAlbumArtistInput}
+                    onChange={e => setEditAlbumArtistInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (editAlbumArtistInput.trim()) {
+                          addEditAlbumArtist(editAlbumArtistInput);
+                          setEditAlbumArtistInput('');
+                        }
+                      }
+                    }}
+                    placeholder="Enter artist name and press Enter or click +"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      if (editAlbumArtistInput.trim()) {
+                        addEditAlbumArtist(editAlbumArtistInput);
+                        setEditAlbumArtistInput('');
+                      }
+                    }}
+                    disabled={!editAlbumArtistInput.trim() || editAlbumArtists.includes(editAlbumArtistInput.trim())}
+                    className="bg-yellow-400 hover:bg-yellow-500 text-black px-3"
+                    size="sm"
+                  >
+                    +
+                  </Button>
+                </div>
+                {editAlbumArtists.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {editAlbumArtists.map((artist, index) => (
+                      <div
+                        key={index}
+                        className="bg-yellow-400 text-black px-3 py-1 rounded-full text-sm flex items-center gap-2"
+                      >
+                        <span>{artist}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeEditAlbumArtist(artist)}
+                          className="text-black hover:text-red-700 text-xs font-bold"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <Input
               type="date"
               placeholder="Release Date"
@@ -6204,7 +6361,7 @@ export default function MyLibrary() {
                     <div className="flex flex-wrap gap-2">
                       {album.additional_covers.map((cover, idx) => (
                         <div key={idx} className="flex flex-col items-center">
-                          <img src={cover.url} alt={cover.label} className="w-16 h-16 object-cover rounded" />
+                          <img src={cover.thumb_url || cover.url} alt={cover.label} className="w-16 h-16 object-cover rounded" />
                           <span className="text-xs text-gray-400 mt-1">{cover.label}</span>
                         </div>
                       ))}
@@ -6346,7 +6503,7 @@ export default function MyLibrary() {
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            onClick={() => downloadAlbum(album.id, album.title)}
+                            onClick={() => downloadAlbum(album.id, album.title, album.cover_art_url)}
                             className="bg-green-600 hover:bg-green-700 text-white border-green-500 text-xs px-2 py-1 h-8"
                             title="Download Album"
                           >
@@ -9224,13 +9381,15 @@ export default function MyLibrary() {
                               
                               setNewAlbum({
                                 title: item.title || '',
-                                artist: item.artist_name || '',
+                                artist: '',
                                 release_date: releaseDate,
                                 cover_art_url: '',
                                 description: ''
                               });
                               
-                              // If artist matches, set the selected ID, otherwise leave it empty
+                              const artists = item.artist_name ? [item.artist_name] : [];
+                              setNewAlbumArtists(artists);
+                              setNewAlbumArtistInput('');
                               setSelectedLabelArtistIdForAlbum(matchingArtist?.id || '');
                               
                               setShowAlbumModal(true);

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { AIMessage, AISettingsMap } from '@/types/ai'
+import { resolveOpenAIModel, buildOpenAITokenLimit, buildOpenAITemperature } from '@/lib/openai-models'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,13 +95,101 @@ export function mapSettings(settings: any[]): AISettingsMap {
   return mapped
 }
 
-// Call OpenAI API
+// Get AI settings merged with per-user keys from /setup-ai
+export type AIKeySource = 'user_api_keys' | 'users_table' | 'ai_settings' | 'env' | 'none'
+
+export type AISettingsWithSources = {
+  settings: AISettingsMap
+  keySources: {
+    openai: AIKeySource
+    anthropic: AIKeySource
+    elevenlabs: AIKeySource
+  }
+}
+
+export async function getAISettingsForUser(userId: string): Promise<AISettingsMap> {
+  const { settings } = await getAISettingsForUserWithSources(userId)
+  return settings
+}
+
+export async function getAISettingsForUserWithSources(userId: string): Promise<AISettingsWithSources> {
+  const settings = await getAISettings()
+  const keySources: AISettingsWithSources['keySources'] = {
+    openai: settings['openai_api_key']?.trim() ? 'ai_settings' : 'none',
+    anthropic: settings['anthropic_api_key']?.trim() ? 'ai_settings' : 'none',
+    elevenlabs: settings['elevenlabs_api_key']?.trim() ? 'ai_settings' : 'none',
+  }
+
+  // Match album cover generation: platform key from /ai-settings wins over /setup-ai
+  if (!settings['openai_api_key']?.trim()) {
+    const { data: userData } = await supabase
+      .from('users')
+      .select('openai_api_key')
+      .eq('id', userId)
+      .maybeSingle()
+
+    if (userData?.openai_api_key?.trim()) {
+      settings['openai_api_key'] = userData.openai_api_key.trim()
+      keySources.openai = 'users_table'
+    }
+  }
+
+  const { data: userKeys } = await supabase
+    .from('user_api_keys')
+    .select('openai_api_key, anthropic_api_key, elevenlabs_api_key')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (!settings['openai_api_key']?.trim() && userKeys?.openai_api_key?.trim()) {
+    settings['openai_api_key'] = userKeys.openai_api_key.trim()
+    keySources.openai = 'user_api_keys'
+  }
+  if (!settings['anthropic_api_key']?.trim() && userKeys?.anthropic_api_key?.trim()) {
+    settings['anthropic_api_key'] = userKeys.anthropic_api_key.trim()
+    keySources.anthropic = 'user_api_keys'
+  }
+  if (userKeys?.elevenlabs_api_key?.trim()) {
+    settings['elevenlabs_api_key'] = userKeys.elevenlabs_api_key.trim()
+    keySources.elevenlabs = 'user_api_keys'
+  }
+
+  if (!settings['openai_api_key']?.trim() && process.env.OPENAI_API_KEY) {
+    settings['openai_api_key'] = process.env.OPENAI_API_KEY
+    keySources.openai = 'env'
+  }
+
+  return { settings, keySources }
+}
+
+/** True when the resolved settings will bill the user's own provider key (skip Beatheos credits). */
+export function usesOwnResolvedAIKeys(keySources: AISettingsWithSources['keySources']): boolean {
+  return keySources.openai === 'user_api_keys' || keySources.anthropic === 'user_api_keys'
+}
+
+export async function userHasOwnAPIKeys(userId: string): Promise<{
+  openai: boolean
+  anthropic: boolean
+  elevenlabs: boolean
+}> {
+  const { data } = await supabase
+    .from('user_api_keys')
+    .select('openai_api_key, anthropic_api_key, elevenlabs_api_key')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  return {
+    openai: !!data?.openai_api_key?.trim(),
+    anthropic: !!data?.anthropic_api_key?.trim(),
+    elevenlabs: !!data?.elevenlabs_api_key?.trim(),
+  }
+}
+
 export async function callOpenAI(
   messages: AIMessage[],
   settings: AISettingsMap
 ): Promise<{ message: string } | null> {
   const apiKey = settings['openai_api_key']?.trim()
-  const model = settings['openai_model']?.trim() || 'gpt-4o-mini'
+  const model = resolveOpenAIModel(settings['openai_model'])
 
   if (!apiKey) {
     return null
@@ -116,8 +205,8 @@ export async function callOpenAI(
       body: JSON.stringify({
         model,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
-        max_tokens: 2000,
-        temperature: 0.7,
+        ...buildOpenAITokenLimit(model, 2000),
+        ...buildOpenAITemperature(model, 0.7),
       }),
     })
 

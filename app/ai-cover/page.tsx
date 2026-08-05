@@ -102,6 +102,26 @@ export default function AICoverPage() {
     setGeneratingCover(true)
 
     try {
+      const token = await getAccessToken()
+      const useRes = await fetch('/api/credits/use', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action: 'ai_cover' }),
+      })
+      const useData = await useRes.json()
+      if (!useRes.ok) {
+        if (useRes.status === 402) {
+          toast({
+            title: "Not enough credits",
+            description: `This action costs 25 credits. You have ${useData.balance ?? 0}. Buy more at /credits`,
+            variant: "destructive",
+          })
+        } else {
+          toast({ title: "Error", description: useData.error ?? "Could not use credits", variant: "destructive" })
+        }
+        setGeneratingCover(false)
+        return
+      }
       // Get AI settings
       let settings: Record<string, string> = {}
       try {
@@ -119,7 +139,7 @@ export default function AICoverPage() {
       }
 
       const imageModelKey = 'image_model'
-      const model = settings[imageModelKey]?.trim() || 'gpt-image-1'
+      const model = settings[imageModelKey]?.trim() || 'gpt-image-2'
 
       let apiKey = settings['openai_api_key']?.trim()
       if (!apiKey) {

@@ -3,7 +3,10 @@ import { useState } from "react"
 import { loadStripe } from "@stripe/stripe-js"
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js"
 
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+const stripePk = typeof process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY === "string" && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  : ""
+const stripePromise = stripePk ? loadStripe(stripePk) : null
 
 function PaymentForm({ clientSecret, onSuccess }: { clientSecret: string, onSuccess: () => void }) {
   const stripe = useStripe()
@@ -81,7 +84,7 @@ export default function PaymentsPage() {
             </button>
           </div>
         )}
-        {step === 1 && clientSecret && (
+        {step === 1 && clientSecret && stripePromise && (
           <Elements stripe={stripePromise} options={{ clientSecret }}>
             <PaymentForm clientSecret={clientSecret} onSuccess={() => { setSuccess(true); setStep(2); }} />
           </Elements>

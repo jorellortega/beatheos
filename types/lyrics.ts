@@ -103,6 +103,7 @@ export interface AIGenerationParams {
   service: 'openai' | 'anthropic'
   apiKey: string
   contentType: string
+  model?: string
   lockedSections?: LockedSection[]
 }
 

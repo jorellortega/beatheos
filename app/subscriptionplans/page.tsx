@@ -12,7 +12,7 @@ const tiers = [
     role: "free_artist",
     price: "0",
     features: [
-      "1 month free trial with 50 free credits",
+      "50 free credits to try out all features",
       "MP3/MP4 Converter",
       "AI Lyrics",
       "AI Cover Maker",
@@ -21,7 +21,7 @@ const tiers = [
     buttonText: "Signup Free",
     buttonVariant: "outline",
     popular: false,
-    subtext: "1 month free trial with 50 free credits",
+    subtext: "Free account with credits to try features. When you run out, keep your account and buy credits when you need them.",
   },
   {
     name: "Pro Account",

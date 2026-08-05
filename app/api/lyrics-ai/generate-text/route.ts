@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OpenAIService, AnthropicService } from '@/lib/ai-services'
 import { AIGenerationParams } from '@/types/lyrics'
+import { getUserFromRequest, userHasOwnAPIKeys } from '@/lib/ai-api-helpers'
+import { deductCredits } from '@/lib/credits'
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getUserFromRequest(request)
+    if (!user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const body = await request.json()
     const { 
       prompt, 
@@ -20,6 +26,27 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields: prompt, service, apiKey, contentType' },
         { status: 400 }
       )
+    }
+
+    const ownKeys = await userHasOwnAPIKeys(user.id)
+    const usesOwnAIKey =
+      (service === 'openai' && ownKeys.openai) ||
+      (service === 'anthropic' && ownKeys.anthropic)
+
+    if (!usesOwnAIKey) {
+      const deduct = await deductCredits(user.id, 'ai_lyrics')
+      if (!deduct.success) {
+        const status = deduct.error === 'Insufficient credits' ? 402 : 400
+        return NextResponse.json(
+          {
+            error: deduct.error,
+            balance: deduct.balance,
+            required: deduct.required,
+            hint: 'Add your API key in /setup-ai to use your own account without Beatheos credits, or buy credits at /credits.',
+          },
+          { status }
+        )
+      }
     }
 
     const params: AIGenerationParams = {

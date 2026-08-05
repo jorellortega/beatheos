@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
+import { preserveCoverToHistory, type AdditionalCover } from '@/lib/cover-art-helpers'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -22,6 +23,7 @@ interface Album {
   title: string
   artist: string
   cover_art_url: string
+  additional_covers?: AdditionalCover[]
 }
 
 type CoverSize = '1600x1600' | '3000x3000' | '16:9' | '9:16'
@@ -73,7 +75,7 @@ export default function CoverEditPage() {
     try {
       const { data, error } = await supabase
         .from('albums')
-        .select('id, title, artist, cover_art_url')
+        .select('id, title, artist, cover_art_url, additional_covers')
         .eq('id', albumId)
         .single()
 
@@ -158,7 +160,7 @@ export default function CoverEditPage() {
       }
 
       const imageModelKey = 'image_model'
-      const model = settings[imageModelKey]?.trim() || 'gpt-image-1'
+      const model = settings[imageModelKey]?.trim() || 'gpt-image-2'
 
       let apiKey = settings['openai_api_key']?.trim()
       if (!apiKey) {
@@ -253,16 +255,35 @@ export default function CoverEditPage() {
         publicUrl = url
       }
 
-      // Update album with new cover
+      // Update album with new cover — preserve previous cover as thumbnail in history
+      let updatedAdditionalCovers = album.additional_covers || []
+
+      if (album.cover_art_url) {
+        const preserved = await preserveCoverToHistory({
+          supabase,
+          albumId: album.id,
+          coverUrl: album.cover_art_url,
+          existingAdditionalCovers: updatedAdditionalCovers,
+        })
+        updatedAdditionalCovers = preserved.additionalCovers
+      }
+
       const { error: updateError } = await supabase
         .from('albums')
-        .update({ cover_art_url: publicUrl })
+        .update({
+          cover_art_url: publicUrl,
+          additional_covers: updatedAdditionalCovers,
+        })
         .eq('id', album.id)
 
       if (updateError) throw updateError
 
       setCurrentCoverUrl(publicUrl)
-      setAlbum(prev => prev ? { ...prev, cover_art_url: publicUrl } : null)
+      setAlbum(prev => prev ? {
+        ...prev,
+        cover_art_url: publicUrl,
+        additional_covers: updatedAdditionalCovers,
+      } : null)
       
       // Track the generated cover for this size
       setGeneratedCovers(prev => ({
@@ -319,7 +340,7 @@ export default function CoverEditPage() {
       }
 
       const imageModelKey = 'image_model'
-      const model = settings[imageModelKey]?.trim() || 'gpt-image-1'
+      const model = settings[imageModelKey]?.trim() || 'gpt-image-2'
 
       let apiKey = settings['openai_api_key']?.trim()
       if (!apiKey) {

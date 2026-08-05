@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, isAdminOrCEO, getAISettings } from '@/lib/ai-api-helpers'
+import { resolveOpenAIModel, buildOpenAITokenLimit, buildOpenAITemperature } from '@/lib/openai-models'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -62,6 +63,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const model = resolveOpenAIModel(settings['openai_model'])
+
     // Call OpenAI to enhance the prompt
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -70,7 +73,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: settings['openai_model']?.trim() || 'gpt-4o-mini',
+        model,
         messages: [
           {
             role: 'system',
@@ -81,8 +84,8 @@ export async function POST(request: NextRequest) {
             content: `Please improve and enhance this prompt:\n\n${prompt.trim()}\n\nProvide an improved version that is more effective, clear, and comprehensive.`
           }
         ],
-        max_tokens: 2000,
-        temperature: 0.7,
+        ...buildOpenAITokenLimit(model, 2000),
+        ...buildOpenAITemperature(model, 0.7),
       }),
     })
 

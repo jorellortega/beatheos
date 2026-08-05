@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUserFromRequest, getAISettings, mapSettings } from '@/lib/ai-api-helpers'
+import { getUserFromRequest, getAISettingsForUserWithSources, usesOwnResolvedAIKeys, type AIKeySource } from '@/lib/ai-api-helpers'
+import { resolveOpenAIVisionModel, buildOpenAITokenLimit, buildOpenAITemperature } from '@/lib/openai-models'
 import { createClient } from '@supabase/supabase-js'
+import { deductCredits } from '@/lib/credits'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,25 +33,62 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
+function parseTitlesFromMessage(message: string, numTracks: number): string[] | null {
+  try {
+    const jsonMatch = message.match(/\[.*\]/s)
+    if (jsonMatch) {
+      const titles = JSON.parse(jsonMatch[0])
+      if (Array.isArray(titles) && titles.length > 0) {
+        return titles.map((t: unknown) => String(t).trim()).filter((t: string) => t.length > 0)
+      }
+    }
+    const titles = JSON.parse(message)
+    if (Array.isArray(titles)) {
+      return titles.map((t: unknown) => String(t).trim()).filter((t: string) => t.length > 0)
+    }
+  } catch {
+    const lines = message.split('\n').filter(line => line.trim().length > 0)
+    const titles = lines
+      .map(line => line.replace(/^[\d\-•\*\"']+\s*/, '').replace(/[\"'`]/g, '').trim())
+      .filter(title => title.length > 0 && title.length < 50)
+
+    if (titles.length > 0) {
+      return titles.slice(0, numTracks)
+    }
+  }
+
+  return null
+}
+
+type VisionResult = { titles: string[] } | { error: string; code?: string }
+
+const KEY_SOURCE_PATHS: Record<AIKeySource, string> = {
+  user_api_keys: '/setup-ai → user_api_keys table',
+  ai_settings: '/ai-settings → ai_settings table (global)',
+  users_table: 'users.openai_api_key (legacy)',
+  env: 'OPENAI_API_KEY environment variable',
+  none: 'not configured',
+}
+
 // Call OpenAI Vision API
 async function callOpenAIVision(
   imageUrl: string,
   numTracks: number,
   settings: Record<string, string>,
   context?: { otherTracks?: string[]; currentTitle?: string; albumTitle?: string }
-): Promise<string[] | null> {
+): Promise<VisionResult> {
   const apiKey = settings['openai_api_key']?.trim()
-  const model = settings['openai_model']?.trim() || 'gpt-4o-mini'
+  const model = resolveOpenAIVisionModel(settings['openai_model'])
 
   if (!apiKey) {
-    return null
+    return { error: 'No OpenAI API key configured' }
   }
 
   try {
     // Convert image to base64
     const base64Image = await imageUrlToBase64(imageUrl)
     if (!base64Image) {
-      return null
+      return { error: 'Failed to load cover art image' }
     }
 
     // Determine image format from URL
@@ -87,7 +126,7 @@ Example format: ${numTracks > 1 ? '["Title 1", "Title 2", "Title 3"]' : '["Title
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: model.includes('gpt-4') ? model : 'gpt-4o', // Use vision-capable model
+        model,
         messages: [
           {
             role: 'user',
@@ -105,58 +144,41 @@ Example format: ${numTracks > 1 ? '["Title 1", "Title 2", "Title 3"]' : '["Title
             ]
           }
         ],
-        max_tokens: 1000,
-        temperature: 0.8,
+        ...buildOpenAITokenLimit(model, 1000),
+        ...buildOpenAITemperature(model, 0.8),
       }),
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: { message: 'Unknown error' } }))
-      console.error('OpenAI Vision API error:', error)
-      return null
+      const raw = await response.text()
+      let errorBody: { error?: { message?: string; code?: string } } = {}
+      try {
+        errorBody = raw ? JSON.parse(raw) : {}
+      } catch {
+        errorBody = { error: { message: raw || `OpenAI HTTP ${response.status}` } }
+      }
+      console.error('OpenAI Vision API error:', { model, status: response.status, error: errorBody })
+      const message = errorBody?.error?.message || `OpenAI API request failed (HTTP ${response.status})`
+      const code = errorBody?.error?.code || (response.status === 401 ? 'invalid_api_key' : undefined)
+      return { error: message, code }
     }
 
     const data = await response.json()
     const message = data?.choices?.[0]?.message?.content?.trim()
 
     if (!message) {
-      return null
+      return { error: 'OpenAI returned an empty response' }
     }
 
-    // Try to parse JSON array from response
-    try {
-      // Extract JSON array from response (handle cases where there's extra text)
-      const jsonMatch = message.match(/\[.*\]/s)
-      if (jsonMatch) {
-        const titles = JSON.parse(jsonMatch[0])
-        if (Array.isArray(titles) && titles.length > 0) {
-          return titles.map((t: any) => String(t).trim()).filter((t: string) => t.length > 0)
-        }
-      }
-      // Fallback: try to parse the whole message
-      const titles = JSON.parse(message)
-      if (Array.isArray(titles)) {
-        return titles.map((t: any) => String(t).trim()).filter((t: string) => t.length > 0)
-      }
-    } catch (parseError) {
-      // If JSON parsing fails, try to extract titles from text
-      const lines = message.split('\n').filter(line => line.trim().length > 0)
-      const titles = lines
-        .map(line => {
-          // Remove numbering, bullets, quotes, etc.
-          return line.replace(/^[\d\-•\*\"\']+\s*/, '').replace(/[\"\'`]/g, '').trim()
-        })
-        .filter(title => title.length > 0 && title.length < 50)
-      
-      if (titles.length > 0) {
-        return titles.slice(0, numTracks)
-      }
+    const parsed = parseTitlesFromMessage(message, numTracks)
+    if (parsed && parsed.length > 0) {
+      return { titles: parsed }
     }
 
-    return null
+    return { error: 'OpenAI returned a response that could not be parsed as track titles' }
   } catch (error) {
     console.error('Error calling OpenAI Vision:', error)
-    return null
+    return { error: error instanceof Error ? error.message : 'OpenAI request failed' }
   }
 }
 
@@ -166,19 +188,19 @@ async function callAnthropicVision(
   numTracks: number,
   settings: Record<string, string>,
   context?: { otherTracks?: string[]; currentTitle?: string; albumTitle?: string }
-): Promise<string[] | null> {
+): Promise<VisionResult> {
   const apiKey = settings['anthropic_api_key']?.trim()
   const model = settings['anthropic_model']?.trim() || 'claude-3-5-sonnet-20241022'
 
   if (!apiKey) {
-    return null
+    return { error: 'No Anthropic API key configured' }
   }
 
   try {
     // Convert image to base64
     const base64Image = await imageUrlToBase64(imageUrl)
     if (!base64Image) {
-      return null
+      return { error: 'Failed to load cover art image' }
     }
 
     // Determine image format from URL
@@ -242,52 +264,29 @@ Example format: ${numTracks > 1 ? '["Title 1", "Title 2", "Title 3"]' : '["Title
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: { message: 'Unknown error' } }))
-      console.error('Anthropic Vision API error:', error)
-      return null
+      const errorBody = await response.json().catch(() => ({ error: { message: 'Unknown error' } }))
+      console.error('Anthropic Vision API error:', { model, status: response.status, error: errorBody })
+      const message = errorBody?.error?.message || 'Anthropic API request failed'
+      const code = errorBody?.error?.type || (response.status === 401 ? 'invalid_api_key' : undefined)
+      return { error: message, code }
     }
 
     const data = await response.json()
     const message = data?.content?.[0]?.text?.trim()
 
     if (!message) {
-      return null
+      return { error: 'Anthropic returned an empty response' }
     }
 
-    // Try to parse JSON array from response
-    try {
-      // Extract JSON array from response
-      const jsonMatch = message.match(/\[.*\]/s)
-      if (jsonMatch) {
-        const titles = JSON.parse(jsonMatch[0])
-        if (Array.isArray(titles) && titles.length > 0) {
-          return titles.map((t: any) => String(t).trim()).filter((t: string) => t.length > 0)
-        }
-      }
-      // Fallback: try to parse the whole message
-      const titles = JSON.parse(message)
-      if (Array.isArray(titles)) {
-        return titles.map((t: any) => String(t).trim()).filter((t: string) => t.length > 0)
-      }
-    } catch (parseError) {
-      // If JSON parsing fails, try to extract titles from text
-      const lines = message.split('\n').filter(line => line.trim().length > 0)
-      const titles = lines
-        .map(line => {
-          // Remove numbering, bullets, quotes, etc.
-          return line.replace(/^[\d\-•\*\"\']+\s*/, '').replace(/[\"\'`]/g, '').trim()
-        })
-        .filter(title => title.length > 0 && title.length < 50)
-      
-      if (titles.length > 0) {
-        return titles.slice(0, numTracks)
-      }
+    const parsed = parseTitlesFromMessage(message, numTracks)
+    if (parsed && parsed.length > 0) {
+      return { titles: parsed }
     }
 
-    return null
+    return { error: 'Anthropic returned a response that could not be parsed as track titles' }
   } catch (error) {
     console.error('Error calling Anthropic Vision:', error)
-    return null
+    return { error: error instanceof Error ? error.message : 'Anthropic request failed' }
   }
 }
 
@@ -332,31 +331,120 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get AI settings from database
-    const { data: settingsData, error: settingsError } = await supabase.rpc('get_ai_settings')
-    
-    if (settingsError) {
-      console.error('Error fetching AI settings:', settingsError)
-      return NextResponse.json(
-        { error: 'Failed to fetch AI settings' },
-        { status: 500 }
-      )
+    const { settings, keySources } = await getAISettingsForUserWithSources(user.id)
+    const usesOwnAIKey = usesOwnResolvedAIKeys(keySources)
+
+    if (!usesOwnAIKey) {
+      const deduct = await deductCredits(user.id, 'ai_album_titles')
+      if (!deduct.success) {
+        const status = deduct.error === 'Insufficient credits' ? 402 : 400
+        return NextResponse.json(
+          {
+            error: deduct.error,
+            balance: deduct.balance,
+            required: deduct.required,
+            hint: 'Add your OpenAI key in /setup-ai to use your own account without Beatheos credits, or buy credits at /credits.',
+          },
+          { status }
+        )
+      }
     }
 
-    const settings = mapSettings(settingsData || [])
+    const configuredChatModel = settings['openai_model'] || null
+    const openaiModel = resolveOpenAIVisionModel(configuredChatModel)
+
+    console.log('[generate-track-titles] AI key resolution:', {
+      userId: user.id,
+      openaiKeySource: keySources.openai,
+      openaiKeyPath: KEY_SOURCE_PATHS[keySources.openai],
+      anthropicKeySource: keySources.anthropic,
+      anthropicKeyPath: KEY_SOURCE_PATHS[keySources.anthropic],
+      hasOpenAI: !!settings['openai_api_key']?.trim(),
+      hasAnthropic: !!settings['anthropic_api_key']?.trim(),
+      configuredChatModel,
+      openaiVisionModel: openaiModel,
+      usesOwnAIKey,
+    })
 
     // Try OpenAI Vision first
-    let titles = await callOpenAIVision(coverArtUrl, numTracks, settings, context)
+    const openaiResult = await callOpenAIVision(coverArtUrl, numTracks, settings, context)
+    let titles: string[] | undefined
+    let openaiError: { error: string; code?: string } | undefined
+    let anthropicError: { error: string; code?: string } | undefined
 
-    // Fallback to Anthropic Vision if OpenAI fails
-    if (!titles || titles.length === 0) {
-      titles = await callAnthropicVision(coverArtUrl, numTracks, settings, context)
+    if ('titles' in openaiResult) {
+      titles = openaiResult.titles
+    } else {
+      openaiError = openaiResult
+      console.error('[generate-track-titles] OpenAI failed:', {
+        code: openaiResult.code,
+        error: openaiResult.error,
+        keyPath: KEY_SOURCE_PATHS[keySources.openai],
+        model: openaiModel,
+      })
     }
 
-    if (!titles || titles.length === 0) {
+    // Fallback to Anthropic only if OpenAI had no key; don't mask OpenAI errors
+    if (!titles?.length && !settings['openai_api_key']?.trim()) {
+      const anthropicResult = await callAnthropicVision(coverArtUrl, numTracks, settings, context)
+      if ('titles' in anthropicResult) {
+        titles = anthropicResult.titles
+      } else {
+        anthropicError = anthropicResult
+        console.error('[generate-track-titles] Anthropic failed:', {
+          code: anthropicResult.code,
+          error: anthropicResult.error,
+          keyPath: KEY_SOURCE_PATHS[keySources.anthropic],
+        })
+      }
+    }
+
+    if (!titles?.length) {
+      const hasOpenAI = !!settings['openai_api_key']?.trim()
+      const hasAnthropic = !!settings['anthropic_api_key']?.trim()
+      const primaryError = openaiError || anthropicError
+
+      if (!hasOpenAI && !hasAnthropic) {
+        return NextResponse.json(
+          {
+            error: 'No AI API key found. Add your OpenAI key in /setup-ai (or configure global keys in /ai-settings).',
+            debug: {
+              openaiKeyPath: KEY_SOURCE_PATHS.none,
+              anthropicKeyPath: KEY_SOURCE_PATHS.none,
+            },
+          },
+          { status: 400 }
+        )
+      }
+
+      const provider = openaiError ? 'openai' : 'anthropic'
+      const keyPath = openaiError
+        ? KEY_SOURCE_PATHS[keySources.openai]
+        : KEY_SOURCE_PATHS[keySources.anthropic]
+      const isInvalidKey = primaryError?.code === 'invalid_api_key'
+      const updatePath =
+        keySources.openai === 'user_api_keys' || keySources.anthropic === 'user_api_keys'
+          ? '/setup-ai'
+          : '/ai-settings'
+
       return NextResponse.json(
-        { error: 'Failed to generate track titles. Please ensure AI API keys are configured in /ai-settings' },
-        { status: 500 }
+        {
+          error: isInvalidKey
+            ? `Invalid API key. Update your key in ${updatePath}.`
+            : primaryError?.error || 'Failed to generate track titles. The AI service returned an error — try again in a moment.',
+          debug: {
+            openaiKeyPath: KEY_SOURCE_PATHS[keySources.openai],
+            anthropicKeyPath: KEY_SOURCE_PATHS[keySources.anthropic],
+            openaiModel,
+            configuredChatModel: settings['openai_model'] || null,
+            lastErrorCode: primaryError?.code,
+            provider,
+            keyPath,
+            openaiError: openaiError?.error,
+            anthropicError: anthropicError?.error,
+          },
+        },
+        { status: isInvalidKey ? 401 : 500 }
       )
     }
 

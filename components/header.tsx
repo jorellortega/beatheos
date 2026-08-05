@@ -69,6 +69,7 @@ export default function Header() {
   const navItems = [
     { name: "Home", path: "/" },
     { name: "Subscription", path: "/subscriptionplans" },
+    ...(user ? [{ name: "Credits", path: "/credits" }] : []),
     ...(user ? [{ name: "Upload Beat", path: "/upload-beat" }] : []),
   ]
 
