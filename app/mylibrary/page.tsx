@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 import { AlbumGenreFields } from '@/components/AlbumGenreFields'
 
