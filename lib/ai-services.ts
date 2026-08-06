@@ -743,13 +743,36 @@ export class ElevenLabsService {
 
     if (!response.ok) {
       let errorMessage = 'ElevenLabs music generation failed'
+      let rawError: unknown = null
       try {
         const error = await response.json()
+        rawError = error
         errorMessage = formatElevenLabsErrorMessage(error.detail) || error.message || errorMessage
       } catch {
         // response body may not be JSON
       }
-      throw new Error(errorMessage)
+
+      console.error('[elevenlabs-composeMusic] failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        outputFormat,
+        errorMessage,
+        rawError,
+        keyPreview:
+          apiKey.length >= 8
+            ? `${apiKey.slice(0, 4)}…${apiKey.slice(-4)} (len=${apiKey.length})`
+            : `(len=${apiKey.length})`,
+      })
+
+      const err = new Error(errorMessage) as Error & {
+        httpStatus?: number
+        elevenLabsRaw?: unknown
+        outputFormat?: string
+      }
+      err.httpStatus = response.status
+      err.elevenLabsRaw = rawError
+      err.outputFormat = outputFormat
+      throw err
     }
 
     return response.arrayBuffer()

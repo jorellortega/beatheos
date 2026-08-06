@@ -15,7 +15,14 @@ interface AIService {
   description: string
   apiKey: string
   isConfigured: boolean
+  savedKeyPreview: string
   placeholder: string
+}
+
+function maskKeyForDisplay(apiKey: string): string {
+  if (!apiKey || apiKey.length < 8) return '••••••••'
+  const middleLength = Math.max(apiKey.length - 8, 4)
+  return `${apiKey.slice(0, 4)}${'•'.repeat(Math.min(middleLength, 12))}${apiKey.slice(-4)}`
 }
 
 export default function SetupAIPage() {
@@ -28,6 +35,7 @@ export default function SetupAIPage() {
       description: 'Generate scripts with ChatGPT and images with DALL-E.',
       apiKey: '',
       isConfigured: false,
+      savedKeyPreview: '',
       placeholder: 'OpenAI API Key'
     },
     {
@@ -36,14 +44,16 @@ export default function SetupAIPage() {
       description: 'Advanced text generation and analysis with Claude.',
       apiKey: '',
       isConfigured: false,
+      savedKeyPreview: '',
       placeholder: 'Anthropic API Key'
     },
     {
       id: 'elevenlabs',
       name: 'ElevenLabs',
-      description: 'High-quality AI text-to-speech and voice generation.',
+      description: 'High-quality AI text-to-speech, voice generation, and instrumental music (Music API requires a newer sk_ key with Music enabled).',
       apiKey: '',
       isConfigured: false,
+      savedKeyPreview: '',
       placeholder: 'ElevenLabs API Key'
     },
     {
@@ -52,6 +62,7 @@ export default function SetupAIPage() {
       description: 'AI image generation with multiple models.',
       apiKey: '',
       isConfigured: false,
+      savedKeyPreview: '',
       placeholder: 'OpenArt API Key'
     },
     {
@@ -60,6 +71,7 @@ export default function SetupAIPage() {
       description: 'High-quality AI video generation.',
       apiKey: '',
       isConfigured: false,
+      savedKeyPreview: '',
       placeholder: 'Kling API Key'
     },
     {
@@ -68,6 +80,7 @@ export default function SetupAIPage() {
       description: 'AI-powered video generation and editing.',
       apiKey: '',
       isConfigured: false,
+      savedKeyPreview: '',
       placeholder: 'Runway ML API Key'
     }
   ])
@@ -100,8 +113,9 @@ export default function SetupAIPage() {
         const data = await response.json()
         setServices(prev => prev.map(service => ({
           ...service,
-          apiKey: data[service.id] || '',
-          isConfigured: !!data[service.id]
+          apiKey: '',
+          isConfigured: !!data[service.id],
+          savedKeyPreview: data[service.id] || '',
         })))
       } else {
         console.error('Failed to load API keys:', response.status, response.statusText)
@@ -149,22 +163,27 @@ export default function SetupAIPage() {
       })
 
       if (response.ok) {
+        const preview = maskKeyForDisplay(apiKey)
         setServices(prev => prev.map(service => 
           service.id === serviceId 
-            ? { ...service, apiKey, isConfigured: !!apiKey }
+            ? { ...service, apiKey: '', isConfigured: true, savedKeyPreview: preview }
             : service
         ))
         toast({
           title: "API Key Saved",
-          description: `${services.find(s => s.id === serviceId)?.name} API key has been saved successfully.`,
+          description:
+            serviceId === 'elevenlabs' && !apiKey.startsWith('sk_')
+              ? `${services.find(s => s.id === serviceId)?.name} key saved (${preview}). Note: Music generation may need a newer sk_ key from ElevenLabs Developers → API Keys.`
+              : `${services.find(s => s.id === serviceId)?.name} key saved (${preview}).`,
         })
       } else {
-        throw new Error('Failed to save API key')
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to save API key')
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to save API key. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to save API key. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -202,7 +221,7 @@ export default function SetupAIPage() {
       if (response.ok) {
         setServices(prev => prev.map(service => 
           service.id === serviceId 
-            ? { ...service, apiKey: '', isConfigured: false }
+            ? { ...service, apiKey: '', isConfigured: false, savedKeyPreview: '' }
             : service
         ))
         toast({
@@ -295,7 +314,11 @@ export default function SetupAIPage() {
                   <div className="relative">
                     <Input
                       type={visibleKeys[service.id] ? "text" : "password"}
-                      placeholder={service.placeholder}
+                      placeholder={
+                        service.isConfigured
+                          ? 'Paste a new key to replace the saved one'
+                          : service.placeholder
+                      }
                       value={service.apiKey}
                       onChange={(e) => updateServiceKey(service.id, e.target.value)}
                       className="pr-20"
@@ -305,6 +328,7 @@ export default function SetupAIPage() {
                       size="sm"
                       className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
                       onClick={() => toggleKeyVisibility(service.id)}
+                      disabled={!service.apiKey.trim()}
                     >
                       {visibleKeys[service.id] ? (
                         <EyeOff className="h-4 w-4" />
@@ -313,6 +337,22 @@ export default function SetupAIPage() {
                       )}
                     </Button>
                   </div>
+
+                  {service.isConfigured && !service.apiKey.trim() && (
+                    <p className="text-sm text-muted-foreground">
+                      Saved key:{' '}
+                      <span className="font-mono text-foreground">
+                        {service.savedKeyPreview || '••••••••'}
+                      </span>
+                      <span className="ml-1">— stored securely, not shown in full</span>
+                    </p>
+                  )}
+
+                  {service.apiKey.trim() && service.isConfigured && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      Saving will replace your current key.
+                    </p>
+                  )}
 
                   {/* Action Buttons */}
                   <div className="flex gap-2">

@@ -98,6 +98,43 @@ export function mapSettings(settings: any[]): AISettingsMap {
 // Get AI settings merged with per-user keys from /setup-ai
 export type AIKeySource = 'user_api_keys' | 'users_table' | 'ai_settings' | 'env' | 'none'
 
+export type ElevenLabsKeyCandidateDebug = {
+  source: AIKeySource
+  present: boolean
+  length: number | null
+  plausible: boolean
+  rejectReason: string | null
+  preview: string
+  startsWithSkUnderscore: boolean
+}
+
+export type ElevenLabsKeyResolutionDebug = {
+  userId: string
+  selectedSource: AIKeySource
+  selectedKeyPreview: string
+  selectedKeyStartsWithSkUnderscore: boolean
+  candidates: ElevenLabsKeyCandidateDebug[]
+}
+
+export function maskApiKeyForLog(key?: string | null): string {
+  if (!key?.trim()) return '(empty)'
+  const trimmed = key.trim()
+  if (trimmed.length < 8) return `(short, len=${trimmed.length})`
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)} (len=${trimmed.length})`
+}
+
+export function rejectReasonForElevenLabsKey(key?: string | null): string | null {
+  const trimmed = key?.trim()
+  if (!trimmed) return 'missing'
+  if (trimmed.length < 20) return `too short (${trimmed.length} chars, need 20+)`
+  if (trimmed.includes('*')) return 'masked/corrupted (contains *)'
+  // Reject keys that are clearly another provider pasted into ElevenLabs.
+  if (/^sk-ant-/i.test(trimmed)) return 'looks like Anthropic key (sk-ant-)'
+  if (/^sk-/i.test(trimmed)) return 'looks like OpenAI key (sk-)'
+  if (/^pk_/i.test(trimmed)) return 'looks like Stripe publishable key (pk_)'
+  return null
+}
+
 export type AISettingsWithSources = {
   settings: AISettingsMap
   keySources: {
@@ -167,31 +204,67 @@ export async function getAISettingsForUserWithSources(userId: string): Promise<A
 
 /** Reject keys that are clearly another provider (OpenAI/Stripe) pasted into ElevenLabs. */
 export function isPlausibleElevenLabsApiKey(key?: string | null): boolean {
-  const trimmed = key?.trim()
-  if (!trimmed || trimmed.length < 20) return false
-  if (/^sk[-_]/i.test(trimmed)) return false
-  if (/^pk_/i.test(trimmed)) return false
-  return true
+  return rejectReasonForElevenLabsKey(key) === null
 }
 
 export async function resolveElevenLabsApiKeyForUser(userId: string): Promise<{
   apiKey: string | null
   source: AIKeySource
+  debug: ElevenLabsKeyResolutionDebug
 }> {
-  const { settings, keySources } = await getAISettingsForUserWithSources(userId)
+  const { data: userKeys } = await supabase
+    .from('user_api_keys')
+    .select('elevenlabs_api_key')
+    .eq('user_id', userId)
+    .maybeSingle()
 
-  const candidates: Array<{ key?: string; source: AIKeySource }> = [
-    { key: settings['elevenlabs_api_key'], source: keySources.elevenlabs },
+  const settings = await getAISettings()
+
+  // User's Setup AI key first (original generate-track-music behavior), then platform, then env.
+  const candidates: Array<{ key?: string | null; source: AIKeySource }> = [
+    { key: userKeys?.elevenlabs_api_key, source: 'user_api_keys' },
+    { key: settings['elevenlabs_api_key'], source: 'ai_settings' },
     { key: process.env.ELEVENLABS_API_KEY, source: 'env' },
   ]
 
-  for (const candidate of candidates) {
-    if (isPlausibleElevenLabsApiKey(candidate.key)) {
-      return { apiKey: candidate.key!.trim(), source: candidate.source }
+  const candidateDebug: ElevenLabsKeyCandidateDebug[] = candidates.map((candidate) => {
+    const trimmed = candidate.key?.trim()
+    const rejectReason = rejectReasonForElevenLabsKey(candidate.key)
+    return {
+      source: candidate.source,
+      present: !!trimmed,
+      length: trimmed ? trimmed.length : null,
+      plausible: rejectReason === null,
+      rejectReason,
+      preview: maskApiKeyForLog(candidate.key),
+      startsWithSkUnderscore: trimmed?.startsWith('sk_') ?? false,
     }
+  })
+
+  let apiKey: string | null = null
+  let source: AIKeySource = 'none'
+
+  // Music API requires sk_ keys — prefer those when multiple valid keys exist.
+  const validCandidates = candidates.filter((c) => isPlausibleElevenLabsApiKey(c.key))
+  const preferred =
+    validCandidates.find((c) => c.key!.trim().startsWith('sk_')) ?? validCandidates[0]
+
+  if (preferred?.key) {
+    apiKey = preferred.key.trim()
+    source = preferred.source
   }
 
-  return { apiKey: null, source: 'none' }
+  const debug: ElevenLabsKeyResolutionDebug = {
+    userId,
+    selectedSource: source,
+    selectedKeyPreview: maskApiKeyForLog(apiKey),
+    selectedKeyStartsWithSkUnderscore: apiKey?.startsWith('sk_') ?? false,
+    candidates: candidateDebug,
+  }
+
+  console.log('[elevenlabs-key] resolution:', JSON.stringify(debug, null, 2))
+
+  return { apiKey, source, debug }
 }
 
 /** True when the resolved settings will bill the user's own provider key (skip Beatheos credits). */

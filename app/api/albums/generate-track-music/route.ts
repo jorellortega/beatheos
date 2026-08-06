@@ -5,6 +5,7 @@ import { ElevenLabsService } from '@/lib/ai-services'
 import { pcm16ToWav } from '@/lib/pcm-to-wav'
 import {
   ELEVENLABS_MUSIC_OUTPUT_FORMAT,
+  ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT,
   ELEVENLABS_MUSIC_PCM_CHANNELS,
   ELEVENLABS_MUSIC_PCM_SAMPLE_RATE,
 } from '@/lib/elevenlabs-config'
@@ -50,16 +51,22 @@ function extractStyleTags(album: { description?: string | null; genre?: string |
 
 function buildMusicPrompt(
   trackTitle: string,
-  album: { title: string; description?: string | null; genre?: string | null; subgenre?: string | null }
+  album: { title: string; description?: string | null; genre?: string | null; subgenre?: string | null },
+  userNotes?: string | null
 ): string {
   const trackConcept = sanitizeMusicText(trackTitle)
   const styleTags = extractStyleTags(album)
+  const cleanedNotes = userNotes?.trim() ? sanitizeMusicText(userNotes.trim()) : ''
 
   const parts = [
     'Instrumental only. No vocals. No singing. No lyrics.',
     'Create an original instrumental music production.',
     `Track concept inspired by the title "${trackConcept}".`,
   ]
+
+  if (cleanedNotes) {
+    parts.push(`Artist notes and creative direction: ${cleanedNotes}.`)
+  }
 
   if (styleTags) {
     parts.push(`Musical style and mood: ${styleTags}.`)
@@ -102,8 +109,41 @@ function formatElevenLabsErrorMessage(detail: unknown): string {
   return JSON.stringify(detail)
 }
 
-function isMisconfiguredApiKeyError(message: string): boolean {
+function isMusicApiKeyFormatError(message: string): boolean {
   return /must start with ['"]?sk_/i.test(message)
+}
+
+function isAuthApiKeyError(message: string, httpStatus?: number): boolean {
+  if (isMusicApiKeyFormatError(message)) return false
+  if (httpStatus === 401 || httpStatus === 403) return true
+  const lower = message.toLowerCase()
+  return (
+    lower.includes('invalid api key') ||
+    lower.includes('unauthorized') ||
+    lower.includes('authentication')
+  )
+}
+
+function buildMusicApiKeyErrorMessage(
+  message: string,
+  keyDebug?: Awaited<ReturnType<typeof resolveElevenLabsApiKeyForUser>>['debug']
+): string {
+  if (isMusicApiKeyFormatError(message)) {
+    if (keyDebug?.selectedKeyStartsWithSkUnderscore) {
+      return `${message} Your saved key looks correct — in ElevenLabs, edit the key and enable Music access, or create a new API key with Music enabled.`
+    }
+    if (keyDebug?.selectedSource === 'user_api_keys') {
+      return `ElevenLabs Music rejected your saved key (older format). Create a new API key at elevenlabs.io → Developers → API Keys (new keys start with sk_), enable Music, and save it in Setup AI. Legacy keys may still work for voice/TTS but not music.`
+    }
+    return `ElevenLabs Music requires a newer API key (starts with sk_). Add one in Setup AI or update the platform ELEVENLABS_API_KEY.`
+  }
+
+  const keyHint =
+    keyDebug?.selectedSource === 'env' || keyDebug?.selectedSource === 'ai_settings'
+      ? ' Your Setup AI key was not used — add your ElevenLabs key there, or update the platform ELEVENLABS_API_KEY.'
+      : ' Check your ElevenLabs key in Setup AI and ensure Music access is enabled for that key.'
+
+  return message + keyHint
 }
 
 function isTermsOfServiceError(message: string): boolean {
@@ -116,12 +156,15 @@ function isTermsOfServiceError(message: string): boolean {
   )
 }
 
-function prepareGeneratedAudioForStorage(audioBuffer: ArrayBuffer): {
+function prepareGeneratedAudioForStorage(
+  audioBuffer: ArrayBuffer,
+  outputFormat: string
+): {
   fileBuffer: Buffer
   extension: 'wav' | 'mp3'
   contentType: string
 } {
-  if (ELEVENLABS_MUSIC_OUTPUT_FORMAT.startsWith('pcm_')) {
+  if (outputFormat.startsWith('pcm_')) {
     return {
       fileBuffer: pcm16ToWav(audioBuffer, {
         sampleRate: ELEVENLABS_MUSIC_PCM_SAMPLE_RATE,
@@ -139,18 +182,72 @@ function prepareGeneratedAudioForStorage(audioBuffer: ArrayBuffer): {
   }
 }
 
-async function composeTrackMusic(prompt: string, apiKey: string): Promise<ArrayBuffer> {
+async function composeTrackMusic(
+  prompt: string,
+  apiKey: string,
+  outputFormat: string
+): Promise<ArrayBuffer> {
   return ElevenLabsService.composeMusic({
     prompt,
     apiKey,
     modelId: 'music_v2',
     musicLengthMs: 120000,
     forceInstrumental: true,
-    outputFormat: ELEVENLABS_MUSIC_OUTPUT_FORMAT,
+    outputFormat,
   })
 }
 
+async function composeTrackMusicWithFallback(
+  prompt: string,
+  apiKey: string
+): Promise<{ audioBuffer: ArrayBuffer; outputFormat: string }> {
+  const preferredFormat = ELEVENLABS_MUSIC_OUTPUT_FORMAT
+
+  try {
+    const audioBuffer = await composeTrackMusic(prompt, apiKey, preferredFormat)
+    return { audioBuffer, outputFormat: preferredFormat }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    const httpStatus =
+      error && typeof error === 'object' && 'httpStatus' in error
+        ? (error as { httpStatus?: number }).httpStatus
+        : undefined
+
+    console.error('[generate-track-music] compose failed:', {
+      preferredFormat,
+      message,
+      httpStatus,
+      elevenLabsRaw:
+        error && typeof error === 'object' && 'elevenLabsRaw' in error
+          ? (error as { elevenLabsRaw?: unknown }).elevenLabsRaw
+          : undefined,
+    })
+
+    const canFallbackToMp3 =
+      preferredFormat !== ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT &&
+      !isAuthApiKeyError(message, httpStatus)
+
+    if (!canFallbackToMp3) {
+      throw error
+    }
+
+    console.warn(
+      `[generate-track-music] ${preferredFormat} failed, retrying with ${ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT}:`,
+      message
+    )
+
+    const audioBuffer = await composeTrackMusic(
+      prompt,
+      apiKey,
+      ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT
+    )
+    return { audioBuffer, outputFormat: ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT }
+  }
+}
+
 export async function POST(request: NextRequest) {
+  let keyDebug: Awaited<ReturnType<typeof resolveElevenLabsApiKeyForUser>>['debug'] | undefined
+
   try {
     const user = await getUserFromRequest(request)
     if (!user) {
@@ -158,7 +255,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { albumId, trackId } = body
+    const { albumId, trackId, promptNotes } = body
 
     if (!albumId || !trackId) {
       return NextResponse.json(
@@ -192,26 +289,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Track not found' }, { status: 404 })
     }
 
-    const { apiKey, source } = await resolveElevenLabsApiKeyForUser(user.id)
+    const resolved = await resolveElevenLabsApiKeyForUser(user.id)
+    const { apiKey, source } = resolved
+    keyDebug = resolved.debug
 
     if (!apiKey) {
       return NextResponse.json(
         {
           error:
             'ElevenLabs API key not configured. Add a valid key in Setup AI, or ask an admin to set the platform ElevenLabs key.',
+          debug: {
+            keyResolution: keyDebug,
+            outputFormat: ELEVENLABS_MUSIC_OUTPUT_FORMAT,
+          },
         },
         { status: 400 }
       )
     }
 
-    console.log('[generate-track-music] Using ElevenLabs key from:', source)
+    console.log('[generate-track-music] Using ElevenLabs key from:', source, keyDebug.selectedKeyPreview)
+
+    const trimmedPromptNotes =
+      typeof promptNotes === 'string' ? promptNotes.trim() : ''
+
+    if (typeof promptNotes === 'string') {
+      const { error: promptSaveError } = await supabase
+        .from('album_tracks')
+        .update({ instrumental_prompt: trimmedPromptNotes || null })
+        .eq('id', trackId)
+
+      if (promptSaveError) {
+        console.warn('[generate-track-music] Failed to save instrumental_prompt:', promptSaveError)
+      }
+    }
 
     const styleTags = extractStyleTags(album)
-    let prompt = buildMusicPrompt(track.title, album)
+    let prompt = buildMusicPrompt(track.title, album, trimmedPromptNotes)
     let audioBuffer: ArrayBuffer
+    let outputFormat = ELEVENLABS_MUSIC_OUTPUT_FORMAT
 
     try {
-      audioBuffer = await composeTrackMusic(prompt, apiKey)
+      const composed = await composeTrackMusicWithFallback(prompt, apiKey)
+      audioBuffer = composed.audioBuffer
+      outputFormat = composed.outputFormat
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       if (!isTermsOfServiceError(message)) {
@@ -219,10 +339,15 @@ export async function POST(request: NextRequest) {
       }
 
       prompt = buildFallbackMusicPrompt(styleTags)
-      audioBuffer = await composeTrackMusic(prompt, apiKey)
+      const composed = await composeTrackMusicWithFallback(prompt, apiKey)
+      audioBuffer = composed.audioBuffer
+      outputFormat = composed.outputFormat
     }
 
-    const { fileBuffer, extension, contentType } = prepareGeneratedAudioForStorage(audioBuffer)
+    const { fileBuffer, extension, contentType } = prepareGeneratedAudioForStorage(
+      audioBuffer,
+      outputFormat
+    )
     const filePath = `album_tracks/${albumId}/${trackId}_elevenlabs_${Date.now()}.${extension}`
     const { error: uploadError } = await supabase.storage
       .from('beats')
@@ -257,16 +382,38 @@ export async function POST(request: NextRequest) {
       audioUrl,
       format: extension,
       prompt,
+      instrumentalPrompt: trimmedPromptNotes || null,
     })
   } catch (error) {
     console.error('Generate track music error:', error)
     const message = error instanceof Error ? error.message : 'Failed to generate music'
+    const httpStatus =
+      error && typeof error === 'object' && 'httpStatus' in error
+        ? (error as { httpStatus?: number }).httpStatus
+        : undefined
+    const elevenLabsRaw =
+      error && typeof error === 'object' && 'elevenLabsRaw' in error
+        ? (error as { elevenLabsRaw?: unknown }).elevenLabsRaw
+        : undefined
+    const outputFormat =
+      error && typeof error === 'object' && 'outputFormat' in error
+        ? (error as { outputFormat?: string }).outputFormat
+        : ELEVENLABS_MUSIC_OUTPUT_FORMAT
 
-    if (isMisconfiguredApiKeyError(message)) {
+    const debugPayload = {
+      keyResolution: keyDebug,
+      elevenLabsHttpStatus: httpStatus,
+      elevenLabsRaw,
+      outputFormat,
+      isAuthApiKeyError: isAuthApiKeyError(message, httpStatus),
+    }
+
+    if (isAuthApiKeyError(message, httpStatus) || isMusicApiKeyFormatError(message)) {
       return NextResponse.json(
         {
-          error:
-            'Invalid ElevenLabs API key. If you saved an OpenAI or Stripe key in Setup AI under ElevenLabs, remove it and add your ElevenLabs key (from elevenlabs.io → API Keys), or clear Setup AI to use the platform key.',
+          error: buildMusicApiKeyErrorMessage(message, keyDebug),
+          detail: message,
+          debug: debugPayload,
         },
         { status: 400 }
       )
@@ -279,6 +426,8 @@ export async function POST(request: NextRequest) {
         error: isTermsOfServiceError(message)
           ? 'ElevenLabs blocked this prompt due to content policy. Try a different track title or album description.'
           : message,
+        detail: message,
+        debug: debugPayload,
       },
       { status }
     )

@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X, Settings, Image as ImageIcon } from 'lucide-react'
+import { Calendar, FileText, Trash2, FileAudio, Loader2, Link as LinkIcon, Globe, Circle, Play, Pause, Clock, Archive, Download, CheckCircle2, XCircle, FileText as FileTextIcon, StickyNote, Folder, Music, ExternalLink, Upload, GripVertical, Sparkles, Edit2, RotateCcw, X, Settings, Image as ImageIcon, Bookmark, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -29,6 +29,61 @@ import { ELEVENLABS_MAX_CONCURRENT_MUSIC } from '@/lib/elevenlabs-config'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 import { formatCreditsError } from '@/lib/credit-utils'
 import { AlbumGenreFields } from '@/components/AlbumGenreFields'
+
+function getLocalInstrumentalPrompts(albumId: string): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(`beatheos-instrumental-prompts-${albumId}`)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function setLocalInstrumentalPrompt(albumId: string, trackId: string, prompt: string) {
+  if (typeof window === 'undefined') return
+  const all = getLocalInstrumentalPrompts(albumId)
+  if (prompt) all[trackId] = prompt
+  else delete all[trackId]
+  localStorage.setItem(`beatheos-instrumental-prompts-${albumId}`, JSON.stringify(all))
+}
+
+function resolveInstrumentalPrompt(
+  albumId: string,
+  trackId: string,
+  track: { instrumental_prompt?: string | null } | undefined,
+  drafts: Record<string, string>
+): string {
+  const draft = drafts[trackId]?.trim()
+  if (draft) return draft
+  const saved = track?.instrumental_prompt?.trim()
+  if (saved) return saved
+  return getLocalInstrumentalPrompts(albumId)[trackId]?.trim() || ''
+}
+
+type SavedMusicPrompt = {
+  id: string
+  name: string
+  prompt: string
+  created_at?: string
+}
+
+const SAVED_MUSIC_PROMPTS_STORAGE_KEY = 'beatheos-saved-music-prompt-library'
+
+function loadLocalSavedMusicPrompts(): SavedMusicPrompt[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(SAVED_MUSIC_PROMPTS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function persistLocalSavedMusicPrompts(prompts: SavedMusicPrompt[]) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(SAVED_MUSIC_PROMPTS_STORAGE_KEY, JSON.stringify(prompts))
+}
 
 interface Album {
   id: string
@@ -187,6 +242,14 @@ export default function AlbumDetailsPage() {
   const [regeneratingTrackId, setRegeneratingTrackId] = useState<string | null>(null);
   const [generatingMusicTrackIds, setGeneratingMusicTrackIds] = useState<Set<string>>(new Set());
   const [generatingAllInstrumentals, setGeneratingAllInstrumentals] = useState(false);
+  const [instrumentalPromptDrafts, setInstrumentalPromptDrafts] = useState<Record<string, string>>({});
+  const [expandedInstrumentalPromptIds, setExpandedInstrumentalPromptIds] = useState<Set<string>>(new Set());
+  const [savingInstrumentalPromptId, setSavingInstrumentalPromptId] = useState<string | null>(null);
+  const [savedMusicPrompts, setSavedMusicPrompts] = useState<SavedMusicPrompt[]>([]);
+  const [loadingSavedMusicPrompts, setLoadingSavedMusicPrompts] = useState(false);
+  const [savingMusicPromptLibraryId, setSavingMusicPromptLibraryId] = useState<string | null>(null);
+  const [showSaveMusicPromptNameForTrack, setShowSaveMusicPromptNameForTrack] = useState<string | null>(null);
+  const [newMusicPromptNameByTrack, setNewMusicPromptNameByTrack] = useState<Record<string, string>>({});
   const activeMusicGenerationsRef = useRef(0);
   const [editingTrackTitleId, setEditingTrackTitleId] = useState<string | null>(null);
   const [editingTrackTitleValue, setEditingTrackTitleValue] = useState<string>('');
@@ -217,6 +280,42 @@ export default function AlbumDetailsPage() {
     
     if (user?.id) {
       fetchLabelArtists();
+    }
+  }, [user?.id]);
+
+  const fetchSavedMusicPrompts = async () => {
+    setLoadingSavedMusicPrompts(true);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setSavedMusicPrompts(loadLocalSavedMusicPrompts());
+        return;
+      }
+
+      const response = await fetch('/api/albums/music-prompts', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok && Array.isArray(data.prompts)) {
+        setSavedMusicPrompts(data.prompts);
+        if (data.prompts.length > 0) {
+          persistLocalSavedMusicPrompts(data.prompts);
+        }
+      } else {
+        setSavedMusicPrompts(loadLocalSavedMusicPrompts());
+      }
+    } catch (error) {
+      console.error('Error loading saved music prompts:', error);
+      setSavedMusicPrompts(loadLocalSavedMusicPrompts());
+    } finally {
+      setLoadingSavedMusicPrompts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchSavedMusicPrompts();
     }
   }, [user?.id]);
 
@@ -256,11 +355,14 @@ export default function AlbumDetailsPage() {
           setTrackError(error.message);
         } else {
           console.log('Fetched album tracks:', data);
-          
+
+          const localPrompts = getLocalInstrumentalPrompts(albumId);
+
           // Transform data to include session_name if available
           const tracksWithSessionName = data?.map(track => ({
             ...track,
-            session_name: track.beat_sessions?.name || null
+            session_name: track.beat_sessions?.name || null,
+            instrumental_prompt: track.instrumental_prompt || localPrompts[track.id] || null,
           })) || [];
           
           console.log('Transformed tracks:', tracksWithSessionName);
@@ -1941,6 +2043,8 @@ export default function AlbumDetailsPage() {
     if (!album) return;
 
     const hadAudio = tracks.some(t => t.id === trackId && !!t.audio_url);
+    const track = tracks.find(t => t.id === trackId);
+    const promptNotes = resolveInstrumentalPrompt(albumId, trackId, track, instrumentalPromptDrafts);
 
     const token = await getAccessToken();
     if (!token) {
@@ -1956,21 +2060,233 @@ export default function AlbumDetailsPage() {
       body: JSON.stringify({
         albumId: album.id,
         trackId,
+        promptNotes,
       }),
     });
 
     const data = await response.json();
 
+    console.log('[generate-track-music] response:', {
+      ok: response.ok,
+      status: response.status,
+      trackId,
+      albumId: album.id,
+    });
+
     if (!response.ok) {
-      throw new Error(data.error || 'Failed to generate music');
+      console.error('[generate-track-music] error payload:', {
+        error: data.error,
+        detail: data.detail,
+        debug: data.debug,
+      })
+      if (data.debug?.keyResolution) {
+        console.error(
+          '[generate-track-music] key resolution:',
+          JSON.stringify(data.debug.keyResolution, null, 2)
+        )
+      };
+      const detailSuffix = data.detail ? ` (${data.detail})` : '';
+      throw new Error((data.error || 'Failed to generate music') + detailSuffix);
     }
 
-    setTracks(prev => prev.map(t => t.id === trackId ? { ...t, audio_url: data.audioUrl } : t));
+    setTracks(prev => prev.map(t =>
+      t.id === trackId ? { ...t, audio_url: data.audioUrl } : t
+    ));
 
     toast({
       title: hadAudio ? 'Music Regenerated' : 'Music Generated',
       description: `Audio for "${trackTitle}" has been ${hadAudio ? 'regenerated' : 'generated'} and attached to the track.`,
     });
+  };
+
+  const toggleInstrumentalPrompt = (trackId: string) => {
+    setExpandedInstrumentalPromptIds(prev => {
+      const next = new Set(prev);
+      if (next.has(trackId)) {
+        next.delete(trackId);
+      } else {
+        next.add(trackId);
+        const track = tracks.find(t => t.id === trackId);
+        setInstrumentalPromptDrafts(drafts => ({
+          ...drafts,
+          [trackId]: drafts[trackId] ?? track?.instrumental_prompt ?? '',
+        }));
+      }
+      return next;
+    });
+  };
+
+  const saveInstrumentalPrompt = async (trackId: string, trackTitle: string) => {
+    if (!album) return;
+
+    setSavingInstrumentalPromptId(trackId);
+    const trimmed = (instrumentalPromptDrafts[trackId] || '').trim();
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+
+      const response = await fetch('/api/albums/track-instrumental-prompt', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          albumId: album.id,
+          trackId,
+          instrumentalPrompt: trimmed,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        // Fallback: keep notes locally so generate still works before migration runs
+        setLocalInstrumentalPrompt(albumId, trackId, trimmed);
+        setTracks(prev => prev.map(t =>
+          t.id === trackId ? { ...t, instrumental_prompt: trimmed || null } : t
+        ));
+        setInstrumentalPromptDrafts(prev => ({ ...prev, [trackId]: trimmed }));
+
+        toast({
+          title: 'Saved locally',
+          description:
+            data.error ||
+            'Notes saved in this browser only. Run migration 091_add_instrumental_prompt_to_album_tracks.sql in Supabase for permanent storage.',
+        });
+        return;
+      }
+
+      setLocalInstrumentalPrompt(albumId, trackId, trimmed);
+      setTracks(prev => prev.map(t =>
+        t.id === trackId ? { ...t, instrumental_prompt: trimmed || null } : t
+      ));
+      setInstrumentalPromptDrafts(prev => ({ ...prev, [trackId]: trimmed }));
+
+      toast({
+        title: 'Prompt saved',
+        description: trimmed
+          ? `Instrumental notes saved for "${trackTitle}".`
+          : `Cleared instrumental notes for "${trackTitle}".`,
+      });
+    } catch (error) {
+      console.error('Error saving instrumental prompt:', error);
+      toast({
+        title: 'Save failed',
+        description:
+          error instanceof Error ? error.message : 'Could not save instrumental notes for this track.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingInstrumentalPromptId(null);
+    }
+  };
+
+  const applySavedMusicPrompt = (trackId: string, prompt: string) => {
+    setInstrumentalPromptDrafts(prev => ({ ...prev, [trackId]: prompt }));
+    setExpandedInstrumentalPromptIds(prev => new Set(prev).add(trackId));
+    toast({
+      title: 'Prompt applied',
+      description: 'Saved prompt loaded into notes — click Save notes to attach to this track.',
+    });
+  };
+
+  const saveMusicPromptToLibrary = async (trackId: string) => {
+    const name = (newMusicPromptNameByTrack[trackId] || '').trim();
+    const track = tracks.find(t => t.id === trackId);
+    const prompt = (
+      instrumentalPromptDrafts[trackId] ??
+      track?.instrumental_prompt ??
+      ''
+    ).trim();
+
+    if (!name) {
+      toast({
+        title: 'Name required',
+        description: 'Enter a name for this music prompt.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!prompt) {
+      toast({
+        title: 'Prompt required',
+        description: 'Add instrumental notes before saving to your prompt library.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSavingMusicPromptLibraryId(trackId);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch('/api/albums/music-prompts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name, prompt }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const localPrompts = loadLocalSavedMusicPrompts();
+        const existingIdx = localPrompts.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+        const entry: SavedMusicPrompt = {
+          id: existingIdx >= 0 ? localPrompts[existingIdx].id : crypto.randomUUID(),
+          name,
+          prompt,
+        };
+        const next =
+          existingIdx >= 0
+            ? localPrompts.map((p, i) => (i === existingIdx ? entry : p))
+            : [...localPrompts, entry].sort((a, b) => a.name.localeCompare(b.name));
+        persistLocalSavedMusicPrompts(next);
+        setSavedMusicPrompts(next);
+        setShowSaveMusicPromptNameForTrack(null);
+        toast({
+          title: 'Saved locally',
+          description:
+            data.error ||
+            'Prompt saved in this browser. Run migration 092 in Supabase for permanent library storage.',
+        });
+        return;
+      }
+
+      const saved = data.prompt as SavedMusicPrompt;
+      setSavedMusicPrompts(prev => {
+        const without = prev.filter(p => p.id !== saved.id && p.name !== saved.name);
+        const next = [...without, saved].sort((a, b) => a.name.localeCompare(b.name));
+        persistLocalSavedMusicPrompts(next);
+        return next;
+      });
+      setShowSaveMusicPromptNameForTrack(null);
+      setNewMusicPromptNameByTrack(prev => ({ ...prev, [trackId]: '' }));
+
+      toast({
+        title: 'Prompt saved',
+        description: `"${name}" added to your music prompt library.`,
+      });
+    } catch (error) {
+      console.error('Error saving music prompt to library:', error);
+      toast({
+        title: 'Save failed',
+        description: error instanceof Error ? error.message : 'Could not save music prompt.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingMusicPromptLibraryId(null);
+    }
   };
 
   const handleGenerateTrackMusic = async (trackId: string, trackTitle: string) => {
@@ -2013,26 +2329,26 @@ export default function AlbumDetailsPage() {
 
     setGeneratingAllInstrumentals(true);
 
-    const runTrack = async (trackId: string, trackTitle: string) => {
-      while (!startMusicGeneration(trackId)) {
+    const runTrack = async (track: { id: string; title: string; instrumental_prompt?: string | null }) => {
+      while (!startMusicGeneration(track.id)) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
       try {
-        await generateTrackMusicInternal(trackId, trackTitle);
+        await generateTrackMusicInternal(track.id, track.title);
       } catch (error: any) {
         console.error('Error generating track music:', error);
         toast({
-          title: `Failed: ${trackTitle}`,
+          title: `Failed: ${track.title}`,
           description: error.message || 'Music generation failed',
           variant: 'destructive',
         });
       } finally {
-        endMusicGeneration(trackId);
+        endMusicGeneration(track.id);
       }
     };
 
-    await Promise.all(mainTracks.map(track => runTrack(track.id, track.title)));
+    await Promise.all(mainTracks.map(track => runTrack(track)));
 
     setGeneratingAllInstrumentals(false);
     toast({
@@ -3622,6 +3938,22 @@ export default function AlbumDetailsPage() {
                     </Button>
 
                     <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => toggleInstrumentalPrompt(track.id)}
+                      className={`h-7 px-2 text-xs ${
+                        track.instrumental_prompt || expandedInstrumentalPromptIds.has(track.id)
+                          ? 'bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-300 border-yellow-500/50'
+                          : 'bg-zinc-700 hover:bg-zinc-600 text-gray-300 border-gray-600'
+                      }`}
+                      title="Instrumental prompt notes"
+                    >
+                      <StickyNote className="h-3.5 w-3.5 mr-1" />
+                      Notes
+                    </Button>
+
+                    <Button
                       size="sm"
                       variant="outline"
                       onClick={() => handleGenerateTrackMusic(track.id, track.title)}
@@ -3635,9 +3967,11 @@ export default function AlbumDetailsPage() {
                           : 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500'
                       }`}
                       title={
-                        track.audio_url
-                          ? `Regenerate instrumental with ElevenLabs (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`
-                          : `Generate instrumental with ElevenLabs Music v2 (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`
+                        track.instrumental_prompt
+                          ? `Generate using saved notes: ${track.instrumental_prompt.slice(0, 80)}${track.instrumental_prompt.length > 80 ? '…' : ''}`
+                          : track.audio_url
+                            ? `Regenerate instrumental with ElevenLabs (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`
+                            : `Generate instrumental with ElevenLabs Music v2 (up to ${ELEVENLABS_MAX_CONCURRENT_MUSIC} at a time)`
                       }
                     >
                       {generatingMusicTrackIds.has(track.id) ? (
@@ -3703,6 +4037,138 @@ export default function AlbumDetailsPage() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
+                  {expandedInstrumentalPromptIds.has(track.id) && (
+                    <div className="mt-2 ml-12 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs bg-zinc-900 border-zinc-600"
+                              disabled={loadingSavedMusicPrompts || savedMusicPrompts.length === 0}
+                            >
+                              <Bookmark className="h-3.5 w-3.5 mr-1" />
+                              Use saved prompt
+                              <ChevronDown className="h-3 w-3 ml-1 opacity-60" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="max-w-sm">
+                            <DropdownMenuLabel>Saved music prompts</DropdownMenuLabel>
+                            {savedMusicPrompts.length === 0 ? (
+                              <DropdownMenuItem disabled>No saved prompts yet</DropdownMenuItem>
+                            ) : (
+                              savedMusicPrompts.map((item) => (
+                                <DropdownMenuItem
+                                  key={item.id}
+                                  onClick={() => applySavedMusicPrompt(track.id, item.prompt)}
+                                  className="flex flex-col items-start gap-0.5"
+                                >
+                                  <span className="font-medium">{item.name}</span>
+                                  <span className="text-xs text-muted-foreground line-clamp-2">
+                                    {item.prompt}
+                                  </span>
+                                </DropdownMenuItem>
+                              ))
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        {showSaveMusicPromptNameForTrack === track.id ? (
+                          <>
+                            <Input
+                              value={newMusicPromptNameByTrack[track.id] || ''}
+                              onChange={(e) =>
+                                setNewMusicPromptNameByTrack(prev => ({
+                                  ...prev,
+                                  [track.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Prompt name"
+                              className="h-8 w-36 text-xs bg-zinc-900 border-zinc-600"
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="h-8 text-xs"
+                              disabled={savingMusicPromptLibraryId === track.id}
+                              onClick={() => saveMusicPromptToLibrary(track.id)}
+                            >
+                              {savingMusicPromptLibraryId === track.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                'Save prompt'
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-xs"
+                              onClick={() => setShowSaveMusicPromptNameForTrack(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs bg-zinc-900 border-zinc-600"
+                            onClick={() => {
+                              setShowSaveMusicPromptNameForTrack(track.id);
+                              setNewMusicPromptNameByTrack(prev => ({
+                                ...prev,
+                                [track.id]: prev[track.id] || '',
+                              }));
+                            }}
+                          >
+                            <Bookmark className="h-3.5 w-3.5 mr-1" />
+                            Save prompt
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Textarea
+                          value={instrumentalPromptDrafts[track.id] ?? track.instrumental_prompt ?? ''}
+                          onChange={(e) =>
+                            setInstrumentalPromptDrafts(prev => ({
+                              ...prev,
+                              [track.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Instrumental notes: tempo, mood, instruments, vibe..."
+                          rows={2}
+                          className="flex-1 text-sm bg-zinc-900 border-zinc-600 resize-y min-h-[60px]"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            saveInstrumentalPrompt(track.id, track.title);
+                          }}
+                          disabled={savingInstrumentalPromptId === track.id}
+                          className="shrink-0 self-start"
+                        >
+                          {savingInstrumentalPromptId === track.id ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            'Save notes'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {track.session_id && track.session_name && (
                     <div className="mt-2 ml-20">
                       <div 

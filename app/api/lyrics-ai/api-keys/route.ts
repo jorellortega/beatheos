@@ -111,9 +111,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Service ID and API key are required' }, { status: 400 })
     }
 
+    if (String(apiKey).includes('*')) {
+      return NextResponse.json(
+        { error: 'Paste your full API key — masked keys from this page cannot be saved.' },
+        { status: 400 }
+      )
+    }
+
     // Validate API key format
     if (!isValidAPIKey(serviceId, apiKey)) {
-      return NextResponse.json({ error: 'Invalid API key format' }, { status: 400 })
+      return NextResponse.json(
+        { error: getAPIKeyValidationError(serviceId) },
+        { status: 400 }
+      )
     }
 
     // Check if user already has API keys record
@@ -279,8 +289,22 @@ function isValidAPIKey(serviceId: string, apiKey: string): boolean {
     case 'anthropic':
       return apiKey.startsWith('sk-ant-')
     case 'elevenlabs':
-      return apiKey.length >= 20 // ElevenLabs keys are typically longer
+      // Legacy and newer ElevenLabs keys — alphanumeric, typically 32+ chars, no fixed prefix.
+      return apiKey.trim().length >= 20
     default:
       return true // For other services, just check minimum length
+  }
+}
+
+function getAPIKeyValidationError(serviceId: string): string {
+  switch (serviceId) {
+    case 'openai':
+      return 'Invalid OpenAI key — should start with sk-'
+    case 'anthropic':
+      return 'Invalid Anthropic key — should start with sk-ant-'
+    case 'elevenlabs':
+      return 'Invalid ElevenLabs key — paste the full key from elevenlabs.io → Developers → API Keys (at least 20 characters)'
+    default:
+      return 'Invalid API key format'
   }
 }
