@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
-import { preserveCoverToHistory, type AdditionalCover } from '@/lib/cover-art-helpers'
+import { preserveCoverToHistory, type AdditionalCover, coverSizeToApiSize } from '@/lib/cover-art-helpers'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -84,7 +84,7 @@ export default function CoverEditPage() {
       setAlbum(data)
       setCurrentCoverUrl(data.cover_art_url)
       if (data.title && data.artist) {
-        setCoverPrompt(`Create a professional album cover art for "${data.title}" by ${data.artist}. The cover should be visually striking and suitable for a music release.`)
+        setCoverPrompt(`Create a professional album cover art for "${data.title}" by ${data.artist}.`)
       }
       setLoading(false)
     } catch (error: any) {
@@ -191,6 +191,7 @@ export default function CoverEditPage() {
         style: 'cinematic, professional album cover',
         model: model,
         apiKey: apiKey,
+        size: coverSizeToApiSize(selectedSize),
       })
 
       if (!response.success || !response.data) {
@@ -368,6 +369,7 @@ export default function CoverEditPage() {
         style: 'cinematic, professional album cover, maintain visual consistency',
         model: model,
         apiKey: apiKey,
+        size: coverSizeToApiSize(targetSize),
       })
 
       if (!response.success || !response.data) {

@@ -12,6 +12,9 @@ import { useRouter } from 'next/navigation'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import React from 'react'
 
+/** Set to true when ready to show the homepage YouTube embed again */
+const SHOW_HOMEPAGE_VIDEO = false
+
 export default function Home() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   // This state is used to trigger shuffle mode in the SiteWideBeatPlayer
@@ -148,7 +151,7 @@ export default function Home() {
       `}</style>
       <div className="w-full flex flex-col items-center justify-center pt-2 pb-0">
         {/* YouTube Video Embed */}
-        {youtubeVideoUrl && (
+        {SHOW_HOMEPAGE_VIDEO && youtubeVideoUrl && (
           <div className="w-full max-w-4xl mt-8 mb-8">
             <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
               <iframe

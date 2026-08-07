@@ -22,6 +22,27 @@ export const MAX_COVER_REFERENCE_IMAGES = 16
 export const COVER_ART_TEXT_RULE =
   'No extra text — only the album title and artist names.'
 
+/** Default square output for GPT Image cover generation. */
+export const DEFAULT_COVER_IMAGE_SIZE = '1600x1600'
+
+/** Map UI cover size labels to OpenAI Images API size strings (GPT Image models). */
+export function coverSizeToApiSize(coverSize?: string | null): string {
+  if (!coverSize) return DEFAULT_COVER_IMAGE_SIZE
+  switch (coverSize) {
+    case '1600x1600':
+      return '1600x1600'
+    case '3000x3000':
+      return '3000x3000'
+    case '16:9':
+      return '1536x1024'
+    case '9:16':
+      return '1024x1536'
+    default:
+      if (/^\d+x\d+$/.test(coverSize)) return coverSize
+      return DEFAULT_COVER_IMAGE_SIZE
+  }
+}
+
 export function buildCoverReferencePromptHint(imageCount: number): string {
   if (imageCount <= 0) return ''
   const labels = Array.from({ length: imageCount }, (_, index) => `Image ${index + 1}`)

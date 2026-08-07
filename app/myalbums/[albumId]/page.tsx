@@ -24,7 +24,7 @@ import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
-import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, sanitizeCoverPromptText, appendCoverArtTextRule, buildEditCoverPrompt, MAX_COVER_REFERENCE_IMAGES, buildCoverReferencePromptHint } from '@/lib/cover-art-helpers'
+import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, sanitizeCoverPromptText, appendCoverArtTextRule, buildEditCoverPrompt, MAX_COVER_REFERENCE_IMAGES, buildCoverReferencePromptHint, DEFAULT_COVER_IMAGE_SIZE } from '@/lib/cover-art-helpers'
 import { ELEVENLABS_MAX_CONCURRENT_MUSIC } from '@/lib/elevenlabs-config'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 import { formatCreditsError } from '@/lib/credit-utils'
@@ -1280,7 +1280,7 @@ export default function AlbumDetailsPage() {
       .filter(Boolean)
       .map((part) => sanitizeCoverPromptText(String(part)))
       .join(', ')
-    const defaultPrompt = `Create a professional album cover art for "${sanitizeCoverPromptText(album.title)}" by ${album.artist || 'Unknown Artist'}${styleHint ? `. Style and mood: ${styleHint}` : ''}. The cover should be visually striking, suitable for a music release, and reflect the artistic style of the album. No explicit, sexual, or violent imagery. No extra text — only the album title and artist names.`;
+    const defaultPrompt = `Create a professional album cover art for "${sanitizeCoverPromptText(album.title)}" by ${album.artist || 'Unknown Artist'}${styleHint ? `. Style and mood: ${styleHint}` : ''}. No extra text — only the album title and artist names.`;
     clearCoverReferenceImages();
     setCoverArtPrompt(defaultPrompt);
     setShowCoverArtPromptDialog(true);
@@ -1516,6 +1516,7 @@ export default function AlbumDetailsPage() {
         style: 'cinematic, professional album cover',
         model: normalizedModel,
         apiKey: apiKey,
+        size: DEFAULT_COVER_IMAGE_SIZE,
         referenceImages: coverReferenceImages.map((image) => image.file),
       });
 
@@ -1592,6 +1593,7 @@ export default function AlbumDetailsPage() {
         style: 'cinematic, professional album cover',
         model: normalizedModel,
         apiKey,
+        size: DEFAULT_COVER_IMAGE_SIZE,
       });
 
       if (!response.success || !response.data) {

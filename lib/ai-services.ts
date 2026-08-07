@@ -8,12 +8,14 @@ import {
   buildOpenAITokenLimit,
   buildOpenAITemperature,
 } from '@/lib/openai-models'
+import { coverSizeToApiSize } from '@/lib/cover-art-helpers'
 
 export interface GenerateImageRequest {
   prompt: string
   style?: string
   model: string
   apiKey: string
+  size?: string
   referenceImageUrl?: string
   referenceImages?: Blob[]
   referenceImageUrls?: string[]
@@ -25,6 +27,7 @@ export interface EditImageRequest {
   style?: string
   model: string
   apiKey: string
+  size?: string
 }
 
 export interface AIResponse {
@@ -157,7 +160,7 @@ export class OpenAIService {
       const formData = new FormData()
       formData.append('model', imageModel)
       formData.append('prompt', fullPrompt)
-      formData.append('size', '1024x1024')
+      formData.append('size', coverSizeToApiSize(request.size))
       formData.append('quality', 'medium')
 
       referenceBlobs.forEach((blob, index) => {
@@ -277,6 +280,9 @@ export class OpenAIService {
         console.log('🖼️ IMAGE GENERATION - Using Images API')
         console.log('🖼️ IMAGE GENERATION - Model:', imageModel)
 
+        const imageSize = coverSizeToApiSize(request.size)
+        console.log('🖼️ IMAGE GENERATION - Output Size:', imageSize)
+
         const response = await fetch('https://api.openai.com/v1/images/generations', {
           method: 'POST',
           headers: {
@@ -286,7 +292,7 @@ export class OpenAIService {
           body: JSON.stringify({
             prompt: `${request.style} style: ${request.prompt}`,
             n: 1,
-            size: '1024x1024',
+            size: imageSize,
             model: imageModel,
           }),
         })
@@ -313,7 +319,7 @@ export class OpenAIService {
         console.log('🖼️ IMAGE GENERATION - Model:', mainlineModel)
         console.log('🖼️ IMAGE GENERATION - Prompt:', request.prompt)
         console.log('🖼️ IMAGE GENERATION - API Endpoint: /v1/responses')
-        console.log('🖼️ IMAGE GENERATION - Output Size: 1024x1024 (default square size)')
+        console.log('🖼️ IMAGE GENERATION - Output Size:', coverSizeToApiSize(request.size), '(Responses API)')
         
         const requestBody: any = {
           model: mainlineModel,
@@ -480,7 +486,7 @@ export class OpenAIService {
         formData.append('model', imageModel)
         formData.append('image[]', imageBlob, 'reference.png')
         formData.append('prompt', fullPrompt)
-        formData.append('size', '1024x1024')
+        formData.append('size', coverSizeToApiSize(request.size))
         formData.append('quality', 'medium')
 
         const response = await fetch('https://api.openai.com/v1/images/edits', {

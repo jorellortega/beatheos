@@ -69,6 +69,7 @@ export default function Header() {
   const navItems = [
     { name: "Home", path: "/" },
     { name: "Subscription", path: "/subscriptionplans" },
+    ...(user ? [{ name: "My Library", path: "/mylibrary" }] : []),
     ...(user ? [{ name: "Credits", path: "/credits" }] : []),
     ...(user ? [{ name: "Upload Beat", path: "/upload-beat" }] : []),
   ]
@@ -97,7 +98,9 @@ export default function Header() {
             key={item.path}
             href={item.path}
               className={`text-2xl font-semibold transition-colors ${
-                pathname === item.path ? "text-primary" : "text-gray-300 hover:text-white"
+                pathname === item.path || (item.path === "/mylibrary" && pathname.startsWith("/myalbums"))
+                  ? "text-primary"
+                  : "text-gray-300 hover:text-white"
             }`}
             onClick={() => setIsMobileMenuOpen(false)}
           >
@@ -259,7 +262,9 @@ export default function Header() {
                 key={item.path}
                 href={item.path}
                 className={`transition-colors ${
-                  pathname === item.path ? "text-primary font-semibold" : "text-gray-300 hover:text-white"
+                  pathname === item.path || (item.path === "/mylibrary" && pathname.startsWith("/myalbums"))
+                    ? "text-primary font-semibold"
+                    : "text-gray-300 hover:text-white"
                 }`}
               >
                 {item.name}

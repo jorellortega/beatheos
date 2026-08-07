@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
+import { coverSizeToApiSize } from '@/lib/cover-art-helpers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -170,6 +171,7 @@ export default function AICoverPage() {
         style: 'cinematic, professional album cover',
         model: model,
         apiKey: apiKey,
+        size: coverSizeToApiSize(selectedSize),
       })
 
       if (!response.success || !response.data) {
