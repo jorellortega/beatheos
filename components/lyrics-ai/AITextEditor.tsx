@@ -83,8 +83,7 @@ export function AITextEditor({
   }
 
   const handleGenerate = async () => {
-    const currentApiKey = getCurrentApiKey()
-    if (!prompt.trim() || !currentApiKey.trim()) return
+    if (!prompt.trim()) return
 
     setIsGenerating(true)
     try {
@@ -106,7 +105,6 @@ TASK - Edit only this selected section: "${selectedText}"`
         selectedText,
         fullContent: includeContext ? fullContent : undefined,
         service: selectedService,
-        apiKey: currentApiKey,
         contentType,
         lockedSections
       })
@@ -212,14 +210,14 @@ TASK - Edit only this selected section: "${selectedText}"`
           <div className={getCurrentApiKey() ? 'col-span-2' : ''}>
             <Label>Status</Label>
             <div className="flex items-center gap-2 p-3 rounded-md bg-muted">
-              <div className={`w-2 h-2 rounded-full ${getCurrentApiKey() ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
               <span className="text-sm font-medium">
-                {getCurrentApiKey() ? 'AI Online' : 'AI Offline'}
+                {getCurrentApiKey() ? 'Using your API key' : 'Using Beatheos AI (credits)'}
               </span>
             </div>
             {!getCurrentApiKey() && (
               <p className="text-sm text-muted-foreground mt-1">
-                Configure your API key in <a href="/setup-ai" className="text-primary hover:underline">AI Setup</a>
+                Add your own key in <a href="/setup-ai" className="text-primary hover:underline">AI Setup</a> to skip credit usage.
               </p>
             )}
           </div>
@@ -340,7 +338,7 @@ TASK - Edit only this selected section: "${selectedText}"`
         {/* Generate Button */}
         <Button
           onClick={handleGenerate}
-          disabled={isGenerating || !prompt.trim() || !getCurrentApiKey().trim()}
+          disabled={isGenerating || !prompt.trim()}
           className="w-full"
         >
           {isGenerating ? (

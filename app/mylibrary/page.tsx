@@ -32,6 +32,22 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 import { AlbumGenreFields } from '@/components/AlbumGenreFields'
 
+function getDefaultNewAlbum() {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return {
+    title: '',
+    artist: '',
+    release_date: `${year}-${month}-${day}`,
+    cover_art_url: '',
+    description: '',
+    genre: '',
+    subgenre: '',
+  }
+}
+
 // Types for DB tables
 interface Album {
   id: string
@@ -643,15 +659,7 @@ export default function MyLibrary() {
   
   // Modal state for creating a new album
   const [showAlbumModal, setShowAlbumModal] = useState(false);
-  const [newAlbum, setNewAlbum] = useState({
-    title: '',
-    artist: '',
-    release_date: '',
-    cover_art_url: '',
-    description: '',
-    genre: '',
-    subgenre: '',
-  });
+  const [newAlbum, setNewAlbum] = useState(getDefaultNewAlbum);
   const [selectedLabelArtistIdForAlbum, setSelectedLabelArtistIdForAlbum] = useState<string>('');
   const [newAlbumArtists, setNewAlbumArtists] = useState<string[]>([]);
   const [newAlbumArtistInput, setNewAlbumArtistInput] = useState('');
@@ -2265,7 +2273,7 @@ export default function MyLibrary() {
     console.log('🔍 [LIBRARY CREATE ALBUM] Album created:', data);
     setAlbums([data, ...albums]);
     setShowAlbumModal(false);
-    setNewAlbum({ title: '', artist: '', release_date: '', cover_art_url: '', description: '', genre: '', subgenre: '' });
+    setNewAlbum(getDefaultNewAlbum());
     setSelectedLabelArtistIdForAlbum('');
     setNewAlbumArtists([]);
     setNewAlbumArtistInput('');
@@ -2393,12 +2401,22 @@ export default function MyLibrary() {
     setEditAdditionalCovers(editAdditionalCovers.filter((_, i) => i !== idx));
   }
 
+  const openNewAlbumModal = () => {
+    setNewAlbum(getDefaultNewAlbum());
+    setSelectedLabelArtistIdForAlbum('');
+    setNewAlbumArtists([]);
+    setNewAlbumArtistInput('');
+    setNewAdditionalCovers([]);
+    setCreateAlbumError(null);
+    setShowAlbumModal(true);
+  };
+
   const [selectedTab, setSelectedTab] = useState(searchParams?.get('tab') || 'albums');
   
   // Check for openAlbum URL parameter to auto-open album modal
   useEffect(() => {
     if (searchParams?.get('openAlbum') === 'true') {
-      setShowAlbumModal(true);
+      openNewAlbumModal();
       // Remove the parameter from URL without reload
       const newSearchParams = new URLSearchParams(searchParams.toString());
       newSearchParams.delete('openAlbum');
@@ -5207,42 +5225,42 @@ export default function MyLibrary() {
 
   return (
     <div className="container mx-auto py-4 sm:py-8 px-4 sm:px-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
+      <div className="flex flex-col gap-4 mb-6 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-bold">My Library</h1>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {/* Global Search */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-            <div className="relative w-full sm:w-auto">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search all content..."
-                value={globalSearchQuery}
-                onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                className="pl-10 w-full sm:w-64 bg-zinc-900 border-zinc-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-            <Select value={globalSearchFilter} onValueChange={(value: 'all' | 'albums' | 'singles' | 'audio') => setGlobalSearchFilter(value)}>
-              <SelectTrigger className="w-full sm:w-32 bg-zinc-900 border-zinc-700 text-white focus:border-blue-500 focus:ring-blue-500">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="albums">Albums</SelectItem>
-                <SelectItem value="singles">Singles</SelectItem>
-                <SelectItem value="audio">Audio</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="relative w-full sm:w-auto sm:min-w-[14rem] sm:flex-1 sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="Search all content..."
+              value={globalSearchQuery}
+              onChange={(e) => setGlobalSearchQuery(e.target.value)}
+              className="pl-10 w-full bg-zinc-900 border-zinc-700 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-blue-500"
+            />
           </div>
-          
+          <Select value={globalSearchFilter} onValueChange={(value: 'all' | 'albums' | 'singles' | 'audio') => setGlobalSearchFilter(value)}>
+            <SelectTrigger className="w-full sm:w-32 bg-zinc-900 border-zinc-700 text-white focus:border-blue-500 focus:ring-blue-500">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="albums">Albums</SelectItem>
+              <SelectItem value="singles">Singles</SelectItem>
+              <SelectItem value="audio">Audio</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:ml-auto">
           {/* Navigate to Artist List Button */}
           <Button 
             onClick={() => {
               window.location.href = '/artistlist'
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto"
+            className="bg-blue-600 hover:bg-blue-700 text-white flex-1 sm:flex-none"
           >
             <Plus className="h-4 w-4 mr-2" />
-            Artist Management
+            <span className="hidden md:inline">Artist Management</span>
+            <span className="md:hidden">Artists</span>
           </Button>
           
           {/* Navigate to MP4 Converter Button */}
@@ -5250,34 +5268,34 @@ export default function MyLibrary() {
             onClick={() => {
               window.location.href = '/mp4converter'
             }}
-            className="bg-purple-600 hover:bg-purple-700 text-white w-full sm:w-auto"
+            className="bg-purple-600 hover:bg-purple-700 text-white flex-1 sm:flex-none"
           >
             <Video className="h-4 w-4 mr-2" />
-            MP4 Converter
+            <span className="hidden md:inline">MP4 Converter</span>
+            <span className="md:hidden">MP4</span>
           </Button>
           
           {/* Action Buttons */}
           {selectedTab === 'albums' && albumPhaseTab === 'all' && (
-            <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowAlbumModal(true)}>
+            <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded flex-1 sm:flex-none" onClick={openNewAlbumModal}>
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Add New Album</span>
-              <span className="sm:hidden">Add Album</span>
+              <span className="hidden md:inline">Add New Album</span>
+              <span className="md:hidden">Add Album</span>
             </Button>
           )}
           {selectedTab === 'audio' && (
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowAudioModal(true)}>
+            <>
+              <Button className="flex items-center gap-2 bg-yellow-400 hover:bg-yellow-500 text-black font-semibold px-4 sm:px-6 py-2 rounded flex-1 sm:flex-none" onClick={() => setShowAudioModal(true)}>
                 <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">Add Audio</span>
-                <span className="sm:hidden">Add Audio</span>
+                Add Audio
               </Button>
-              <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 sm:px-6 py-2 rounded w-full sm:w-auto" onClick={() => setShowPackModal(true)}>
+              <Button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 sm:px-6 py-2 rounded flex-1 sm:flex-none" onClick={() => setShowPackModal(true)}>
                 <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">Create Pack</span>
-                <span className="sm:hidden">Create Pack</span>
+                Create Pack
               </Button>
-            </div>
+            </>
           )}
+          </div>
         </div>
       </div>
       {/* Create Album Modal */}
@@ -9409,11 +9427,10 @@ export default function MyLibrary() {
                               const releaseDate = item.scheduled_date ? new Date(item.scheduled_date).toISOString().split('T')[0] : '';
                               
                               setNewAlbum({
+                                ...getDefaultNewAlbum(),
                                 title: item.title || '',
-                                artist: '',
-                                release_date: releaseDate,
-                                cover_art_url: '',
-                                description: ''
+                                release_date: releaseDate || getDefaultNewAlbum().release_date,
+                                description: '',
                               });
                               
                               const artists = item.artist_name ? [item.artist_name] : [];

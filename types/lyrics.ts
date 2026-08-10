@@ -99,9 +99,9 @@ export interface UserApiKeys {
 export interface AIGenerationParams {
   prompt: string
   selectedText?: string
-  fullContent: string
+  fullContent?: string
   service: 'openai' | 'anthropic'
-  apiKey: string
+  apiKey?: string
   contentType: string
   model?: string
   lockedSections?: LockedSection[]

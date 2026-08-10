@@ -13,5 +13,8 @@ export const ELEVENLABS_MUSIC_OUTPUT_FORMAT =
 
 export const ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT = 'mp3_48000_192'
 
+/** PCM used when exporting WAV from a stored ElevenLabs song. */
+export const ELEVENLABS_MUSIC_WAV_OUTPUT_FORMAT = 'pcm_48000'
+
 export const ELEVENLABS_MUSIC_PCM_SAMPLE_RATE = 48000
 export const ELEVENLABS_MUSIC_PCM_CHANNELS = 2

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { OpenAIService, AnthropicService } from '@/lib/ai-services'
 import { AIGenerationParams } from '@/types/lyrics'
-import { getUserFromRequest, userHasOwnAPIKeys } from '@/lib/ai-api-helpers'
+import {
+  getUserFromRequest,
+  getAISettingsForUserWithSources,
+} from '@/lib/ai-api-helpers'
+import { resolveOpenAIModel } from '@/lib/openai-models'
 import { deductCredits } from '@/lib/credits'
 
 export async function POST(request: NextRequest) {
@@ -11,27 +15,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const body = await request.json()
-    const { 
-      prompt, 
-      selectedText, 
-      fullContent, 
-      service, 
-      apiKey, 
+    const {
+      prompt,
+      selectedText,
+      fullContent,
+      service,
       contentType,
-      lockedSections 
+      lockedSections,
     }: AIGenerationParams = body
 
-    if (!prompt || !service || !apiKey || !contentType) {
+    if (!prompt || !service || !contentType) {
       return NextResponse.json(
-        { error: 'Missing required fields: prompt, service, apiKey, contentType' },
+        { error: 'Missing required fields: prompt, service, contentType' },
         { status: 400 }
       )
     }
 
-    const ownKeys = await userHasOwnAPIKeys(user.id)
+    if (service !== 'openai' && service !== 'anthropic') {
+      return NextResponse.json(
+        { error: 'Invalid service. Must be "openai" or "anthropic"' },
+        { status: 400 }
+      )
+    }
+
+    const { settings, keySources } = await getAISettingsForUserWithSources(user.id)
     const usesOwnAIKey =
-      (service === 'openai' && ownKeys.openai) ||
-      (service === 'anthropic' && ownKeys.anthropic)
+      (service === 'openai' && keySources.openai === 'user_api_keys') ||
+      (service === 'anthropic' && keySources.anthropic === 'user_api_keys')
 
     if (!usesOwnAIKey) {
       const deduct = await deductCredits(user.id, 'ai_lyrics')
@@ -49,6 +59,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const apiKey =
+      service === 'openai'
+        ? settings['openai_api_key']?.trim()
+        : settings['anthropic_api_key']?.trim()
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error: `No ${service === 'openai' ? 'OpenAI' : 'Anthropic'} API key configured.`,
+          hint: 'Add your API key in /setup-ai, or ask an admin to configure platform keys in /ai-settings.',
+        },
+        { status: 400 }
+      )
+    }
+
+    const model =
+      service === 'openai'
+        ? resolveOpenAIModel(settings['openai_model'])
+        : settings['anthropic_model']?.trim() || 'claude-3-5-sonnet-20241022'
+
     const params: AIGenerationParams = {
       prompt,
       selectedText,
@@ -56,7 +86,8 @@ export async function POST(request: NextRequest) {
       service,
       apiKey,
       contentType,
-      lockedSections
+      model,
+      lockedSections,
     }
 
     let generatedText: string

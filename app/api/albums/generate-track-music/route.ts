@@ -4,6 +4,12 @@ import { getUserFromRequest, resolveElevenLabsApiKeyForUser } from '@/lib/ai-api
 import { ElevenLabsService } from '@/lib/ai-services'
 import { pcm16ToWav } from '@/lib/pcm-to-wav'
 import {
+  buildFallbackMusicPrompt,
+  buildMusicPrompt,
+  ELEVENLABS_DEFAULT_MUSIC_LENGTH_MS,
+  sanitizeMusicText,
+} from '@/lib/elevenlabs-music-helpers'
+import {
   ELEVENLABS_MUSIC_OUTPUT_FORMAT,
   ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT,
   ELEVENLABS_MUSIC_PCM_CHANNELS,
@@ -18,24 +24,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const STYLE_TERM_ALIASES: Record<string, string> = {
-  ratchet: 'high-energy party',
-  gang: 'hard-hitting',
-  gangsta: 'street-influenced',
-  murder: 'intense',
-  kill: 'aggressive',
-  drug: 'gritty',
-  explicit: 'edgy',
-}
-
-function sanitizeMusicText(text: string): string {
-  let result = text
-  for (const [term, replacement] of Object.entries(STYLE_TERM_ALIASES)) {
-    result = result.replace(new RegExp(`\\b${term}\\b`, 'gi'), replacement)
-  }
-  return result.replace(/\s+/g, ' ').trim()
-}
-
 function extractStyleTags(album: { description?: string | null; genre?: string | null; subgenre?: string | null }): string {
   const parts = [album.genre, album.subgenre, album.description]
     .filter((value): value is string => !!value?.trim())
@@ -47,47 +35,6 @@ function extractStyleTags(album: { description?: string | null; genre?: string |
     )
 
   return [...new Set(parts)].slice(0, 8).join(', ')
-}
-
-function buildMusicPrompt(
-  trackTitle: string,
-  album: { title: string; description?: string | null; genre?: string | null; subgenre?: string | null },
-  userNotes?: string | null
-): string {
-  const trackConcept = sanitizeMusicText(trackTitle)
-  const styleTags = extractStyleTags(album)
-  const cleanedNotes = userNotes?.trim() ? sanitizeMusicText(userNotes.trim()) : ''
-
-  const parts = [
-    'Instrumental only. No vocals. No singing. No lyrics.',
-    'Create an original instrumental music production.',
-    `Track concept inspired by the title "${trackConcept}".`,
-  ]
-
-  if (cleanedNotes) {
-    parts.push(`Artist notes and creative direction: ${cleanedNotes}.`)
-  }
-
-  if (styleTags) {
-    parts.push(`Musical style and mood: ${styleTags}.`)
-  } else {
-    parts.push('Musical style: modern hip-hop instrumental with polished studio production.')
-  }
-
-  parts.push(
-    'Use drums, bass, synths, and melody only. Match tempo and energy to the track concept. Professional mix quality suitable for a commercial music release. Instrumental beat — no vocals.'
-  )
-
-  return parts.join(' ')
-}
-
-function buildFallbackMusicPrompt(styleTags: string): string {
-  const style = styleTags || 'trap, dark, energetic, bouncy, party'
-  return [
-    'Instrumental only. No vocals. No singing. No lyrics.',
-    `Style: ${style}.`,
-    'Dark atmospheric synths, punchy drums, deep 808 bass, club-ready energy, professional hip-hop production. Instrumental beat — no vocals.',
-  ].join(' ')
 }
 
 function formatElevenLabsErrorMessage(detail: unknown): string {
@@ -186,26 +133,31 @@ async function composeTrackMusic(
   prompt: string,
   apiKey: string,
   outputFormat: string
-): Promise<ArrayBuffer> {
+): Promise<{ audioBuffer: ArrayBuffer; songId: string | null }> {
   return ElevenLabsService.composeMusic({
     prompt,
     apiKey,
     modelId: 'music_v2',
-    musicLengthMs: 120000,
+    musicLengthMs: ELEVENLABS_DEFAULT_MUSIC_LENGTH_MS,
     forceInstrumental: true,
     outputFormat,
+    storeForInpainting: true,
   })
 }
 
 async function composeTrackMusicWithFallback(
   prompt: string,
   apiKey: string
-): Promise<{ audioBuffer: ArrayBuffer; outputFormat: string }> {
+): Promise<{ audioBuffer: ArrayBuffer; outputFormat: string; songId: string | null }> {
   const preferredFormat = ELEVENLABS_MUSIC_OUTPUT_FORMAT
 
   try {
-    const audioBuffer = await composeTrackMusic(prompt, apiKey, preferredFormat)
-    return { audioBuffer, outputFormat: preferredFormat }
+    const composed = await composeTrackMusic(prompt, apiKey, preferredFormat)
+    return {
+      audioBuffer: composed.audioBuffer,
+      outputFormat: preferredFormat,
+      songId: composed.songId,
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
     const httpStatus =
@@ -241,7 +193,11 @@ async function composeTrackMusicWithFallback(
       apiKey,
       ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT
     )
-    return { audioBuffer, outputFormat: ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT }
+    return {
+      audioBuffer: audioBuffer.audioBuffer,
+      outputFormat: ELEVENLABS_MUSIC_MP3_FALLBACK_FORMAT,
+      songId: audioBuffer.songId,
+    }
   }
 }
 
@@ -327,11 +283,13 @@ export async function POST(request: NextRequest) {
     let prompt = buildMusicPrompt(track.title, album, trimmedPromptNotes)
     let audioBuffer: ArrayBuffer
     let outputFormat = ELEVENLABS_MUSIC_OUTPUT_FORMAT
+    let elevenlabsSongId: string | null = null
 
     try {
       const composed = await composeTrackMusicWithFallback(prompt, apiKey)
       audioBuffer = composed.audioBuffer
       outputFormat = composed.outputFormat
+      elevenlabsSongId = composed.songId
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
       if (!isTermsOfServiceError(message)) {
@@ -342,6 +300,7 @@ export async function POST(request: NextRequest) {
       const composed = await composeTrackMusicWithFallback(prompt, apiKey)
       audioBuffer = composed.audioBuffer
       outputFormat = composed.outputFormat
+      elevenlabsSongId = composed.songId
     }
 
     const { fileBuffer, extension, contentType } = prepareGeneratedAudioForStorage(
@@ -370,7 +329,11 @@ export async function POST(request: NextRequest) {
 
     const { error: updateError } = await supabase
       .from('album_tracks')
-      .update({ audio_url: audioUrl })
+      .update({
+        audio_url: audioUrl,
+        elevenlabs_song_id: elevenlabsSongId,
+        elevenlabs_music_length_ms: ELEVENLABS_DEFAULT_MUSIC_LENGTH_MS,
+      })
       .eq('id', trackId)
 
     if (updateError) {
@@ -383,6 +346,7 @@ export async function POST(request: NextRequest) {
       format: extension,
       prompt,
       instrumentalPrompt: trimmedPromptNotes || null,
+      elevenlabsSongId,
     })
   } catch (error) {
     console.error('Generate track music error:', error)

@@ -720,7 +720,8 @@ export class ElevenLabsService {
     modelId?: 'music_v1' | 'music_v2'
     forceInstrumental?: boolean
     outputFormat?: string
-  }): Promise<ArrayBuffer> {
+    storeForInpainting?: boolean
+  }): Promise<{ audioBuffer: ArrayBuffer; songId: string | null }> {
     const {
       prompt,
       apiKey,
@@ -728,6 +729,7 @@ export class ElevenLabsService {
       modelId = 'music_v2',
       forceInstrumental = true,
       outputFormat = 'mp3_48000_192',
+      storeForInpainting = false,
     } = params
 
     const response = await fetch(
@@ -743,6 +745,7 @@ export class ElevenLabsService {
           music_length_ms: musicLengthMs,
           model_id: modelId,
           force_instrumental: forceInstrumental,
+          store_for_inpainting: storeForInpainting,
         }),
       }
     )
@@ -778,6 +781,60 @@ export class ElevenLabsService {
       err.httpStatus = response.status
       err.elevenLabsRaw = rawError
       err.outputFormat = outputFormat
+      throw err
+    }
+
+    const songId = response.headers.get('song-id') || response.headers.get('song_id')
+    const audioBuffer = await response.arrayBuffer()
+    return { audioBuffer, songId }
+  }
+
+  static async composeStoredMusicWav(params: {
+    songId: string
+    musicLengthMs: number
+    apiKey: string
+    outputFormat?: string
+  }): Promise<ArrayBuffer> {
+    const {
+      songId,
+      musicLengthMs,
+      apiKey,
+      outputFormat = 'pcm_48000',
+    } = params
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/music?output_format=${encodeURIComponent(outputFormat)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          composition_plan: {
+            chunks: [
+              {
+                song_id: songId,
+                range: { start_ms: 0, end_ms: musicLengthMs },
+              },
+            ],
+          },
+          model_id: 'music_v2',
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      let errorMessage = 'ElevenLabs WAV export failed'
+      try {
+        const error = await response.json()
+        errorMessage = formatElevenLabsErrorMessage(error.detail) || error.message || errorMessage
+      } catch {
+        // response body may not be JSON
+      }
+
+      const err = new Error(errorMessage) as Error & { httpStatus?: number }
+      err.httpStatus = response.status
       throw err
     }
 

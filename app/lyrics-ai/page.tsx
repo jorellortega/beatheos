@@ -621,10 +621,16 @@ export default function LyricsAIPage() {
   }
 
   const handleAIGenerate = async (params: any): Promise<string> => {
+    const token = await getAccessToken()
+    if (!token) {
+      throw new Error('Please log in to generate lyrics with AI.')
+    }
+
     const response = await fetch('/api/lyrics-ai/generate-text', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(params)
     })
@@ -707,16 +713,22 @@ TASK - Generate new content for this ${section.type} section. IMPORTANT: Do not 
 
       // Call the AI generation API
       console.log('Making API request to /api/lyrics-ai/generate-text')
+      const token = await getAccessToken()
+      if (!token) {
+        throw new Error('Please log in to generate lyrics with AI.')
+      }
+
       const response = await fetch('/api/lyrics-ai/generate-text', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           prompt: contextPrompt,
           service: 'openai',
-          apiKey: apiKeys.openai,
-          contentType: 'lyrics'
+          contentType: 'lyrics',
+          fullContent,
         }),
       })
 

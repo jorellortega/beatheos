@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
 import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, sanitizeCoverPromptText, appendCoverArtTextRule, buildEditCoverPrompt, MAX_COVER_REFERENCE_IMAGES, buildCoverReferencePromptHint, DEFAULT_COVER_IMAGE_SIZE } from '@/lib/cover-art-helpers'
 import { ELEVENLABS_MAX_CONCURRENT_MUSIC } from '@/lib/elevenlabs-config'
+import { isElevenLabsGeneratedAudioUrl } from '@/lib/elevenlabs-music-helpers'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
 import { formatCreditsError } from '@/lib/credit-utils'
 import { AlbumGenreFields } from '@/components/AlbumGenreFields'
@@ -165,6 +166,7 @@ export default function AlbumDetailsPage() {
   // Track details dialog state
   const [viewDetailsTrack, setViewDetailsTrack] = useState<any | null>(null);
   const [showTrackDetailsDialog, setShowTrackDetailsDialog] = useState(false);
+  const [downloadingElevenLabsWavTrackId, setDownloadingElevenLabsWavTrackId] = useState<string | null>(null);
 
   // Album editing state
   const [showEditAlbum, setShowEditAlbum] = useState(false);
@@ -2092,8 +2094,24 @@ export default function AlbumDetailsPage() {
     }
 
     setTracks(prev => prev.map(t =>
-      t.id === trackId ? { ...t, audio_url: data.audioUrl } : t
+      t.id === trackId
+        ? {
+            ...t,
+            audio_url: data.audioUrl,
+            elevenlabs_song_id: data.elevenlabsSongId ?? t.elevenlabs_song_id ?? null,
+            elevenlabs_music_length_ms: data.elevenlabsSongId ? 120000 : t.elevenlabs_music_length_ms,
+          }
+        : t
     ));
+
+    if (viewDetailsTrack?.id === trackId) {
+      setViewDetailsTrack((prev: any) => prev ? {
+        ...prev,
+        audio_url: data.audioUrl,
+        elevenlabs_song_id: data.elevenlabsSongId ?? prev.elevenlabs_song_id ?? null,
+        elevenlabs_music_length_ms: data.elevenlabsSongId ? 120000 : prev.elevenlabs_music_length_ms,
+      } : prev);
+    }
 
     toast({
       title: hadAudio ? 'Music Regenerated' : 'Music Generated',
@@ -2742,8 +2760,6 @@ export default function AlbumDetailsPage() {
     }
   };
 
-  // Download track function
-  // Audio playback functions
   const downloadTrack = async (trackId: string, audioUrl: string, title: string) => {
     try {
       const response = await fetch(audioUrl);
@@ -2772,6 +2788,68 @@ export default function AlbumDetailsPage() {
         description: "Failed to download the audio file. Please try again.",
         variant: "destructive"
       });
+    }
+  };
+
+  const downloadElevenLabsWav = async (track: { id: string; title: string; elevenlabs_song_id?: string | null }) => {
+    if (!album) return;
+
+    if (!track.elevenlabs_song_id) {
+      toast({
+        title: 'WAV not available',
+        description: 'Regenerate this instrumental to enable ElevenLabs WAV download.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setDownloadingElevenLabsWavTrackId(track.id);
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+
+      const response = await fetch('/api/albums/download-track-music-wav', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          albumId: album.id,
+          trackId: track.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to download WAV from ElevenLabs');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${track.title}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: 'WAV download started',
+        description: `${track.title} is downloading from ElevenLabs in WAV format.`,
+      });
+    } catch (error) {
+      console.error('Error downloading ElevenLabs WAV:', error);
+      toast({
+        title: 'WAV download failed',
+        description: error instanceof Error ? error.message : 'Failed to download WAV from ElevenLabs.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingElevenLabsWavTrackId(null);
     }
   };
 
@@ -4853,6 +4931,28 @@ export default function AlbumDetailsPage() {
                         <Download className="h-4 w-4 mr-2" />
                         Download Audio
                       </Button>
+                      {(viewDetailsTrack.elevenlabs_song_id || isElevenLabsGeneratedAudioUrl(viewDetailsTrack.audio_url)) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => downloadElevenLabsWav(viewDetailsTrack)}
+                          disabled={!viewDetailsTrack.elevenlabs_song_id || downloadingElevenLabsWavTrackId === viewDetailsTrack.id}
+                          className="bg-teal-600 hover:bg-teal-700 text-white border-teal-500 disabled:opacity-50"
+                          title={!viewDetailsTrack.elevenlabs_song_id ? 'Regenerate instrumental to enable WAV download' : 'Download WAV from ElevenLabs'}
+                        >
+                          {downloadingElevenLabsWavTrackId === viewDetailsTrack.id ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Fetching WAV...
+                            </>
+                          ) : (
+                            <>
+                              <Download className="h-4 w-4 mr-2" />
+                              Download WAV (ElevenLabs)
+                            </>
+                          )}
+                        </Button>
+                      )}
                       <Button 
                         size="sm" 
                         variant="outline" 
