@@ -24,7 +24,8 @@ import { NotesDialog } from '@/components/NotesDialog'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { OpenAIService } from '@/lib/ai-services'
-import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, sanitizeCoverPromptText, appendCoverArtTextRule, buildEditCoverPrompt, MAX_COVER_REFERENCE_IMAGES, buildCoverReferencePromptHint, DEFAULT_COVER_IMAGE_SIZE } from '@/lib/cover-art-helpers'
+import { preserveCoverToHistory, deleteCoverStorageFiles, type AdditionalCover, sanitizeCoverPromptText, appendCoverArtTextRule, appendCoverArtTextRuleWithLogo, buildEditCoverPrompt, MAX_COVER_REFERENCE_IMAGES, buildCoverReferencePromptHint, buildArtistLogoCoverPromptHint, DEFAULT_COVER_IMAGE_SIZE, resolveCoverLabelArtist, getLabelArtistLogoUrl, getCoverArtistDisplayName, fetchCoverReferenceImageFile } from '@/lib/cover-art-helpers'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ELEVENLABS_MAX_CONCURRENT_MUSIC } from '@/lib/elevenlabs-config'
 import { isElevenLabsGeneratedAudioUrl } from '@/lib/elevenlabs-music-helpers'
 import { buildAlbumZip, sanitizeDownloadFilename, triggerBlobDownload } from '@/lib/download-album-zip'
@@ -110,6 +111,7 @@ interface LabelArtist {
   name: string
   stage_name?: string
   image_url?: string
+  social_media?: { logo_url?: string } | null
 }
 
 export default function AlbumDetailsPage() {
@@ -180,6 +182,7 @@ export default function AlbumDetailsPage() {
   const [showCoverArtPromptDialog, setShowCoverArtPromptDialog] = useState(false);
   const [showEditCoverDialog, setShowEditCoverDialog] = useState(false);
   const [coverArtPrompt, setCoverArtPrompt] = useState('');
+  const [includeArtistLogoOnCover, setIncludeArtistLogoOnCover] = useState(true);
   const [coverReferenceImages, setCoverReferenceImages] = useState<{ file: File; preview: string }[]>([]);
   const coverReferenceInputRef = useRef<HTMLInputElement>(null);
   const [editCoverPrompt, setEditCoverPrompt] = useState('');
@@ -255,6 +258,21 @@ export default function AlbumDetailsPage() {
   const activeMusicGenerationsRef = useRef(0);
   const [editingTrackTitleId, setEditingTrackTitleId] = useState<string | null>(null);
   const [editingTrackTitleValue, setEditingTrackTitleValue] = useState<string>('');
+
+  const coverLabelArtist = useMemo(
+    () => (album ? resolveCoverLabelArtist(album, labelArtists) : null),
+    [album, labelArtists]
+  );
+
+  const coverArtistLogoUrl = useMemo(
+    () => getLabelArtistLogoUrl(coverLabelArtist),
+    [coverLabelArtist]
+  );
+
+  const coverArtistDisplayName = useMemo(
+    () => (album ? getCoverArtistDisplayName(album, coverLabelArtist) : ''),
+    [album, coverLabelArtist]
+  );
 
 
   // Fetch label artists
@@ -1284,6 +1302,7 @@ export default function AlbumDetailsPage() {
       .join(', ')
     const defaultPrompt = `Create a professional album cover art for "${sanitizeCoverPromptText(album.title)}" by ${album.artist || 'Unknown Artist'}${styleHint ? `. Style and mood: ${styleHint}` : ''}. No extra text — only the album title and artist names.`;
     clearCoverReferenceImages();
+    setIncludeArtistLogoOnCover(true);
     setCoverArtPrompt(defaultPrompt);
     setShowCoverArtPromptDialog(true);
   };
@@ -1508,10 +1527,28 @@ export default function AlbumDetailsPage() {
 
     try {
       const { apiKey, normalizedModel } = await resolveCoverArtConfig();
-      const referenceHint = buildCoverReferencePromptHint(coverReferenceImages.length);
+      let referenceFiles = coverReferenceImages.map((image) => image.file);
+      let promptWithLogo = promptToUse;
+      let useLogoTextRule = false;
+
+      if (includeArtistLogoOnCover && coverArtistLogoUrl && coverArtistDisplayName) {
+        const logoFile = await fetchCoverReferenceImageFile(
+          coverArtistLogoUrl,
+          'artist-logo.png'
+        );
+        if (logoFile) {
+          referenceFiles = [logoFile, ...referenceFiles].slice(0, MAX_COVER_REFERENCE_IMAGES);
+          promptWithLogo = `${promptWithLogo} ${buildArtistLogoCoverPromptHint(coverArtistDisplayName, 'Image 1')}`;
+          useLogoTextRule = true;
+        }
+      }
+
+      const referenceHint = buildCoverReferencePromptHint(referenceFiles.length);
       const promptWithReferences = referenceHint
-        ? `${appendCoverArtTextRule(promptToUse)} ${referenceHint}`
-        : appendCoverArtTextRule(promptToUse);
+        ? `${useLogoTextRule ? appendCoverArtTextRuleWithLogo(promptWithLogo, coverArtistDisplayName) : appendCoverArtTextRule(promptWithLogo)} ${referenceHint}`
+        : useLogoTextRule
+          ? appendCoverArtTextRuleWithLogo(promptWithLogo, coverArtistDisplayName)
+          : appendCoverArtTextRule(promptWithLogo);
 
       const response = await OpenAIService.generateImage({
         prompt: promptWithReferences,
@@ -1519,7 +1556,7 @@ export default function AlbumDetailsPage() {
         model: normalizedModel,
         apiKey: apiKey,
         size: DEFAULT_COVER_IMAGE_SIZE,
-        referenceImages: coverReferenceImages.map((image) => image.file),
+        referenceImages: referenceFiles,
       });
 
       if (!response.success || !response.data) {
@@ -5473,6 +5510,42 @@ export default function AlbumDetailsPage() {
               <p className="text-xs text-gray-400 mt-2">
                 Tip: Be specific about colors, mood, style, and any elements you want included in the cover art.
               </p>
+            </div>
+
+            <div className="flex items-start gap-3 rounded-lg border border-zinc-700 p-3">
+              <Checkbox
+                id="include-artist-logo-cover"
+                checked={includeArtistLogoOnCover}
+                onCheckedChange={(checked) => setIncludeArtistLogoOnCover(checked === true)}
+                className="mt-0.5"
+              />
+              <div className="space-y-1">
+                <Label htmlFor="include-artist-logo-cover" className="cursor-pointer">
+                  Use artist logo as artist name
+                </Label>
+                <p className="text-xs text-gray-400">
+                  When enabled, the roster artist logo is sent to the AI and used on the cover instead of typed artist text. The album title stays as text.
+                </p>
+                {includeArtistLogoOnCover && !coverArtistLogoUrl && (
+                  <p className="text-xs text-amber-500">
+                    No logo found for this album&apos;s artist. Link the album to a roster artist with a logo in Artist Management, or turn this off to use typed artist names.
+                  </p>
+                )}
+                {includeArtistLogoOnCover && coverArtistLogoUrl && coverArtistDisplayName && (
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-zinc-600 bg-zinc-900">
+                      <img
+                        src={coverArtistLogoUrl}
+                        alt={`${coverArtistDisplayName} logo`}
+                        className="h-full w-full object-contain p-1"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Logo for: {coverArtistDisplayName}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>

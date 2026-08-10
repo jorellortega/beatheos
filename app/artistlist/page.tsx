@@ -185,6 +185,7 @@ interface Artist {
     twitter?: string
     tiktok?: string
     youtube?: string
+    logo_url?: string
   }
   streaming_platforms: {
     spotify?: {
@@ -2061,6 +2062,8 @@ export default function ArtistList() {
     return { completed, total, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 }
   }
 
+  const getArtistLogoUrl = (artist: Artist) => artist.social_media?.logo_url?.trim() || undefined
+
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'music_rights': return '🎵'
@@ -2481,7 +2484,11 @@ export default function ArtistList() {
 
       {/* Artist List */}
       <div className="grid gap-4">
-        {filteredArtists.map((artist) => (
+        {filteredArtists.map((artist) => {
+          const logoUrl = getArtistLogoUrl(artist)
+          const thumbnailUrl = artist.image_url || logoUrl || '/placeholder-user.jpg'
+
+          return (
           <Collapsible 
             key={artist.id} 
             open={expandedCards[artist.id] || false}
@@ -2497,10 +2504,19 @@ export default function ArtistList() {
                       onClick={() => router.push(`/artistlist/${artist.id}`)}
                     >
                       <img
-                        src={artist.image_url || '/placeholder-user.jpg'}
+                        src={thumbnailUrl}
                         alt={artist.name}
-                        className="w-20 h-20 rounded-full object-cover"
+                        className="w-20 h-20 rounded-full object-cover bg-zinc-900"
                       />
+                      {logoUrl && artist.image_url && (
+                        <div className="absolute -bottom-1 -left-1 w-8 h-8 rounded-full border-2 border-background bg-background overflow-hidden shadow-md">
+                          <img
+                            src={logoUrl}
+                            alt={`${artist.name} logo`}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      )}
                       <div className="absolute -top-1 -right-1">
                         <Badge className={getRankColor(artist.rank)}>
                           {artist.rank}
@@ -2876,7 +2892,7 @@ export default function ArtistList() {
               </CardContent>
             </Card>
           </Collapsible>
-        ))}
+        )})}
       </div>
 
       {/* Add Artist Dialog */}

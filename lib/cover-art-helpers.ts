@@ -56,6 +56,85 @@ export function appendCoverArtTextRule(prompt: string): string {
   return `${trimmed} ${COVER_ART_TEXT_RULE}`
 }
 
+export type CoverLabelArtistLike = {
+  id: string
+  name: string
+  stage_name?: string | null
+  social_media?: { logo_url?: string } | null
+}
+
+export type AlbumCoverArtistContext = {
+  label_artist_id?: string | null
+  artist?: string | null
+}
+
+export function getLabelArtistLogoUrl(artist?: CoverLabelArtistLike | null): string | undefined {
+  const logo = artist?.social_media?.logo_url?.trim()
+  return logo || undefined
+}
+
+export function resolveCoverLabelArtist(
+  album: AlbumCoverArtistContext,
+  labelArtists: CoverLabelArtistLike[]
+): CoverLabelArtistLike | null {
+  if (album.label_artist_id) {
+    const byId = labelArtists.find((artist) => artist.id === album.label_artist_id)
+    if (byId) return byId
+  }
+
+  const artistField = album.artist?.trim()
+  if (!artistField) return null
+
+  const firstName = artistField.split(',')[0]?.trim().toLowerCase()
+  if (!firstName) return null
+
+  return (
+    labelArtists.find(
+      (artist) =>
+        artist.name.toLowerCase() === firstName ||
+        artist.stage_name?.toLowerCase() === firstName
+    ) || null
+  )
+}
+
+export function getCoverArtistDisplayName(
+  album: AlbumCoverArtistContext,
+  labelArtist?: CoverLabelArtistLike | null
+): string {
+  if (labelArtist?.stage_name?.trim()) return labelArtist.stage_name.trim()
+  if (labelArtist?.name?.trim()) return labelArtist.name.trim()
+  return album.artist?.split(',')[0]?.trim() || album.artist?.trim() || 'Unknown Artist'
+}
+
+export function buildArtistLogoCoverPromptHint(artistName: string, imageLabel: string): string {
+  const safeName = sanitizeCoverPromptText(artistName)
+  return `Use ${imageLabel} as the artist logo for "${safeName}". Display that logo as the artist name on the cover — do not spell the artist name as typed text.`
+}
+
+export function appendCoverArtTextRuleWithLogo(prompt: string, artistName: string): string {
+  const trimmed = prompt.trim()
+  const safeName = sanitizeCoverPromptText(artistName)
+  const logoRule = `Only the album title may appear as typed text. For the artist credit, use the provided artist logo image instead of spelling "${safeName}" as text.`
+  if (!trimmed) return logoRule
+  if (trimmed.toLowerCase().includes('only the album title may appear')) return trimmed
+  return `${trimmed} ${logoRule}`
+}
+
+export async function fetchCoverReferenceImageFile(
+  url: string,
+  filename: string
+): Promise<File | null> {
+  try {
+    const response = await fetch(url)
+    if (!response.ok) return null
+    const blob = await response.blob()
+    if (!blob.type.startsWith('image/')) return null
+    return new File([blob], filename, { type: blob.type })
+  } catch {
+    return null
+  }
+}
+
 export function buildEditCoverPrompt(
   changeDescription: string,
   albumTitle: string,
