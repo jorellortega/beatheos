@@ -14,6 +14,10 @@ type ActionCost = {
   credits_cost: number
   description: string | null
   estimated_usd: number
+  model: string | null
+  models: string[]
+  provider: string | null
+  model_note: string | null
 }
 
 type UsageBucket = { count: number; credits: number; estimated_usd: number }
@@ -23,6 +27,7 @@ type RecentRow = {
   type: string
   credits: number
   estimated_usd: number
+  model: string | null
   user_id: string
   username: string | null
   email: string | null
@@ -30,9 +35,19 @@ type RecentRow = {
   created_at: string
 }
 
+type ConfiguredModels = {
+  openai_model: string
+  openai_chat_resolved: string
+  openai_vision_resolved: string
+  image_model: string
+  anthropic_model: string
+  elevenlabs_music_model: string
+}
+
 type ApiCostsResponse = {
   usd_per_credit: number
   days: number
+  configuredModels: ConfiguredModels
   actionCosts: ActionCost[]
   usage: {
     byAction: Record<string, UsageBucket>
@@ -191,6 +206,47 @@ export default function ApiCostsPage() {
               </Card>
             </div>
 
+            <Card className="bg-black border-zinc-800">
+              <CardHeader>
+                <CardTitle>Configured models</CardTitle>
+                <CardDescription>
+                  Current platform models from{' '}
+                  <Link href="/ai-settings" className="text-primary hover:underline">
+                    /ai-settings
+                  </Link>
+                  . Change them there to update generation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-gray-400">OpenAI chat (lyrics)</div>
+                  <div className="font-mono text-primary mt-1">{data.configuredModels.openai_chat_resolved}</div>
+                  {data.configuredModels.openai_model !== data.configuredModels.openai_chat_resolved && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      stored: {data.configuredModels.openai_model}
+                    </div>
+                  )}
+                </div>
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-gray-400">OpenAI vision (titles)</div>
+                  <div className="font-mono text-primary mt-1">{data.configuredModels.openai_vision_resolved}</div>
+                </div>
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-gray-400">Cover image model</div>
+                  <div className="font-mono text-primary mt-1">{data.configuredModels.image_model}</div>
+                </div>
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-gray-400">Anthropic</div>
+                  <div className="font-mono text-primary mt-1">{data.configuredModels.anthropic_model}</div>
+                </div>
+                <div className="rounded-lg border border-zinc-800 p-3">
+                  <div className="text-gray-400">ElevenLabs music</div>
+                  <div className="font-mono text-primary mt-1">{data.configuredModels.elevenlabs_music_model}</div>
+                  <div className="text-xs text-gray-500 mt-1">Not on credits ledger yet</div>
+                </div>
+              </CardContent>
+            </Card>
+
             <div>
               <h2 className="text-xl font-semibold mb-3">Cost per generation</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -211,6 +267,26 @@ export default function ApiCostsPage() {
                         <CardDescription>{action.description || action.action_key}</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2 text-sm">
+                        <div className="flex justify-between gap-3">
+                          <span className="text-gray-400 shrink-0">Model</span>
+                          <span className="font-mono text-right text-primary">
+                            {action.model || '—'}
+                          </span>
+                        </div>
+                        {action.models.length > 1 && (
+                          <div className="flex justify-between gap-3">
+                            <span className="text-gray-400 shrink-0">Also</span>
+                            <span className="font-mono text-right text-gray-300 text-xs">
+                              {action.models.slice(1).join(', ')}
+                            </span>
+                          </div>
+                        )}
+                        {action.provider && (
+                          <div className="flex justify-between gap-3">
+                            <span className="text-gray-400 shrink-0">Provider</span>
+                            <span className="text-right">{action.provider}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between">
                           <span className="text-gray-400">Credits charged</span>
                           <span>{action.credits_cost}</span>
@@ -221,6 +297,9 @@ export default function ApiCostsPage() {
                             {formatUsd(action.estimated_usd)}
                           </span>
                         </div>
+                        {action.model_note && (
+                          <p className="text-xs text-gray-500 pt-1">{action.model_note}</p>
+                        )}
                         {usage && (
                           <div className="pt-2 border-t border-zinc-800 space-y-1">
                             <div className="flex justify-between">
@@ -247,7 +326,9 @@ export default function ApiCostsPage() {
                   Not tracked in credits yet
                 </CardTitle>
                 <CardDescription>
-                  ElevenLabs instrumental / music generation does not deduct platform credits, so it will not show in usage below.
+                  ElevenLabs instrumental / music generation uses model{' '}
+                  <span className="font-mono text-primary">{data.configuredModels.elevenlabs_music_model}</span>
+                  {' '}and does not deduct platform credits, so it will not show in usage below.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -269,6 +350,7 @@ export default function ApiCostsPage() {
                         <tr className="border-b border-zinc-800 text-left text-gray-400">
                           <th className="py-2 pr-4 font-medium">When</th>
                           <th className="py-2 pr-4 font-medium">Action</th>
+                          <th className="py-2 pr-4 font-medium">Model</th>
                           <th className="py-2 pr-4 font-medium">User</th>
                           <th className="py-2 pr-4 font-medium">Credits</th>
                           <th className="py-2 font-medium">Est. cost</th>
@@ -282,6 +364,9 @@ export default function ApiCostsPage() {
                             </td>
                             <td className="py-2 pr-4">
                               {ACTION_LABELS[row.type]?.label || row.type}
+                            </td>
+                            <td className="py-2 pr-4 font-mono text-xs text-primary">
+                              {row.model || '—'}
                             </td>
                             <td className="py-2 pr-4">
                               <div>{row.username || '—'}</div>
