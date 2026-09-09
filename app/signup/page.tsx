@@ -10,6 +10,18 @@ import { SubscriptionDropdown } from "@/components/SubscriptionDropdown"
 import Link from "next/link"
 import { toast } from "@/components/ui/use-toast"
 import { subscriptionOptions } from "@/components/SubscriptionDropdown"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+
+// TEMP: flip to false when signup should be available again
+const SIGNUP_DISABLED = true
 
 function CreatingAccount({ email }: { email: string }) {
   return (
@@ -87,6 +99,14 @@ function SignupForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (SIGNUP_DISABLED) {
+      toast({
+        title: "Under Development",
+        description: "New signups are temporarily disabled. Please log in if you already have an account.",
+        variant: "destructive",
+      })
+      return
+    }
     const role = getRoleFromSubscription(subscription)
     const isFree = freePlans.includes(subscription)
     const subscriptionStatus = isFree ? "active" : "pending"
@@ -143,62 +163,80 @@ function SignupForm() {
 
   return (
     <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-screen">
+      <AlertDialog open={SIGNUP_DISABLED}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Under Development</AlertDialogTitle>
+            <AlertDialogDescription>
+              New signups are temporarily disabled while we finish building. Existing accounts can still log in normally.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => router.push("/login")}>
+              Go to Login
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Card className="w-full max-w-md bg-card border-primary">
         <CardHeader>
           <CardTitle className="text-2xl font-bold text-center text-primary">Sign up for Beatheos</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-300">
-                Display Name
-              </label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-secondary text-white rounded-md"
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-300">
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-secondary text-white rounded-md"
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-300">
-                Password
-              </label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-secondary text-white rounded-md"
-                required
-              />
-            </div>
-            <div>
-              <label htmlFor="subscription" className="block text-sm font-medium text-gray-300">
-                Subscription Plan
-              </label>
-              <SubscriptionDropdown onSubscriptionChange={setSubscription} value={subscription} />
-            </div>
-            <div className="text-center text-primary font-bold mb-2">
-              You are signing up for: {subscriptionOptions.find(opt => opt.value === subscription)?.label || "No plan selected"}
-            </div>
-            <Button type="submit" className="w-full gradient-button text-black font-medium hover:text-white">
-              Sign Up
-            </Button>
+            <fieldset disabled={SIGNUP_DISABLED} className="space-y-4">
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-gray-300">
+                  Display Name
+                </label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full bg-secondary text-white rounded-md"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-300">
+                  Email
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-secondary text-white rounded-md"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-300">
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-secondary text-white rounded-md"
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="subscription" className="block text-sm font-medium text-gray-300">
+                  Subscription Plan
+                </label>
+                <SubscriptionDropdown onSubscriptionChange={setSubscription} value={subscription} />
+              </div>
+              <div className="text-center text-primary font-bold mb-2">
+                You are signing up for: {subscriptionOptions.find(opt => opt.value === subscription)?.label || "No plan selected"}
+              </div>
+              <Button type="submit" className="w-full gradient-button text-black font-medium hover:text-white">
+                Sign Up
+              </Button>
+            </fieldset>
           </form>
           <p className="mt-4 text-center text-gray-400">
             Already have an account?{" "}
