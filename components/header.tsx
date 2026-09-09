@@ -132,13 +132,22 @@ export default function Header() {
             Settings
           </Link>
           {(user?.role === "admin" || user?.role === "ceo") && (
-            <Link
-              href="/setup-ai"
-              className="text-2xl font-semibold text-gray-300 hover:text-white"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              AI Setup
-            </Link>
+            <>
+              <Link
+                href="/setup-ai"
+                className="text-2xl font-semibold text-gray-300 hover:text-white"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                AI Setup
+              </Link>
+              <Link
+                href="/api-costs"
+                className="text-2xl font-semibold text-gray-300 hover:text-white"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                API Costs
+              </Link>
+            </>
           )}
         </>
       ) : (
@@ -211,11 +220,18 @@ export default function Header() {
                       </Link>
                     </DropdownMenuItem>
                     {(user?.role === "admin" || user?.role === "ceo") && (
-                      <DropdownMenuItem>
-                        <Link href="/setup-ai" className="w-full">
-                          AI Setup
-                        </Link>
-                      </DropdownMenuItem>
+                      <>
+                        <DropdownMenuItem>
+                          <Link href="/setup-ai" className="w-full">
+                            AI Setup
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Link href="/api-costs" className="w-full">
+                            API Costs
+                          </Link>
+                        </DropdownMenuItem>
+                      </>
                     )}
                     <DropdownMenuItem onClick={logout}>
                       <LogOut className="mr-2 h-4 w-4" />
