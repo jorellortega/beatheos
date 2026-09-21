@@ -70,6 +70,7 @@ export default function Header() {
     { name: "Home", path: "/" },
     { name: "Subscription", path: "/subscriptionplans" },
     { name: "AI Lyrics", path: "/lyrics-ai" },
+    ...(user ? [{ name: "Create Song", path: "/create-song" }] : []),
     ...(user ? [{ name: "My Library", path: "/mylibrary" }] : []),
     ...(user ? [{ name: "Credits", path: "/credits" }] : []),
     ...(user ? [{ name: "Upload Beat", path: "/upload-beat" }] : []),

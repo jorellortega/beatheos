@@ -79,3 +79,94 @@ export function buildFallbackMusicPrompt(styleTags: string): string {
 export function isElevenLabsGeneratedAudioUrl(audioUrl?: string | null): boolean {
   return !!audioUrl?.includes('_elevenlabs_')
 }
+
+const MAX_LYRICS_CHARS_IN_PROMPT = 3500
+
+function truncateLyricsForPrompt(lyrics: string): string {
+  const trimmed = lyrics.trim()
+  if (trimmed.length <= MAX_LYRICS_CHARS_IN_PROMPT) return trimmed
+  return `${trimmed.slice(0, MAX_LYRICS_CHARS_IN_PROMPT).trim()}\n\n[lyrics truncated for generation]`
+}
+
+/** Build an ElevenLabs Music prompt for a full song (vocals + lyrics or instrumental). */
+export function buildSongWithLyricsPrompt(opts: {
+  title: string
+  styleNotes?: string | null
+  lyricsText?: string | null
+  genre?: string | null
+  mood?: string | null
+  instrumental?: boolean
+}): string {
+  const title = sanitizeMusicText(opts.title || 'Untitled Song')
+  const styleNotes = opts.styleNotes?.trim() ? sanitizeMusicText(opts.styleNotes.trim()) : ''
+  const genre = opts.genre?.trim() ? sanitizeMusicText(opts.genre.trim()) : ''
+  const mood = opts.mood?.trim() ? sanitizeMusicText(opts.mood.trim()) : ''
+  const lyrics = opts.lyricsText?.trim() ? truncateLyricsForPrompt(opts.lyricsText) : ''
+  const instrumental = opts.instrumental === true
+
+  if (instrumental) {
+    const parts = [
+      'Instrumental only. No vocals. No singing. No lyrics.',
+      'Create an original instrumental music production.',
+      `Track concept inspired by the title "${title}".`,
+    ]
+    if (styleNotes) parts.push(`Artist notes and creative direction: ${styleNotes}.`)
+    if (genre || mood) {
+      parts.push(`Musical style and mood: ${[genre, mood].filter(Boolean).join(', ')}.`)
+    } else {
+      parts.push('Musical style: modern polished studio production.')
+    }
+    parts.push(
+      'Use drums, bass, synths, and melody only. Professional mix quality suitable for a commercial music release. Instrumental beat — no vocals.'
+    )
+    return parts.join(' ')
+  }
+
+  const parts = [
+    `Create an original song titled "${title}" with clear lead vocals singing the lyrics provided.`,
+    'Include melody, harmony, drums, bass, and supporting instruments that fit the lyrics and style.',
+  ]
+
+  if (styleNotes) parts.push(`Style and creative direction: ${styleNotes}.`)
+  if (genre || mood) {
+    parts.push(`Genre and mood: ${[genre, mood].filter(Boolean).join(', ')}.`)
+  } else {
+    parts.push('Genre and mood: modern studio-quality songwriting and production.')
+  }
+
+  if (lyrics) {
+    parts.push(
+      'Perform these lyrics clearly with natural phrasing and matching melody. Preserve section markers like [Verse], [Chorus], [Bridge] if present.'
+    )
+    parts.push(`Lyrics:\n${lyrics}`)
+  } else {
+    parts.push('Write and perform original vocals and lyrics that fit the title and style.')
+  }
+
+  parts.push('Professional commercial mix quality suitable for a music release.')
+
+  return parts.join('\n\n')
+}
+
+export function buildFallbackSongPrompt(opts: {
+  title: string
+  genre?: string | null
+  mood?: string | null
+  instrumental?: boolean
+}): string {
+  const title = sanitizeMusicText(opts.title || 'Untitled Song')
+  const style = [opts.genre, opts.mood]
+    .filter((value): value is string => !!value?.trim())
+    .map((value) => sanitizeMusicText(value.trim()))
+    .join(', ') || 'modern, polished, emotional'
+
+  if (opts.instrumental) {
+    return buildFallbackMusicPrompt(style)
+  }
+
+  return [
+    `Create an original song inspired by the title "${title}".`,
+    `Style: ${style}.`,
+    'Include clear lead vocals, melody, and full band/production arrangement. Clean commercial mix.',
+  ].join(' ')
+}
