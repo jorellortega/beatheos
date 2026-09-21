@@ -342,17 +342,8 @@ export default function Home() {
       </div>
 
       <footer className="mt-12 text-center text-sm text-gray-500">
-        Developed by JOR Powered by{" "}
-        <a
-          href="https://www.covionstudio.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline"
-        >
-          Covion Studio
-        </a>
-        , Inc
-        <div className="mt-2">&copy; 2025 All rights reserved</div>
+        Developed by JOR
+        <div className="mt-2">&copy; 2026 All rights reserved</div>
         <div className="mt-4 flex justify-center items-center gap-2">
           <a
             href="https://instagram.com/beat.heos"
