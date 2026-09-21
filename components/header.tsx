@@ -6,17 +6,18 @@ import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Search, Bell, User, LogOut, Menu, X } from "lucide-react"
 import { supabase } from '@/lib/supabaseClient'
 
 export default function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
   const pathname = usePathname()
-  const { user, logout, hydrated } = useAuth()
+  const { user, logout, hydrated, getAccessToken } = useAuth()
   const [producerId, setProducerId] = useState<string | null>(null)
   const [producerSlug, setProducerSlug] = useState<string | null>(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [creditBalance, setCreditBalance] = useState<number | null>(null)
 
   const getDashboardPath = () => {
     const role = user?.role?.toLowerCase();
@@ -65,6 +66,29 @@ export default function Header() {
     }
     fetchProducerId()
   }, [user])
+
+  useEffect(() => {
+    if (!user) {
+      setCreditBalance(null)
+      return
+    }
+    loadCreditBalance()
+  }, [user])
+
+  async function loadCreditBalance() {
+    try {
+      const token = await getAccessToken()
+      if (!token) return
+      const res = await fetch('/api/credits', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const json = await res.json()
+      setCreditBalance(typeof json.balance === 'number' ? json.balance : 0)
+    } catch {
+      // Keep last known balance
+    }
+  }
 
   const navItems = [
     { name: "Home", path: "/" },
@@ -131,6 +155,13 @@ export default function Header() {
             onClick={() => setIsMobileMenuOpen(false)}
           >
             Settings
+          </Link>
+          <Link
+            href="/credits"
+            className="text-2xl font-semibold text-primary"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            Credits: {creditBalance ?? '…'}
           </Link>
           {(user?.role === "admin" || user?.role === "ceo") && (
             <>
@@ -201,13 +232,22 @@ export default function Header() {
                     <Link href={`/producers/${producerSlug}`}>Profile</Link>
                   </Button>
                 )}
-                <DropdownMenu>
+                <DropdownMenu onOpenChange={(open) => { if (open) loadCreditBalance() }}>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="text-white hover:text-primary">
                       <User size={20} />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="bg-card border-primary">
+                    <DropdownMenuLabel className="font-normal">
+                      <Link href="/credits" className="flex flex-col gap-0.5">
+                        <span className="text-xs text-muted-foreground">Credit balance</span>
+                        <span className="text-base font-semibold text-primary">
+                          {creditBalance ?? '…'} credits
+                        </span>
+                      </Link>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem>
                       {getDashboardPath() ? (
                         <Link href={getDashboardPath() as string} className="w-full">
