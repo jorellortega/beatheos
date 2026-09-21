@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { AIChat } from "@/components/AIChat"
 import Link from "next/link"
-import { Instagram, Sparkles, Music, Album } from 'lucide-react'
+import { Instagram, Sparkles, Music, Album, Mic2 } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import { usePlayer } from '@/contexts/PlayerContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -24,7 +24,7 @@ export default function Home() {
   const { user } = useAuth()
   const router = useRouter()
   const [showSignupDialog, setShowSignupDialog] = useState(false)
-  const [signupDialogType, setSignupDialogType] = useState<'cover' | 'lyrics' | 'album'>('cover')
+  const [signupDialogType, setSignupDialogType] = useState<'cover' | 'lyrics' | 'album' | 'song'>('cover')
   // YouTube video URL - replace with your video URL
   const youtubeVideoUrl = "dQw4w9WgXcQ" // Add your YouTube video URL here (e.g., "https://www.youtube.com/watch?v=VIDEO_ID" or just "VIDEO_ID")
   // Optionally, you can use context or a global event bus for more complex comms
@@ -108,6 +108,15 @@ export default function Home() {
       router.push('/lyrics-ai')
     } else {
       setSignupDialogType('lyrics')
+      setShowSignupDialog(true)
+    }
+  }
+
+  const handleCreateSong = () => {
+    if (user) {
+      router.push('/create-song')
+    } else {
+      setSignupDialogType('song')
       setShowSignupDialog(true)
     }
   }
@@ -205,6 +214,25 @@ export default function Home() {
           </Button>
         </div>
         <div className="flex items-center justify-center gap-4 my-4">
+          <div className="h-px bg-gradient-to-r from-transparent via-[#F4C430] to-transparent flex-1 max-w-[100px]"></div>
+          <span className="text-[#F4C430] text-xl font-semibold">OR</span>
+          <div className="h-px bg-gradient-to-r from-transparent via-[#F4C430] to-transparent flex-1 max-w-[100px]"></div>
+        </div>
+        <div>
+          <Button
+            onClick={handleCreateSong}
+            variant="outline"
+            className="text-2xl md:text-3xl font-semibold py-6 px-10 rounded-xl shadow-lg hover:scale-105 transition-all duration-300 bg-transparent text-[#F4C430] border-2 border-[#F4C430] hover:bg-[#F4C430] hover:text-black"
+            style={{
+              minWidth: '280px',
+              minHeight: '70px',
+            }}
+          >
+            <Mic2 className="mr-3 h-6 w-6" />
+            Create Song
+          </Button>
+        </div>
+        <div className="flex items-center justify-center gap-4 my-4">
           <div className="h-px bg-gradient-to-r from-transparent via-[#2a2a2a] to-transparent flex-1 max-w-[100px]"></div>
           <span className="text-[#2a2a2a] text-xl font-semibold">OR</span>
           <div className="h-px bg-gradient-to-r from-transparent via-[#2a2a2a] to-transparent flex-1 max-w-[100px]"></div>
@@ -232,7 +260,7 @@ export default function Home() {
             Ai music tools
           </h2>
           <p className="text-lg text-gray-300 text-center mb-8 max-w-2xl mx-auto">
-            Music Platform for content creators, artists, and producers. Create Ai Covers, Generate and Edit lyrics using Ai.
+            Music platform for content creators, artists, and producers. Create AI covers, write lyrics, generate songs, and build albums.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
             <Link href="/mp3-mp4-converter" className="flex items-start gap-4 group">
@@ -242,11 +270,18 @@ export default function Home() {
                 <p className="text-gray-400">Convert audio and video files between formats with professional quality</p>
               </div>
             </Link>
-            <Link href="/ai-lyrics-editor" className="flex items-start gap-4 group">
+            <Link href="/lyrics-ai" className="flex items-start gap-4 group">
               <div className="text-[#F4C430] text-2xl flex-shrink-0">✨</div>
               <div>
                 <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-[#F4C430] transition-colors">AI Lyrics</h3>
                 <p className="text-gray-400">Generate creative lyrics, edit with AI assistance, and bring your songs to life</p>
+              </div>
+            </Link>
+            <Link href="/create-song" className="flex items-start gap-4 group">
+              <div className="text-[#F4C430] text-2xl flex-shrink-0">🎤</div>
+              <div>
+                <h3 className="text-xl font-semibold text-white mb-2 group-hover:text-[#F4C430] transition-colors">Create Song</h3>
+                <p className="text-gray-400">Turn your lyrics and style prompt into a full song with vocals or instrumental</p>
               </div>
             </Link>
             <Link href="/aicovermaker" className="flex items-start gap-4 group">
@@ -273,7 +308,7 @@ export default function Home() {
             <h2 className="text-2xl font-bold text-black mb-2 flex items-center gap-2">
               <span role="img" aria-label="signup">✨</span> Start Your Free Trial
             </h2>
-            <p className="text-black text-base mb-3">Join Beatheos today and get 1 month free! Create AI covers, generate lyrics, and access all premium features.</p>
+            <p className="text-black text-base mb-3">Join Beatheos today and get 1 month free! Create AI covers, write lyrics, generate songs, and access all premium features.</p>
             <Button 
               onClick={() => {
                 if (user) {
@@ -340,6 +375,8 @@ export default function Home() {
                 ? 'Sign Up to Create AI Covers' 
                 : signupDialogType === 'lyrics'
                 ? 'Sign Up to Create AI Lyrics'
+                : signupDialogType === 'song'
+                ? 'Sign Up to Create Songs'
                 : 'Sign Up to Create Albums'}
             </DialogTitle>
             <DialogDescription className="text-gray-300">
@@ -347,6 +384,8 @@ export default function Home() {
                 ? 'Create an account to start generating stunning AI-powered album covers and artwork.'
                 : signupDialogType === 'lyrics'
                 ? 'Create an account to start generating and editing lyrics with AI assistance.'
+                : signupDialogType === 'song'
+                ? 'Create an account to turn your lyrics and style prompts into full songs.'
                 : 'Create an account to start creating albums with AI-powered cover art and track title generation.'}
             </DialogDescription>
           </DialogHeader>
@@ -356,6 +395,8 @@ export default function Home() {
                 ? 'Join Beatheos to access our AI Cover Maker and create professional album covers in seconds.'
                 : signupDialogType === 'lyrics'
                 ? 'Join Beatheos to access our AI Lyrics tool and create, edit, and enhance your lyrics with AI.'
+                : signupDialogType === 'song'
+                ? 'Join Beatheos to generate songs from your lyrics library or a custom style prompt.'
                 : 'Join Beatheos to access our album creation tools. Generate AI covers, create track titles, and build your music library.'}
             </p>
           </div>

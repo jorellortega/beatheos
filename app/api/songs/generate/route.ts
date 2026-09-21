@@ -25,8 +25,8 @@ const supabase = createClient(
 const MIN_LENGTH_MS = 10_000
 const MAX_LENGTH_MS = 240_000
 
-function formatElevenLabsErrorMessage(detail: unknown): string {
-  if (!detail) return 'ElevenLabs music generation failed'
+function formatMusicErrorMessage(detail: unknown): string {
+  if (!detail) return 'Music generation failed'
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) {
     return detail
@@ -65,18 +65,18 @@ function buildMusicApiKeyErrorMessage(
 ): string {
   if (isMusicApiKeyFormatError(message)) {
     if (keyDebug?.selectedKeyStartsWithSkUnderscore) {
-      return `${message} Your saved key looks correct — in ElevenLabs, edit the key and enable Music access, or create a new API key with Music enabled.`
+      return 'Music access is not enabled on your API key. Update the key permissions and try again.'
     }
     if (keyDebug?.selectedSource === 'user_api_keys') {
-      return `ElevenLabs Music rejected your saved key (older format). Create a new API key at elevenlabs.io → Developers → API Keys (new keys start with sk_), enable Music, and save it in Setup AI.`
+      return 'Your saved music API key is outdated. Add a new music-enabled key in Setup AI and try again.'
     }
-    return `ElevenLabs Music requires a newer API key (starts with sk_). Add one in Setup AI or update the platform ELEVENLABS_API_KEY.`
+    return 'A valid music API key is required. Add one in Setup AI and try again.'
   }
 
   const keyHint =
     keyDebug?.selectedSource === 'env' || keyDebug?.selectedSource === 'ai_settings'
-      ? ' Your Setup AI key was not used — add your ElevenLabs key there, or update the platform ELEVENLABS_API_KEY.'
-      : ' Check your ElevenLabs key in Setup AI and ensure Music access is enabled for that key.'
+      ? ' Your Setup AI key was not used — add your music key there.'
+      : ' Check your music API key in Setup AI.'
 
   return message + keyHint
 }
@@ -236,7 +236,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Add lyrics or pick an AI Lyrics entry. For instrumental-only, turn on Instrumental.',
+            'Add lyrics or pick from your lyrics library. For instrumental-only, turn on Instrumental.',
         },
         { status: 400 }
       )
@@ -250,14 +250,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'ElevenLabs API key not configured. Add a valid key in Setup AI, or ask an admin to set the platform ElevenLabs key.',
+            'Music API key not configured. Add a valid key in Setup AI, or ask an admin to configure the platform music key.',
           debug: { keyResolution: keyDebug },
         },
         { status: 400 }
       )
     }
 
-    console.log('[songs/generate] Using ElevenLabs key from:', source, keyDebug.selectedKeyPreview)
+    console.log('[songs/generate] Using music key from:', source, keyDebug.selectedKeyPreview)
 
     let prompt = buildSongWithLyricsPrompt({
       title,
@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
       outputFormat = composed.outputFormat
       elevenlabsSongId = composed.songId
     } catch (error) {
-      const message = error instanceof Error ? error.message : formatElevenLabsErrorMessage(error)
+      const message = error instanceof Error ? error.message : formatMusicErrorMessage(error)
       if (!isTermsOfServiceError(message)) {
         throw error
       }
@@ -400,7 +400,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: isTermsOfServiceError(message)
-          ? 'ElevenLabs blocked this prompt due to content policy. Soften the lyrics/style notes and try again.'
+          ? 'This prompt was blocked by content policy. Soften the lyrics/style notes and try again.'
           : message,
         detail: message,
         debug: debugPayload,

@@ -109,7 +109,7 @@ export default function CreateSongPage() {
     } catch (error) {
       toast({
         title: 'Could not load lyrics',
-        description: error instanceof Error ? error.message : 'Try again from AI Lyrics',
+        description: error instanceof Error ? error.message : 'Try again from your lyrics library',
         variant: 'destructive',
       })
     } finally {
@@ -171,7 +171,7 @@ export default function CreateSongPage() {
     if (!instrumental && !lyricsText.trim() && !selectedLyricsId) {
       toast({
         title: 'Add lyrics',
-        description: 'Paste lyrics, pick from AI Lyrics, or enable Instrumental.',
+        description: 'Paste lyrics, pick from your library, or enable Instrumental.',
         variant: 'destructive',
       })
       return
@@ -211,7 +211,7 @@ export default function CreateSongPage() {
       setSongs((prev) => [song, ...prev.filter((s) => s.audio_url !== song.audio_url)])
       toast({
         title: 'Song ready',
-        description: instrumental ? 'Instrumental generated with ElevenLabs.' : 'Song generated with ElevenLabs.',
+        description: instrumental ? 'Instrumental generated.' : 'Song generated.',
       })
     } catch (error) {
       toast({
@@ -230,7 +230,7 @@ export default function CreateSongPage() {
         <Card className="bg-black border-zinc-800 max-w-md w-full">
           <CardHeader>
             <CardTitle className="text-primary">Create Song</CardTitle>
-            <CardDescription>Log in to generate songs with ElevenLabs Music.</CardDescription>
+            <CardDescription>Log in to generate songs.</CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild className="w-full gradient-button text-black">
@@ -252,23 +252,20 @@ export default function CreateSongPage() {
               Create Song
             </h1>
             <p className="text-gray-400 mt-1">
-              Write a style prompt, pull lyrics from{' '}
+              Write a style prompt, pull lyrics from your{' '}
               <Link href="/lyrics-ai" className="text-primary hover:underline">
-                AI Lyrics
+                lyrics library
               </Link>
-              , and generate with ElevenLabs Music.
+              , and generate a song.
             </p>
           </div>
-          <Button variant="outline" asChild>
-            <Link href="/setup-ai">Setup AI keys</Link>
-          </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <Card className="bg-black border-zinc-800 lg:col-span-2">
             <CardHeader>
               <CardTitle className="text-lg">Use existing lyrics</CardTitle>
-              <CardDescription>Pick a piece from your AI Lyrics library.</CardDescription>
+              <CardDescription>Pick a piece from your lyrics library.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="relative">
@@ -290,7 +287,7 @@ export default function CreateSongPage() {
                   <p className="text-sm text-gray-500 py-6 text-center">
                     No lyrics found.{' '}
                     <Link href="/lyrics-ai" className="text-primary hover:underline">
-                      Create some in AI Lyrics
+                      Create some in your lyrics library
                     </Link>
                     .
                   </p>
@@ -335,7 +332,7 @@ export default function CreateSongPage() {
                 Song prompt
               </CardTitle>
               <CardDescription>
-                ElevenLabs model: music_v2. With vocals off Instrumental, lyrics are sung in the track.
+                Turn off Instrumental to include vocals that sing your lyrics.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -395,7 +392,7 @@ export default function CreateSongPage() {
                       Instrumental only
                     </Label>
                     <p className="text-xs text-gray-500">
-                      No vocals — uses ElevenLabs Music like album beats.
+                      No vocals — beat and production only.
                     </p>
                   </div>
                 </div>
@@ -425,7 +422,7 @@ export default function CreateSongPage() {
                 {generating ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Generating with ElevenLabs…
+                    Generating…
                   </>
                 ) : (
                   <>
@@ -463,7 +460,7 @@ export default function CreateSongPage() {
           <CardHeader>
             <CardTitle className="text-lg">Recent songs</CardTitle>
             <CardDescription>
-              Saved after generation when the generated_songs table is available.
+              Your recently generated songs.
             </CardDescription>
           </CardHeader>
           <CardContent>
