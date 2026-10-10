@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Sparkles, Download, Loader2, Image as ImageIcon, Save } from 'lucide-react'
+import { ArrowLeft, Sparkles, Download, Loader2, Image as ImageIcon, Save, Palette } from 'lucide-react'
+import { FeaturePromo } from '@/components/FeaturePromo'
+import { FEATURE_FAQS } from '@/lib/seo'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
 import { Input } from '@/components/ui/input'
@@ -27,7 +28,6 @@ import {
 type CoverSize = '1600x1600' | '3000x3000' | '16:9' | '9:16'
 
 export default function AICoverPage() {
-  const router = useRouter()
   const { toast } = useToast()
   const { user, getAccessToken } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -46,12 +46,8 @@ export default function AICoverPage() {
   const [coverName, setCoverName] = useState('')
 
   useEffect(() => {
-    if (!user) {
-      router.push('/')
-      return
-    }
     setLoading(false)
-  }, [user, router])
+  }, [user])
 
   const getSizeDimensions = (size: CoverSize): { width: number; height: number } => {
     switch (size) {
@@ -338,7 +334,37 @@ export default function AICoverPage() {
   }
 
   if (!user) {
-    return null
+    return (
+      <FeaturePromo
+        title="Create AI Cover"
+        subtitle="Generate album and single artwork from a description — ready for streaming and promo."
+        about="Beatheos is an AI music platform for artists and producers. AI Cover creates release artwork that pairs with lyrics, generated songs, and album tools."
+        faqs={[...FEATURE_FAQS.cover]}
+        features={[
+          {
+            icon: Sparkles,
+            title: 'Describe the art',
+            description: 'Write the mood, colors, and scene you want. AI turns that into cover-ready artwork.',
+          },
+          {
+            icon: Palette,
+            title: 'Release sizes',
+            description: 'Create square covers or other layouts that fit albums, singles, and social posts.',
+          },
+          {
+            icon: ImageIcon,
+            title: 'Reference images',
+            description: 'Add a photo or mood board so the result stays closer to your brand or artist look.',
+          },
+        ]}
+        highlights={[
+          'Generate multiple looks until one feels like the release',
+          'Save covers to your library for albums and singles',
+          'Download high-quality files for streaming and promotion',
+          'Pair covers with lyrics and song creation in one workflow',
+        ]}
+      />
+    )
   }
 
   return (

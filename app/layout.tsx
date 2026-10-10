@@ -1,4 +1,5 @@
 import type React from "react"
+import type { Metadata } from "next"
 import "./globals.css"
 import { Poppins } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -8,6 +9,15 @@ import Header from "@/components/header"
 import { SiteWideBeatPlayer } from "@/components/SiteWideBeatPlayer"
 import { Toaster } from "@/components/ui/toaster"
 import Script from "next/script"
+import { JsonLd } from "@/components/JsonLd"
+import {
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_TAGLINE,
+  SITE_URL,
+  organizationJsonLd,
+  websiteJsonLd,
+} from "@/lib/seo"
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -16,10 +26,38 @@ const poppins = Poppins({
   variable: "--font-poppins",
 })
 
-export const metadata = {
-  title: "Beatheos - Realm of the Beat God",
-  description: "Transcend mortal rhythms in the divine audioscape of Beatheos",
-  generator: 'v0.dev'
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  keywords: [
+    'Beatheos',
+    'AI music platform',
+    'AI song generator',
+    'AI lyrics',
+    'AI album cover',
+    'create song from lyrics',
+    'music production AI',
+  ],
+  authors: [{ name: SITE_NAME, url: SITE_URL }],
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+    description: SITE_DESCRIPTION,
+  },
+  robots: { index: true, follow: true },
+  alternates: { canonical: SITE_URL },
 }
 
 export default function RootLayout({
@@ -40,6 +78,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
         <Script
           async
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5771281829620343"

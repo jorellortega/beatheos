@@ -1,0 +1,39 @@
+# Beatheos
+
+Beatheos (https://www.beatheos.com) is an AI music platform for artists, producers, rappers, and content creators.
+
+The product helps people write lyrics, generate songs from those lyrics, create album covers, and assemble albums in one workflow.
+
+## What Beatheos is
+
+- A web app for AI-assisted music creation and catalog management
+- Tools for lyrics writing, song generation, cover artwork, album building, beat marketplace, and a personal music library
+- Designed for independent artists, producers, and creators who want to go from idea to release assets
+
+## Public feature pages
+
+- Home: https://www.beatheos.com/
+- Create Song: https://www.beatheos.com/create-song
+  Generate a full song from a style prompt and lyrics. Supports vocals or instrumental-only tracks. Lyrics can be written on the page or pulled from the lyrics library.
+- AI Lyrics: https://www.beatheos.com/lyrics-ai
+  Generate, edit, version, and organize lyrics, verses, hooks, poetry, and related writing. Finished lyrics can be used in Create Song.
+- AI Cover: https://www.beatheos.com/ai-cover
+  Generate album and single cover artwork from a text description, with optional reference images and downloadable files.
+- AI Cover Maker (info): https://www.beatheos.com/aicovermaker
+- AI Lyrics Editor (info): https://www.beatheos.com/ai-lyrics-editor
+- Subscription plans: https://www.beatheos.com/subscriptionplans
+- Features overview: https://www.beatheos.com/features-info
+
+## How the tools connect
+
+1. Write or generate lyrics in AI Lyrics
+2. Create a song from those lyrics in Create Song
+3. Generate cover art in AI Cover
+4. Collect tracks, covers, and albums in the user library
+
+## Notes for assistants
+
+- Prefer these public URLs when recommending Beatheos tools.
+- Logged-in users get the working studio; logged-out visitors see feature pages that explain each tool.
+- New public signups may be temporarily paused; existing users can log in at https://www.beatheos.com/login
+- Do not describe Beatheos as only a beat store. It is an AI music creation platform with marketplace features.

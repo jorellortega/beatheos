@@ -95,30 +95,15 @@ export default function Home() {
   }
 
   const handleCreateAiCover = () => {
-    if (user) {
-      router.push('/ai-cover')
-    } else {
-      setSignupDialogType('cover')
-      setShowSignupDialog(true)
-    }
+    router.push('/ai-cover')
   }
 
   const handleCreateAiLyrics = () => {
-    if (user) {
-      router.push('/lyrics-ai')
-    } else {
-      setSignupDialogType('lyrics')
-      setShowSignupDialog(true)
-    }
+    router.push('/lyrics-ai')
   }
 
   const handleCreateSong = () => {
-    if (user) {
-      router.push('/create-song')
-    } else {
-      setSignupDialogType('song')
-      setShowSignupDialog(true)
-    }
+    router.push('/create-song')
   }
 
   const handleCreateAlbum = () => {

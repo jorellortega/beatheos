@@ -41,6 +41,8 @@ import {
   FileDown
 } from 'lucide-react'
 import { SimpleLyricsSession, CreateLyricsData, UpdateLyricsData } from '@/lib/lyrics-simple-service'
+import { FeaturePromo } from '@/components/FeaturePromo'
+import { FEATURE_FAQS } from '@/lib/seo'
 
 type ContentType = 'script' | 'lyrics' | 'poetry' | 'prose'
 import { useToast } from '@/hooks/use-toast'
@@ -1126,12 +1128,35 @@ TASK - Generate new content for this ${section.type} section. IMPORTANT: Do not 
 
   if (!user) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Please log in to access Lyrics AI</h1>
-          <p className="text-muted-foreground">You need to be logged in to use the lyrics AI features.</p>
-        </div>
-      </div>
+      <FeaturePromo
+        title="AI Lyrics"
+        subtitle="Write, edit, and organize lyrics with AI — verses, hooks, and full songs in one place."
+        about="Beatheos is an AI music platform. AI Lyrics is the writing studio: generate verses and hooks, keep drafts, then send finished lyrics into Create Song."
+        faqs={[...FEATURE_FAQS.lyrics]}
+        features={[
+          {
+            icon: Sparkles,
+            title: 'Generate lyrics',
+            description: 'Start from a theme, genre, or mood and get original verses, choruses, and hooks.',
+          },
+          {
+            icon: Edit3,
+            title: 'Edit with AI',
+            description: 'Rewrite lines, tighten rhyme and flow, and keep locked sections while you iterate.',
+          },
+          {
+            icon: Mic,
+            title: 'Hear it back',
+            description: 'Preview lyrics with speech so you can feel the cadence before you record.',
+          },
+        ]}
+        highlights={[
+          'Keep a lyrics library with drafts, versions, and status',
+          'Import existing writing or create new pieces from scratch',
+          'Tag genre and mood so later song generation matches the writing',
+          'Send finished lyrics into Create Song when you are ready to produce',
+        ]}
+      />
     )
   }
 

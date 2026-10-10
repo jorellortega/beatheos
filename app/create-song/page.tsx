@@ -19,7 +19,9 @@ import {
 } from '@/components/ui/select'
 import { SimpleLyricsSession } from '@/lib/lyrics-simple-service'
 import { ELEVENLABS_DEFAULT_MUSIC_LENGTH_MS } from '@/lib/elevenlabs-music-helpers'
-import { Loader2, Music2, Sparkles, Download, Search } from 'lucide-react'
+import { Loader2, Music2, Sparkles, Download, Search, Mic2 } from 'lucide-react'
+import { FeaturePromo } from '@/components/FeaturePromo'
+import { FEATURE_FAQS } from '@/lib/seo'
 
 type GeneratedSong = {
   id: string | null
@@ -226,19 +228,35 @@ export default function CreateSongPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#141414] text-white flex items-center justify-center px-4">
-        <Card className="bg-black border-zinc-800 max-w-md w-full">
-          <CardHeader>
-            <CardTitle className="text-primary">Create Song</CardTitle>
-            <CardDescription>Log in to generate songs.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full gradient-button text-black">
-              <Link href="/login">Go to Login</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <FeaturePromo
+        title="Create Song"
+        subtitle="Turn lyrics and a style prompt into a full track — with vocals or instrumental."
+        about="Beatheos is an AI music platform for artists and producers. Create Song sits next to AI Lyrics and AI Cover so you can write, produce, and package a release in one place."
+        faqs={[...FEATURE_FAQS.song]}
+        features={[
+          {
+            icon: Mic2,
+            title: 'From lyrics to song',
+            description: 'Use writing from your lyrics library or paste new lyrics, then generate a complete song.',
+          },
+          {
+            icon: Sparkles,
+            title: 'Style your sound',
+            description: 'Describe the mood, genre, and production so the track matches your vision.',
+          },
+          {
+            icon: Music2,
+            title: 'Vocals or instrumental',
+            description: 'Generate a sung record, or switch to instrumental-only for beats and beds.',
+          },
+        ]}
+        highlights={[
+          'Pick existing lyrics or write a new set in the prompt window',
+          'Choose song length and generate a ready-to-play track',
+          'Download your song and keep recent generations in one place',
+          'Pair it with cover art and lyrics tools to finish a release',
+        ]}
+      />
     )
   }
 
