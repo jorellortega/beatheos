@@ -97,7 +97,6 @@ export default function Header() {
     { name: "Create Song", path: "/create-song" },
     ...(user ? [{ name: "My Library", path: "/mylibrary" }] : []),
     ...(user ? [{ name: "Credits", path: "/credits" }] : []),
-    ...(user ? [{ name: "Upload Beat", path: "/upload-beat" }] : []),
   ]
 
   // Mobile nav items (same as desktop)

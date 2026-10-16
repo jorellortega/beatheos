@@ -24,7 +24,15 @@ const ANTHROPIC_MODELS = [
   'claude-3-haiku-20240307',
 ]
 
-const SENSITIVE_KEYS = ['openai_api_key', 'anthropic_api_key']
+const SENSITIVE_KEYS = ['openai_api_key', 'anthropic_api_key', 'elevenlabs_api_key']
+
+const REQUIRED_SETTINGS: AISetting[] = [
+  {
+    setting_key: 'elevenlabs_api_key',
+    setting_value: '',
+    description: 'ElevenLabs API key for Create Song and album instrumentals. Music keys start with sk_.',
+  },
+]
 
 export default function AISettingsPage() {
   const { user, isLoading: authLoading } = useAuth()
@@ -68,10 +76,16 @@ export default function AISettingsPage() {
         throw error
       }
 
-      setSettings(data || [])
-      // Initialize edited settings with current values
+      const loaded = data || []
+      const present = new Set(loaded.map((setting) => setting.setting_key))
+      const merged = [
+        ...loaded,
+        ...REQUIRED_SETTINGS.filter((setting) => !present.has(setting.setting_key)),
+      ]
+
+      setSettings(merged)
       const initial: Record<string, string> = {}
-      for (const setting of data || []) {
+      for (const setting of merged) {
         initial[setting.setting_key] = setting.setting_value
       }
       setEditedSettings(initial)

@@ -207,7 +207,10 @@ export function isPlausibleElevenLabsApiKey(key?: string | null): boolean {
   return rejectReasonForElevenLabsKey(key) === null
 }
 
-export async function resolveElevenLabsApiKeyForUser(userId: string): Promise<{
+export async function resolveElevenLabsApiKeyForUser(
+  userId: string,
+  options?: { prefer?: 'ai_settings' | 'user_api_keys' }
+): Promise<{
   apiKey: string | null
   source: AIKeySource
   debug: ElevenLabsKeyResolutionDebug
@@ -220,12 +223,15 @@ export async function resolveElevenLabsApiKeyForUser(userId: string): Promise<{
 
   const settings = await getAISettings()
 
-  // User's Setup AI key first (original generate-track-music behavior), then platform, then env.
-  const candidates: Array<{ key?: string | null; source: AIKeySource }> = [
-    { key: userKeys?.elevenlabs_api_key, source: 'user_api_keys' },
-    { key: settings['elevenlabs_api_key'], source: 'ai_settings' },
-    { key: process.env.ELEVENLABS_API_KEY, source: 'env' },
-  ]
+  const setupKey = { key: userKeys?.elevenlabs_api_key, source: 'user_api_keys' as const }
+  const platformKey = { key: settings['elevenlabs_api_key'], source: 'ai_settings' as const }
+  const envKey = { key: process.env.ELEVENLABS_API_KEY, source: 'env' as const }
+
+  // Album tracks use the platform key from /ai-settings. Other callers keep Setup AI first.
+  const candidates: Array<{ key?: string | null; source: AIKeySource }> =
+    options?.prefer === 'ai_settings'
+      ? [platformKey, envKey, setupKey]
+      : [setupKey, platformKey, envKey]
 
   const candidateDebug: ElevenLabsKeyCandidateDebug[] = candidates.map((candidate) => {
     const trimmed = candidate.key?.trim()
@@ -244,10 +250,13 @@ export async function resolveElevenLabsApiKeyForUser(userId: string): Promise<{
   let apiKey: string | null = null
   let source: AIKeySource = 'none'
 
-  // Music API requires sk_ keys — prefer those when multiple valid keys exist.
   const validCandidates = candidates.filter((c) => isPlausibleElevenLabsApiKey(c.key))
+  // Album generation must keep the /ai-settings key ahead of Setup AI.
+  // Other callers still prefer an sk_ music key when several valid keys exist.
   const preferred =
-    validCandidates.find((c) => c.key!.trim().startsWith('sk_')) ?? validCandidates[0]
+    options?.prefer === 'ai_settings'
+      ? validCandidates[0]
+      : validCandidates.find((c) => c.key!.trim().startsWith('sk_')) ?? validCandidates[0]
 
   if (preferred?.key) {
     apiKey = preferred.key.trim()

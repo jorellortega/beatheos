@@ -7,23 +7,6 @@ import Link from "next/link"
 
 const tiers = [
   {
-    name: "Free Account",
-    id: "artist_free",
-    role: "free_artist",
-    price: "0",
-    features: [
-      "50 free credits to try out all features",
-      "MP3/MP4 Converter",
-      "AI Lyrics",
-      "AI Cover Maker",
-      "AI Album Creation",
-    ],
-    buttonText: "Signup Free",
-    buttonVariant: "outline",
-    popular: false,
-    subtext: "Free account with credits to try features. When you run out, keep your account and buy credits when you need them.",
-  },
-  {
     name: "Pro Account",
     id: "artist_pro",
     role: "pro_artist",
@@ -53,7 +36,7 @@ export default function SubscriptionPlansPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 gap-8 max-w-md mx-auto">
           {tiers.map((tier) => {
             const cardContent = (
               <Card
@@ -67,9 +50,7 @@ export default function SubscriptionPlansPage() {
                 <CardHeader>
                   <CardTitle className="text-2xl font-bold text-primary">{tier.name}</CardTitle>
                   <div className="mt-4">
-                    {tier.name === "Free Account" ? null : (
-                      <span className="text-4xl font-bold">${tier.price}</span>
-                    )}
+                    <span className="text-4xl font-bold">${tier.price}</span>
                     <div className="text-gray-400 text-base font-medium mb-2">{tier.subtext}</div>
                   </div>
                 </CardHeader>

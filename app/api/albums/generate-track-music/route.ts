@@ -79,16 +79,14 @@ function buildMusicApiKeyErrorMessage(
     if (keyDebug?.selectedKeyStartsWithSkUnderscore) {
       return `${message} Your saved key looks correct — in ElevenLabs, edit the key and enable Music access, or create a new API key with Music enabled.`
     }
-    if (keyDebug?.selectedSource === 'user_api_keys') {
-      return `ElevenLabs Music rejected your saved key (older format). Create a new API key at elevenlabs.io → Developers → API Keys (new keys start with sk_), enable Music, and save it in Setup AI. Legacy keys may still work for voice/TTS but not music.`
+    if (keyDebug?.selectedSource === 'ai_settings') {
+      return `ElevenLabs Music rejected the key in AI Settings. Create a new API key at elevenlabs.io → Developers → API Keys (new keys start with sk_), enable Music, and save it as elevenlabs_api_key in /ai-settings.`
     }
-    return `ElevenLabs Music requires a newer API key (starts with sk_). Add one in Setup AI or update the platform ELEVENLABS_API_KEY.`
+    return `ElevenLabs Music requires a newer API key (starts with sk_). Save it as elevenlabs_api_key in /ai-settings.`
   }
 
   const keyHint =
-    keyDebug?.selectedSource === 'env' || keyDebug?.selectedSource === 'ai_settings'
-      ? ' Your Setup AI key was not used — add your ElevenLabs key there, or update the platform ELEVENLABS_API_KEY.'
-      : ' Check your ElevenLabs key in Setup AI and ensure Music access is enabled for that key.'
+    ' Album tracks use the ElevenLabs key in /ai-settings. Save an sk_ key there and enable Music access.'
 
   return message + keyHint
 }
@@ -245,7 +243,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Track not found' }, { status: 404 })
     }
 
-    const resolved = await resolveElevenLabsApiKeyForUser(user.id)
+    const resolved = await resolveElevenLabsApiKeyForUser(user.id, { prefer: 'ai_settings' })
     const { apiKey, source } = resolved
     keyDebug = resolved.debug
 
@@ -253,7 +251,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'ElevenLabs API key not configured. Add a valid key in Setup AI, or ask an admin to set the platform ElevenLabs key.',
+            'ElevenLabs API key not configured. Add elevenlabs_api_key in /ai-settings.',
           debug: {
             keyResolution: keyDebug,
             outputFormat: ELEVENLABS_MUSIC_OUTPUT_FORMAT,

@@ -75,10 +75,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { apiKey } = await resolveElevenLabsApiKeyForUser(user.id)
+    const { apiKey } = await resolveElevenLabsApiKeyForUser(user.id, { prefer: 'ai_settings' })
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'ElevenLabs API key not configured. Add one in Setup AI.' },
+        { error: 'ElevenLabs API key not configured. Add elevenlabs_api_key in /ai-settings.' },
         { status: 400 }
       )
     }

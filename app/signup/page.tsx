@@ -10,18 +10,6 @@ import { SubscriptionDropdown } from "@/components/SubscriptionDropdown"
 import Link from "next/link"
 import { toast } from "@/components/ui/use-toast"
 import { subscriptionOptions } from "@/components/SubscriptionDropdown"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-
-// TEMP: flip to false when signup should be available again
-const SIGNUP_DISABLED = true
 
 function CreatingAccount({ email }: { email: string }) {
   return (
@@ -37,28 +25,18 @@ function SignupForm() {
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [subscription, setSubscription] = useState("")
+  const [subscription, setSubscription] = useState("artist_pro")
   const [mounted, setMounted] = useState(false)
   const { signup } = useAuth()
   const router = useRouter()
   const [creating, setCreating] = useState(false)
   const [createdEmail, setCreatedEmail] = useState("")
 
-  const freePlans = ["artist_free", "producer_free"];
+  const proPlan = "artist_pro"
 
   useEffect(() => {
     setMounted(true)
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search)
-      const plan = params.get("plan") || ""
-      setSubscription((prev) => {
-        if (!prev && plan) {
-          console.log("Detected plan (set once):", plan)
-          return plan
-        }
-        return prev
-      })
-    }
+    setSubscription(proPlan)
   }, [])
 
   useEffect(() => {
@@ -99,16 +77,16 @@ function SignupForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (SIGNUP_DISABLED) {
+    if (subscription !== proPlan) {
       toast({
-        title: "Under Development",
-        description: "New signups are temporarily disabled. Please log in if you already have an account.",
+        title: "Choose Pro",
+        description: "Pro Account is the only plan available right now.",
         variant: "destructive",
       })
       return
     }
     const role = getRoleFromSubscription(subscription)
-    const isFree = freePlans.includes(subscription)
+    const isFree = false
     const subscriptionStatus = isFree ? "active" : "pending"
 
     try {
@@ -163,29 +141,13 @@ function SignupForm() {
 
   return (
     <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-screen">
-      <AlertDialog open={SIGNUP_DISABLED}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Under Development</AlertDialogTitle>
-            <AlertDialogDescription>
-              New signups are temporarily disabled while we finish building. Existing accounts can still log in normally.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => router.push("/login")}>
-              Go to Login
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <Card className="w-full max-w-md bg-card border-primary">
         <CardHeader>
           <CardTitle className="text-2xl font-bold text-center text-primary">Sign up for Beatheos</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <fieldset disabled={SIGNUP_DISABLED} className="space-y-4">
+            <fieldset className="space-y-4">
               <div>
                 <label htmlFor="username" className="block text-sm font-medium text-gray-300">
                   Display Name
