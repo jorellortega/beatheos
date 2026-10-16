@@ -291,9 +291,9 @@ export default function Home() {
         <div className="block w-full max-w-xl">
           <div className="rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-200 shadow-lg p-6 flex flex-col items-center justify-center hover:scale-105 transition-transform cursor-pointer border-2 border-yellow-400">
             <h2 className="text-2xl font-bold text-black mb-2 flex items-center gap-2">
-              <span role="img" aria-label="signup">✨</span> Start Your Free Trial
+              <span role="img" aria-label="signup">✨</span> Get Pro
             </h2>
-            <p className="text-black text-base mb-3">Join Beatheos today and get 1 month free! Create AI covers, write lyrics, generate songs, and access all premium features.</p>
+            <p className="text-black text-base mb-3">Pro is $20 a month and includes 500 credits. Create AI covers, write lyrics, generate songs, and use the rest of Beatheos.</p>
             <Button 
               onClick={() => {
                 if (user) {
@@ -304,7 +304,7 @@ export default function Home() {
               }}
               className="bg-black text-yellow-400 font-semibold px-8 py-2 rounded-full text-lg hover:bg-yellow-500 hover:text-black transition-all mt-2"
             >
-              {user ? 'Go to Dashboard' : 'Sign Up Now - Free Trial'}
+              {user ? 'Go to Dashboard' : 'Sign Up for Pro'}
             </Button>
           </div>
         </div>

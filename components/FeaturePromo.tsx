@@ -54,7 +54,15 @@ export function FeaturePromo({
           <p className="text-gray-400 max-w-3xl mx-auto mb-8">{about}</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button asChild size="lg" className="gradient-button text-black font-semibold text-lg px-8 py-6">
-              <Link href="/login">Log in to get started</Link>
+              <Link href="/signup">Sign up</Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="border-primary text-primary hover:bg-primary hover:text-black text-lg px-8 py-6"
+            >
+              <Link href="/login">Log in</Link>
             </Button>
             <Button
               asChild
@@ -130,11 +138,21 @@ export function FeaturePromo({
         <div className="text-center bg-gradient-to-br from-[#1a1a1a] to-[#0f0f0f] rounded-2xl p-12 border border-[#2a2a2a]">
           <h2 className="text-4xl font-bold mb-6">Ready to start?</h2>
           <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Log in to use {title} on Beatheos. New signups are paused while we finish building.
+            Sign up or log in to use {title} on Beatheos.
           </p>
-          <Button asChild size="lg" className="gradient-button text-black font-semibold text-lg px-8 py-6">
-            <Link href="/login">Log in</Link>
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button asChild size="lg" className="gradient-button text-black font-semibold text-lg px-8 py-6">
+              <Link href="/signup">Sign up</Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="border-primary text-primary hover:bg-primary hover:text-black text-lg px-8 py-6"
+            >
+              <Link href="/login">Log in</Link>
+            </Button>
+          </div>
         </div>
       </div>
     </article>
