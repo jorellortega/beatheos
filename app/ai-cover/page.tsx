@@ -44,6 +44,9 @@ export default function AICoverPage() {
   const [currentStoragePath, setCurrentStoragePath] = useState<string | null>(null)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [coverName, setCoverName] = useState('')
+  const [editPrompt, setEditPrompt] = useState('')
+  const [editingCover, setEditingCover] = useState(false)
+  const [outputPixels, setOutputPixels] = useState<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     setLoading(false)
@@ -56,9 +59,9 @@ export default function AICoverPage() {
       case '3000x3000':
         return { width: 3000, height: 3000 }
       case '16:9':
-        return { width: 1920, height: 1080 }
+        return { width: 1536, height: 1024 }
       case '9:16':
-        return { width: 1080, height: 1920 }
+        return { width: 1024, height: 1536 }
     }
   }
 
@@ -86,6 +89,104 @@ export default function AICoverPage() {
     setReferencePreview(null)
   }
 
+  const resolveCoverConfig = async () => {
+    let settings: Record<string, string> = {}
+    try {
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('ai_settings')
+        .select('setting_key, setting_value')
+
+      if (!settingsError && settingsData) {
+        for (const setting of settingsData) {
+          settings[setting.setting_key] = setting.setting_value
+        }
+      }
+    } catch (error) {
+      console.warn('Could not fetch AI settings, using defaults:', error)
+    }
+
+    const model = settings['image_model']?.trim() || 'gpt-image-2'
+    let apiKey = settings['openai_api_key']?.trim()
+    if (!apiKey && user?.id) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('openai_api_key')
+        .eq('id', user.id)
+        .single()
+      apiKey = userData?.openai_api_key
+    }
+    if (!apiKey) {
+      apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY
+    }
+    if (!apiKey) {
+      throw new Error('OpenAI API key not configured')
+    }
+    return { model, apiKey }
+  }
+
+  const chargeCoverCredit = async () => {
+    const token = await getAccessToken()
+    const useRes = await fetch('/api/credits/use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ action: 'ai_cover' }),
+    })
+    const useData = await useRes.json()
+    if (!useRes.ok) {
+      if (useRes.status === 402) {
+        throw new Error(`Not enough credits. This action costs 25 credits. You have ${useData.balance ?? 0}.`)
+      }
+      throw new Error(useData.error ?? 'Could not use credits')
+    }
+  }
+
+  const storeCoverImage = async (imageUrl: string) => {
+    if (!user?.id) throw new Error('You must be logged in')
+    if (imageUrl.startsWith('data:')) {
+      const base64Data = imageUrl.split(',')[1]
+      const byteCharacters = atob(base64Data)
+      const byteNumbers = new Array(byteCharacters.length)
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+      }
+      const byteArray = new Uint8Array(byteNumbers)
+      const blob = new Blob([byteArray], { type: 'image/png' })
+      const filePath = `ai-covers/${user.id}/${Date.now()}_cover_${selectedSize}.png`
+      const { error: uploadError } = await supabase.storage
+        .from('beats')
+        .upload(filePath, blob, {
+          contentType: 'image/png',
+          cacheControl: '3600',
+          upsert: false
+        })
+      if (uploadError) throw new Error('Failed to upload cover art to storage')
+      const { data: { publicUrl } } = supabase.storage.from('beats').getPublicUrl(filePath)
+      return { publicUrl, storagePath: filePath }
+    }
+
+    const token = await getAccessToken()
+    const downloadResponse = await fetch('/api/ai/download-and-store-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        imageUrl,
+        fileName: `cover_${selectedSize}`,
+        userId: user.id
+      })
+    })
+    if (!downloadResponse.ok) {
+      throw new Error('Failed to download and store image')
+    }
+    const result = await downloadResponse.json()
+    return {
+      publicUrl: result.supabaseUrl || result.url,
+      storagePath: result.filePath || null,
+    }
+  }
+
   const handleGenerateCover = async () => {
     if (!user?.id || !coverPrompt.trim()) {
       toast({
@@ -97,77 +198,24 @@ export default function AICoverPage() {
     }
 
     setGeneratingCover(true)
+    setOutputPixels(null)
 
     try {
-      const token = await getAccessToken()
-      const useRes = await fetch('/api/credits/use', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ action: 'ai_cover' }),
-      })
-      const useData = await useRes.json()
-      if (!useRes.ok) {
-        if (useRes.status === 402) {
-          toast({
-            title: "Not enough credits",
-            description: `This action costs 25 credits. You have ${useData.balance ?? 0}. Buy more at /credits`,
-            variant: "destructive",
-          })
-        } else {
-          toast({ title: "Error", description: useData.error ?? "Could not use credits", variant: "destructive" })
-        }
-        setGeneratingCover(false)
-        return
-      }
-      // Get AI settings
-      let settings: Record<string, string> = {}
-      try {
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('ai_settings')
-          .select('setting_key, setting_value')
+      await chargeCoverCredit()
+      const { model, apiKey } = await resolveCoverConfig()
 
-        if (!settingsError && settingsData) {
-          for (const setting of settingsData) {
-            settings[setting.setting_key] = setting.setting_value
-          }
-        }
-      } catch (error) {
-        console.warn('Could not fetch AI settings, using defaults:', error)
-      }
-
-      const imageModelKey = 'image_model'
-      const model = settings[imageModelKey]?.trim() || 'gpt-image-2'
-
-      let apiKey = settings['openai_api_key']?.trim()
-      if (!apiKey) {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('openai_api_key')
-          .eq('id', user.id)
-          .single()
-        apiKey = userData?.openai_api_key
-      }
-      if (!apiKey) {
-        apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY
-      }
-
-      if (!apiKey) {
-        throw new Error('OpenAI API key not configured')
-      }
-
-      // Build prompt
       let prompt = coverPrompt.trim()
       if (referenceImage) {
         prompt = `Using the provided reference image as a style guide, create a new ${selectedSize} album cover art: ${prompt}`
       }
 
-      // Generate image
       const response = await OpenAIService.generateImage({
         prompt: prompt,
         style: 'cinematic, professional album cover',
         model: model,
         apiKey: apiKey,
         size: coverSizeToApiSize(selectedSize),
+        ...(referenceImage ? { referenceImages: [referenceImage] } : {}),
       })
 
       if (!response.success || !response.data) {
@@ -176,72 +224,19 @@ export default function AICoverPage() {
 
       const imageData = response.data.data?.[0]
       const imageUrl = imageData?.url || (imageData?.b64_json ? `data:image/png;base64,${imageData.b64_json}` : '')
-
       if (!imageUrl) {
         throw new Error('No image data received')
       }
 
-      // Save to storage
-      let publicUrl: string
-      let storagePath: string | null = null
-      if (imageUrl.startsWith('data:')) {
-        const base64Data = imageUrl.split(',')[1]
-        const byteCharacters = atob(base64Data)
-        const byteNumbers = new Array(byteCharacters.length)
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i)
-        }
-        const byteArray = new Uint8Array(byteNumbers)
-        const blob = new Blob([byteArray], { type: 'image/png' })
+      const stored = await storeCoverImage(imageUrl)
+      setGeneratedCoverUrl(stored.publicUrl)
+      setCurrentStoragePath(stored.storagePath)
+      setCoverSaved(false)
 
-        const filePath = `ai-covers/${user.id}/${Date.now()}_cover_${selectedSize}.png`
-        storagePath = filePath
-        const { error: uploadError } = await supabase.storage
-          .from('beats')
-          .upload(filePath, blob, {
-            contentType: 'image/png',
-            cacheControl: '3600',
-            upsert: false
-          })
-
-        if (uploadError) throw new Error('Failed to upload cover art to storage')
-
-        const { data: { publicUrl: url } } = supabase.storage
-          .from('beats')
-          .getPublicUrl(filePath)
-        
-        publicUrl = url
-      } else {
-        const token = await getAccessToken()
-        const downloadResponse = await fetch('/api/ai/download-and-store-image', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            imageUrl: imageUrl,
-            fileName: `cover_${selectedSize}`,
-            userId: user.id
-          })
-        })
-
-        if (!downloadResponse.ok) {
-          throw new Error('Failed to download and store image')
-        }
-
-        const result = await downloadResponse.json()
-        publicUrl = result.supabaseUrl || result.url
-        storagePath = result.filePath || null
-      }
-
-      setGeneratedCoverUrl(publicUrl)
-      setCurrentStoragePath(storagePath)
-      setCoverSaved(false) // Reset saved state when new cover is generated
-
+      const dims = getSizeDimensions(selectedSize)
       toast({
         title: "Success",
-        description: `Cover art generated for ${selectedSize} format!`,
+        description: `Cover art generated at ${dims.width} × ${dims.height}.`,
       })
 
       removeReferenceImage()
@@ -254,6 +249,64 @@ export default function AICoverPage() {
       })
     } finally {
       setGeneratingCover(false)
+    }
+  }
+
+  const handleEditCover = async () => {
+    if (!user?.id || !generatedCoverUrl) return
+    if (!editPrompt.trim()) {
+      toast({
+        title: "Describe the edit",
+        description: "Say what to remove or change, for example: remove the title text.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setEditingCover(true)
+    setOutputPixels(null)
+
+    try {
+      await chargeCoverCredit()
+      const { model, apiKey } = await resolveCoverConfig()
+      const dims = getSizeDimensions(selectedSize)
+      const response = await OpenAIService.editImage({
+        prompt: `Edit this album cover. Keep the same size and overall composition unless the change requires otherwise. Changes: ${editPrompt.trim()}`,
+        referenceImageUrl: generatedCoverUrl,
+        style: 'cinematic, professional album cover',
+        model,
+        apiKey,
+        size: coverSizeToApiSize(selectedSize),
+      })
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to edit cover art')
+      }
+
+      const imageData = response.data.data?.[0]
+      const imageUrl = imageData?.url || (imageData?.b64_json ? `data:image/png;base64,${imageData.b64_json}` : '')
+      if (!imageUrl) {
+        throw new Error('No edited image returned')
+      }
+
+      const stored = await storeCoverImage(imageUrl)
+      setGeneratedCoverUrl(stored.publicUrl)
+      setCurrentStoragePath(stored.storagePath)
+      setCoverSaved(false)
+      setEditPrompt('')
+      toast({
+        title: "Cover updated",
+        description: `Edit applied at ${dims.width} × ${dims.height}.`,
+      })
+    } catch (error: any) {
+      console.error('Error editing cover:', error)
+      toast({
+        title: "Edit failed",
+        description: error.message || "Failed to edit cover art.",
+        variant: "destructive",
+      })
+    } finally {
+      setEditingCover(false)
     }
   }
 
@@ -497,7 +550,41 @@ export default function AICoverPage() {
                       src={generatedCoverUrl}
                       alt="Generated cover"
                       className="w-full h-auto"
+                      onLoad={(event) => {
+                        const image = event.currentTarget
+                        setOutputPixels({ width: image.naturalWidth, height: image.naturalHeight })
+                      }}
                     />
+                  </div>
+                  <p className="text-sm text-gray-400">
+                    Requested {getSizeDimensions(selectedSize).width} × {getSizeDimensions(selectedSize).height}.
+                    {outputPixels
+                      ? ` File is ${outputPixels.width} × ${outputPixels.height} pixels.`
+                      : ' Measuring file size…'}
+                  </p>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-prompt" className="text-white">Edit this cover</Label>
+                    <Textarea
+                      id="edit-prompt"
+                      value={editPrompt}
+                      onChange={(e) => setEditPrompt(e.target.value)}
+                      placeholder="Remove the title text, take out the parental advisory label, change the sky…"
+                      className="bg-[#0f0f0f] border-[#2a2a2a] text-white min-h-[80px]"
+                    />
+                    <Button
+                      onClick={handleEditCover}
+                      disabled={editingCover || generatingCover || !editPrompt.trim()}
+                      className="w-full bg-[#2a2a2a] text-white hover:bg-[#3a3a3a] font-bold"
+                    >
+                      {editingCover ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Editing…
+                        </>
+                      ) : (
+                        'Apply edit'
+                      )}
+                    </Button>
                   </div>
                   <div className="flex gap-2">
                     <Button
